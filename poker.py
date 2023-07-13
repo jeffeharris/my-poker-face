@@ -478,57 +478,110 @@ class Game:
 
         return remaining_players
 
-    def betting_round(self):
+    def bad_betting_round(self):
         if len(self.remaining_players) <= 1:
             return  # round is over if there's only 1 player left in the hand
-        elif self.current_round == "preflop":
-            starting_player_index = (self.dealer_position + 3) % len(self.players)  # Player to left of big blind starts
-            last_raiser = self.big_blind_player
-            new_bet = False
-        else:
-            starting_player_index = (self.dealer_position + 1) % len(self.remaining_players)
-            last_raiser = self.remaining_players[starting_player_index]
-            new_bet = True
 
-        i = starting_player_index
+        i = None    # initialize counter
+
+        if self.current_round == "preflop":
+            i = (self.dealer_position + 3) % len(self.players)  # Player to left of big blind starts
+            last_raiser = self.big_blind_player
+        else:
+            # Find the first player to the left of the dealer who hasn't folded
+            for j in range(1, len(self.players)):
+                if not self.players[(self.dealer_position + j) % len(self.players)].folded:
+                    # Find the index for the player in the remaining_players_list
+                    i = self.remaining_players.index(self.players[(self.dealer_position + j) % len(self.players)])
+                    break
+
+            # If all players have folded, end the betting round
+            if i is None:
+                return
+
+            last_raiser = self.remaining_players[i]  # Assign last_raiser from remaining_players, not players
+
+        new_bet = False
 
         while True:
             player = self.players[i % len(self.players)]
 
             # If we've gone around to the last raiser without encountering any new raises, end the betting round
-            if (player == last_raiser and not new_bet) or len(self.remaining_players) <= 1:
+            if player == last_raiser and not new_bet and not last_raiser.folded:
                 break
 
             if not player.folded:
                 action, bet = player.action(self.current_state)
 
-                if action == "bet":
+                if action == "bet" or action == "raise":
                     self.current_bet = bet
                     self.pot += bet
                     player.money -= bet
-                    if last_raiser == player:
-                        new_bet = True
-                    else:
-                        new_bet = False
-                        last_raiser = player
-                elif action == "raise":
-                    self.current_bet += bet
-                    self.pot += self.current_bet
+                    last_raiser = player
+                    new_bet = True
+                elif action == "call":
                     player.money -= self.current_bet
-                    if last_raiser == player:
-                        new_bet = True
-                    else:
-                        new_bet = False
-                        last_raiser = player
+                    self.pot += self.current_bet
+                    new_bet = False
+                elif action == "fold":
+                    player.folded = True
+                    # Update last_raiser to the next active player
+                    if player == last_raiser:
+                        last_raiser = self.remaining_players[i % len(self.remaining_players)]
+                    new_bet = False
+                elif action == "check" and self.current_bet == 0:
+                    new_bet = False  # No new bet is made when a player checks
+                else:
+                    print("Invalid action")
+
+                # SPEAK
+                print(f"\n{player.name}:\t{player.speak()}\n")
+
+            i = (i + 1) % len(self.players)
+
+        self.current_bet = 0
+
+    def betting_round(self, start_player=None):
+        if len(self.remaining_players) <= 1:
+            return  # round is over if there's only 1 player left in the hand
+
+        if start_player is None:  # This is the start of a new betting round
+            if self.current_round == "preflop":
+                start_player = self.players[(self.dealer_position + 3) % len(self.players)]  # Player to left of big blind starts
+            else:
+                # Find the first player to the left of the dealer who hasn't folded
+                for j in range(1, len(self.players)):
+                    if not self.players[(self.dealer_position + j) % len(self.players)].folded:
+                        start_player = self.players[(self.dealer_position + j) % len(self.players)]
+                        break
+
+            # If all players have folded, end the betting round
+            if start_player is None:
+                return
+
+        i = self.players.index(start_player)  # Start at the start_player
+
+        while True:
+            player = self.players[i % len(self.players)]
+
+            if not player.folded:
+                action, bet = player.action(self.current_state)
+
+                if action == "bet" or action == "raise":
+                    self.current_bet = bet
+                    self.pot += bet
+                    player.money -= bet
+                    
+                    next_player = self.players[(i + 1) % len(self.players)]  # The next player to act
+
+                    # A bet or raise starts a new betting round
+                    # Call betting_round recursively with the next player as the start_player
+                    return self.betting_round(next_player)
                 elif action == "call":
                     player.money -= self.current_bet
                     self.pot += self.current_bet
                 elif action == "fold":
-                    self.players[i % len(self.players)].folded = True
-                    try:
-                        self.remaining_players.remove(player)
-                    except:
-                        print("There was an error removing the player from the list")
+                    player.folded = True
                 elif action == "check" and self.current_bet == 0:
                     pass
                 else:
@@ -537,7 +590,11 @@ class Game:
                 # SPEAK
                 print(f"\n{player.name}:\t{player.speak()}\n")
 
-            i += 1
+            i = (i + 1) % len(self.players)
+
+            # If we've gone through all players without starting a new betting round, the betting round is over
+            if self.players[i] == start_player:
+                break
 
         self.current_bet = 0
         
