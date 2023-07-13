@@ -206,7 +206,7 @@ class AIPlayer(Player):
         bet = 0
 
         # Adjust these thresholds as needed
-        if current_bet == 0:
+        '''if current_bet == 0:
             if hand_rank < 5 or pot_odds > 3 or money_left > 3:
                 action = "raise"
                 bet = self.money // 10  # Bet 10% of AI's money
