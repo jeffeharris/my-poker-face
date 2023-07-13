@@ -130,10 +130,10 @@ class Player:
         bet = 0
         if action in ("bet", "raise"):
             bet = int(input("Enter amount: "))
-            self.money -= bet
+            # self.money -= bet
         elif action == "call":
             bet = current_bet
-            self.money -= current_bet
+            # self.money -= current_bet
         self.chat_message = input("Enter chat message (optional): ")
         if not self.chat_message:
             f"{self.name} chooses to {action}."
@@ -250,8 +250,10 @@ class Game:
         self.current_bet = big_blind
 
     def betting_round(self):
+        # DO LATER definite problem here that I'll need to fix. The starting player shouldn't always be the big blind,
+        # just on the first round of betting. Same with the line after it
         starting_player = (self.dealer + 3) % len(self.players)  # Player to left of big blind starts
-        last_raiser = None
+        last_raiser = self.big_blind_player
         i = starting_player
     
         while True:
