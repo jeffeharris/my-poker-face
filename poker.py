@@ -557,10 +557,10 @@ class Game:
         """)
         
     def rotate_dealer(self):
-        self.dealer = (self.dealer + 1) % len(self.players)
+        self.dealer = (self.dealer_position + 1) % len(self.players)
 
     def determine_winner(self):
-        hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()) for player in self.players]
+        hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()) for player in self.remaining_players]
 
         print("Before sorting:")
         for player, hand_info in hands:
@@ -598,9 +598,9 @@ class Game:
         for player in self.players:
             player.cards = []
         # Check if the game should continue
-        remaining_players = [player for player in self.players if player.money > 0]
-        if len(remaining_players) == 1:
-            print(f"{remaining_players[0].name} is the last player remaining and wins the game!")
+        self.players = [player for player in self.starting_players if player.money > 0]
+        if len(self.players) == 1:
+            print(f"{self.players[0].name} is the last player remaining and wins the game!")
             return
         
         
