@@ -451,6 +451,16 @@ class Game:
         self.pot += small_blind + big_blind
         self.current_bet = big_blind
 
+    @property
+    def remaining_players(self):
+        remaining_players = list(self.players)
+
+        for player in remaining_players:
+            if player.folded:
+                remaining_players.remove(player)
+
+        return remaining_players
+
     def betting_round(self):
         if len(self.remaining_players) <= 1:
             return  # round is over if there's only 1 player left in the hand
