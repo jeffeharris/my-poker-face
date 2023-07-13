@@ -138,7 +138,7 @@ class Player:
         self.options = ""
         self.folded = False
 
-    @property
+    """@property
     def current_state(self):
         my_state = {"persona": self.name,
                     "confidence": "Unshakeable",
@@ -147,14 +147,14 @@ class Player:
                     "hole_cards": self.cards,
                     # could break this out into "game_state" or "hand_state" vs. "player_state"
                     "number_of_opponents": 2,
-                    "opponent_positions": ["Jeff has $1000 to your left", "Halh has $900 to your right"],
+                    "opponent_positions": ["Jeff has $1000 to your left", "Hal has $900 to your right"],
                     "position": "small blind",
                     "current_situation": "The hole cards have just been dealt",
                     "current_pot": 30,
                     "player_options": "call, raise, fold",
                     }
 
-        return my_state
+        return my_state"""
 
     def action(self, game_state):
 
