@@ -135,6 +135,7 @@ class Player:
         self.confidence = ""
         self.attitude = ""
         self.options = ""
+        self.folded = False
 
     @property
     def current_state(self):
@@ -161,7 +162,7 @@ class Player:
         current_pot = game_state['current_pot']
 
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
-              f"Community cards: {community_cards}\n",
+              #f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
 
@@ -271,6 +272,7 @@ class AIPlayer(Player):
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
 
+        '''
         if len(community_cards) < 3:
             hand_rank = self.evaluate_hole_cards()
         else:
@@ -282,7 +284,7 @@ class AIPlayer(Player):
         bet = 0
 
         # Adjust these thresholds as needed
-        '''if current_bet == 0:
+        if current_bet == 0:
             if hand_rank < 5 or pot_odds > 3 or money_left > 3:
                 action = "raise"
                 bet = self.money // 10  # Bet 10% of AI's money
@@ -303,7 +305,7 @@ class AIPlayer(Player):
         response = self.retrieve_response(game_state)
         #print("String response formatted as JSON:", response)
         response_json = json.loads(response)
-        #print(json.dumps(response_json), 4)
+        print(json.dumps(response_json, indent=4))
 
         action = response_json["action"]
         bet = response_json["amount"]
@@ -360,24 +362,9 @@ class AIPlayer(Player):
             What is your move?
         """)
         # it's ${amount_to_call} to you to call and cover the blind and $20 to bet. Would you like to call or fold?
+        # print(sample_string)
 
-        #print(sample_string)
-
-        poker_prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(template=sample_string),
-            MessagesPlaceholder(variable_name="history"),
-            HumanMessagePromptTemplate.from_template("{input}")
-        ])
-
-        #print(poker_prompt)
-
-        poker_player = ChatOpenAI(temperature=.5)
-
-        player_memory = ConversationBufferMemory(return_messages=True)
-
-        player_conversation = ConversationChain(memory=player_memory, prompt=poker_prompt, llm=poker_player)
-
-        player_response = player_conversation.predict(input="What is your move?")
+        player_response = self.conversation.predict(input=sample_string)
 
         return player_response
 
