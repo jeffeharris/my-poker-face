@@ -218,11 +218,11 @@ class AIPlayer(Player):
 
         You are {persona} playing a round of Texas Hold em with other people. All of your actions
         should be taken with your persona, attitude and confidence in mind.
-        
+
         Begin by examining your cards and any cards that may be on the table. Evaluate your hand and decide how
         you want to play. Based on your personality, you can bluff, be strategic, or any other way you think would
         be appropriate and fun to approach the game.
-        
+
         Feel free to express yourself verbally and physically.
             * Verbal responses should use "" like this: "words you say"
             * Actions you take should use ** like this: *things i'm doing*
