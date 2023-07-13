@@ -1,5 +1,6 @@
 from collections import Counter
 from cards import *
+import random
 
 
 class HandEvaluator:
@@ -71,7 +72,7 @@ class HandEvaluator:
             if count >= 5:
                 flush_cards = sorted([card.value for card in self.cards if card.suit == suit], reverse=True)
                 return True, flush_cards, [], suit
-            return False, [], [], []
+            return False, [], [], None
 
     def check_straight(self):
         sorted_values = sorted(self.ranks, reverse=True)
@@ -120,18 +121,23 @@ class Player:
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
-        action = input("Enter action (check/bet/call/fold): ")
-        amount = 0
+
+        if current_bet == 0:
+            action = input("Enter action (check/bet): ")
+        else:
+            action = input("Enter action (call/raise/fold): ")
+
+        bet = 0
         if action in ("bet", "raise"):
-            amount = int(input("Enter amount: "))
-            self.money -= amount
+            bet = int(input("Enter amount: "))
+            self.money -= bet
         elif action == "call":
-            amount = current_bet
+            bet = current_bet
             self.money -= current_bet
         self.chat_message = input("Enter chat message (optional): ")
         if not self.chat_message:
             f"{self.name} chooses to {action}."
-        return action, amount
+        return action, bet
 
     def chat(self):
         return self.chat_message
@@ -139,14 +145,49 @@ class Player:
 
 class AIPlayer(Player):
     def action(self, community_cards, current_bet, current_pot):
-        print(f"{self.name}'s turn. Current cards: {self.cards}\n",
+        print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
-        action = "check"
-        print(f"AI chooses to {action}\n")
-        self.chat_message = f"{self.name} chooses to {action}."
-        return action, 0
+
+        if len(community_cards) < 3:
+            hand_rank = self.evaluate_hole_cards()
+        else:
+            hand_rank = HandEvaluator(self.cards + community_cards).evaluate_hand()["hand_rank"]
+
+        pot_odds = current_pot / current_bet if current_bet else 1
+        money_left = self.money / current_bet if current_bet else 1
+
+        bet = 0
+
+        # Adjust these thresholds as needed
+        if current_bet == 0:
+            if hand_rank < 5 or pot_odds > 3 or money_left > 3:
+                action = "raise"
+                bet = self.money // 10  # Bet 10% of AI's money
+            else:
+                action = "check"
+        elif hand_rank > 5 and pot_odds < 2 and money_left < 2:
+            action = "fold"
+        elif hand_rank < 5 or pot_odds > 3 or money_left > 3:
+            action = "raise"
+            bet = self.money // 10  # Bet 10% of AI's money
+        else:
+            action = "call"
+            bet = current_bet
+
+        self.chat_message = f"{self.name} chooses to {action} by {bet}."
+        return action, bet
+
+    def evaluate_hole_cards(self):
+        # Use Monte Carlo method to approximate hand strength
+        hand_ranks = []
+        for _ in range(100):  # Adjust this number as needed
+            simulated_community = Deck().draw(5)
+            simulated_hand_rank = HandEvaluator(self.cards + simulated_community).evaluate_hand()["hand_rank"]
+            hand_ranks.append(simulated_hand_rank)
+        hand_rank = sum(hand_ranks) / len(hand_ranks)
+        return hand_rank
 
     def chat(self):
         return self.chat_message
@@ -159,52 +200,48 @@ class Game:
         self.community_cards = []
         self.current_bet = 0
         self.pot = 0
-        self.dealer = 0
+        self.small_blind = 10
+        self.dealer = random.randint(0, len(self.players) - 1)
+        self.small_blind_player = None
+        self.big_blind_player = None
 
     def play_hand(self):
+        self.deck = Deck()  # Create a new deck at the beginning of each hand
         self.deck.shuffle()
+        
         self.deal_hole_cards()
         self.post_blinds()
         self.betting_round()
         for player in self.players:
             print(player.chat())
+            
         self.reveal_flop()
         self.betting_round()
         for player in self.players:
             print(player.chat())
+            
         self.reveal_turn()
         self.betting_round()
         for player in self.players:
             print(player.chat())
+            
         self.reveal_river()
         self.betting_round()
         for player in self.players:
             print(player.chat())
-        self.rotate_dealer()
+            
+        self.end_hand()
         
-        winner = self.determine_winner()
-        print(f"The winner is {winner.name}! They win the pot of {self.pot}")
-        winner.money += self.pot
-        self.pot = 0
-        # Clear the players' hands
-        for player in self.players:
-            player.cards = []
-        # Check if the game should continue
-        remaining_players = [player for player in self.players if player.money > 0]
-        if len(remaining_players) == 1:
-            print(f"{remaining_players[0].name} is the last player remaining and wins the game!")
-            return
-
     def deal_hole_cards(self):
         for player in self.players:
             player.cards = self.deck.deal(2)
     
     def post_blinds(self):
-        small_blind = 10  # or whatever value you choose
+        small_blind = self.small_blind
         big_blind = small_blind * 2
 
-        small_blind_player = self.players[(self.dealer + 1) % len(self.players)]
-        big_blind_player = self.players[(self.dealer + 2) % len(self.players)]
+        self.small_blind_player = self.players[(self.dealer + 1) % len(self.players)]
+        self.big_blind_player = self.players[(self.dealer + 2) % len(self.players)]
 
         small_blind_player.money -= small_blind
         big_blind_player.money -= big_blind
@@ -213,27 +250,42 @@ class Game:
         self.current_bet = big_blind
 
     def betting_round(self):
-        for player in self.players:
+        starting_player = (self.dealer + 3) % len(self.players)  # Player to left of big blind starts
+        last_raiser = None
+        i = starting_player
+    
+        while True:
+            player = self.players[i % len(self.players)]
             action, bet = player.action(self.community_cards, self.current_bet, self.pot)
+            
             if action == "bet":
                 self.current_bet = bet
                 self.pot += bet
                 player.money -= bet
+                last_raiser = player
             elif action == "raise":
                 self.current_bet += bet
                 self.pot += self.current_bet
                 player.money -= self.current_bet
+                last_raiser = player
             elif action == "call":
                 player.money -= self.current_bet
                 self.pot += self.current_bet
             elif action == "fold":
                 self.players.remove(player)
-            elif action == "check":
-                continue
+            elif action == "check" and self.current_bet == 0:
+                pass
             else:
                 print("Invalid action")
+    
+            # If we've gone around to the last raiser without encountering any new raises, end the betting round
+            if player == last_raiser:
+                break
+    
+            i += 1
+    
         self.current_bet = 0
-
+        
     def reveal_flop(self):
         self.community_cards = self.deck.deal(3)
 
@@ -276,9 +328,19 @@ class Game:
 
     def end_hand(self):
         winner = self.determine_winner()
-        winner.money += self.pot
         print(f"The winner is {winner.name}! They win the pot of {self.pot}")
+
+        winner.money += self.pot
         self.pot = 0
+        self.community_cards = []
+        # Clear the players' hands
+        for player in self.players:
+            player.cards = []
+        # Check if the game should continue
+        remaining_players = [player for player in self.players if player.money > 0]
+        if len(remaining_players) == 1:
+            print(f"{remaining_players[0].name} is the last player remaining and wins the game!")
+            return
         
         
 def main():
