@@ -366,7 +366,11 @@ class Game:
     
         while True:
             player = self.players[i % len(self.players)]
-            action, bet = player.action(self.community_cards, self.current_bet, self.pot)
+            # If we've gone around to the last raiser without encountering any new raises, end the betting round
+            if player == last_raiser:
+                break
+
+            action, bet = player.action(self.current_state())
             
             if action == "bet":
                 self.current_bet = bet
