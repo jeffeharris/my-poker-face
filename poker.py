@@ -450,8 +450,9 @@ class Game:
         small_blind = self.small_blind
         big_blind = small_blind * 2
 
-        self.small_blind_player = self.players[(self.dealer + 1) % len(self.players)]
-        self.big_blind_player = self.players[(self.dealer + 2) % len(self.players)]
+        self.small_blind_player = self.players[(self.dealer_position + 1) % len(self.players)]
+        self.big_blind_player = self.players[(self.dealer_position + 2) % len(self.players)]
+        self.under_the_gun = self.players[(self.dealer_position + 3) % len(self.players)]
 
         self.small_blind_player.money -= small_blind
         self.big_blind_player.money -= big_blind
