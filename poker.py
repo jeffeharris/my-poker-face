@@ -623,7 +623,8 @@ class Game:
 
 
 def main():
-    game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
+    # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
+    game = Game(AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
     while len(game.players) > 1:
         game.play_hand()
         play_again = input("Play another hand? (y/n): ")
