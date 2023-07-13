@@ -1,6 +1,23 @@
 from collections import Counter
 from cards import *
 import random
+import json
+
+from langchain import ConversationChain
+
+from langchain.chat_models import ChatOpenAI
+
+from langchain.prompts.chat import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+    MessagesPlaceholder
+)
+from langchain.memory import ConversationBufferMemory
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class HandEvaluator:
