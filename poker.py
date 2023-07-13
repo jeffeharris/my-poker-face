@@ -500,7 +500,7 @@ class Game:
         
         
 def main():
-    game = Game(Player("Jeff"), AIPlayer("Hal"), AIPlayer("Alice"))
+    game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Hal 9000"))
     while True:
         game.play_hand()
         play_again = input("Play another hand? (y/n): ")
