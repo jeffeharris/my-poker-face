@@ -11,9 +11,10 @@ from langchain.prompts.chat import (
     ChatPromptTemplate,
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
-    MessagesPlaceholder
+    MessagesPlaceholder,
+    HumanMessage
 )
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory, ReadOnlySharedMemory, CombinedMemory
 
 from dotenv import load_dotenv
 
