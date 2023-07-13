@@ -420,32 +420,31 @@ class Game:
         print(f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
 
         self.deal_hole_cards()
-        self.post_blinds()
         self.betting_round()
-        for player in self.players:
-            print(player.chat())
-            
+        #for player in self.players:
+        #print(player.chat())
+
         self.reveal_flop()
         self.betting_round()
         for player in self.players:
             print(player.chat())
-            
+
         self.reveal_turn()
         self.betting_round()
         for player in self.players:
             print(player.chat())
-            
+
         self.reveal_river()
         self.betting_round()
         for player in self.players:
             print(player.chat())
-            
+
         self.end_hand()
-        
+
     def deal_hole_cards(self):
         for player in self.players:
             player.cards = self.deck.deal(2)
-    
+
     def post_blinds(self):
         small_blind = self.small_blind
         big_blind = small_blind * 2
@@ -486,6 +485,7 @@ class Game:
 
         while True:
             player = self.players[i % len(self.players)]
+
             # If we've gone around to the last raiser without encountering any new raises, end the betting round
             if (player == last_raiser and not new_bet) or len(self.remaining_players) <= 1:
                 break
