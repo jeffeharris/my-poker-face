@@ -372,15 +372,17 @@ class AIPlayer(Player):
 class Game:
     def __init__(self, *players):
         self.deck = Deck()
+        self.starting_players = list(players)
         self.players = list(players)
         self.community_cards = []
         self.current_bet = 0
         self.pot = 0
         self.small_blind = 10
-        self.current_round = "deal"
-        self.dealer = random.randint(0, len(self.players) - 1)
+        self.current_round = "preflop"
+        self.dealer = None
         self.small_blind_player = None
         self.big_blind_player = None
+        self.under_the_gun = None
 
     @property
     def dealer_position(self):
@@ -409,8 +411,14 @@ class Game:
 
     def play_hand(self):
         self.deck = Deck()  # Create a new deck at the beginning of each hand
+        self.dealer = self.players[random.randint(0, len(self.players) - 1)]
+
         self.deck.shuffle()
-        
+        self.post_blinds()
+
+        print(f"{self.dealer.name}'s deal.\n")
+        print(f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
+
         self.deal_hole_cards()
         self.post_blinds()
         self.betting_round()
