@@ -603,7 +603,12 @@ class Game:
             print(f"{self.players[0].name} is the last player remaining and wins the game!")
             return
         
+        for player in self.players:
+            player.folded = False
         
+        self.rotate_dealer()
+
+
 def main():
     game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Hal 9000"))
     while True:
