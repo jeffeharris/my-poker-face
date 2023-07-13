@@ -199,6 +199,19 @@ class AIPlayer(Player):
             bet = current_bet
 
         self.chat_message = f"{self.name} chooses to {action} by {bet}."
+        return action, bet'''
+
+        response = self.retrieve_response(game_state)
+        #print("String response formatted as JSON:", response)
+        response_json = json.loads(response)
+        #print(json.dumps(response_json), 4)
+
+        action = response_json["action"]
+        bet = response_json["amount"]
+        self.chat_message = response_json["comment"]
+
+        print(f"{self.name} chooses to {action} by {bet}.")
+
         return action, bet
 
     def evaluate_hole_cards(self):
@@ -213,7 +226,75 @@ class AIPlayer(Player):
 
     def chat(self):
         return self.chat_message
-    
+
+    def retrieve_response(self, game_state):
+        persona = self.name
+        confidence = "Unshakeable"
+        attitude = "Manic"
+        opponents = game_state["players"]
+        number_of_opponents = len(opponents) - 1
+        position = "small blind"
+        player_money = self.money
+        current_situation = game_state["current_situation"]
+        hole_cards = self.cards
+        community_cards = game_state["community_cards"]
+        current_bet = game_state["current_bet"]
+        current_pot = game_state["current_pot"]
+        player_options = game_state["player_options"]
+        opponent_positions = game_state["opponent_positions"]
+
+        sample_string = (
+            f"""
+        Persona: {persona}
+        Attitude: {attitude}
+        Confidence: {confidence}
+        Opponents: {opponent_positions}
+        Community Cards: {community_cards}
+
+        You are {persona} playing a round of Texas Hold em with {number_of_opponents} other people.
+        You are {position} and have ${player_money} in chips remaining. {current_situation},
+        you have {hole_cards} in your hand. The current pot is ${current_pot}, the current bet is ${current_bet} to you.
+        Your options are: {player_options}
+        Feel free to express yourself physically using *things i'm doing* to indicate actions like *looks around table*.
+        Don't over do this though, you are playing poker and you don't want to give anything away that would hurt your
+        chances of winning. You should respond with a JSON containing your action, your bet (if applicable), any comments
+        or things you want to say to the table, any pysical movements you make at the table, and your inner monologue
+
+        Sample response:
+        {{{{
+            "action": <enter the action you're going to take here>,
+            "amount": <enter the dollar amount to bet here>,
+            "comment": <enter what you want to say here>,
+            "inner_monologue": <enter your internal thoughts here, these won't be shared with the others at the table>,
+            "persona_response": <based on your persona, attitude, and confidence, provide a unique response to the situation>,
+            "physical": <enter a list of strings with the physical actions you take in the order you take them>
+        }}}}
+
+        Remember {persona}, you're feeling {attitude} and {confidence}. And you can not bet more than you have, ${player_money}.
+
+        """)
+        # it's ${amount_to_call} to you to call and cover the blind and $20 to bet. Would you like to call or fold?
+
+        #print(sample_string)
+
+        poker_prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(template=sample_string),
+            MessagesPlaceholder(variable_name="history"),
+            HumanMessagePromptTemplate.from_template("{input}")
+        ])
+
+        #print(poker_prompt)
+
+        poker_player = ChatOpenAI(temperature=.5)
+
+        player_memory = ConversationBufferMemory(return_messages=True)
+
+        player_conversation = ConversationChain(memory=player_memory, prompt=poker_prompt, llm=poker_player)
+
+        player_response = player_conversation.predict(input="What is your move?")
+
+        return player_response
+
   
 class Game:
     def __init__(self, *players):
