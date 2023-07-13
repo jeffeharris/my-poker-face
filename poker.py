@@ -184,7 +184,7 @@ class Player:
             f"{self.name} chooses to {action}."
         return action, bet
 
-    def chat(self):
+    def speak(self):
         return self.chat_message
 
 
@@ -192,16 +192,19 @@ class AIPlayer(Player):
     def __init__(self, name, starting_money=1000, ai_temp=.5):
         super().__init__(name, starting_money=starting_money)
         self.chat = ChatOpenAI(temperature=ai_temp)
-        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Jeff")
+        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
         # TODO: create logic to pull the Human prefix from the Human player name
         self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
         
         print(f"Initializing {self.name}")
 
-        self.confidence = \
-            self.chat([HumanMessage(content=f"Describe {self.name}'s confidence as they enter a poker game")])
-        self.attitude = \
-            self.chat([HumanMessage(content=f"Describe {self.name}'s attitude as they enter a poker game")])
+        self.confidence = self.chat([HumanMessage(
+                content=f"Describe {self.name}'s confidence as they enter a poker game in less than 50 words")]).content
+        print(self.confidence)
+        
+        self.attitude = self.chat([HumanMessage(
+                content=f"Describe {self.name}'s attitude as they enter a poker game in less than 50 words")]).content
+        print(self.attitude)
 
     def create_prompt(self):
         persona = self.name
@@ -227,7 +230,7 @@ class AIPlayer(Player):
             * Verbal responses should use "" like this: "words you say"
             * Actions you take should use ** like this: *things i'm doing*
         Don't over do this though, you are playing poker and you don't want to give anything away that would hurt your
-        chances of winning. You should respond with a JSON containing your action, your bet (if applicable), any comments
+        chances of winning. You should respond with a JSON containing your action, bet (if applicable), any comments
         or things you want to say to the table, any pysical movements you make at the table, and your inner monologue
 
         When asked for your action, you must always respond in JSON format based on the example below
@@ -316,13 +319,14 @@ class AIPlayer(Player):
         return action, bet'''
 
         response = self.retrieve_response(game_state)
-        #print("String response formatted as JSON:", response)
         response_json = json.loads(response)
         print(json.dumps(response_json, indent=4))
 
         action = response_json["action"]
         bet = response_json["amount"]
         self.chat_message = response_json["comment"]
+        self.attitude = response_json["new_attitude"]
+        self.confidence = response_json["new_confidence"]
 
         print(f"{self.name} chooses to {action} by {bet}.")
 
@@ -338,13 +342,13 @@ class AIPlayer(Player):
         hand_rank = sum(hand_ranks) / len(hand_ranks)
         return hand_rank
 
-    def chat(self):
+    def speak(self):
         return self.chat_message
 
     def retrieve_response(self, game_state):
         persona = self.name
-        confidence = "Unshakeable"
-        attitude = "Manic"
+        confidence = self.confidence
+        attitude = self.attitude
         opponents = game_state["players"]
         number_of_opponents = len(opponents) - 1
         position = "small blind"
@@ -434,23 +438,15 @@ class Game:
 
         self.deal_hole_cards()
         self.betting_round()
-        #for player in self.players:
-        #print(player.chat())
 
         self.reveal_flop()
         self.betting_round()
-        for player in self.players:
-            print(player.chat())
 
         self.reveal_turn()
         self.betting_round()
-        for player in self.players:
-            print(player.chat())
 
         self.reveal_river()
         self.betting_round()
-        for player in self.players:
-            print(player.chat())
 
         self.end_hand()
 
@@ -539,7 +535,7 @@ class Game:
                     print("Invalid action")
 
                 # SPEAK
-                print(f"\n{player.name}:\t{player.chat()}\n")
+                print(f"\n{player.name}:\t{player.speak()}\n")
 
             i += 1
 
@@ -573,7 +569,8 @@ class Game:
         self.dealer = (self.dealer_position + 1) % len(self.players)
 
     def determine_winner(self):
-        hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()) for player in self.remaining_players]
+        hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand())
+                 for player in self.remaining_players]
 
         print("Before sorting:")
         for player, hand_info in hands:
@@ -624,7 +621,7 @@ class Game:
 
 def main():
     # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
-    game = Game(AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
+    game = Game(Player("Jeff"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
     while len(game.players) > 1:
         game.play_hand()
         play_again = input("Play another hand? (y/n): ")
