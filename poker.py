@@ -534,14 +534,26 @@ class Game:
     def reveal_flop(self):
         self.community_cards = self.deck.deal(3)
         self.current_round = "flop"
+        print(f"""
+                    ---***FLOP***---
+            {self.community_cards}
+        """)
 
     def reveal_turn(self):
         self.community_cards += self.deck.deal(1)
         self.current_round = "turn"
+        print(f"""
+                    ---***TURN***---
+            {self.community_cards}
+        """)
 
     def reveal_river(self):
         self.community_cards += self.deck.deal(1)
         self.current_round = "river"
+        print(f"""
+                    ---***RIVER***---
+            {self.community_cards}
+        """)
         
     def rotate_dealer(self):
         self.dealer = (self.dealer + 1) % len(self.players)
