@@ -330,6 +330,7 @@ class Game:
         self.current_bet = 0
         self.pot = 0
         self.small_blind = 10
+        self.current_round = "deal"
         self.dealer = random.randint(0, len(self.players) - 1)
         self.small_blind_player = None
         self.big_blind_player = None
