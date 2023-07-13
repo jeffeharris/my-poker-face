@@ -465,48 +465,65 @@ class Game:
         self.current_bet = big_blind
 
     def betting_round(self):
-        # DO LATER definite problem here that I'll need to fix. The starting player shouldn't always be the big blind,
-        # just on the first round of betting. Same with the line after it
-        if self.current_round == "deal":
-            starting_player = (self.dealer + 3) % len(self.players)  # Player to left of big blind starts
+        if len(self.remaining_players) <= 1:
+            return  # round is over if there's only 1 player left in the hand
+        elif self.current_round == "preflop":
+            starting_player_index = (self.dealer_position + 3) % len(self.players)  # Player to left of big blind starts
             last_raiser = self.big_blind_player
+            new_bet = False
         else:
-            starting_player = self.dealer
-            last_raiser = None
+            starting_player_index = (self.dealer_position + 1) % len(self.remaining_players)
+            last_raiser = self.remaining_players[starting_player_index]
+            new_bet = True
 
-        i = starting_player
-    
+        i = starting_player_index
+
         while True:
             player = self.players[i % len(self.players)]
             # If we've gone around to the last raiser without encountering any new raises, end the betting round
-            if player == last_raiser:
+            if (player == last_raiser and not new_bet) or len(self.remaining_players) <= 1:
                 break
 
-            action, bet = player.action(self.current_state())
-            
-            if action == "bet":
-                self.current_bet = bet
-                self.pot += bet
-                player.money -= bet
-                last_raiser = player
-            elif action == "raise":
-                self.current_bet += bet
-                self.pot += self.current_bet
-                player.money -= self.current_bet
-                last_raiser = player
-            elif action == "call":
-                player.money -= self.current_bet
-                self.pot += self.current_bet
-            elif action == "fold":
-                self.players.remove(player)
-            elif action == "check" and self.current_bet == 0:
-                pass
-            else:
-                print("Invalid action")
+            if not player.folded:
+                action, bet = player.action(self.current_state)
 
-            print(player.chat())
+                if action == "bet":
+                    self.current_bet = bet
+                    self.pot += bet
+                    player.money -= bet
+                    if last_raiser == player:
+                        new_bet = True
+                    else:
+                        new_bet = False
+                        last_raiser = player
+                elif action == "raise":
+                    self.current_bet += bet
+                    self.pot += self.current_bet
+                    player.money -= self.current_bet
+                    if last_raiser == player:
+                        new_bet = True
+                    else:
+                        new_bet = False
+                        last_raiser = player
+                elif action == "call":
+                    player.money -= self.current_bet
+                    self.pot += self.current_bet
+                elif action == "fold":
+                    self.players[i % len(self.players)].folded = True
+                    try:
+                        self.remaining_players.remove(player)
+                    except:
+                        print("There was an error removing the player from the list")
+                elif action == "check" and self.current_bet == 0:
+                    pass
+                else:
+                    print("Invalid action")
+
+                # SPEAK
+                print(f"\n{player.name}:\t{player.chat()}\n")
+
             i += 1
-    
+
         self.current_bet = 0
         
     def reveal_flop(self):
