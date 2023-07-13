@@ -191,14 +191,22 @@ class Player:
 class AIPlayer(Player):
     def __init__(self, name, starting_money=1000, ai_temp=.5):
         super().__init__(name, starting_money=starting_money)
-        self.llm = ChatOpenAI(temperature=ai_temp)
-        self.memory = ConversationBufferMemory(return_messages=True)
-        self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.llm)
+        self.chat = ChatOpenAI(temperature=ai_temp)
+        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Jeff")
+        # TODO: create logic to pull the Human prefix from the Human player name
+        self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
+        
+        print(f"Initializing {self.name}")
+
+        self.confidence = \
+            self.chat([HumanMessage(content=f"Describe {self.name}'s confidence as they enter a poker game")])
+        self.attitude = \
+            self.chat([HumanMessage(content=f"Describe {self.name}'s attitude as they enter a poker game")])
 
     def create_prompt(self):
         persona = self.name
-        confidence = "Unshakeable"
-        attitude = "Manic"
+        confidence = self.confidence
+        attitude = self.attitude
         player_money = self.money
 
         sample_string = (
@@ -232,6 +240,8 @@ class AIPlayer(Player):
             "inner_monologue": <enter your internal thoughts here, these won't be shared with the others at the table>,
             "persona_response": <based on your persona, attitude, and confidence, provide a unique response to the situation>,
             "physical": <enter a list of strings with the physical actions you take in the order you take them>
+            "new_confidence": <a single word indicating how confident you feel about your chances of winning the game>
+            "new_attitude": <a single word indicating your attitude in the moment, it can be the same as before or change>
         }}}}
 
         Sample response for an Eyeore persona
@@ -247,6 +257,8 @@ class AIPlayer(Player):
                           "*lets out a big sigh*",
                           "*slouches shoulders*"
                         ]
+            "new_confidence": "Abysmal"
+            "new_attiude": "Gloomy"
         }}}}
 
         Remember {persona}, you're feeling {attitude} and {confidence}.
