@@ -395,10 +395,20 @@ class Game:
         self.small_blind_player = None
         self.big_blind_player = None
 
+    @property
+    def dealer_position(self):
+        return self.players.index(self.dealer)
+
+    @property
     def current_state(self):
+        opponent_positions = ""
+
+        for player in self.players:
+            position = f"{player.name} has ${player.money}\n"
+            opponent_positions += position
 
         my_state = {"players": self.players,
-                    "opponent_positions": ["Jeff has $1000 to your left", "Hal has $900 to your right"],
+                    "opponent_positions": opponent_positions,
                     "position": "small blind",
                     "current_situation": f"The {self.current_round} cards have just been dealt",
                     "current_pot": self.pot,
