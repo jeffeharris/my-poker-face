@@ -356,26 +356,26 @@ class AIPlayer(Player):
         current_pot = game_state["current_pot"]
         player_options = game_state["player_options"]
         opponent_positions = game_state["opponent_positions"]
+        current_round = game_state["current_round"]
 
         sample_string = (
-        f"""
-            Persona: {persona}
-            Attitude: {attitude}
-            Confidence: {confidence}
-            Opponents: {opponent_positions}
-            Community Cards: {community_cards}
-    
-            You are {persona} playing a round of Texas Hold em with {number_of_opponents} other people.
-            You are {position} and have ${player_money} in chips remaining. {current_situation},
-            you have {hole_cards} in your hand. The current pot is ${current_pot}, the current bet is ${current_bet} to you.
-            Your options are: {player_options}
-    
-            Remember {persona}, you're feeling {attitude} and {confidence}. And you can not bet more than you have, ${player_money}.
-                                              
-            What is your move?
-        """)
+            f"""Persona: {persona}
+Attitude: {attitude}
+Confidence: {confidence}
+Opponents: {opponent_positions}
+Game Round: {current_round}
+Community Cards: {community_cards}
+
+You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.
+You are {position} and have ${player_money} in chips remaining. {current_situation},
+you have {hole_cards} in your hand. The current pot is ${current_pot}, the current bet is ${current_bet} to you.
+Your options are: {player_options}
+
+Remember {persona}, you're feeling {attitude} and {confidence}. And you can not bet more than you have, ${player_money}.
+                                  
+What is your move?""")
         # it's ${amount_to_call} to you to call and cover the blind and $20 to bet. Would you like to call or fold?
-        # print(sample_string)
+        print(sample_string)
 
         player_response = self.conversation.predict(input=sample_string)
 
