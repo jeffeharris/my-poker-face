@@ -391,11 +391,8 @@ class Game:
                 pass
             else:
                 print("Invalid action")
-    
-            # If we've gone around to the last raiser without encountering any new raises, end the betting round
-            if player == last_raiser:
-                break
-    
+
+            print(player.chat())
             i += 1
     
         self.current_bet = 0
