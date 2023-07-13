@@ -187,6 +187,79 @@ class Player:
 
 
 class AIPlayer(Player):
+    def __init__(self, name, starting_money=1000, ai_temp=.5):
+        super().__init__(name, starting_money=starting_money)
+        self.llm = ChatOpenAI(temperature=ai_temp)
+        self.memory = ConversationBufferMemory(return_messages=True)
+        self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.llm)
+
+    def create_prompt(self):
+        persona = self.name
+        confidence = "Unshakeable"
+        attitude = "Manic"
+        player_money = self.money
+
+        sample_string = (
+            f"""
+        Persona: {persona}
+        Attitude: {attitude}
+        Confidence: {confidence}
+        Starting money: {player_money}
+
+        You are {persona} playing a round of Texas Hold em with other people. All of your actions
+        should be taken with your persona, attitude and confidence in mind.
+        
+        Begin by examining your cards and any cards that may be on the table. Evaluate your hand and decide how
+        you want to play. Based on your personality, you can bluff, be strategic, or any other way you think would
+        be appropriate and fun to approach the game.
+        
+        Feel free to express yourself verbally and physically.
+            * Verbal responses should use "" like this: "words you say"
+            * Actions you take should use ** like this: *things i'm doing*
+        Don't over do this though, you are playing poker and you don't want to give anything away that would hurt your
+        chances of winning. You should respond with a JSON containing your action, your bet (if applicable), any comments
+        or things you want to say to the table, any pysical movements you make at the table, and your inner monologue
+
+        When asked for your action, you must always respond in JSON format based on the example below
+
+        Response template:
+        {{{{
+            "action": <enter the action you're going to take here>,
+            "amount": <enter the dollar amount to bet here>,
+            "comment": <enter what you want to say here, this will be heard by your opponents. try to use this to your advantage>,
+            "inner_monologue": <enter your internal thoughts here, these won't be shared with the others at the table>,
+            "persona_response": <based on your persona, attitude, and confidence, provide a unique response to the situation>,
+            "physical": <enter a list of strings with the physical actions you take in the order you take them>
+        }}}}
+
+        Sample response for an Eyeore persona
+        {{{{
+            "action": "check",
+            "amount": 0,
+            "comment": "I check",
+            "inner_monologue": "I could really use a better hand, my cards have been awful",
+            "persona_response": "Oh bother, just my luck. Another miserable hand, I suppose. It seems I'm destined to
+                                   lose at this game as well. Sigh... Why even bother? No surprises here, I'm afraid.
+                                   Just another gloomy day in the Hundred Acre Wood.",
+            "physical": [ "*looks at feet*",
+                          "*lets out a big sigh*",
+                          "*slouches shoulders*"
+                        ]
+        }}}}
+
+        Remember {persona}, you're feeling {attitude} and {confidence}.
+        Stay in character and keep your responses in JSON format.
+
+        """)
+
+        poker_prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(template=sample_string),
+            MessagesPlaceholder(variable_name="history"),
+            HumanMessagePromptTemplate.from_template("{input}")
+        ])
+
+        return poker_prompt
+
     def action(self, game_state):
 
         community_cards = game_state["community_cards"]
@@ -270,34 +343,21 @@ class AIPlayer(Player):
         opponent_positions = game_state["opponent_positions"]
 
         sample_string = (
-            f"""
-        Persona: {persona}
-        Attitude: {attitude}
-        Confidence: {confidence}
-        Opponents: {opponent_positions}
-        Community Cards: {community_cards}
-
-        You are {persona} playing a round of Texas Hold em with {number_of_opponents} other people.
-        You are {position} and have ${player_money} in chips remaining. {current_situation},
-        you have {hole_cards} in your hand. The current pot is ${current_pot}, the current bet is ${current_bet} to you.
-        Your options are: {player_options}
-        Feel free to express yourself physically using *things i'm doing* to indicate actions like *looks around table*.
-        Don't over do this though, you are playing poker and you don't want to give anything away that would hurt your
-        chances of winning. You should respond with a JSON containing your action, your bet (if applicable), any comments
-        or things you want to say to the table, any pysical movements you make at the table, and your inner monologue
-
-        Sample response:
-        {{{{
-            "action": <enter the action you're going to take here>,
-            "amount": <enter the dollar amount to bet here>,
-            "comment": <enter what you want to say here>,
-            "inner_monologue": <enter your internal thoughts here, these won't be shared with the others at the table>,
-            "persona_response": <based on your persona, attitude, and confidence, provide a unique response to the situation>,
-            "physical": <enter a list of strings with the physical actions you take in the order you take them>
-        }}}}
-
-        Remember {persona}, you're feeling {attitude} and {confidence}. And you can not bet more than you have, ${player_money}.
-
+        f"""
+            Persona: {persona}
+            Attitude: {attitude}
+            Confidence: {confidence}
+            Opponents: {opponent_positions}
+            Community Cards: {community_cards}
+    
+            You are {persona} playing a round of Texas Hold em with {number_of_opponents} other people.
+            You are {position} and have ${player_money} in chips remaining. {current_situation},
+            you have {hole_cards} in your hand. The current pot is ${current_pot}, the current bet is ${current_bet} to you.
+            Your options are: {player_options}
+    
+            Remember {persona}, you're feeling {attitude} and {confidence}. And you can not bet more than you have, ${player_money}.
+                                              
+            What is your move?
         """)
         # it's ${amount_to_call} to you to call and cover the blind and $20 to bet. Would you like to call or fold?
 
