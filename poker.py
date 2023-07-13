@@ -132,6 +132,29 @@ class Player:
         self.money = starting_money
         self.cards = []
         self.chat_message = ""
+        self.confidence = ""
+        self.attitude = ""
+        self.options = ""
+
+    @property
+    def current_state(self):
+        my_state = {"persona": self.name,
+                    "confidence": "Unshakeable",
+                    "attitude": "Smitten",
+                    "player_money": self.money,
+                    "hole_cards": self.cards,
+                    # could break this out into "game_state" or "hand_state" vs. "player_state"
+                    "number_of_opponents": 2,
+                    "opponent_positions": ["Jeff has $1000 to your left", "Halh has $900 to your right"],
+                    "position": "small blind",
+                    "current_situation": "The hole cards have just been dealt",
+                    "current_pot": 30,
+                    "player_options": "call, raise, fold",
+                    }
+
+        return my_state
+
+    def action(self, game_state):
 
     def action(self, community_cards, current_bet, current_pot):
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
@@ -307,6 +330,21 @@ class Game:
         self.dealer = random.randint(0, len(self.players) - 1)
         self.small_blind_player = None
         self.big_blind_player = None
+
+    def current_state(self):
+
+        my_state = {"players": self.players,
+                    "opponent_positions": ["Jeff has $1000 to your left", "Hal has $900 to your right"],
+                    "position": "small blind",
+                    "current_situation": f"The {self.current_round} cards have just been dealt",
+                    "current_pot": self.pot,
+                    "player_options": "call, raise, fold, bet",
+                    "community_cards": self.community_cards,
+                    "current_bet": self.current_bet,
+                    "current_round": self.current_round
+                    }
+
+        return my_state
 
     def play_hand(self):
         self.deck = Deck()  # Create a new deck at the beginning of each hand
