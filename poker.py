@@ -355,8 +355,13 @@ class Game:
     def betting_round(self):
         # DO LATER definite problem here that I'll need to fix. The starting player shouldn't always be the big blind,
         # just on the first round of betting. Same with the line after it
-        starting_player = (self.dealer + 3) % len(self.players)  # Player to left of big blind starts
-        last_raiser = self.big_blind_player
+        if self.current_round == "deal":
+            starting_player = (self.dealer + 3) % len(self.players)  # Player to left of big blind starts
+            last_raiser = self.big_blind_player
+        else:
+            starting_player = self.dealer
+            last_raiser = None
+
         i = starting_player
     
         while True:
