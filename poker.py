@@ -156,7 +156,10 @@ class Player:
 
     def action(self, game_state):
 
-    def action(self, community_cards, current_bet, current_pot):
+        community_cards = game_state['community_cards']
+        current_bet = game_state['current_bet']
+        current_pot = game_state['current_pot']
+
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
