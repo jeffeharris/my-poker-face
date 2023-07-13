@@ -610,8 +610,8 @@ class Game:
 
 
 def main():
-    game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Hal 9000"))
-    while True:
+    game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
+    while len(game.players) > 1:
         game.play_hand()
         play_again = input("Play another hand? (y/n): ")
         if play_again.lower() != "y":
