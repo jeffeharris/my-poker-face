@@ -27,7 +27,7 @@ class HandEvaluator:
             result = check()
             if result[0]:
                 return {"hand_rank": i, "hand_values": result[1], "kicker_values": result[2]}
-            return {"hand_rank": 10, "hand_values": [], "kicker_values": sorted(self.ranks, reverse=True)}
+        return {"hand_rank": 10, "hand_values": [], "kicker_values": sorted(self.ranks, reverse=True)}
 
     def check_royal_flush(self):
         has_straight_flush, straight_flush_values, _, straight_flush_suit = self.check_straight_flush()
@@ -37,7 +37,7 @@ class HandEvaluator:
             comparison_set.reverse()
             if straight_flush_values == comparison_set:
                 return True, comparison_set, []
-            return False, [], []
+        return False, [], []
 
     def check_straight_flush(self):
         has_flush, flush_values, _, flush_suit = self.check_flush()
@@ -46,14 +46,14 @@ class HandEvaluator:
             has_straight, straight_values, _ = HandEvaluator(flush_cards).check_straight()
             if has_straight:
                 return True, straight_values, [], flush_suit
-            return False, [], [], []
+        return False, [], [], []
 
     def check_four_of_a_kind(self):
         for rank, count in self.rank_counts.items():
             if count == 4:
                 kicker = sorted([card for card in self.ranks if card != rank], reverse=True)
                 return True, [rank]*4, [kicker]
-            return False, [], []
+        return False, [], []
 
     def check_full_house(self):
         three = None
@@ -72,7 +72,7 @@ class HandEvaluator:
             if count >= 5:
                 flush_cards = sorted([card.value for card in self.cards if card.suit == suit], reverse=True)
                 return True, flush_cards, [], suit
-            return False, [], [], None
+        return False, [], [], None
 
     def check_straight(self):
         sorted_values = sorted(self.ranks, reverse=True)
@@ -82,14 +82,14 @@ class HandEvaluator:
             if set(range(top-4, top+1)).issubset(set(sorted_values)):
                 straight_values = list(range(top, top-5, -1))
                 return True, straight_values, []
-            return False, [], []
+        return False, [], []
 
     def check_three_of_a_kind(self):
         for rank, count in self.rank_counts.items():
             if count == 3:
                 kickers = sorted([card for card in self.ranks if card != rank], reverse=True)[:2]
                 return True, [rank]*3, kickers
-            return False, [], []
+        return False, [], []
 
     def check_two_pair(self):
         pairs = [rank for rank, count in self.rank_counts.items() if count >= 2]
@@ -117,7 +117,7 @@ class Player:
         self.chat_message = ""
 
     def action(self, community_cards, current_bet, current_pot):
-        print(f"{self.name}'s turn. Current cards: {self.cards}\n",
+        print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
@@ -243,8 +243,8 @@ class Game:
         self.small_blind_player = self.players[(self.dealer + 1) % len(self.players)]
         self.big_blind_player = self.players[(self.dealer + 2) % len(self.players)]
 
-        small_blind_player.money -= small_blind
-        big_blind_player.money -= big_blind
+        self.small_blind_player.money -= small_blind
+        self.big_blind_player.money -= big_blind
 
         self.pot += small_blind + big_blind
         self.current_bet = big_blind

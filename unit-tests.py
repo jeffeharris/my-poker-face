@@ -1,6 +1,6 @@
 import unittest
 from cards import *
-from poker import HandEvaluator, Game, Player
+from poker import HandEvaluator, Game, Player, AIPlayer
 
 
 class TestHandEvaluator(unittest.TestCase):
@@ -146,3 +146,13 @@ class TestGame(unittest.TestCase):
         ]
         self.assertEqual(game.determine_winner(), player3)
         
+    def simulate_game(self):
+        player1 = AIPlayer("Player1")
+        player2 = AIPlayer("Player2")
+        player3 = AIPlayer("Player3")
+        game = Game(player1, player2, player3)
+        
+        game.play_hand()
+                
+        self.assertEqual(game.determine_winner(), player3)
+                
