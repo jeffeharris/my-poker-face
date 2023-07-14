@@ -478,23 +478,23 @@ class Game:
         self.reset_deck()  # Create a new deck at the beginning of each hand
         self.deck.shuffle()
         self.set_remaining_players()
-        self.set_dealer(self.players[random.randint(0, len(self.remaining_players)-1)])
+        self.set_dealer(self.players[random.randint(0, len(self.players) - 1)])
         self.post_blinds()
 
         print(f"{self.dealer.name}'s deal.\n")
         print(f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
 
         self.deal_hole_cards()
-        self.betting_round()
+        self.betting_round(self.determine_start_player())
 
         self.reveal_flop()
-        self.betting_round()
+        self.betting_round(self.determine_start_player())
 
         self.reveal_turn()
-        self.betting_round()
+        self.betting_round(self.determine_start_player())
 
         self.reveal_river()
-        self.betting_round()
+        self.betting_round(self.determine_start_player())
 
         self.end_hand()
         # TODO: add return winner, self.pot
