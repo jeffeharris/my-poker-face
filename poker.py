@@ -191,7 +191,7 @@ class Player:
 
 
 class AIPlayer(Player):
-    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.7):
+    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         super().__init__(name, starting_money=starting_money)
         self.chat = ChatOpenAI(temperature=ai_temp, model="gpt-3.5-turbo-16k")
         self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
@@ -752,7 +752,8 @@ class Game:
 
 def main():
     # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
-    game = Game(AIPlayer("Phil Hellmuth"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
+    # game = Game(AIPlayer("Phil Hellmuth"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
+    game = Game(AIPlayer("Jon Stewart", ai_temp=.9), AIPlayer("Jim Cramer", ai_temp=.9))
 
     while len(game.players) > 1:
         game.play_hand()
