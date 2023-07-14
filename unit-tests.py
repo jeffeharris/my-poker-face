@@ -2,7 +2,66 @@ import unittest
 from cards import *
 from poker import HandEvaluator, Game, Player, AIPlayer
 from unittest.mock import MagicMock
+import json
 import pickle
+
+
+class TestDetermineStartPlayer(unittest.TestCase):
+    def test_2_remaining_1_folded(self):
+        player1 = Player(name="Player1")
+        player2 = Player(name="Player2")
+        player3 = Player(name="Player3")
+        game = Game(player1, player2, player3)
+
+        game.set_dealer(player1)
+        game.set_current_round("turn")
+        player1.folded = True
+        player2.folded = False
+        player3.folded = False
+
+        self.assertEqual(game.determine_start_player(), player2, msg="Working as expected!")
+        
+    def test_1_remaining_2_folded(self):
+        player1 = Player(name="Player1")
+        player2 = Player(name="Player2")
+        player3 = Player(name="Player3")
+        game = Game(player1, player2, player3)
+
+        game.set_dealer(player1)
+        game.set_current_round("flop")
+        player1.folded = True
+        player2.folded = True
+        player3.folded = False
+
+        self.assertEqual(game.determine_start_player(), player3, msg="Working as expected!")
+        
+    def test_dealer_remaining_1_folded(self):
+        dealer = Player(name="Player1")
+        player2 = Player(name="Player2")
+        player3 = Player(name="Player3")
+        game = Game(dealer, player2, player3)
+
+        game.set_dealer(dealer)
+        game.set_current_round("flop")
+        dealer.folded = False
+        player2.folded = True
+        player3.folded = False
+
+        self.assertEqual(game.determine_start_player(), player3, msg="Working as expected!")
+        
+    def test_dealer_remaining_2_folded(self):
+        dealer = Player(name="Player1")
+        player2 = Player(name="Player2")
+        player3 = Player(name="Player3")
+        game = Game(dealer, player2, player3)
+
+        game.set_dealer(dealer)
+        game.set_current_round("flop")
+        dealer.folded = False
+        player2.folded = True
+        player3.folded = True
+
+        self.assertEqual(game.determine_start_player(), dealer, msg="Working as expected!")
 
 
 class TestHandEvaluator(unittest.TestCase):
@@ -184,16 +243,16 @@ class TestBettingRound(unittest.TestCase):
         ]
         self.assertEqual(game.determine_winner(), player3)
         
-    def simulate_game(self):
+    def test_simulate_game(self):
         player1 = AIPlayer("Player1")
         player2 = AIPlayer("Player2")
         player3 = AIPlayer("Player3")
         game = Game(player1, player2, player3)
         
         game.play_hand()
-                
-        self.assertEqual(game.determine_winner(), player3)
- 
+        
+        self.assertTrue(game.determine_winner() in game.players)
+
 
 if __name__ == '__main__':
     unittest.main()
