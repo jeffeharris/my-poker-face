@@ -719,7 +719,7 @@ class Game:
             start_player = self.players[(self.dealer_position + 3) % len(self.players)]
         else:
             # Find the first player to the left of the dealer who hasn't folded
-            for j in range(1, len(self.players)):
+            for j in range(1, len(self.players)+1):
                 if not self.players[(self.dealer_position + j) % len(self.players)].folded:
                     start_player = self.players[(self.dealer_position + j) % len(self.players)]
                     break
