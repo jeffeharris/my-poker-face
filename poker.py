@@ -456,7 +456,7 @@ class Game:
         return self.players[i % len(self.players)]
 
     @property
-    def get_game_state(self):
+    def game_state(self):
         opponent_positions = ""
 
         for player in self.players:
@@ -597,7 +597,7 @@ class Game:
 
             if not player.folded:
                 self.set_player_options()
-                action, bet = player.action(self.get_game_state)
+                action, bet = player.action(self.game_state)
 
                 if action == "bet" or action == "raise":
                     self.current_bet = bet
