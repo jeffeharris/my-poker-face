@@ -1,6 +1,8 @@
 import unittest
 from cards import *
 from poker import HandEvaluator, Game, Player, AIPlayer
+from unittest.mock import MagicMock
+import pickle
 
 
 class TestHandEvaluator(unittest.TestCase):
@@ -118,6 +120,42 @@ class TestGame(unittest.TestCase):
         ]
         self.assertEqual(game.determine_winner(), player2)
 
+
+class TestBettingRound(unittest.TestCase):
+    def test_first_player_folds(self):
+        # Create a game with 3 players
+        player1 = Player("Player 1")
+        player2 = Player("Player 2")
+        player3 = Player("Player 3")
+        game = Game(player1, player2, player3)
+        game.dealer = player1
+
+        # Set up the game state
+        game.players = [player1, player2, player3]
+        game.current_bet = 10
+        game.pot = 30
+        player1.money = 50
+        player2.money = 50
+        player3.money = 50
+
+        # Mock the Player action method
+        # Player 1 will fold, Player 2 and 3 will call
+        player1.action = MagicMock(return_value=("fold", 0))
+        player2.action = MagicMock(return_value=("call", game.current_bet))
+        player3.action = MagicMock(return_value=("call", game.current_bet))
+
+        # Run the betting round
+        game.betting_round()
+
+        # Check that the game state is as expected
+        self.assertEqual(player1.money, 50)  # Player 1 didn't bet anything
+        self.assertEqual(player2.money, 40)  # Player 2 bet 10
+        self.assertEqual(player3.money, 40)  # Player 3 bet 10
+        self.assertEqual(game.pot, 50)  # The pot increased by 20
+        self.assertTrue(player1.folded)  # Player 1 folded
+        self.assertFalse(player2.folded)  # Player 2 didn't fold
+        self.assertFalse(player3.folded)  # Player 3 didn't fold
+
     def test_three_player_game_3(self):
         player1 = Player("Palyer1")
         player2 = Player("Player2")
@@ -155,4 +193,8 @@ class TestGame(unittest.TestCase):
         game.play_hand()
                 
         self.assertEqual(game.determine_winner(), player3)
-                
+ 
+
+if __name__ == '__main__':
+    unittest.main()
+    

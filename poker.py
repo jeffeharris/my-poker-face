@@ -2,6 +2,7 @@ from collections import Counter
 from cards import *
 import random
 import json
+import pickle
 
 from langchain import ConversationChain
 
@@ -128,7 +129,7 @@ class HandEvaluator:
 
 
 class Player:
-    def __init__(self, name, starting_money=1000):
+    def __init__(self, name="Player", starting_money=10000):
         self.name = name
         self.money = starting_money
         self.cards = []
@@ -137,6 +138,7 @@ class Player:
         self.attitude = ""
         self.options = ""
         self.folded = False
+        self.total_bet_this_round = 0
 
     """@property
     def current_state(self):
@@ -163,7 +165,7 @@ class Player:
         current_pot = game_state['current_pot']
 
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
-              #f"Community cards: {community_cards}\n",
+              f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
 
@@ -189,7 +191,7 @@ class Player:
 
 
 class AIPlayer(Player):
-    def __init__(self, name, starting_money=1000, ai_temp=.5):
+    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.7):
         super().__init__(name, starting_money=starting_money)
         self.chat = ChatOpenAI(temperature=ai_temp, model="gpt-3.5-turbo-16k")
         self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
@@ -219,13 +221,15 @@ class AIPlayer(Player):
         Confidence: {confidence}
         Starting money: {player_money}
 
-        You are {persona} playing a round of Texas Hold em with other people. All of your actions
-        should be taken with your persona, attitude and confidence in mind.
+        You are taking on the role of {persona} playing a round of Texas Hold em with a group of celebrities.
+        All of your actions should be taken with your persona, attitude and confidence in mind.
 
+        Strategy:
         Begin by examining your cards and any cards that may be on the table. Evaluate your hand and decide how
-        you want to play. Based on your personality, you can bluff, be strategic, or any other way you think would
-        be appropriate and fun to approach the game.
+        you want to play. You can bluff, be strategic, or any other way you think would be appropriate and fun to
+        approach the game.
 
+        Direction:
         Feel free to express yourself verbally and physically.
             * Verbal responses should use "" like this: "words you say"
             * Actions you take should use ** like this: *things i'm doing*
@@ -237,7 +241,8 @@ class AIPlayer(Player):
 
         Response template:
         {{{{
-            "action": <enter the action you're going to take here>,
+            "hand_strategy": <short analysis of current situation based on your persona and the cards>,
+            "action": <enter the action you're going to take here, select from the options provided>,
             "amount": <enter the dollar amount to bet here>,
             "comment": <enter what you want to say here, this will be heard by your opponents. try to use this to your advantage>,
             "inner_monologue": <enter your internal thoughts here, these won't be shared with the others at the table>,
@@ -245,10 +250,12 @@ class AIPlayer(Player):
             "physical": <enter a list of strings with the physical actions you take in the order you take them>
             "new_confidence": <a single word indicating how confident you feel about your chances of winning the game>
             "new_attitude": <a single word indicating your attitude in the moment, it can be the same as before or change>
+            "bluff_liklihood": <int representing % liklihood you will bluff>
         }}}}
 
         Sample response for an Eyeore persona
         {{{{
+            "hand_analysis": "With a 2D and 3C I don't feel confident in playing, my odds are 2%",
             "action": "check",
             "amount": 0,
             "comment": "I check",
@@ -259,9 +266,10 @@ class AIPlayer(Player):
             "physical": [ "*looks at feet*",
                           "*lets out a big sigh*",
                           "*slouches shoulders*"
-                        ]
-            "new_confidence": "Abysmal"
-            "new_attiude": "Gloomy"
+                        ],
+            "new_confidence": "Abysmal",
+            "new_attiude": "Gloomy",
+            "bluff_liklihood": 30
         }}}}
 
         Remember {persona}, you're feeling {attitude} and {confidence}.
@@ -274,7 +282,6 @@ class AIPlayer(Player):
             MessagesPlaceholder(variable_name="history"),
             HumanMessagePromptTemplate.from_template("{input}")
         ])
-
         return poker_prompt
 
     def action(self, game_state):
@@ -326,7 +333,7 @@ class AIPlayer(Player):
             response = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
             response_json = json.loads(response)
             
-        print(json.dumps(response_json, indent=4))
+        #print(json.dumps(response_json, indent=4))
 
         action = response_json["action"]
         bet = response_json["amount"]
@@ -385,7 +392,7 @@ Remember {persona}, you're feeling {attitude} and {confidence}. And you can not 
                                   
 What is your move?""")
         # it's ${amount_to_call} to you to call and cover the blind and $20 to bet. Would you like to call or fold?
-        print(sample_string)
+        #print(sample_string)
 
         player_response = self.conversation.predict(input=sample_string)
 
@@ -394,49 +401,80 @@ What is your move?""")
   
 class Game:
     def __init__(self, *players):
+        self.remaining_players = []
+        self.betting_round_state = None
         self.deck = Deck()
         self.starting_players = list(players)
         self.players = list(players)
         self.community_cards = []
         self.current_bet = 0
         self.pot = 0
-        self.small_blind = 10
-        self.current_round = "preflop"
-        self.dealer = None
-        self.small_blind_player = None
-        self.big_blind_player = None
-        self.under_the_gun = None
+        self.small_blind = 50
+        self.current_round = "initializing"
+        self.dealer = Player("dealer")
+        self.small_blind_player = Player("small_blind")
+        self.big_blind_player = Player("big_blind")
+        self.under_the_gun = Player("under_the_gun")
+
+        self.current_player = None
+        self.player_options = []
+        self.min_bet = 100
+        self.max_bet = None
+        self.pot_limit = None
+
+    def set_current_round(self, current_round):
+        self.current_round = current_round
+
+    def reset_deck(self):
+        self.deck = Deck()
+
+    def set_dealer(self, player):
+        self.dealer = player
+
+    def set_current_player(self, player):
+        if type(player) == type(Player("Player")):
+            self.current_player = player
+        elif type(player) is type(int()):
+            self.current_player = self.players[player]
+        else:
+            return False
+
+    @property
+    def cost_to_call(self):
+        # Calculate the cost for the current player to call and be even with the pot
+        return self.current_bet - self.current_player.total_bet_this_round
 
     @property
     def dealer_position(self):
         return self.players.index(self.dealer)
 
+    def get_next_player(self, i):
+        return self.players[i % len(self.players)]
+
     @property
-    def current_state(self):
+    def get_game_state(self):
         opponent_positions = ""
 
         for player in self.players:
             position = f"{player.name} has ${player.money}\n"
             opponent_positions += position
 
-        my_state = {"players": self.players,
-                    "opponent_positions": opponent_positions,
-                    "position": "small blind",
-                    "current_situation": f"The {self.current_round} cards have just been dealt",
-                    "current_pot": self.pot,
-                    "player_options": "call, raise, fold, bet",
-                    "community_cards": self.community_cards,
-                    "current_bet": self.current_bet,
-                    "current_round": self.current_round
-                    }
-
-        return my_state
+        game_state = {"players": self.players,
+                      "opponent_positions": opponent_positions,
+                      "current_situation": f"The {self.current_round} cards have just been dealt",
+                      "current_pot": self.pot,
+                      "player_options": self.player_options,
+                      "community_cards": self.community_cards,
+                      "current_bet": self.current_bet,
+                      "current_round": self.current_round
+                      }
+        return game_state
 
     def play_hand(self):
-        self.deck = Deck()  # Create a new deck at the beginning of each hand
-        self.dealer = self.players[random.randint(0, len(self.players) - 1)]
-
+        self.reset_deck()  # Create a new deck at the beginning of each hand
         self.deck.shuffle()
+        self.set_remaining_players()
+        self.set_dealer(self.players[random.randint(0, len(self.remaining_players)-1)])
         self.post_blinds()
 
         print(f"{self.dealer.name}'s deal.\n")
@@ -455,6 +493,7 @@ class Game:
         self.betting_round()
 
         self.end_hand()
+        # TODO: add return winner, self.pot
 
     def deal_hole_cards(self):
         for player in self.players:
@@ -474,22 +513,17 @@ class Game:
         self.pot += small_blind + big_blind
         self.current_bet = big_blind
 
-    @property
-    def remaining_players(self):
-        remaining_players = list(self.players)
-
+    def set_remaining_players(self):
+        remaining_players = []
         for player in remaining_players:
-            if player.folded:
-                remaining_players.remove(player)
+            if not player.folded:
+                remaining_players.append(player)
+        self.remaining_players = remaining_players
 
-        return remaining_players
-
-    def bad_betting_round(self):
+    """def bad_betting_round(self):
         if len(self.remaining_players) <= 1:
             return  # round is over if there's only 1 player left in the hand
-
         i = None    # initialize counter
-
         if self.current_round == "preflop":
             i = (self.dealer_position + 3) % len(self.players)  # Player to left of big blind starts
             last_raiser = self.big_blind_player
@@ -545,25 +579,12 @@ class Game:
 
             i = (i + 1) % len(self.players)
 
-        self.current_bet = 0
+        self.current_bet = 0"""
 
+    # TODO change to use the "last_raised" vs. "start_"player"
     def betting_round(self, start_player=None):
-        if len(self.remaining_players) <= 1:
-            return  # round is over if there's only 1 player left in the hand
-
         if start_player is None:  # This is the start of a new betting round
-            if self.current_round == "preflop":
-                start_player = self.players[(self.dealer_position + 3) % len(self.players)]  # Player to left of big blind starts
-            else:
-                # Find the first player to the left of the dealer who hasn't folded
-                for j in range(1, len(self.players)):
-                    if not self.players[(self.dealer_position + j) % len(self.players)].folded:
-                        start_player = self.players[(self.dealer_position + j) % len(self.players)]
-                        break
-
-            # If all players have folded, end the betting round
-            if start_player is None:
-                return
+            start_player = self.determine_start_player()
 
         i = self.players.index(start_player)  # Start at the start_player
 
@@ -571,14 +592,17 @@ class Game:
             player = self.players[i % len(self.players)]
 
             if not player.folded:
-                action, bet = player.action(self.current_state)
+                self.set_player_options()
+                action, bet = player.action(self.get_game_state)
 
                 if action == "bet" or action == "raise":
                     self.current_bet = bet
                     self.pot += bet
                     player.money -= bet
                     
-                    next_player = self.players[(i + 1) % len(self.players)]  # The next player to act
+                    i += 1
+
+                    next_player = self.players[i % len(self.players)]  # The next player to act
 
                     # A bet or raise starts a new betting round
                     # Call betting_round recursively with the next player as the start_player
@@ -588,6 +612,9 @@ class Game:
                     self.pot += self.current_bet
                 elif action == "fold":
                     player.folded = True
+                    if len(self.remaining_players) <= 1:
+                        # self.current_bet = 0
+                        break
                 elif action == "check" and self.current_bet == 0:
                     pass
                 else:
@@ -601,7 +628,10 @@ class Game:
             # If we've gone through all players without starting a new betting round, the betting round is over
             if self.players[i] == start_player:
                 break
-
+                
+        if len(self.remaining_players) <= 1:
+            return
+        
         self.current_bet = 0
         
     def reveal_flop(self):
@@ -682,12 +712,51 @@ class Game:
         
         self.rotate_dealer()
 
+    def determine_start_player(self):
+        start_player = None
+        if self.current_round == "preflop":
+            # Player to left of big blind starts
+            start_player = self.players[(self.dealer_position + 3) % len(self.players)]
+        else:
+            # Find the first player to the left of the dealer who hasn't folded
+            for j in range(1, len(self.players)):
+                if not self.players[(self.dealer_position + j) % len(self.players)].folded:
+                    start_player = self.players[(self.dealer_position + j) % len(self.players)]
+                    break
+        return start_player
+
+    def set_betting_round_state(self):
+        # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
+        self.betting_round_state = f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} to call, you can also raise or fold."
+
+    @staticmethod
+    def export_game(self, file_name='game_state.pkl'):
+        with open(file_name, 'wb') as f:
+            return pickle.dump(self, f)
+
+    @staticmethod
+    def load_game(file_name='game_state.pkl'):
+        with open(file_name, 'rb') as f:
+            return pickle.load(f)
+
+    def set_player_options(self):
+        options = []
+        # Is there a bet to call for the player?
+
+        # How much is it to call the bet for the player?
+
+        # Does the player have enough to call
+        # if self.current_player.money <
+        pass
+    
 
 def main():
     # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
-    game = Game(Player("Jeff"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
+    game = Game(AIPlayer("Phil Hellmuth"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
+
     while len(game.players) > 1:
         game.play_hand()
+        game.current_bet = 0
         play_again = input("Play another hand? (y/n): ")
         if play_again.lower() != "y":
             break
