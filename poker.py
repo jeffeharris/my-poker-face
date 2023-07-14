@@ -616,6 +616,7 @@ class Game:
                     self.pot += self.current_bet
                 elif action == "fold":
                     player.folded = True
+                    self.set_remaining_players()
                     if len(self.remaining_players) <= 1:
                         # self.current_bet = 0
                         break
