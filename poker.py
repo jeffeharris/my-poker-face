@@ -633,9 +633,6 @@ class Game:
             if self.players[i] == start_player:
                 break
                 
-        if len(self.remaining_players) <= 1:
-            return
-        
         self.current_bet = 0
         
     def reveal_flop(self):
