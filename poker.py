@@ -519,7 +519,7 @@ class Game:
 
     def set_remaining_players(self):
         remaining_players = []
-        for player in remaining_players:
+        for player in self.players:
             if not player.folded:
                 remaining_players.append(player)
         self.remaining_players = remaining_players
