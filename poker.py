@@ -401,11 +401,11 @@ What is your move?""")
   
 class Game:
     def __init__(self, *players):
-        self.remaining_players = []
         self.betting_round_state = None
         self.deck = Deck()
         self.starting_players = list(players)
         self.players = list(players)
+        self.remaining_players = list(players)
         self.community_cards = []
         self.current_bet = 0
         self.pot = 0
@@ -418,9 +418,13 @@ class Game:
 
         self.current_player = None
         self.player_options = []
-        self.min_bet = 100
+        self.min_bet = self.small_blind * 2
         self.max_bet = None
         self.pot_limit = None
+        self.chat = ChatOpenAI(temperature=.3, model="gpt-3.5-turbo-16k")
+        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix="Poker Game Host", human_prefix="Inner Guide")
+        # TODO: create a prompt for the game manager
+        # self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
 
     def set_current_round(self, current_round):
         self.current_round = current_round
