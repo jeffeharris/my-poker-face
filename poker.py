@@ -191,7 +191,7 @@ class Player:
 class AIPlayer(Player):
     def __init__(self, name, starting_money=1000, ai_temp=.5):
         super().__init__(name, starting_money=starting_money)
-        self.chat = ChatOpenAI(temperature=ai_temp)
+        self.chat = ChatOpenAI(temperature=ai_temp, model="gpt-3.5-turbo-16k")
         self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
         # TODO: create logic to pull the Human prefix from the Human player name
         self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
@@ -319,7 +319,13 @@ class AIPlayer(Player):
         return action, bet'''
 
         response = self.retrieve_response(game_state)
-        response_json = json.loads(response)
+        try:
+            response_json = json.loads(response)
+        except:
+            print(response)
+            response = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
+            response_json = json.loads(response)
+            
         print(json.dumps(response_json, indent=4))
 
         action = response_json["action"]
@@ -604,6 +610,7 @@ class Game:
         winner.money += self.pot
         self.pot = 0
         self.community_cards = []
+        self.current_round = "preflop"
         # Clear the players' hands
         for player in self.players:
             player.cards = []
