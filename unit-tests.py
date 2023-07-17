@@ -254,6 +254,42 @@ class TestBettingRound(unittest.TestCase):
         self.assertTrue(game.determine_winner() in game.players)
 
 
+class TestDeterminePlayerOptions(unittest.TestCase):
+    def test_everyone_checks_to_big_blind(self):
+        game = init_basic_player_game(3)
+
+        game.big_blind_player = game.players[2]             # Player 3 is Big Blind
+        game.current_player = game.players[1]               # It's big blind's turn
+        game.last_raiser = game.players[2]                  # Big Blind starts as last raiser
+        game.small_blind_player = game.players[1]
+        
+        game.pot = 150                                      # All 3 players have called the big blind
+        game.players[0].total_bet_this_round = 50
+        game.small_blind_player.total_bet_this_round = 50
+        game.big_blind_player.total_bet_this_round = 50
+
+        game.current_bet = 50                               # High bet in the hand is $50
+        game.last_action = 'call'                           
+        game.current_round = 'preflop'
+        game.determine_player_options()
+
+        print(game.player_options)
+        self.assertEqual(game.player_options, ['check', 'raise', 'all-in'])
+
+
 if __name__ == '__main__':
     unittest.main()
-    
+
+
+def init_basic_player_game(num_players=2):
+    players = []
+    for i in range(1, num_players+1):
+        players.append(Player(f"Player{i}"))
+    return Game(players)
+
+
+def init_ai_player_game(num_players=2):
+    players = []
+    for i in range(1, num_players+1):
+        players.append(Player(f"Player{i}"))
+    return Game(players)
