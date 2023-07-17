@@ -400,7 +400,15 @@ What is your move?""")
 
   
 class Game:
-    def __init__(self, *players):
+    def __init__(self, player_list=None, player_tuple=None):
+        self.all_in_allowed = True
+        if player_list is not None:
+            self.starting_players = player_list
+        elif player_tuple is not None:
+            self.starting_players = list(player_tuple)
+        self.players = list(self.starting_players)
+        self.remaining_players = list(self.starting_players)
+        self.last_raiser = None
         self.betting_round_state = None
         self.deck = Deck()
         self.starting_players = list(players)
@@ -421,8 +429,9 @@ class Game:
         self.min_bet = self.small_blind * 2
         self.max_bet = None
         self.pot_limit = None
-        self.chat = ChatOpenAI(temperature=.3, model="gpt-3.5-turbo-16k")
-        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix="Poker Game Host", human_prefix="Inner Guide")
+        # self.chat = ChatOpenAI(temperature=.3, model="gpt-3.5-turbo-16k")
+        # self.memory = ConversationBufferMemory(return_messages=True,
+        # ai_prefix="Poker Game Host", human_prefix="Inner Guide")
         # TODO: create a prompt for the game manager
         # self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
 
