@@ -533,67 +533,6 @@ class Game:
                 remaining_players.append(player)
         self.remaining_players = remaining_players
 
-    """def bad_betting_round(self):
-        if len(self.remaining_players) <= 1:
-            return  # round is over if there's only 1 player left in the hand
-        i = None    # initialize counter
-        if self.current_round == "preflop":
-            i = (self.dealer_position + 3) % len(self.players)  # Player to left of big blind starts
-            last_raiser = self.big_blind_player
-        else:
-            # Find the first player to the left of the dealer who hasn't folded
-            for j in range(1, len(self.players)):
-                if not self.players[(self.dealer_position + j) % len(self.players)].folded:
-                    # Find the index for the player in the remaining_players_list
-                    i = self.remaining_players.index(self.players[(self.dealer_position + j) % len(self.players)])
-                    break
-
-            # If all players have folded, end the betting round
-            if i is None:
-                return
-
-            last_raiser = self.remaining_players[i]  # Assign last_raiser from remaining_players, not players
-
-        new_bet = False
-
-        while True:
-            player = self.players[i % len(self.players)]
-
-            # If we've gone around to the last raiser without encountering any new raises, end the betting round
-            if player == last_raiser and not new_bet and not last_raiser.folded:
-                break
-
-            if not player.folded:
-                action, bet = player.action(self.current_state)
-
-                if action == "bet" or action == "raise":
-                    self.current_bet = bet
-                    self.pot += bet
-                    player.money -= bet
-                    last_raiser = player
-                    new_bet = True
-                elif action == "call":
-                    player.money -= self.current_bet
-                    self.pot += self.current_bet
-                    new_bet = False
-                elif action == "fold":
-                    player.folded = True
-                    # Update last_raiser to the next active player
-                    if player == last_raiser:
-                        last_raiser = self.remaining_players[i % len(self.remaining_players)]
-                    new_bet = False
-                elif action == "check" and self.current_bet == 0:
-                    new_bet = False  # No new bet is made when a player checks
-                else:
-                    print("Invalid action")
-
-                # SPEAK
-                print(f"\n{player.name}:\t{player.speak()}\n")
-
-            i = (i + 1) % len(self.players)
-
-        self.current_bet = 0"""
-
     # TODO change to use the "last_raised" vs. "start_"player"
     def betting_round(self, start_player=None):
         if start_player is None:  # This is the start of a new betting round
