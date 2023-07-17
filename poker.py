@@ -472,16 +472,16 @@ class Game:
             position = f"{player.name} has ${player.money}\n"
             opponent_positions += position
 
-        game_state = {"players": self.players,
-                      "opponent_positions": opponent_positions,
-                      "current_situation": f"The {self.current_round} cards have just been dealt",
-                      "current_pot": self.pot,
-                      "player_options": self.player_options,
-                      "community_cards": self.community_cards,
-                      "current_bet": self.current_bet,
-                      "current_round": self.current_round
-                      }
-        return game_state
+        current_game_state = {"players": self.players,
+                              "opponent_positions": opponent_positions,
+                              "current_situation": f"The {self.current_round} cards have just been dealt",
+                              "current_pot": self.pot,
+                              "player_options": self.player_options,
+                              "community_cards": self.community_cards,
+                              "current_bet": self.current_bet,
+                              "current_round": self.current_round
+                              }
+        return current_game_state
 
     def play_hand(self):
         self.reset_deck()  # Create a new deck at the beginning of each hand
