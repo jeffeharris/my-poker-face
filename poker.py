@@ -461,8 +461,11 @@ class Game:
     def dealer_position(self):
         return self.players.index(self.dealer)
 
-    def get_next_player(self, i):
-        return self.players[i % len(self.players)]
+    @property
+    def next_player(self):
+        index = self.remaining_players.index(self.current_player)
+        index += 1
+        return self.remaining_players[index % len(self.remaining_players)]
 
     @property
     def game_state(self):
