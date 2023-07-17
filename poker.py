@@ -358,22 +358,22 @@ class AIPlayer(Player):
     def speak(self):
         return self.chat_message
 
-    def retrieve_response(self, game_state):
+    def retrieve_response(self, players_game_state):
         persona = self.name
         confidence = self.confidence
         attitude = self.attitude
-        opponents = game_state["players"]
+        opponents = players_game_state["players"]
         number_of_opponents = len(opponents) - 1
         position = "small blind"
         player_money = self.money
-        current_situation = game_state["current_situation"]
+        current_situation = players_game_state["current_situation"]
         hole_cards = self.cards
-        community_cards = game_state["community_cards"]
-        current_bet = game_state["current_bet"]
-        current_pot = game_state["current_pot"]
-        player_options = game_state["player_options"]
-        opponent_positions = game_state["opponent_positions"]
-        current_round = game_state["current_round"]
+        community_cards = players_game_state["community_cards"]
+        current_bet = players_game_state["current_bet"]
+        current_pot = players_game_state["current_pot"]
+        player_options = players_game_state["player_options"]
+        opponent_positions = players_game_state["opponent_positions"]
+        current_round = players_game_state["current_round"]
 
         sample_string = (
             f"""Persona: {persona}
