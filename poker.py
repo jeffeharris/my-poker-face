@@ -741,16 +741,34 @@ class Game:
         with open(file_name, 'rb') as f:
             return pickle.load(f)
 
-    def set_player_options(self):
-        options = []
-        # Is there a bet to call for the player?
-
+    def determine_player_options(self):
         # How much is it to call the bet for the player?
-
+        players_cost_to_call = self.current_bet - self.current_player.total_bet_this_round
         # Does the player have enough to call
-        # if self.current_player.money <
-        pass
-    
+        player_has_enough_to_call = self.current_player.money > players_cost_to_call
+        # Is the current player also the big_blind TODO: add "and have they played this hand yet"
+        current_player_is_big_blind = self.current_player is self.big_blind_player
+
+        if current_player_is_big_blind and self.current_round == "preflop":
+            player_options = ['check', 'raise', 'all-in']   # If the current player is last to act aka big blind, and we're still in the blind round
+        else:
+            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
+            if self.cost_to_call == 0:
+                player_options.remove('fold')
+            if self.cost_to_call > 0:
+                player_options.remove('check')
+            if not player_has_enough_to_call or players_cost_to_call == 0:
+                player_options.remove('call')
+            if self.current_bet > 0:
+                player_options.remove('bet')
+            if self.current_bet - self.current_player.money == 0:
+                player_options.remove('raise')
+            if not self.all_in_allowed:
+                player_options.remove('all-in')
+            
+        self.player_options = player_options.copy()
+        self.current_player.options = player_options.copy()
+
 
 def main():
     # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
