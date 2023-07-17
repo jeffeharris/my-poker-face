@@ -410,10 +410,8 @@ class Game:
         self.remaining_players = list(self.starting_players)
         self.last_raiser = None
         self.betting_round_state = None
+        self.last_action = None     # represents the last action taken in a betting round
         self.deck = Deck()
-        self.starting_players = list(players)
-        self.players = list(players)
-        self.remaining_players = list(players)
         self.community_cards = []
         self.current_bet = 0
         self.pot = 0
@@ -423,7 +421,6 @@ class Game:
         self.small_blind_player = Player("small_blind")
         self.big_blind_player = Player("big_blind")
         self.under_the_gun = Player("under_the_gun")
-
         self.current_player = None
         self.player_options = []
         self.min_bet = self.small_blind * 2
