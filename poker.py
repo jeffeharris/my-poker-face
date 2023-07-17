@@ -721,7 +721,8 @@ class Game:
 def main():
     # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
     # game = Game(AIPlayer("Phil Hellmuth"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
-    game = Game(AIPlayer("Jon Stewart", ai_temp=.9), AIPlayer("Jim Cramer", ai_temp=.9))
+    # game = Game(AIPlayer("Jon Stewart", ai_temp=.9), AIPlayer("Jim Cramer", ai_temp=.9))
+    game = Game([Player("Player1"), Player("Player2")])
 
     while len(game.players) > 1:
         game.play_hand()
