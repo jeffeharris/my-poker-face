@@ -664,16 +664,19 @@ class Game:
 
     def determine_start_player(self):
         start_player = None
+        last_action = None
         if self.current_round == "preflop":
             # Player to left of big blind starts
             start_player = self.players[(self.dealer_position + 3) % len(self.players)]
+            last_action = self.players[(self.dealer_position + 2) % len(self.players)]
         else:
             # Find the first player to the left of the dealer who hasn't folded
             for j in range(1, len(self.players)+1):
                 if not self.players[(self.dealer_position + j) % len(self.players)].folded:
                     start_player = self.players[(self.dealer_position + j) % len(self.players)]
+                    last_action = self.remaining_players[(self.players.index(start_player)-1)]
                     break
-        return start_player
+        return start_player, last_action
 
     def set_betting_round_state(self):
         # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
