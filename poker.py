@@ -418,6 +418,8 @@ What is your move?""")
 
         player_response = self.conversation.predict(input=sample_string)
 
+        print(player_response)
+
         return player_response
 
   
