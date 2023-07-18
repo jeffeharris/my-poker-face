@@ -501,7 +501,9 @@ class Game:
                               "player_options": self.player_options,
                               "community_cards": self.community_cards,
                               "current_bet": self.current_bet,
-                              "current_round": self.current_round
+                              "current_round": self.current_round,
+                              "cost_to_call": self.cost_to_call,
+                              "last_cation": self.last_action
                               }
         return current_game_state
 
