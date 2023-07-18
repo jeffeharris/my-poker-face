@@ -654,7 +654,11 @@ class Game:
         """)
         
     def rotate_dealer(self):
-        self.dealer = (self.dealer_position + 1) % len(self.players)
+        current_dealer_starting_player_index = self.starting_players.index(self.dealer)
+        new_dealer_starting_player_index = (current_dealer_starting_player_index + 1) % len(self.starting_players)
+        self.dealer = self.starting_players[new_dealer_starting_player_index]
+        if self.dealer.money <= 0:
+            self.rotate_dealer()
 
     def determine_winner(self):
         hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand())
