@@ -210,16 +210,22 @@ class AIPlayer(Player):
         self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
         # TODO: create logic to pull the Human prefix from the Human player name
         self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
-        
-        print(f"Initializing {self.name}")
+        self.confidence = "Unsure"
+        self.attitude = "Distracted"
 
-        self.confidence = self.chat([HumanMessage(
-                content=f"Describe {self.name}'s confidence as they enter a poker game in less than 50 words")]).content
-        print(self.confidence)
+    def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players"):
+        response = self.chat([HumanMessage(content=f"""You are {self.name}'s inner voice. Describe their {attribute}
+        as they enter a poker game against {opponents}. This description is being used for a simulation of a poker game
+        and we want to have a variety of personalities and emotions for the players.
+        Your phrasing must be as if you are their inner voice and you are speaking to them. {constraints}
+        Provide 3 responses with different levels of {attribute} (low, regular, high) and put them in JSON format like:
+            {{{{"responses" =  ["string", "string", "string"]}}}}""")])
         
-        self.attitude = self.chat([HumanMessage(
-                content=f"Describe {self.name}'s attitude as they enter a poker game in less than 50 words")]).content
-        print(self.attitude)
+        content = json.loads(response.content)
+        selection = content["responses"]
+        random.shuffle(selection)
+        print(f"{selection[0]}\n")
+        return selection[0]
 
     def create_prompt(self):
         persona = self.name
