@@ -764,27 +764,27 @@ class Game:
 
     def determine_player_options(self):
         # How much is it to call the bet for the player?
-        players_cost_to_call = self.current_bet - self.current_player.total_bet_this_round
+        players_cost_to_call = self.current_bet - self.current_player.total_bet_this_hand
         # Does the player have enough to call
         player_has_enough_to_call = self.current_player.money > players_cost_to_call
         # Is the current player also the big_blind TODO: add "and have they played this hand yet"
         current_player_is_big_blind = self.current_player is self.big_blind_player
 
-        if current_player_is_big_blind and self.current_round == "preflop":
+        if current_player_is_big_blind and self.current_round == "preflop" and self.current_bet == self.small_blind*2:
             player_options = ['check', 'raise', 'all-in']   # If the current player is last to act aka big blind, and we're still in the blind round
         else:
             player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
-            if self.cost_to_call == 0:
+            if players_cost_to_call == 0:
                 player_options.remove('fold')
-            if self.cost_to_call > 0:
+            if players_cost_to_call > 0:
                 player_options.remove('check')
             if not player_has_enough_to_call or players_cost_to_call == 0:
                 player_options.remove('call')
-            if self.current_bet > 0:
+            if self.current_bet > 0 or players_cost_to_call > 0:
                 player_options.remove('bet')
-            if self.current_bet - self.current_player.money == 0:
+            if self.current_bet - self.current_player.money == 0 or 'bet' in player_options:
                 player_options.remove('raise')
-            if not self.all_in_allowed:
+            if not self.all_in_allowed or self.current_player.money == 0:
                 player_options.remove('all-in')
             
         self.player_options = player_options.copy()
