@@ -422,6 +422,7 @@ What is your move?""")
   
 class Game:
     def __init__(self, player_list=None, player_tuple=None):
+        self.discard_pile = []  # list for the discarded cards to be placed in
         self.all_in_allowed = True
         if player_list is not None:
             self.starting_players = player_list
@@ -505,10 +506,9 @@ class Game:
         return current_game_state
 
     def play_hand(self):
-        self.reset_deck()  # Create a new deck at the beginning of each hand
         self.deck.shuffle()
         self.set_remaining_players()
-        self.set_dealer(self.players[random.randint(0, len(self.players) - 1)])
+        self.set_current_round("preflop")
         self.post_blinds()
 
         print(f"{self.dealer.name}'s deal.\n")
@@ -630,6 +630,7 @@ class Game:
                 break
         
     def reveal_flop(self):
+        self.discard_pile = self.deck.deal(1)
         self.community_cards = self.deck.deal(3)
         self.current_round = "flop"
         print(f"""
@@ -638,6 +639,7 @@ class Game:
         """)
 
     def reveal_turn(self):
+        self.discard_pile = self.deck.deal(1)
         self.community_cards += self.deck.deal(1)
         self.current_round = "turn"
         print(f"""
@@ -646,6 +648,7 @@ class Game:
         """)
 
     def reveal_river(self):
+        self.discard_pile = self.deck.deal(1)
         self.community_cards += self.deck.deal(1)
         self.current_round = "river"
         print(f"""
