@@ -306,11 +306,13 @@ class AIPlayer(Player):
     def action(self, game_state):
 
         community_cards = game_state["community_cards"]
+        cost_to_call = game_state["cost_to_call"]
         current_bet = game_state["current_bet"]
         current_pot = game_state["current_pot"]
 
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
+              f"Cost to call: {cost_to_call}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
 
