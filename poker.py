@@ -265,7 +265,7 @@ class AIPlayer(Player):
             "amount": <enter the dollar amount to bet here>,
             "comment": <enter what you want to say here, this will be heard by your opponents. try to use this to your advantage>,
             "inner_monologue": <enter your internal thoughts here, these won't be shared with the others at the table>,
-            "persona_response": <based on your persona, attitude, and confidence, provide a unique response to the situation>,
+            "persona_response": <based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,
             "physical": <enter a list of strings with the physical actions you take in the order you take them>
             "new_confidence": <a single word indicating how confident you feel about your chances of winning the game>
             "new_attitude": <a single word indicating your attitude in the moment, it can be the same as before or change>
