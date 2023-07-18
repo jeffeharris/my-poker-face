@@ -188,6 +188,19 @@ class Player:
 
     def speak(self):
         return self.chat_message
+    
+    def player_to_right(self, players, shift=1):
+        index = (self.get_index(players) + shift) % len(players)
+        return players[index]
+    
+    def player_to_left(self, players, shift=1):
+        players = players.copy()
+        players.reverse()
+        index = (self.get_index(players) + shift) % len(players)
+        return players[index]
+        
+    def get_index(self, players):
+        return players.index(self)
 
 
 class AIPlayer(Player):
