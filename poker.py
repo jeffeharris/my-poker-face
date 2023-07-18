@@ -792,14 +792,62 @@ class Game:
 
 
 def main():
-    # game = Game(Player("Jeff"), AIPlayer("Kanye West"), AIPlayer("Tiger Woods"), AIPlayer("Charles Barkley"))
-    # game = Game(AIPlayer("Phil Hellmuth"), AIPlayer("Tom Cruise"), AIPlayer("Whoopi Goldberg"))
-    # game = Game(AIPlayer("Jon Stewart", ai_temp=.9), AIPlayer("Jim Cramer", ai_temp=.9))
-    game = Game([Player("Player1"), Player("Player2")])
+    definites = [
+        Player("Jeff"),
+        AIPlayer("Dr. Seuss"),
+        AIPlayer("Dr. Oz")
+    ]
+
+    celebrities = [
+        AIPlayer("Ace Ventura"),
+        AIPlayer("Khloe and Kim Khardashian"),
+        AIPlayer("Fred Durst"),
+        AIPlayer("Tom Cruise"),
+        AIPlayer("James Bond"),
+        AIPlayer("Jon Stewart"),
+        AIPlayer("Jim Cramer", ai_temp=.7),
+        AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
+        AIPlayer("Lizzo"),
+        AIPlayer("Bill Clinton"),
+        AIPlayer("Barack Obama"),
+        AIPlayer("Jesus Christ"),
+        AIPlayer("Triumph the Insult Dog"),
+        AIPlayer("Donald Trump", ai_temp=.7),
+        AIPlayer("Batman"),
+        AIPlayer("Deadpool"),
+        AIPlayer("Lance Armstrong"),
+        AIPlayer("A Mime"),
+        AIPlayer("Jay Gatsby"),
+        AIPlayer("Whoopi Goldberg"),
+        AIPlayer("Dave Chappelle"),
+        AIPlayer("Chris Rock"),
+        AIPlayer("Sarah Silverman")
+    ]
+
+    basic_test_players = [
+        Player("Player1"),
+        Player("Player2"),
+        Player("Player3"),
+        Player("Player4")
+    ]
+
+    """random.shuffle(celebrities)
+    randos = celebrities[0:(5-len(definites))]
+    players = definites + randos
+    for player in players:
+        if isinstance(player, AIPlayer):
+            player.confidence = player.initialize_attribute("confidence")
+            player.attitude = player.initialize_attribute("attittude")
+    game = Game(players)"""
+
+    players = basic_test_players
+    game = Game(players)
+
+    # game.set_dealer(players[random.randint(0, len(players) - 1)])
+    game.set_dealer(players[1])
 
     while len(game.players) > 1:
         game.play_hand()
-        game.current_bet = 0
         play_again = input("Play another hand? (y/n): ")
         if play_again.lower() != "y":
             break
