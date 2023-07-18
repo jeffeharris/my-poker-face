@@ -469,7 +469,7 @@ class Game:
     @property
     def cost_to_call(self):
         # Calculate the cost for the current player to call and be even with the pot
-        return self.current_bet - self.current_player.total_bet_this_round
+        return self.current_bet - self.current_player.total_bet_this_hand
 
     @property
     def dealer_position(self):
