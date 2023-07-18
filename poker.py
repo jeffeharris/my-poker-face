@@ -683,27 +683,33 @@ class Game:
         return winner
 
     def end_hand(self):
+        # Evaluate and announce the winner
         winner = self.determine_winner()
         print(f"The winner is {winner.name}! They win the pot of {self.pot}")
 
-        winner.money += self.pot
-        self.pot = 0
-        self.community_cards = []
-        self.current_round = "preflop"
-        # Clear the players' hands
-        for player in self.players:
-            player.cards = []
         # Check if the game should continue
         self.players = [player for player in self.starting_players if player.money > 0]
         if len(self.players) == 1:
             print(f"{self.players[0].name} is the last player remaining and wins the game!")
             return
-        
-        for player in self.players:
-            player.folded = False
-        
-        self.rotate_dealer()
+        elif len(self.players) == 0:
+            print("You... you all lost. Somehow you all have no money.")
+            return
 
+        # Reset game for next round
+        winner.money += self.pot
+        self.pot = 0
+        self.community_cards = []
+        self.current_round = "preflop"
+        self.rotate_dealer()
+        self.reset_deck()
+
+        # Reset players
+        for player in self.players:
+            player.cards = []
+            player.folded = False
+            player.total_bet_this_hand = 0
+    
     def determine_start_player(self):
         start_player = None
         last_action = None
