@@ -169,10 +169,7 @@ class Player:
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
 
-        if current_bet == 0:
-            action = input("Enter action (check/bet): ")
-        else:
-            action = input("Enter action (call/raise/fold): ")
+        action = input(f"Enter action {game_state['player_options']}: ")
 
         bet = 0
         if action in ("bet", "raise"):
