@@ -138,7 +138,7 @@ class Player:
         self.attitude = ""
         self.options = ""
         self.folded = False
-        self.total_bet_this_round = 0
+        self.total_bet_this_hand = 0
 
     """@property
     def current_state(self):
