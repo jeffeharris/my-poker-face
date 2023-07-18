@@ -477,9 +477,14 @@ class Game:
 
     @property
     def next_player(self):
-        index = self.remaining_players.index(self.current_player)
-        index += 1
-        return self.remaining_players[index % len(self.remaining_players)]
+        index = self.players.index(self.current_player)
+
+        while True:
+            index = (index + 1) % len(self.players)     # increment the index by 1 and wrap around the loop if needed
+            player = self.players[index]
+            if player in self.remaining_players:
+                remaining_players_index = self.remaining_players.index(player)
+                return self.remaining_players[remaining_players_index]
 
     @property
     def game_state(self):
