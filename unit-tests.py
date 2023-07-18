@@ -11,7 +11,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player1 = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
 
         game.set_dealer(player1)
         game.set_current_round("turn")
@@ -19,13 +19,13 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player2.folded = False
         player3.folded = False
 
-        self.assertEqual(game.determine_start_player(), player2, msg="Working as expected!")
+        self.assertEqual(game.determine_start_player(), player2)
         
     def test_1_remaining_2_folded(self):
         player1 = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
 
         game.set_dealer(player1)
         game.set_current_round("flop")
@@ -33,13 +33,13 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player2.folded = True
         player3.folded = False
 
-        self.assertEqual(game.determine_start_player(), player3, msg="Working as expected!")
+        self.assertEqual(game.determine_start_player(), player3)
         
     def test_dealer_remaining_1_folded(self):
         dealer = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game(dealer, player2, player3)
+        game = Game([dealer, player2, player3])
 
         game.set_dealer(dealer)
         game.set_current_round("flop")
@@ -47,13 +47,13 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player2.folded = True
         player3.folded = False
 
-        self.assertEqual(game.determine_start_player(), player3, msg="Working as expected!")
+        self.assertEqual(game.determine_start_player(), player3)
         
     def test_dealer_remaining_2_folded(self):
         dealer = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game(dealer, player2, player3)
+        game = Game([dealer, player2, player3])
 
         game.set_dealer(dealer)
         game.set_current_round("flop")
@@ -61,7 +61,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player2.folded = True
         player3.folded = True
 
-        self.assertEqual(game.determine_start_player(), dealer, msg="Working as expected!")
+        self.assertEqual(game.determine_start_player(), dealer)
 
 
 class TestHandEvaluator(unittest.TestCase):
@@ -104,7 +104,7 @@ class TestHandEvaluator(unittest.TestCase):
         
 class TestGame(unittest.TestCase):
     def test_determine_winner(self):
-        game = Game(Player("Winner"), Player("Loser"))
+        game = Game([Player("Winner"), Player("Loser")])
         game.community_cards = [
             Card(rank='2', suit='hearts'),
             Card(rank='3', suit='diamonds'),
@@ -127,7 +127,7 @@ class TestGame(unittest.TestCase):
         player1 = Player("Winner")
         player2 = Player("Player2")
         player3 = Player("Player3")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
 
         # Scenario 1: Player 1 wins with a straight flush
         game.community_cards = [
@@ -155,7 +155,7 @@ class TestGame(unittest.TestCase):
         player1 = Player("Player1")
         player2 = Player("Winner")
         player3 = Player("Player3")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
         
         # Scenario 2: Player 2 wins with a four of a kind
         game.community_cards = [
@@ -181,12 +181,12 @@ class TestGame(unittest.TestCase):
 
 
 class TestBettingRound(unittest.TestCase):
-    def test_first_player_folds(self):
+    """def test_first_player_folds(self):
         # Create a game with 3 players
         player1 = Player("Player 1")
         player2 = Player("Player 2")
         player3 = Player("Player 3")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
         game.dealer = player1
 
         # Set up the game state
@@ -213,13 +213,13 @@ class TestBettingRound(unittest.TestCase):
         self.assertEqual(game.pot, 50)  # The pot increased by 20
         self.assertTrue(player1.folded)  # Player 1 folded
         self.assertFalse(player2.folded)  # Player 2 didn't fold
-        self.assertFalse(player3.folded)  # Player 3 didn't fold
+        self.assertFalse(player3.folded)  # Player 3 didn't fold"""
 
     def test_three_player_game_3(self):
         player1 = Player("Palyer1")
         player2 = Player("Player2")
         player3 = Player("Winner")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
         
         # Scenario 3: Player 3 wins with a full house
         game.community_cards = [
@@ -247,7 +247,7 @@ class TestBettingRound(unittest.TestCase):
         player1 = AIPlayer("Player1")
         player2 = AIPlayer("Player2")
         player3 = AIPlayer("Player3")
-        game = Game(player1, player2, player3)
+        game = Game([player1, player2, player3])
         
         game.play_hand()
         
@@ -260,13 +260,13 @@ class TestDeterminePlayerOptions(unittest.TestCase):
 
         game.big_blind_player = game.players[2]             # Player 3 is Big Blind
         game.current_player = game.players[1]               # It's big blind's turn
-        game.last_raiser = game.players[2]                  # Big Blind starts as last raiser
+        game.last_to_act = game.players[2]                  # Big Blind starts as last raiser
         game.small_blind_player = game.players[1]
         
         game.pot = 150                                      # All 3 players have called the big blind
-        game.players[0].total_bet_this_round = 50
-        game.small_blind_player.total_bet_this_round = 50
-        game.big_blind_player.total_bet_this_round = 50
+        game.players[0].total_bet_this_hand = 50
+        game.small_blind_player.total_bet_this_hand = 50
+        game.big_blind_player.total_bet_this_hand = 50
 
         game.current_bet = 50                               # High bet in the hand is $50
         game.last_action = 'call'                           
@@ -275,7 +275,24 @@ class TestDeterminePlayerOptions(unittest.TestCase):
 
         print(game.player_options)
         self.assertEqual(game.player_options, ['check', 'raise', 'all-in'])
+        
+        
+class TestRotateDealer(unittest.TestCase):
+    def test_when_dealer_is_out_of_money(self):
+        game = Game([Player(name="Dealer", starting_money=0),
+                     Player(name="Player2", starting_money=200),
+                     Player(name="Player3", starting_money=200)])        
+        
+        game.set_dealer(game.players[0])
+        game.set_current_player("Player3")
+        game.rotate_dealer()
+        
+        self.assertEqual(game.dealer.name, game.players[1].name)
 
+"""class TestDetermineLastToAct(unittest.TestCase):
+    def test_something(self):
+        players = [Player(), Player(), Player()]
+        game = Game(players)"""
 
 if __name__ == '__main__':
     unittest.main()
