@@ -554,42 +554,58 @@ class Game:
                 remaining_players.append(player)
         self.remaining_players = remaining_players
 
-    # TODO change to use the "last_raised" vs. "start_"player"
+    # TODO change to use the "last_raised" vs. "start_"player" - not sure that this is needed
     def betting_round(self, start_player=None):
+        if len(self.remaining_players) <= 1:
+            return False
         if start_player is None:  # This is the start of a new betting round
             start_player = self.determine_start_player()
-
         i = self.players.index(start_player)  # Start at the start_player
+        exit_next_player = False    # Flag used to indicate an exit condition for the blind betting round where things are treated different
 
         while True:
-            player = self.players[i % len(self.players)]
+            self.set_remaining_players()
+            player = self.players[i % len(self.players)]    # We start with the start player and iterate i when we go to the next player
 
             if not player.folded:
-                self.set_player_options()
-                action, bet = player.action(self.game_state)
+                self.last_to_act, _ = self.determine_last_to_act(), self.set_current_player(player)
+                self.determine_player_options()
+                action, amount = player.action(self.game_state)
+                self.last_action = action
 
-                if action == "bet" or action == "raise":
-                    self.current_bet = bet
-                    self.pot += bet
-                    player.money -= bet
-                    
-                    i += 1
-
-                    next_player = self.players[i % len(self.players)]  # The next player to act
-
+                if action == "bet":
+                    self.last_to_act = player.player_to_left(self.players)
+                    added_to_pot = amount
+                    player.money -= added_to_pot
+                    player.total_bet_this_hand += added_to_pot
+                    self.pot += added_to_pot
+                    self.current_bet = max(p.total_bet_this_hand for p in self.players)
                     # A bet or raise starts a new betting round
                     # Call betting_round recursively with the next player as the start_player
-                    return self.betting_round(next_player)
+                    return self.betting_round(self.next_player)
+
+                elif action in ["raise", "all-in"]:     # TODO: handle 'all-in' when player doesn't have enough to call
+                    self.last_to_act = player.player_to_left(self.players)
+                    added_to_pot = amount + self.cost_to_call
+                    player.money -= added_to_pot
+                    player.total_bet_this_hand += added_to_pot
+                    self.pot += added_to_pot
+                    self.current_bet = player.total_bet_this_hand  # TODO: this line only works if the player is RAISING all-in, not calling with the last of their own chips when they cant cover
+                    return self.betting_round(self.next_player)
+
                 elif action == "call":
-                    player.money -= self.current_bet
-                    self.pot += self.current_bet
+                    added_to_pot = self.cost_to_call
+                    self.pot += added_to_pot
+                    player.money -= added_to_pot
+                    player.total_bet_this_hand += added_to_pot
+
                 elif action == "fold":
                     player.folded = True
+                    self.discard_pile += player.cards
                     self.set_remaining_players()
                     if len(self.remaining_players) <= 1:
-                        # self.current_bet = 0
-                        break
-                elif action == "check" and self.current_bet == 0:
+                        return None
+                elif action == "check" and self.cost_to_call == 0:
                     pass
                 else:
                     print("Invalid action")
@@ -597,13 +613,18 @@ class Game:
                 # SPEAK
                 print(f"\n{player.name}:\t{player.speak()}\n")
 
-            i = (i + 1) % len(self.players)
+            i = (i + 1) % len(self.players)     # Iterate to the next player if
 
             # If we've gone through all players without starting a new betting round, the betting round is over
-            if self.players[i] == start_player:
+            if exit_next_player:
                 break
-                
-        self.current_bet = 0
+            elif self.current_round == "preflop" \
+              and self.next_player is self.last_to_act \
+              and self.next_player is self.big_blind_player \
+              and self.current_bet == self.small_blind*2:
+                exit_next_player = True
+            elif self.current_player is self.last_to_act:  # When this betting_round ends, set the last raiser up for the next round
+                break
         
     def reveal_flop(self):
         self.community_cards = self.deck.deal(3)
