@@ -175,6 +175,10 @@ class Player:
         if action in ("bet", "raise"):
             bet = int(input("Enter amount: "))
             # self.money -= bet
+        elif action == "raise":
+            bet = int(input(f"Calling "))
+        elif action == "all-in":
+            bet = self.money
         elif action == "call":
             bet = current_bet
             # self.money -= current_bet
