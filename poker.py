@@ -464,12 +464,7 @@ class Game:
         self.dealer = player
 
     def set_current_player(self, player):
-        if type(player) == type(Player("Player")):
-            self.current_player = player
-        elif type(player) is type(int()):
-            self.current_player = self.players[player]
-        else:
-            return False
+        self.current_player = player
 
     @property
     def cost_to_call(self):
