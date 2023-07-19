@@ -848,9 +848,11 @@ def main():
     players = definites + randos
     for player in players:
         if isinstance(player, AIPlayer):
-            player.confidence = player.initialize_attribute("confidence")
-            player.attitude = player.initialize_attribute("attittude")
-    game = Game(players)"""
+            i = random.randint(0, 2)
+            player.confidence = player.initialize_attribute("confidence", mood=i)
+            player.attitude = player.initialize_attribute("attittude", mood=i)
+    game = Game(players)
+    game.set_dealer(players[random.randint(0, len(players) - 1)])"""
 
     players = basic_test_players
     game = Game(players)
