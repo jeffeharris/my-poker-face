@@ -171,21 +171,27 @@ class Player:
 
         action = input(f"Enter action {game_state['player_options']}: ")
 
-        bet = 0
-        if action in ("bet", "raise"):
-            bet = int(input("Enter amount: "))
-            # self.money -= bet
-        elif action == "raise":
-            bet = int(input(f"Calling "))
-        elif action == "all-in":
-            bet = self.money
-        elif action == "call":
-            bet = current_bet
-            # self.money -= current_bet
+        amount = 0
+        if action in ["bet", "b", "be"]:
+            amount = int(input("Enter amount: "))
+            action = "bet"
+        elif action in ["raise", "r", "ra", "rai", "rais"]:
+            amount = int(input(f"Calling {cost_to_call}.\n"
+                                f"Enter amount to raise: "))
+            action = "raise"
+        elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
+            amount = self.money
+            action = "all-in"
+        elif action in ["call", "ca", "cal"]:
+            amount = cost_to_call
+            action = "call"
+        elif action in ["fold", "f", "fo", "fol"]:
+            amount = 0
+            action = "fold"
         self.chat_message = input("Enter chat message (optional): ")
         if not self.chat_message:
             f"{self.name} chooses to {action}."
-        return action, bet
+        return action, amount
 
     def speak(self):
         return self.chat_message
@@ -562,7 +568,10 @@ class Game:
                 remaining_players.append(player)
         self.remaining_players = remaining_players
 
-    # TODO change to use the "last_raised" vs. "start_"player" - not sure that this is needed
+    # TODO: implement new betting round that uses either a shifting list or a single queue for each betting round
+        # round_queue = []
+        # for i in range(len(self.players)):
+        #     round_queue.append(self.players[i])
     def betting_round(self, start_player=None):
         if len(self.remaining_players) <= 1:
             return False
@@ -570,7 +579,7 @@ class Game:
             start_player = self.determine_start_player()
         i = self.players.index(start_player)  # Start at the start_player
         exit_next_player = False    # Flag used to indicate an exit condition for the blind betting round where things are treated different
-
+        
         while True:
             self.set_remaining_players()
             player = self.players[i % len(self.players)]    # We start with the start player and iterate i when we go to the next player
@@ -592,7 +601,7 @@ class Game:
                     # Call betting_round recursively with the next player as the start_player
                     return self.betting_round(self.next_player)
 
-                elif action in ["raise", "all-in"]:     # TODO: handle 'all-in' when player doesn't have enough to call
+                elif action == "raise":
                     self.last_to_act = player.player_to_left(self.players)
                     added_to_pot = amount + self.cost_to_call
                     player.money -= added_to_pot
@@ -600,6 +609,17 @@ class Game:
                     self.pot += added_to_pot
                     self.current_bet = player.total_bet_this_hand  # TODO: this line only works if the player is RAISING all-in, not calling with the last of their own chips when they cant cover
                     return self.betting_round(self.next_player)
+
+                elif action == "all-in":
+                    player_is_raising = amount >= self.cost_to_call     # Check players money to see if they are raising the bet or just going all-in
+                    added_to_pot = amount
+                    player.money -= added_to_pot
+                    player.total_bet_this_hand += added_to_pot
+                    self.pot += added_to_pot
+                    if player_is_raising:
+                        self.last_to_act = player.player_to_left(self.players)
+                        self.current_bet = player.total_bet_this_hand
+                        return self.betting_round(self.next_player)
 
                 elif action == "call":
                     added_to_pot = self.cost_to_call
@@ -613,6 +633,7 @@ class Game:
                     self.set_remaining_players()
                     if len(self.remaining_players) <= 1:
                         return None
+
                 elif action == "check" and self.cost_to_call == 0:
                     pass
                 else:
