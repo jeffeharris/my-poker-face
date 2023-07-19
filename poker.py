@@ -3,6 +3,7 @@ from cards import *
 import random
 import json
 import pickle
+from player import *
 
 from langchain import ConversationChain
 
