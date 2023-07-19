@@ -642,6 +642,8 @@ class Game:
                     ---***FLOP***---
             {self.community_cards}
         """)
+        
+        display_cards(self.community_cards)
 
     def reveal_turn(self):
         self.discard_pile = self.deck.deal(1)
