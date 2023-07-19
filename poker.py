@@ -854,8 +854,6 @@ def main():
 
     players = basic_test_players
     game = Game(players)
-
-    # game.set_dealer(players[random.randint(0, len(players) - 1)])
     game.set_dealer(players[1])
 
     while len(game.players) > 1:
@@ -864,6 +862,26 @@ def main():
         if play_again.lower() != "y":
             break
 
+
+def shift_list_left(my_list: list, count: int = 1):
+    """
+    :param my_list: list that you want to manipulate
+    :param count: how many shifts you want to make
+    """
+    for i in range(1, count+1):
+        # Pop from the beginning of the list and append to the end
+        my_list.append(my_list.pop(0))
+
+
+def shift_list_right(my_list: list, count: int = 1):
+    """
+    :param my_list: list that you want to manipulate
+    :param count: how many shifts you want to make
+    """
+    for i in range(1, count+1):
+        # Pop from the end of the list and insert it at the beginning
+        my_list.insert(0, my_list.pop())
+    
 
 if __name__ == "__main__":
     main()
