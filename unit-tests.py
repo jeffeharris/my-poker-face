@@ -294,6 +294,17 @@ class TestRotateDealer(unittest.TestCase):
         players = [Player(), Player(), Player()]
         game = Game(players)"""
 
+
+class TestCardDeck(unittest.TestCase):
+    def test_display_cards(self):
+        deck = Deck()
+        display_cards([deck.cards[0]])
+
+    def test_display_hole_cards(self):
+        deck = Deck()
+        display_hole_cards(deck.cards[0:2])
+
+
 if __name__ == '__main__':
     unittest.main()
 
