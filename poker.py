@@ -557,7 +557,8 @@ def main():
         AIPlayer("Whoopi Goldberg"),
         AIPlayer("Dave Chappelle"),
         AIPlayer("Chris Rock"),
-        AIPlayer("Sarah Silverman")
+        AIPlayer("Sarah Silverman"),
+        AIPlayer("Kathy Griffin")
     ]
 
     basic_test_players = [
