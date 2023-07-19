@@ -818,7 +818,7 @@ class Game:
                 player_options.remove('call')
             if self.current_bet > 0 or players_cost_to_call > 0:
                 player_options.remove('bet')
-            if self.current_bet - self.current_player.money == 0 or 'bet' in player_options:
+            if self.current_player.money - self.current_bet <= 0 or 'bet' in player_options:
                 player_options.remove('raise')
             if not self.all_in_allowed or self.current_player.money == 0:
                 player_options.remove('all-in')
