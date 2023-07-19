@@ -214,7 +214,7 @@ class AIPlayer(Player):
         self.confidence = "Unsure"
         self.attitude = "Distracted"
 
-    def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players"):
+    def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players", mood=1):
         response = self.chat([HumanMessage(content=f"""You are {self.name}'s inner voice. Describe their {attribute}
         as they enter a poker game against {opponents}. This description is being used for a simulation of a poker game
         and we want to have a variety of personalities and emotions for the players.
@@ -224,9 +224,9 @@ class AIPlayer(Player):
         
         content = json.loads(response.content)
         selection = content["responses"]
-        random.shuffle(selection)
-        print(f"{selection[0]}\n")
-        return selection[0]
+        # random.shuffle(selection)     # used to randomly select the response mood
+        print(f"{selection[mood]}\n")
+        return selection[mood]
 
     def create_prompt(self):
         persona = self.name
