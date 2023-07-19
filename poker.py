@@ -163,6 +163,7 @@ class Player:
         community_cards = game_state['community_cards']
         current_bet = game_state['current_bet']
         current_pot = game_state['current_pot']
+        cost_to_call = game_state['cost_to_call']
 
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
@@ -512,7 +513,7 @@ class Game:
                               "current_bet": self.current_bet,
                               "current_round": self.current_round,
                               "cost_to_call": self.cost_to_call,
-                              "last_cation": self.last_action
+                              "last_action": self.last_action
                               }
         return current_game_state
 
