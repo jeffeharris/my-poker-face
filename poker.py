@@ -498,6 +498,7 @@ class Game:
         with open(file_name, 'rb') as f:
             return pickle.load(f)
 
+    # TODO: change this to accept a player and retrun the options as a list of strings
     def determine_player_options(self):
         # How much is it to call the bet for the player?
         players_cost_to_call = self.current_bet - self.current_player.total_bet_this_hand
@@ -512,8 +513,10 @@ class Game:
             player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
             if players_cost_to_call == 0:
                 player_options.remove('fold')
+            # TODO: check not being removed when it should be
             if players_cost_to_call > 0:
                 player_options.remove('check')
+            # TODO: call not being removed when it should be
             if not player_has_enough_to_call or players_cost_to_call == 0:
                 player_options.remove('call')
             if self.current_bet > 0 or players_cost_to_call > 0:
