@@ -47,7 +47,7 @@ class HandEvaluator:
             result = check()
             if result[0]:
                 return {"hand_rank": i, "hand_values": result[1], "kicker_values": result[2]}
-        return {"hand_rank": 10, "hand_values": [], "kicker_values": sorted(self.ranks, reverse=True)}
+        return {"hand_rank": 10, "hand_values": [], "kicker_values": sorted(self.ranks, reverse=True)[:5]}
 
     def check_royal_flush(self):
         has_straight_flush, straight_flush_values, _, straight_flush_suit = self.check_straight_flush()
@@ -226,16 +226,26 @@ class Game:
         print(f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
 
         self.deal_hole_cards()
-        self.betting_round(self.determine_start_player())
+
+        start_player = self.determine_start_player()
+
+        index = self.players.index(start_player)  # Set index at the start_player
+        round_queue = self.players.copy()   # Copy list of all players that started the hand, could include folded
+        shift_list_left(round_queue, index)     # Move to the start_player
+        self.betting_round(round_queue)
 
         self.reveal_flop()
-        self.betting_round(self.determine_start_player())
+        start_player = self.determine_start_player()
+        index = self.players.index(start_player)
+        round_queue = self.players.copy()   # Copy list of all players that started the hand, could include folded
+        shift_list_left(round_queue, index)     # Move to the start_player
+        self.betting_round(round_queue)
 
         self.reveal_turn()
-        self.betting_round(self.determine_start_player())
+        self.betting_round(round_queue)
 
         self.reveal_river()
-        self.betting_round(self.determine_start_player())
+        self.betting_round(round_queue)
 
         self.end_hand()
         # TODO: add return winner, self.pot
@@ -268,92 +278,69 @@ class Game:
                 remaining_players.append(player)
         self.remaining_players = remaining_players
 
-    # TODO: implement new betting round that uses either a shifting list or a single queue for each betting round
-        # round_queue = []
-        # for i in range(len(self.players)):
-        #     round_queue.append(self.players[i])
-    def betting_round(self, start_player=None):
-        if len(self.remaining_players) <= 1:
-            return False
-        if start_player is None:  # This is the start of a new betting round
-            start_player = self.determine_start_player()
-        i = self.players.index(start_player)  # Start at the start_player
-        exit_next_player = False    # Flag used to indicate an exit condition for the blind betting round where things are treated different
+    def player_add_to_pot(self, player, add_to_pot=0):
+        player.get_for_pot(add_to_pot)
+        self.pot += add_to_pot
+    
+    def betting_round(self, round_queue: [Player], first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
+        next_round_queue = round_queue.copy()   # Make a copy of the round queue to set up a queue for the next round in case we need it
+       
+        if not first_round:     # all 4 players in the queue should bet in the first round, after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
+            last_raiser = round_queue.pop()    # Remove the last raiser from the betting round. last_raiser is currently unused, keeping it in case we need it later
         
-        while True:
-            self.set_remaining_players()
-            player = self.players[i % len(self.players)]    # We start with the start player and iterate i when we go to the next player
+        for player in round_queue:
+            # Before each player action, several checks and updates are performed
+            self.set_remaining_players()            # Update the hands remaining players list
+            if len(self.remaining_players) <= 1:    # Round ends if there are no players to bet
+                return False
+            shift_list_left(next_round_queue)       # next_round_queue is initialized for the betting round above and shifted here for every player
+            self.set_current_player(player)         # Update the games current player proprerty
+            self.determine_player_options()         # Set action options for the current player
 
-            if not player.folded:
-                self.last_to_act, _ = self.determine_last_to_act(), self.set_current_player(player)
-                self.determine_player_options()
-                action, amount = player.action(self.game_state)
-                self.last_action = action
+            # Once checks and updates above are complete, we can get the action from the player and decide what to do with it
+            if player.folded:
+                continue    # Skip the folded players in the queue TODO: should we reomove the folded players from the queue and save next_queue in it's condition to be sent if player raises?
+            
+            else:
+                action, add_to_pot = player.action(self.game_state)
 
+                # No checks are performed here on input. Relying on "determine_player_options" to work as expected
                 if action == "bet":
-                    self.last_to_act = player.player_to_left(self.players)
-                    added_to_pot = amount
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-                    self.pot += added_to_pot
-                    self.current_bet = max(p.total_bet_this_hand for p in self.players)
-                    # A bet or raise starts a new betting round
-                    # Call betting_round recursively with the next player as the start_player
-                    return self.betting_round(self.next_player)
-
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    self.current_bet = player.total_bet_this_hand
+                    return self.betting_round(next_round_queue, first_round=False)
+                
                 elif action == "raise":
-                    self.last_to_act = player.player_to_left(self.players)
-                    added_to_pot = amount + self.cost_to_call
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-                    self.pot += added_to_pot
-                    self.current_bet = player.total_bet_this_hand  # TODO: this line only works if the player is RAISING all-in, not calling with the last of their own chips when they cant cover
-                    return self.betting_round(self.next_player)
-
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    self.current_bet = player.total_bet_this_hand
+                    return self.betting_round(next_round_queue, first_round=False)
+                
                 elif action == "all-in":
-                    player_is_raising = amount >= self.cost_to_call     # Check players money to see if they are raising the bet or just going all-in
-                    added_to_pot = amount
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-                    self.pot += added_to_pot
-                    if player_is_raising:
-                        self.last_to_act = player.player_to_left(self.players)
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    raising = add_to_pot > self.current_bet
+                    if raising:
                         self.current_bet = player.total_bet_this_hand
-                        return self.betting_round(self.next_player)
-
+                        return self.betting_round(next_round_queue, first_round=False)
+                    
                 elif action == "call":
-                    added_to_pot = self.cost_to_call
-                    self.pot += added_to_pot
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    
                 elif action == "fold":
                     player.folded = True
-                    self.discard_pile += player.cards
-                    self.set_remaining_players()
-                    if len(self.remaining_players) <= 1:
-                        return None
-
-                elif action == "check" and self.cost_to_call == 0:
+                    
+                elif action == "check":
                     pass
+                
                 else:
-                    print("Invalid action")
-
-                # SPEAK
-                print(f"\n{player.name}:\t{player.speak()}\n")
-
-            i = (i + 1) % len(self.players)     # Iterate to the next player if
-
-            # If we've gone through all players without starting a new betting round, the betting round is over
-            if exit_next_player:
-                break
-            elif self.current_round == "preflop" \
-              and self.next_player is self.last_to_act \
-              and self.next_player is self.big_blind_player \
-              and self.current_bet == self.small_blind*2:
-                exit_next_player = True
-            elif self.current_player is self.last_to_act:  # When this betting_round ends, set the last raiser up for the next round
-                break
+                    print("Invalid Action")
         
     def reveal_flop(self):
         self.discard_pile = self.deck.deal(1)
@@ -393,8 +380,11 @@ class Game:
             self.rotate_dealer()
 
     def determine_winner(self):
-        hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand())
-                 for player in self.remaining_players]
+        hands = []
+
+        for player in self.players:
+            if not player.folded:
+                hands.append((player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()))
 
         print("Before sorting:")
         for player, hand_info in hands:
@@ -426,6 +416,14 @@ class Game:
         winner = self.determine_winner()
         print(f"The winner is {winner.name}! They win the pot of {self.pot}")
 
+        # Reset game for next round
+        winner.money += self.pot
+        self.pot = 0
+        self.community_cards = []
+        self.current_round = "preflop"  # TODO: move this to the initialization of the round
+        self.rotate_dealer()
+        self.reset_deck()
+
         # Check if the game should continue
         self.players = [player for player in self.starting_players if player.money > 0]
         if len(self.players) == 1:
@@ -434,14 +432,6 @@ class Game:
         elif len(self.players) == 0:
             print("You... you all lost. Somehow you all have no money.")
             return
-
-        # Reset game for next round
-        winner.money += self.pot
-        self.pot = 0
-        self.community_cards = []
-        self.current_round = "preflop"
-        self.rotate_dealer()
-        self.reset_deck()
 
         # Reset players
         for player in self.players:
@@ -452,10 +442,10 @@ class Game:
     def determine_start_player(self):
         start_player = None
         if self.current_round == "preflop":
-            # Player to left of big blind starts
+            # Player after big blind starts
             start_player = self.players[(self.dealer_position + 3) % len(self.players)]
         else:
-            # Find the first player to the left of the dealer who hasn't folded
+            # Find the first player after the dealer who hasn't folded
             for j in range(1, len(self.players)+1):
                 index = (self.dealer_position + j) % len(self.players)
                 if not self.players[index].folded:
@@ -498,6 +488,7 @@ class Game:
         with open(file_name, 'rb') as f:
             return pickle.load(f)
 
+    # TODO: change this to accept a player and retrun the options as a list of strings
     def determine_player_options(self):
         # How much is it to call the bet for the player?
         players_cost_to_call = self.current_bet - self.current_player.total_bet_this_hand
@@ -512,8 +503,10 @@ class Game:
             player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
             if players_cost_to_call == 0:
                 player_options.remove('fold')
+            # TODO: check not being removed when it should be
             if players_cost_to_call > 0:
                 player_options.remove('check')
+            # TODO: call not being removed when it should be
             if not player_has_enough_to_call or players_cost_to_call == 0:
                 player_options.remove('call')
             if self.current_bet > 0 or players_cost_to_call > 0:
@@ -527,61 +520,67 @@ class Game:
         self.current_player.options = player_options.copy()
 
 
-def main():
+def main(test=False):
+    # Create Players for the game
     definites = [
-        Player("Jeff"),
-        AIPlayer("Dr. Seuss"),
-        AIPlayer("Dr. Oz")
+        Player("Jeff")
     ]
+    
+    if test:
+        basic_test_players = [
+            Player("Player1"),
+            Player("Player2"),
+            Player("Player3"),
+            Player("Player4")
+        ]
+        
+        players = basic_test_players
+        game = Game(players)
+        game.set_dealer(players[1])
+        
+    else:
+        celebrities = [
+            AIPlayer("Ace Ventura", ai_temp=.9),
+            AIPlayer("Khloe and Kim Khardashian"),
+            AIPlayer("Fred Durst"),
+            AIPlayer("Tom Cruise"),
+            AIPlayer("James Bond"),
+            AIPlayer("Jon Stewart"),
+            AIPlayer("Jim Cramer", ai_temp=.7),
+            AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
+            AIPlayer("Lizzo"),
+            AIPlayer("Bill Clinton"),
+            AIPlayer("Barack Obama"),
+            AIPlayer("Jesus Christ"),
+            AIPlayer("Triumph the Insult Dog", ai_temp=.7),
+            AIPlayer("Donald Trump", ai_temp=.7),
+            AIPlayer("Batman"),
+            AIPlayer("Deadpool"),
+            AIPlayer("Lance Armstrong"),
+            AIPlayer("A Mime", ai_temp=.8),
+            AIPlayer("Jay Gatsby"),
+            AIPlayer("Whoopi Goldberg"),
+            AIPlayer("Dave Chappelle"),
+            AIPlayer("Chris Rock"),
+            AIPlayer("Sarah Silverman"),
+            AIPlayer("Kathy Griffin"),
+            AIPlayer("Dr. Seuss", ai_temp=.7),
+            AIPlayer("Dr. Oz"),
+            AIPlayer("A guy who tells too many dad jokes")
+        ]
 
-    celebrities = [
-        AIPlayer("Ace Ventura"),
-        AIPlayer("Khloe and Kim Khardashian"),
-        AIPlayer("Fred Durst"),
-        AIPlayer("Tom Cruise"),
-        AIPlayer("James Bond"),
-        AIPlayer("Jon Stewart"),
-        AIPlayer("Jim Cramer", ai_temp=.7),
-        AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
-        AIPlayer("Lizzo"),
-        AIPlayer("Bill Clinton"),
-        AIPlayer("Barack Obama"),
-        AIPlayer("Jesus Christ"),
-        AIPlayer("Triumph the Insult Dog"),
-        AIPlayer("Donald Trump", ai_temp=.7),
-        AIPlayer("Batman"),
-        AIPlayer("Deadpool"),
-        AIPlayer("Lance Armstrong"),
-        AIPlayer("A Mime"),
-        AIPlayer("Jay Gatsby"),
-        AIPlayer("Whoopi Goldberg"),
-        AIPlayer("Dave Chappelle"),
-        AIPlayer("Chris Rock"),
-        AIPlayer("Sarah Silverman")
-    ]
+        random.shuffle(celebrities)
+        randos = celebrities[0:(5-len(definites))]
+        players = definites + randos
+        for player in players:
+            if isinstance(player, AIPlayer):
+                i = random.randint(0, 2)
+                player.confidence = player.initialize_attribute("confidence", mood=i)
+                player.attitude = player.initialize_attribute("attittude", mood=i)
+        game = Game(players)
+        game.set_dealer(players[random.randint(0, len(players) - 1)])
 
-    basic_test_players = [
-        Player("Player1"),
-        Player("Player2"),
-        Player("Player3"),
-        Player("Player4")
-    ]
-
-    """random.shuffle(celebrities)
-    randos = celebrities[0:(5-len(definites))]
-    players = definites + randos
-    for player in players:
-        if isinstance(player, AIPlayer):
-            i = random.randint(0, 2)
-            player.confidence = player.initialize_attribute("confidence", mood=i)
-            player.attitude = player.initialize_attribute("attittude", mood=i)
-    game = Game(players)
-    game.set_dealer(players[random.randint(0, len(players) - 1)])"""
-
-    players = basic_test_players
-    game = Game(players)
-    game.set_dealer(players[1])
-
+    # Run the game until it ends
     while len(game.players) > 1:
         game.play_hand()
         play_again = input("Play another hand? (y/n): ")

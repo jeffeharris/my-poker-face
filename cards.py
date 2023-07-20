@@ -23,14 +23,14 @@ class Card:
             '''
 .---------.
 |{}        |
-| {}      |
+| {}       |
 |         |
 |         |
-|    {}   |
+|    {}    |
 |        {}|
 `---------'
 '''
-
+        # TODO: take care of extra character when the rank is '10'
         # Generate and print each card
         card = card_template.format(self.rank, self.suit_ascii[self.suit], self.suit_ascii[self.suit], self.rank)
         return card
@@ -76,13 +76,13 @@ def display_hole_cards(cards: [Card, Card]):
     card_template = \
         '''
 .---.---------.
-|{}  |{}         |
-| {}| {}       |
-|   |          |
-|   |          |
+|{}  |{}        |
+|  {}|  {}      |
+|   |         |
+|   |         |
 |   |       {} |
-|   |         {}|
-`---``---------'
+|   |        {}|
+`---`---------'
 '''
 
     sorted_cards = sorted(cards, key=lambda card: card.value)

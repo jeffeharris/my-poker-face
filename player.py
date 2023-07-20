@@ -1,7 +1,6 @@
 from cards import *
 import json
 import pickle
-from poker import HandEvaluator
 
 from langchain import ConversationChain
 
@@ -53,41 +52,51 @@ class Player:
         current_bet = game_state['current_bet']
         current_pot = game_state['current_pot']
         cost_to_call = game_state['cost_to_call']
-
+        
+        display_hole_cards(self.cards)
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
-              f"Current pot: {current_pot}\n")
+              f"Current pot: {current_pot}\n",
+              f"Cost to call: {cost_to_call}\n",
+              f"Total to pot: {self.total_bet_this_hand}")
 
         action = input(f"Enter action {game_state['player_options']}: ")
 
-        amount = 0
+        add_to_pot = 0
         if action in ["bet", "b", "be"]:
-            amount = int(input("Enter amount: "))
+            add_to_pot = int(input("Enter amount: "))
             action = "bet"
         elif action in ["raise", "r", "ra", "rai", "rais"]:
-            amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+            raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+            add_to_pot = raise_amount + cost_to_call    # TODO: this causes an issue for the ai bet amount, it isn't aware of how i'm doing the math may need to update this
             action = "raise"
         elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
-            amount = self.money
+            add_to_pot = self.money
             action = "all-in"
         elif action in ["call", "ca", "cal"]:
-            amount = cost_to_call
+            add_to_pot = cost_to_call
             action = "call"
         elif action in ["fold", "f", "fo", "fol"]:
-            amount = 0
+            add_to_pot = 0
             action = "fold"
         elif action in ["check", "ch", "che", "chec"]:
-            amount = 0
+            add_to_pot = 0
             action = "check"
-        self.chat_message = input("Enter chat message (optional): ")
-        if not self.chat_message:
-            f"{self.name} chooses to {action}."
-        return action, amount
+        # self.chat_message = input("Enter chat message (optional): ")
+        # if not self.chat_message:
+        #     f"{self.name} chooses to {action}."
+        return action, add_to_pot
 
     def speak(self):
         return self.chat_message
 
+    def get_for_pot(self, amount):
+        self.money -= amount
+        self.total_bet_this_hand += amount
+        
+    # TODO: add reset player to reset a player for a new round
+    
     def player_to_right(self, players, shift=1):
         index = (self.get_index(players) + shift) % len(players)
         return players[index]
