@@ -3,7 +3,7 @@ from cards import *
 import random
 import json
 import pickle
-from player import *
+from player import Player, AIPlayer
 
 from langchain import ConversationChain
 
@@ -47,7 +47,7 @@ class HandEvaluator:
             result = check()
             if result[0]:
                 return {"hand_rank": i, "hand_values": result[1], "kicker_values": result[2]}
-        return {"hand_rank": 10, "hand_values": [], "kicker_values": sorted(self.ranks, reverse=True)}
+        return {"hand_rank": 10, "hand_values": [], "kicker_values": sorted(self.ranks, reverse=True)[:5]}
 
     def check_royal_flush(self):
         has_straight_flush, straight_flush_values, _, straight_flush_suit = self.check_straight_flush()
