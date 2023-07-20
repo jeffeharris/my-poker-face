@@ -380,8 +380,11 @@ class Game:
             self.rotate_dealer()
 
     def determine_winner(self):
-        hands = [(player, HandEvaluator(player.cards + self.community_cards).evaluate_hand())
-                 for player in self.remaining_players]
+        hands = []
+
+        for player in self.players:
+            if not player.folded:
+                hands.append((player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()))
 
         print("Before sorting:")
         for player, hand_info in hands:
