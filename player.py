@@ -92,6 +92,12 @@ class Player:
     def speak(self):
         return self.chat_message
 
+    def get_for_pot(self, amount):
+        self.money -= amount
+        self.total_bet_this_hand += amount
+        
+    # TODO: add reset player to reset a player for a new round
+    
     def player_to_right(self, players, shift=1):
         index = (self.get_index(players) + shift) % len(players)
         return players[index]
