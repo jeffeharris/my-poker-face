@@ -299,8 +299,8 @@ class Game:
 
             # Once checks and updates above are complete, we can get the action from the player and decide what to do with it
             if player.folded:
-                continue    # Skip the folded players in the queue TODO: should we reomove the folded players from the queue and save next_queue in it's condition to be sent if player raises?
-            
+                next_round_queue.remove(player)
+                # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
                 action, add_to_pot = player.action(self.game_state)
 
