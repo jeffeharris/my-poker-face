@@ -426,6 +426,14 @@ class Game:
         winner = self.determine_winner()
         print(f"The winner is {winner.name}! They win the pot of {self.pot}")
 
+        # Reset game for next round
+        winner.money += self.pot
+        self.pot = 0
+        self.community_cards = []
+        self.current_round = "preflop"  # TODO: move this to the initialization of the round
+        self.rotate_dealer()
+        self.reset_deck()
+
         # Check if the game should continue
         self.players = [player for player in self.starting_players if player.money > 0]
         if len(self.players) == 1:
@@ -434,14 +442,6 @@ class Game:
         elif len(self.players) == 0:
             print("You... you all lost. Somehow you all have no money.")
             return
-
-        # Reset game for next round
-        winner.money += self.pot
-        self.pot = 0
-        self.community_cards = []
-        self.current_round = "preflop"
-        self.rotate_dealer()
-        self.reset_deck()
 
         # Reset players
         for player in self.players:
