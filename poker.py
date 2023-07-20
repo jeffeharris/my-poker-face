@@ -452,10 +452,10 @@ class Game:
     def determine_start_player(self):
         start_player = None
         if self.current_round == "preflop":
-            # Player to left of big blind starts
+            # Player after big blind starts
             start_player = self.players[(self.dealer_position + 3) % len(self.players)]
         else:
-            # Find the first player to the left of the dealer who hasn't folded
+            # Find the first player after the dealer who hasn't folded
             for j in range(1, len(self.players)+1):
                 index = (self.dealer_position + j) % len(self.players)
                 if not self.players[index].folded:
