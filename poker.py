@@ -527,62 +527,67 @@ class Game:
         self.current_player.options = player_options.copy()
 
 
-def main():
+def main(test=False):
+    # Create Players for the game
     definites = [
-        Player("Jeff"),
-        AIPlayer("Dr. Seuss"),
-        AIPlayer("Dr. Oz")
+        Player("Jeff")
     ]
+    
+    if test:
+        basic_test_players = [
+            Player("Player1"),
+            Player("Player2"),
+            Player("Player3"),
+            Player("Player4")
+        ]
+        
+        players = basic_test_players
+        game = Game(players)
+        game.set_dealer(players[1])
+        
+    else:
+        celebrities = [
+            AIPlayer("Ace Ventura", ai_temp=.9),
+            AIPlayer("Khloe and Kim Khardashian"),
+            AIPlayer("Fred Durst"),
+            AIPlayer("Tom Cruise"),
+            AIPlayer("James Bond"),
+            AIPlayer("Jon Stewart"),
+            AIPlayer("Jim Cramer", ai_temp=.7),
+            AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
+            AIPlayer("Lizzo"),
+            AIPlayer("Bill Clinton"),
+            AIPlayer("Barack Obama"),
+            AIPlayer("Jesus Christ"),
+            AIPlayer("Triumph the Insult Dog", ai_temp=.7),
+            AIPlayer("Donald Trump", ai_temp=.7),
+            AIPlayer("Batman"),
+            AIPlayer("Deadpool"),
+            AIPlayer("Lance Armstrong"),
+            AIPlayer("A Mime", ai_temp=.8),
+            AIPlayer("Jay Gatsby"),
+            AIPlayer("Whoopi Goldberg"),
+            AIPlayer("Dave Chappelle"),
+            AIPlayer("Chris Rock"),
+            AIPlayer("Sarah Silverman"),
+            AIPlayer("Kathy Griffin"),
+            AIPlayer("Dr. Seuss", ai_temp=.7),
+            AIPlayer("Dr. Oz"),
+            AIPlayer("A guy who tells too many dad jokes")
+        ]
 
-    celebrities = [
-        AIPlayer("Ace Ventura"),
-        AIPlayer("Khloe and Kim Khardashian"),
-        AIPlayer("Fred Durst"),
-        AIPlayer("Tom Cruise"),
-        AIPlayer("James Bond"),
-        AIPlayer("Jon Stewart"),
-        AIPlayer("Jim Cramer", ai_temp=.7),
-        AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
-        AIPlayer("Lizzo"),
-        AIPlayer("Bill Clinton"),
-        AIPlayer("Barack Obama"),
-        AIPlayer("Jesus Christ"),
-        AIPlayer("Triumph the Insult Dog"),
-        AIPlayer("Donald Trump", ai_temp=.7),
-        AIPlayer("Batman"),
-        AIPlayer("Deadpool"),
-        AIPlayer("Lance Armstrong"),
-        AIPlayer("A Mime"),
-        AIPlayer("Jay Gatsby"),
-        AIPlayer("Whoopi Goldberg"),
-        AIPlayer("Dave Chappelle"),
-        AIPlayer("Chris Rock"),
-        AIPlayer("Sarah Silverman"),
-        AIPlayer("Kathy Griffin")
-    ]
+        random.shuffle(celebrities)
+        randos = celebrities[0:(5-len(definites))]
+        players = definites + randos
+        for player in players:
+            if isinstance(player, AIPlayer):
+                i = random.randint(0, 2)
+                player.confidence = player.initialize_attribute("confidence", mood=i)
+                player.attitude = player.initialize_attribute("attittude", mood=i)
+        game = Game(players)
+        game.set_dealer(players[random.randint(0, len(players) - 1)])
 
-    basic_test_players = [
-        Player("Player1"),
-        Player("Player2"),
-        Player("Player3"),
-        Player("Player4")
-    ]
-
-    """random.shuffle(celebrities)
-    randos = celebrities[0:(5-len(definites))]
-    players = definites + randos
-    for player in players:
-        if isinstance(player, AIPlayer):
-            i = random.randint(0, 2)
-            player.confidence = player.initialize_attribute("confidence", mood=i)
-            player.attitude = player.initialize_attribute("attittude", mood=i)
-    game = Game(players)
-    game.set_dealer(players[random.randint(0, len(players) - 1)])"""
-
-    players = basic_test_players
-    game = Game(players)
-    game.set_dealer(players[1])
-
+    # Run the game until it ends
     while len(game.players) > 1:
         game.play_hand()
         play_again = input("Play another hand? (y/n): ")
