@@ -53,11 +53,14 @@ class Player:
         current_bet = game_state['current_bet']
         current_pot = game_state['current_pot']
         cost_to_call = game_state['cost_to_call']
-
+        
+        display_hole_cards(self.cards)
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
-              f"Current pot: {current_pot}\n")
+              f"Current pot: {current_pot}\n",
+              f"Cost to call: {cost_to_call}\n",
+              f"Total to pot: {self.total_bet_this_hand}")
 
         action = input(f"Enter action {game_state['player_options']}: ")
 
