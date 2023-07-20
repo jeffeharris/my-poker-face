@@ -84,10 +84,10 @@ class Player:
         elif action in ["check", "ch", "che", "chec"]:
             add_to_pot = 0
             action = "check"
-        self.chat_message = input("Enter chat message (optional): ")
-        if not self.chat_message:
-            f"{self.name} chooses to {action}."
-        return action, amount
+        # self.chat_message = input("Enter chat message (optional): ")
+        # if not self.chat_message:
+        #     f"{self.name} chooses to {action}."
+        return action, add_to_pot
 
     def speak(self):
         return self.chat_message
