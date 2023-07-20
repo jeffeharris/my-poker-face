@@ -10,7 +10,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player1 = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game([player1, player2, player3])
+        game = PokerGame([player1, player2, player3])
 
         game.set_dealer(player1)
         game.set_current_round("turn")
@@ -24,7 +24,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
         player1 = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game([player1, player2, player3])
+        game = PokerGame([player1, player2, player3])
 
         game.set_dealer(player1)
         game.set_current_round("flop")
@@ -38,7 +38,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
         dealer = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game([dealer, player2, player3])
+        game = PokerGame([dealer, player2, player3])
 
         game.set_dealer(dealer)
         game.set_current_round("flop")
@@ -52,7 +52,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
         dealer = Player(name="Player1")
         player2 = Player(name="Player2")
         player3 = Player(name="Player3")
-        game = Game([dealer, player2, player3])
+        game = PokerGame([dealer, player2, player3])
 
         game.set_dealer(dealer)
         game.set_current_round("flop")
@@ -103,7 +103,7 @@ class TestHandEvaluator(unittest.TestCase):
         
 class TestGame(unittest.TestCase):
     def test_determine_winner(self):
-        game = Game([Player("Winner"), Player("Loser")])
+        game = PokerGame([Player("Winner"), Player("Loser")])
         game.community_cards = [
             Card(rank='2', suit='hearts'),
             Card(rank='3', suit='diamonds'),
@@ -126,7 +126,7 @@ class TestGame(unittest.TestCase):
         player1 = Player("Winner")
         player2 = Player("Player2")
         player3 = Player("Player3")
-        game = Game([player1, player2, player3])
+        game = PokerGame([player1, player2, player3])
 
         # Scenario 1: Player 1 wins with a straight flush
         game.community_cards = [
@@ -154,7 +154,7 @@ class TestGame(unittest.TestCase):
         player1 = Player("Player1")
         player2 = Player("Winner")
         player3 = Player("Player3")
-        game = Game([player1, player2, player3])
+        game = PokerGame([player1, player2, player3])
         
         # Scenario 2: Player 2 wins with a four of a kind
         game.community_cards = [
@@ -218,7 +218,7 @@ class TestBettingRound(unittest.TestCase):
         player1 = Player("Palyer1")
         player2 = Player("Player2")
         player3 = Player("Winner")
-        game = Game([player1, player2, player3])
+        game = PokerGame([player1, player2, player3])
         
         # Scenario 3: Player 3 wins with a full house
         game.community_cards = [
@@ -246,7 +246,7 @@ class TestBettingRound(unittest.TestCase):
         player1 = AIPlayer("Player1")
         player2 = AIPlayer("Player2")
         player3 = AIPlayer("Player3")
-        game = Game([player1, player2, player3])
+        game = PokerGame([player1, player2, player3])
         
         game.play_hand()
         
@@ -278,9 +278,9 @@ class TestDeterminePlayerOptions(unittest.TestCase):
         
 class TestRotateDealer(unittest.TestCase):
     def test_when_dealer_is_out_of_money(self):
-        game = Game([Player(name="Dealer", starting_money=0),
-                     Player(name="Player2", starting_money=200),
-                     Player(name="Player3", starting_money=200)])        
+        game = PokerGame([Player(name="Dealer", starting_money=0),
+                          Player(name="Player2", starting_money=200),
+                          Player(name="Player3", starting_money=200)])        
         
         game.set_dealer(game.players[0])
         game.set_current_player("Player3")
@@ -312,11 +312,11 @@ def init_basic_player_game(num_players=2):
     players = []
     for i in range(1, num_players+1):
         players.append(Player(f"Player{i}"))
-    return Game(players)
+    return PokerGame(players)
 
 
 def init_ai_player_game(num_players=2):
     players = []
     for i in range(1, num_players+1):
         players.append(Player(f"Player{i}"))
-    return Game(players)
+    return PokerGame(players)

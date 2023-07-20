@@ -129,7 +129,7 @@ class HandEvaluator:
         return False, [], []
 
   
-class Game:
+class PokerGame:
     def __init__(self, player_list=None, player_tuple=None):
         self.discard_pile = []  # list for the discarded cards to be placed in
         self.all_in_allowed = True
@@ -535,7 +535,7 @@ def main(test=False):
         ]
         
         players = basic_test_players
-        game = Game(players)
+        game = PokerGame(players)
         game.set_dealer(players[1])
         
     else:
@@ -577,7 +577,7 @@ def main(test=False):
                 i = random.randint(0, 2)
                 player.confidence = player.initialize_attribute("confidence", mood=i)
                 player.attitude = player.initialize_attribute("attittude", mood=i)
-        game = Game(players)
+        game = PokerGame(players)
         game.set_dealer(players[random.randint(0, len(players) - 1)])
 
     # Run the game until it ends
