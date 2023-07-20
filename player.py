@@ -1,7 +1,6 @@
 from cards import *
 import json
 import pickle
-from poker import HandEvaluator
 
 from langchain import ConversationChain
 
