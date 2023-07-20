@@ -226,16 +226,26 @@ class Game:
         print(f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
 
         self.deal_hole_cards()
-        self.betting_round(self.determine_start_player())
+
+        start_player = self.determine_start_player()
+
+        index = self.players.index(start_player)  # Set index at the start_player
+        round_queue = self.players.copy()   # Copy list of all players that started the hand, could include folded
+        shift_list_left(round_queue, index)     # Move to the start_player
+        self.betting_round(round_queue)
 
         self.reveal_flop()
-        self.betting_round(self.determine_start_player())
+        start_player = self.determine_start_player()
+        index = self.players.index(start_player)
+        round_queue = self.players.copy()   # Copy list of all players that started the hand, could include folded
+        shift_list_left(round_queue, index)     # Move to the start_player
+        self.betting_round(round_queue)
 
         self.reveal_turn()
-        self.betting_round(self.determine_start_player())
+        self.betting_round(round_queue)
 
         self.reveal_river()
-        self.betting_round(self.determine_start_player())
+        self.betting_round(round_queue)
 
         self.end_hand()
         # TODO: add return winner, self.pot
@@ -268,92 +278,69 @@ class Game:
                 remaining_players.append(player)
         self.remaining_players = remaining_players
 
-    # TODO: implement new betting round that uses either a shifting list or a single queue for each betting round
-        # round_queue = []
-        # for i in range(len(self.players)):
-        #     round_queue.append(self.players[i])
-    def betting_round(self, start_player=None):
-        if len(self.remaining_players) <= 1:
-            return False
-        if start_player is None:  # This is the start of a new betting round
-            start_player = self.determine_start_player()
-        i = self.players.index(start_player)  # Start at the start_player
-        exit_next_player = False    # Flag used to indicate an exit condition for the blind betting round where things are treated different
+    def player_add_to_pot(self, player, add_to_pot=0):
+        player.get_for_pot(add_to_pot)
+        self.pot += add_to_pot
+    
+    def betting_round(self, round_queue: [Player], first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
+        next_round_queue = round_queue.copy()   # Make a copy of the round queue to set up a queue for the next round in case we need it
+       
+        if not first_round:     # all 4 players in the queue should bet in the first round, after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
+            last_raiser = round_queue.pop()    # Remove the last raiser from the betting round. last_raiser is currently unused, keeping it in case we need it later
         
-        while True:
-            self.set_remaining_players()
-            player = self.players[i % len(self.players)]    # We start with the start player and iterate i when we go to the next player
+        for player in round_queue:
+            # Before each player action, several checks and updates are performed
+            self.set_remaining_players()            # Update the hands remaining players list
+            if len(self.remaining_players) <= 1:    # Round ends if there are no players to bet
+                return False
+            shift_list_left(next_round_queue)       # next_round_queue is initialized for the betting round above and shifted here for every player
+            self.set_current_player(player)         # Update the games current player proprerty
+            self.determine_player_options()         # Set action options for the current player
 
-            if not player.folded:
-                self.last_to_act, _ = self.determine_last_to_act(), self.set_current_player(player)
-                self.determine_player_options()
-                action, amount = player.action(self.game_state)
-                self.last_action = action
+            # Once checks and updates above are complete, we can get the action from the player and decide what to do with it
+            if player.folded:
+                continue    # Skip the folded players in the queue TODO: should we reomove the folded players from the queue and save next_queue in it's condition to be sent if player raises?
+            
+            else:
+                action, add_to_pot = player.action(self.game_state)
 
+                # No checks are performed here on input. Relying on "determine_player_options" to work as expected
                 if action == "bet":
-                    self.last_to_act = player.player_to_left(self.players)
-                    added_to_pot = amount
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-                    self.pot += added_to_pot
-                    self.current_bet = max(p.total_bet_this_hand for p in self.players)
-                    # A bet or raise starts a new betting round
-                    # Call betting_round recursively with the next player as the start_player
-                    return self.betting_round(self.next_player)
-
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    self.current_bet = player.total_bet_this_hand
+                    return self.betting_round(next_round_queue, first_round=False)
+                
                 elif action == "raise":
-                    self.last_to_act = player.player_to_left(self.players)
-                    added_to_pot = amount + self.cost_to_call
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-                    self.pot += added_to_pot
-                    self.current_bet = player.total_bet_this_hand  # TODO: this line only works if the player is RAISING all-in, not calling with the last of their own chips when they cant cover
-                    return self.betting_round(self.next_player)
-
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    self.current_bet = player.total_bet_this_hand
+                    return self.betting_round(next_round_queue, first_round=False)
+                
                 elif action == "all-in":
-                    player_is_raising = amount >= self.cost_to_call     # Check players money to see if they are raising the bet or just going all-in
-                    added_to_pot = amount
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-                    self.pot += added_to_pot
-                    if player_is_raising:
-                        self.last_to_act = player.player_to_left(self.players)
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    raising = add_to_pot > self.current_bet
+                    if raising:
                         self.current_bet = player.total_bet_this_hand
-                        return self.betting_round(self.next_player)
-
+                        return self.betting_round(next_round_queue, first_round=False)
+                    
                 elif action == "call":
-                    added_to_pot = self.cost_to_call
-                    self.pot += added_to_pot
-                    player.money -= added_to_pot
-                    player.total_bet_this_hand += added_to_pot
-
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    
                 elif action == "fold":
                     player.folded = True
-                    self.discard_pile += player.cards
-                    self.set_remaining_players()
-                    if len(self.remaining_players) <= 1:
-                        return None
-
-                elif action == "check" and self.cost_to_call == 0:
+                    
+                elif action == "check":
                     pass
+                
                 else:
-                    print("Invalid action")
-
-                # SPEAK
-                print(f"\n{player.name}:\t{player.speak()}\n")
-
-            i = (i + 1) % len(self.players)     # Iterate to the next player if
-
-            # If we've gone through all players without starting a new betting round, the betting round is over
-            if exit_next_player:
-                break
-            elif self.current_round == "preflop" \
-              and self.next_player is self.last_to_act \
-              and self.next_player is self.big_blind_player \
-              and self.current_bet == self.small_blind*2:
-                exit_next_player = True
-            elif self.current_player is self.last_to_act:  # When this betting_round ends, set the last raiser up for the next round
-                break
+                    print("Invalid Action")
         
     def reveal_flop(self):
         self.discard_pile = self.deck.deal(1)
