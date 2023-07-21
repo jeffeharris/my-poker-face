@@ -200,7 +200,11 @@ class Game:
         opponent_positions = ""
 
         for player in self.players:
-            position = f"{player.name} has ${player.money}\n"
+            if player.folded:
+                add_string = " and they have folded"
+            else:
+                add_string = ""
+            position = f"{player.name} has ${player.money}{add_string}" f".\n"
             opponent_positions += position
 
         current_game_state = {"players": self.players,
