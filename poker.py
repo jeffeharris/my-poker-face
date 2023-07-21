@@ -306,6 +306,9 @@ class Game:
                 next_round_queue.remove(player)
                 # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
+                # TODO: update the cost_to_call calculation or how the data is received or sent to the AI
+                # TODO: the issue seems to come from the AI not sending the right number when calling because
+                # TODO: we send them bad info on what the bet/cost to call is
                 action, add_to_pot = player.action(self.game_state)
                 self.last_action = action
 
