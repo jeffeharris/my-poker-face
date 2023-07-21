@@ -29,7 +29,7 @@ class Player:
         self.total_bet_this_hand = 0
 
     """@property
-    def current_state(self):
+    def get_state(self):
         my_state = {"persona": self.name,
                     "confidence": "Unshakeable",
                     "attitude": "Smitten",
@@ -46,47 +46,51 @@ class Player:
 
         return my_state"""
 
-    def action(self, game_state):
+    def action(self, game_state, player_action=None, add_to_pot=0):
 
         community_cards = game_state['community_cards']
         current_bet = game_state['current_bet']
         current_pot = game_state['current_pot']
         cost_to_call = game_state['cost_to_call']
         
+        # if player_action == None:
         display_hole_cards(self.cards)
         print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n",
               f"Cost to call: {cost_to_call}\n",
-              f"Total to pot: {self.total_bet_this_hand}")
+              f"Total to pot: {self.total_bet_this_hand}\n"
+              f"Player options: {game_state['player_options']}\n")
 
-        action = input(f"Enter action {game_state['player_options']}: ")
+        # player_action = input(f"Enter action {game_state['player_options']}: ")
 
-        add_to_pot = 0
-        if action in ["bet", "b", "be"]:
+        if player_action in ["bet", "b", "be"]:
             add_to_pot = int(input("Enter amount: "))
-            action = "bet"
-        elif action in ["raise", "r", "ra", "rai", "rais"]:
+            player_action = "bet"
+        elif player_action in ["raise", "r", "ra", "rai", "rais"]:
             raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
             add_to_pot = raise_amount + cost_to_call    # TODO: this causes an issue for the ai bet amount, it isn't aware of how i'm doing the math may need to update this
-            action = "raise"
-        elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
+            player_action = "raise"
+        elif player_action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
             add_to_pot = self.money
-            action = "all-in"
-        elif action in ["call", "ca", "cal"]:
+            player_action = "all-in"
+        elif player_action in ["call", "ca", "cal"]:
             add_to_pot = cost_to_call
-            action = "call"
-        elif action in ["fold", "f", "fo", "fol"]:
+            player_action = "call"
+        elif player_action in ["fold", "f", "fo", "fol"]:
             add_to_pot = 0
-            action = "fold"
-        elif action in ["check", "ch", "che", "chec"]:
+            player_action = "fold"
+        elif player_action in ["check", "ch", "che", "chec"]:
             add_to_pot = 0
-            action = "check"
+            player_action = "check"
+        else:
+            self.process_other_inputs()
+        # TODO: implement table talk
         # self.chat_message = input("Enter chat message (optional): ")
         # if not self.chat_message:
         #     f"{self.name} chooses to {action}."
-        return action, add_to_pot
+        return player_action, add_to_pot
 
     def speak(self):
         return self.chat_message
@@ -109,6 +113,10 @@ class Player:
 
     def get_index(self, players):
         return players.index(self)
+
+    def process_other_inputs(self):
+        # TODO: implement some great ideas here
+        pass
 
 
 class AIPlayer(Player):
@@ -261,8 +269,6 @@ class AIPlayer(Player):
             print(response)
             response = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
             response_json = json.loads(response)
-
-        #print(json.dumps(response_json, indent=4))
 
         action = response_json["action"]
         bet = response_json["amount"]

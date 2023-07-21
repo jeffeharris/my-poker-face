@@ -185,6 +185,10 @@ class PokerGame:
         return self.players.index(self.dealer)
 
     @property
+    def current_player_is_ai(self):
+        return isinstance(self.current_player, AIPlayer)
+
+    @property
     def next_player(self):
         index = self.players.index(self.current_player)
 
@@ -281,10 +285,52 @@ class PokerGame:
     def player_add_to_pot(self, player, add_to_pot=0):
         player.get_for_pot(add_to_pot)
         self.pot += add_to_pot
-    
+        
+    def player_turn(self, player_action, add_to_pot, next_round_queue):
+        player = self.current_player
+        # No checks are performed here on input. Relying on "determine_player_options" to work as expected
+        if player_action == "bet":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+            self.current_bet = player.total_bet_this_hand
+            return self.betting_round(next_round_queue, first_round=False)
+
+        elif player_action == "raise":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+            self.current_bet = player.total_bet_this_hand
+            return self.betting_round(next_round_queue, first_round=False)
+
+        elif player_action == "all-in":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+            raising = add_to_pot > self.current_bet
+            if raising:
+                self.current_bet = player.total_bet_this_hand
+                return self.betting_round(next_round_queue, first_round=False)
+
+        elif player_action == "call":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+
+        elif player_action == "fold":
+            player.folded = True
+
+        elif player_action == "check":
+            pass
+
+        else:
+            print("Invalid Action")
+
+        return self.get_state
+
     def betting_round(self, round_queue: [Player], first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
         next_round_queue = round_queue.copy()   # Make a copy of the round queue to set up a queue for the next round in case we need it
-       
+
         if not first_round:     # all 4 players in the queue should bet in the first round, after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
             last_raiser = round_queue.pop()    # Remove the last raiser from the betting round. last_raiser is currently unused, keeping it in case we need it later
         
@@ -303,45 +349,8 @@ class PokerGame:
                 # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
                 action, add_to_pot = player.action(self.get_state)
+                self.player_turn(action, add_to_pot, next_round_queue)
 
-                # No checks are performed here on input. Relying on "determine_player_options" to work as expected
-                if action == "bet":
-                    player.money -= add_to_pot
-                    player.total_bet_this_hand += add_to_pot
-                    self.pot += add_to_pot
-                    self.current_bet = player.total_bet_this_hand
-                    return self.betting_round(next_round_queue, first_round=False)
-                
-                elif action == "raise":
-                    player.money -= add_to_pot
-                    player.total_bet_this_hand += add_to_pot
-                    self.pot += add_to_pot
-                    self.current_bet = player.total_bet_this_hand
-                    return self.betting_round(next_round_queue, first_round=False)
-                
-                elif action == "all-in":
-                    player.money -= add_to_pot
-                    player.total_bet_this_hand += add_to_pot
-                    self.pot += add_to_pot
-                    raising = add_to_pot > self.current_bet
-                    if raising:
-                        self.current_bet = player.total_bet_this_hand
-                        return self.betting_round(next_round_queue, first_round=False)
-                    
-                elif action == "call":
-                    player.money -= add_to_pot
-                    player.total_bet_this_hand += add_to_pot
-                    self.pot += add_to_pot
-                    
-                elif action == "fold":
-                    player.folded = True
-                    
-                elif action == "check":
-                    pass
-                
-                else:
-                    print("Invalid Action")
-        
     def reveal_flop(self):
         self.discard_pile = self.deck.deal(1)
         self.community_cards = self.deck.deal(3)
@@ -491,7 +500,7 @@ class PokerGame:
     # TODO: change this to accept a player and retrun the options as a list of strings
     def determine_player_options(self):
         # How much is it to call the bet for the player?
-        players_cost_to_call = self.current_bet - self.current_player.total_bet_this_hand
+        players_cost_to_call = self.cost_to_call
         # Does the player have enough to call
         player_has_enough_to_call = self.current_player.money > players_cost_to_call
         # Is the current player also the big_blind TODO: add "and have they played this hand yet"
