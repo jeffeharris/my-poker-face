@@ -605,16 +605,17 @@ def create_random_game(player_name: str = "Jeff", ai_players: [str] = None, num_
         AIPlayer("A guy who tells too many dad jokes")
     ]
 
-        random.shuffle(celebrities)
-        randos = celebrities[0:(5-len(definites))]
-        players = definites + randos
-        for player in players:
-            if isinstance(player, AIPlayer):
-                i = random.randint(0, 2)
-                player.confidence = player.initialize_attribute("confidence", mood=i)
-                player.attitude = player.initialize_attribute("attittude", mood=i)
-        game = PokerGame(players)
-        game.set_dealer(players[random.randint(0, len(players) - 1)])
+    random.shuffle(celebrities)
+    randos = celebrities[0:(num_players-len(definites))]
+    players = definites + randos
+    for player in players:
+        if isinstance(player, AIPlayer):
+            i = random.randint(0, 2)
+            player.confidence = player.initialize_attribute("confidence", mood=i)
+            player.attitude = player.initialize_attribute("attittude", mood=i)
+    game = PokerGame(players)
+    game.set_dealer(players[random.randint(0, len(players) - 1)])
+    return game
 
 
 if __name__ == "__main__":
