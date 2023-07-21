@@ -112,9 +112,10 @@ class Player:
 
 
 class AIPlayer(Player):
-    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
+    def __init__(self, name="AI Player", starting_money=10000, ai_model="gpt-3.5-turbo", ai_temp=.9):
+        # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
         super().__init__(name, starting_money=starting_money)
-        self.chat = ChatOpenAI(temperature=ai_temp, model="gpt-3.5-turbo-16k")
+        self.chat = ChatOpenAI(temperature=ai_temp, model=ai_model)
         self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
         # TODO: create logic to pull the Human prefix from the Human player name
         self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
