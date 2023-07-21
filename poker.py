@@ -128,7 +128,7 @@ class HandEvaluator:
             return True, [pair]*2, kickers
         return False, [], []
 
-  
+
 class Game:
     def __init__(self, player_list=None, player_tuple=None):
         self.discard_pile = []  # list for the discarded cards to be placed in
@@ -303,6 +303,7 @@ class Game:
                 # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
                 action, add_to_pot = player.action(self.game_state)
+                self.last_action = action
 
                 # No checks are performed here on input. Relying on "determine_player_options" to work as expected
                 if action == "bet":
