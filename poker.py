@@ -129,22 +129,6 @@ class HandEvaluator:
         return False, [], []
 
 
-class PokerPlayer:
-    def __init__(self, name="Player", starting_money=10000):
-        super().__init__(name=name)
-        self.money = starting_money
-        self.cards = []
-        self.options = ""
-        self.folded = False
-        self.total_bet_this_hand = 0
-        pass
-
-
-class AIPokerPlayer:
-    def __init__(self):
-        # TODO: fill in code
-        pass
-
 class Game:
     def __init__(self, player_list=None, player_tuple=None):
         self.discard_pile = []  # list for the discarded cards to be placed in
@@ -544,40 +528,40 @@ def main(test=False):
         
     else:
         celebrities = [
-            AIPokerPlayer("Ace Ventura", ai_temp=.9),
-            AIPokerPlayer("Khloe and Kim Khardashian"),
-            AIPokerPlayer("Fred Durst"),
-            AIPokerPlayer("Tom Cruise"),
-            AIPokerPlayer("James Bond"),
-            AIPokerPlayer("Jon Stewart"),
-            AIPokerPlayer("Jim Cramer", ai_temp=.7),
-            AIPokerPlayer("Marjorie Taylor Greene", ai_temp=.7),
-            AIPokerPlayer("Lizzo"),
-            AIPokerPlayer("Bill Clinton"),
-            AIPokerPlayer("Barack Obama"),
-            AIPokerPlayer("Jesus Christ"),
-            AIPokerPlayer("Triumph the Insult Dog", ai_temp=.7),
-            AIPokerPlayer("Donald Trump", ai_temp=.7),
-            AIPokerPlayer("Batman"),
-            AIPokerPlayer("Deadpool"),
-            AIPokerPlayer("Lance Armstrong"),
-            AIPokerPlayer("A Mime", ai_temp=.8),
-            AIPokerPlayer("Jay Gatsby"),
-            AIPokerPlayer("Whoopi Goldberg"),
-            AIPokerPlayer("Dave Chappelle"),
-            AIPokerPlayer("Chris Rock"),
-            AIPokerPlayer("Sarah Silverman"),
-            AIPokerPlayer("Kathy Griffin"),
-            AIPokerPlayer("Dr. Seuss", ai_temp=.7),
-            AIPokerPlayer("Dr. Oz"),
-            AIPokerPlayer("A guy who tells too many dad jokes")
+            AIPlayer("Ace Ventura", ai_temp=.9),
+            AIPlayer("Khloe and Kim Khardashian"),
+            AIPlayer("Fred Durst"),
+            AIPlayer("Tom Cruise"),
+            AIPlayer("James Bond"),
+            AIPlayer("Jon Stewart"),
+            AIPlayer("Jim Cramer", ai_temp=.7),
+            AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
+            AIPlayer("Lizzo"),
+            AIPlayer("Bill Clinton"),
+            AIPlayer("Barack Obama"),
+            AIPlayer("Jesus Christ"),
+            AIPlayer("Triumph the Insult Dog", ai_temp=.7),
+            AIPlayer("Donald Trump", ai_temp=.7),
+            AIPlayer("Batman"),
+            AIPlayer("Deadpool"),
+            AIPlayer("Lance Armstrong"),
+            AIPlayer("A Mime", ai_temp=.8),
+            AIPlayer("Jay Gatsby"),
+            AIPlayer("Whoopi Goldberg"),
+            AIPlayer("Dave Chappelle"),
+            AIPlayer("Chris Rock"),
+            AIPlayer("Sarah Silverman"),
+            AIPlayer("Kathy Griffin"),
+            AIPlayer("Dr. Seuss", ai_temp=.7),
+            AIPlayer("Dr. Oz"),
+            AIPlayer("A guy who tells too many dad jokes")
         ]
 
         random.shuffle(celebrities)
         randos = celebrities[0:(5-len(definites))]
         players = definites + randos
         for player in players:
-            if isinstance(player, AIPokerPlayer):
+            if isinstance(player, AIPlayer):
                 i = random.randint(0, 2)
                 player.confidence = player.initialize_attribute("confidence", mood=i)
                 player.attitude = player.initialize_attribute("attittude", mood=i)
