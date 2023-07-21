@@ -477,27 +477,6 @@ class Game:
                     break
         return start_player
 
-    def determine_last_to_act(self, player=None):    # TODO: add input for the player when they raise
-        last_to_act = None
-        reversed_players = self.players.copy()
-        reversed_players.reverse()
-        if player is None:
-            index = reversed_players.index(self.dealer)
-        else:
-            index = reversed_players.index(player)
-        
-        if self.current_round == "preflop" and self.current_bet == self.small_blind*2:
-            # Player to left of big blind starts
-            last_to_act = self.big_blind_player
-        else:
-            # Find the first player to the right of the dealer who is in the hand
-            for j in range(1, len(self.players)+1):
-                index = (index + j) % len(self.players)
-                if not reversed_players[index].folded:
-                    last_to_act = reversed_players[index]
-                    break
-        return last_to_act
-
     def set_betting_round_state(self):
         # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
         self.betting_round_state = f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} to call, you can also raise or fold."
