@@ -1,0 +1,66 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+header {
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+}
+
+main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+}
+
+#game-board {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.card {
+    width: 50px;
+    height: 80px;
+    border: 1px solid #000;
+    margin: 5px;
+}
+
+#player-info {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.player {
+    width: 100px;
+    height: 150px;
+    border: 1px solid #000;
+    margin: 5px;
+}
+
+footer {
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+}
+
+#controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+button {
+    width: 80px;
+    height: 30px;
+    border: 1px solid #000;
+    margin: 5px;
+}
