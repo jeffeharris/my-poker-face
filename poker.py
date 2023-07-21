@@ -462,6 +462,7 @@ class Game:
             player.cards = []
             player.folded = False
             player.total_bet_this_hand = 0
+            # player.memory = 
     
     def determine_start_player(self):
         start_player = None
