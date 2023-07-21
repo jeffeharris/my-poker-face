@@ -17,7 +17,7 @@ from langchain.memory import ConversationBufferMemory, ReadOnlySharedMemory, Com
 
 
 class Player:
-    def __init__(self, name="Player", starting_money=10000):
+    def __init__(self, name="Player"):
         self.name = name
         self.money = starting_money
         self.cards = []
@@ -111,7 +111,7 @@ class Player:
         return players.index(self)
 
 
-class AIPlayer(Player):
+class AIPokerPlayer(Player):
     def __init__(self, name="AI Player", starting_money=10000, ai_model="gpt-3.5-turbo", ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
         super().__init__(name, starting_money=starting_money)

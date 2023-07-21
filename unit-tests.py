@@ -243,9 +243,9 @@ class TestBettingRound(unittest.TestCase):
         self.assertEqual(game.determine_winner(), player3)
         
     def test_simulate_game(self):
-        player1 = AIPlayer("Player1")
-        player2 = AIPlayer("Player2")
-        player3 = AIPlayer("Player3")
+        player1 = AIPokerPlayer("Player1")
+        player2 = AIPokerPlayer("Player2")
+        player3 = AIPokerPlayer("Player3")
         game = Game([player1, player2, player3])
         
         game.play_hand()
