@@ -519,6 +519,13 @@ class PokerGame:
         self.player_options = player_options.copy()
         self.current_player.options = player_options.copy()
 
+    def run_game(self):
+        while len(self.players) > 1:
+            self.play_hand()
+            play_again = input("Play another hand? (y/n): ")
+            if play_again.lower() != "y":
+                break
+
 
 def main(test=False):
     # Create Players for the game
