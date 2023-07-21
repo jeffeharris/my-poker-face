@@ -19,9 +19,14 @@ from langchain.memory import ConversationBufferMemory, ReadOnlySharedMemory, Com
 class Player:
     def __init__(self, name="Player", starting_money=10000):
         self.name = name
+        self.money = starting_money
+        self.cards = []
         self.chat_message = ""
         self.confidence = ""
         self.attitude = ""
+        self.options = ""
+        self.folded = False
+        self.total_bet_this_hand = 0
 
     """@property
     def current_state(self):
@@ -89,6 +94,8 @@ class Player:
     def get_for_pot(self, amount):
         self.money -= amount
         self.total_bet_this_hand += amount
+        
+    # TODO: add reset player to reset a player for a new round
     
     def player_to_right(self, players, shift=1):
         index = (self.get_index(players) + shift) % len(players)
