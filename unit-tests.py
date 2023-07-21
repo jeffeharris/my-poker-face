@@ -1,5 +1,6 @@
 import unittest
 from poker import *
+from player import *
 from unittest.mock import MagicMock
 import json
 import pickle
