@@ -273,7 +273,8 @@ class AIPlayer(Player):
         print(f"{self.name} chooses to {action} by {bet}.")
 
         return action, bet
-
+    
+    # TODO: move this to the poker class, probably the HandEvaluator class really
     def evaluate_hole_cards(self):
         # Use Monte Carlo method to approximate hand strength
         hand_ranks = []

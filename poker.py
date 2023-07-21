@@ -196,7 +196,7 @@ class PokerGame:
                 return self.remaining_players[remaining_players_index]
 
     @property
-    def game_state(self):
+    def get_state(self):
         opponent_positions = ""
 
         for player in self.players:
@@ -302,7 +302,7 @@ class PokerGame:
                 next_round_queue.remove(player)
                 # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
-                action, add_to_pot = player.action(self.game_state)
+                action, add_to_pot = player.action(self.get_state)
 
                 # No checks are performed here on input. Relying on "determine_player_options" to work as expected
                 if action == "bet":
