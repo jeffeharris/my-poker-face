@@ -46,30 +46,33 @@ class Player:
 
         return my_state"""
 
-    def action(self, game_state, player_action=None, add_to_pot=0):
+    def action(self, game_state, player_action=None, amount=0):
 
         community_cards = game_state['community_cards']
         current_bet = game_state['current_bet']
         current_pot = game_state['current_pot']
         cost_to_call = game_state['cost_to_call']
         
-        # if player_action == None:
-        display_hole_cards(self.cards)
-        print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
-              f"Community cards: {community_cards}\n",
-              f"Current bet: {current_bet}\n",
-              f"Current pot: {current_pot}\n",
-              f"Cost to call: {cost_to_call}\n",
-              f"Total to pot: {self.total_bet_this_hand}\n"
-              f"Player options: {game_state['player_options']}\n")
+        # # if player_action == None:
+        # display_hole_cards(self.cards)
+        # print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
+        #       f"Community cards: {community_cards}\n",
+        #       f"Current bet: {current_bet}\n",
+        #       f"Current pot: {current_pot}\n",
+        #       f"Cost to call: {cost_to_call}\n",
+        #       f"Total to pot: {self.total_bet_this_hand}\n"
+        #       f"Player options: {game_state['player_options']}\n")
+        #
+        # # player_action = input(f"Enter action {game_state['player_options']}: ")
 
-        # player_action = input(f"Enter action {game_state['player_options']}: ")
-
+        add_to_pot = 0
         if player_action in ["bet", "b", "be"]:
-            add_to_pot = int(input("Enter amount: "))
+            # add_to_pot = int(input("Enter amount: "))
+            add_to_pot = amount
             player_action = "bet"
         elif player_action in ["raise", "r", "ra", "rai", "rais"]:
-            raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+            # raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+            raise_amount = amount
             add_to_pot = raise_amount + cost_to_call    # TODO: this causes an issue for the ai bet amount, it isn't aware of how i'm doing the math may need to update this
             player_action = "raise"
         elif player_action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
@@ -140,7 +143,7 @@ class AIPlayer(Player):
         content = json.loads(response.content)
         selection = content["responses"]
         # random.shuffle(selection)     # used to randomly select the response mood
-        print(f"{selection[mood]}\n")
+        # print(f"{selection[mood]}\n")
         return selection[mood]
 
     def create_prompt(self):
@@ -226,13 +229,43 @@ class AIPlayer(Player):
         current_bet = game_state["current_bet"]
         current_pot = game_state["current_pot"]
 
-        print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
+        '''print(f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
               f"Community cards: {community_cards}\n",
               f"Cost to call: {cost_to_call}\n",
               f"Current bet: {current_bet}\n",
               f"Current pot: {current_pot}\n")
 
-        '''
+        self.chat_message = f"{self.name} chooses to {action} by {bet}."
+        return action, bet'''
+
+        response = self.retrieve_response(game_state)
+        try:
+            response_json = json.loads(response)
+        except:
+            print(response)
+            response = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
+            response_json = json.loads(response)
+
+        action = response_json["action"]
+        amount = response_json["amount"]
+        self.chat_message = response_json["comment"]
+        self.attitude = response_json["new_attitude"]
+        self.confidence = response_json["new_confidence"]
+
+        # print(f"{self.name} chooses to {action} by {bet}.")
+
+        # action_state = {
+        #     'action': action,
+        #     'add_to_pot': amount,
+        #     'chat_message': self.chat_message,
+        #     'attitude': self.attitude,
+        #     'confidence': self.confidence,
+        #     'response_json': response_json
+        # }
+
+        return action, amount
+
+    def ai_tools(self):
         if len(community_cards) < 3:
             hand_rank = self.evaluate_hole_cards()
         else:
@@ -259,28 +292,9 @@ class AIPlayer(Player):
             action = "call"
             bet = current_bet
 
-        self.chat_message = f"{self.name} chooses to {action} by {bet}."
-        return action, bet'''
+        return recommended_action
 
-        response = self.retrieve_response(game_state)
-        try:
-            response_json = json.loads(response)
-        except:
-            print(response)
-            response = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
-            response_json = json.loads(response)
-
-        action = response_json["action"]
-        bet = response_json["amount"]
-        self.chat_message = response_json["comment"]
-        self.attitude = response_json["new_attitude"]
-        self.confidence = response_json["new_confidence"]
-
-        print(f"{self.name} chooses to {action} by {bet}.")
-
-        return action, bet
-    
-    # TODO: move this to the poker class, probably the HandEvaluator class really
+   # TODO: move this to the poker class, probably the HandEvaluator class really
     def evaluate_hole_cards(self):
         # Use Monte Carlo method to approximate hand strength
         hand_ranks = []
