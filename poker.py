@@ -128,7 +128,7 @@ class HandEvaluator:
             return True, [pair]*2, kickers
         return False, [], []
 
-  
+
 class Game:
     def __init__(self, player_list=None, player_tuple=None):
         self.discard_pile = []  # list for the discarded cards to be placed in
@@ -200,7 +200,11 @@ class Game:
         opponent_positions = ""
 
         for player in self.players:
-            position = f"{player.name} has ${player.money}\n"
+            if player.folded:
+                add_string = " and they have folded"
+            else:
+                add_string = ""
+            position = f"{player.name} has ${player.money}{add_string}" f".\n"
             opponent_positions += position
 
         current_game_state = {"players": self.players,
@@ -299,10 +303,14 @@ class Game:
 
             # Once checks and updates above are complete, we can get the action from the player and decide what to do with it
             if player.folded:
-                continue    # Skip the folded players in the queue TODO: should we reomove the folded players from the queue and save next_queue in it's condition to be sent if player raises?
-            
+                next_round_queue.remove(player)
+                # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
+                # TODO: update the cost_to_call calculation or how the data is received or sent to the AI
+                # TODO: the issue seems to come from the AI not sending the right number when calling because
+                # TODO: we send them bad info on what the bet/cost to call is
                 action, add_to_pot = player.action(self.game_state)
+                self.last_action = action
 
                 # No checks are performed here on input. Relying on "determine_player_options" to work as expected
                 if action == "bet":
@@ -438,6 +446,9 @@ class Game:
             player.cards = []
             player.folded = False
             player.total_bet_this_hand = 0
+            if isinstance(player, AIPlayer):
+                player.memory = ConversationBufferMemory(return_messages=True, ai_prefix=player.name, human_prefix="Narrator")
+                # TODO: this is not working, we're trying to reset memory for the hand so that we don't hit the limit
     
     def determine_start_player(self):
         start_player = None
@@ -452,27 +463,6 @@ class Game:
                     start_player = self.players[index]
                     break
         return start_player
-
-    def determine_last_to_act(self, player=None):    # TODO: add input for the player when they raise
-        last_to_act = None
-        reversed_players = self.players.copy()
-        reversed_players.reverse()
-        if player is None:
-            index = reversed_players.index(self.dealer)
-        else:
-            index = reversed_players.index(player)
-        
-        if self.current_round == "preflop" and self.current_bet == self.small_blind*2:
-            # Player to left of big blind starts
-            last_to_act = self.big_blind_player
-        else:
-            # Find the first player to the right of the dealer who is in the hand
-            for j in range(1, len(self.players)+1):
-                index = (index + j) % len(self.players)
-                if not reversed_players[index].folded:
-                    last_to_act = reversed_players[index]
-                    break
-        return last_to_act
 
     def set_betting_round_state(self):
         # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
@@ -570,7 +560,7 @@ def main(test=False):
         ]
 
         random.shuffle(celebrities)
-        randos = celebrities[0:(5-len(definites))]
+        randos = celebrities[0:(2-len(definites))]
         players = definites + randos
         for player in players:
             if isinstance(player, AIPlayer):

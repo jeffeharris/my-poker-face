@@ -97,30 +97,30 @@ class Player:
         
     # TODO: add reset player to reset a player for a new round
     
-    def player_to_right(self, players, shift=1):
-        index = (self.get_index(players) + shift) % len(players)
-        return players[index]
-
-    def player_to_left(self, players, shift=1):
-        players = players.copy()
-        players.reverse()
-        index = (self.get_index(players) + shift) % len(players)
-        return players[index]
+    def set_for_new_hand(self):
+        self.cards = []
+        self.folded = False
+        self.total_bet_this_hand = 0
 
     def get_index(self, players):
         return players.index(self)
 
 
 class AIPlayer(Player):
-    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
+    def __init__(self, name="AI Player", starting_money=10000, ai_model="gpt-3.5-turbo", ai_temp=.9):
+        # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
         super().__init__(name, starting_money=starting_money)
-        self.chat = ChatOpenAI(temperature=ai_temp, model="gpt-3.5-turbo-16k")
+        self.chat = ChatOpenAI(temperature=ai_temp, model=ai_model)
         self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
         # TODO: create logic to pull the Human prefix from the Human player name
         self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
         self.confidence = "Unsure"
         self.attitude = "Distracted"
 
+    def set_for_new_hand(self):
+        super().set_for_new_hand()
+        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
+    
     def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players", mood=1):
         response = self.chat([HumanMessage(content=f"""You are {self.name}'s inner voice. Describe their {attribute}
         as they enter a poker game against {opponents}. This description is being used for a simulation of a poker game
