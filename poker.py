@@ -560,7 +560,7 @@ def main(test=False):
         ]
 
         random.shuffle(celebrities)
-        randos = celebrities[0:(5-len(definites))]
+        randos = celebrities[0:(2-len(definites))]
         players = definites + randos
         for player in players:
             if isinstance(player, AIPlayer):
