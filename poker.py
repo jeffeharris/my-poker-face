@@ -446,7 +446,9 @@ class Game:
             player.cards = []
             player.folded = False
             player.total_bet_this_hand = 0
-            # player.memory = 
+            if isinstance(player, AIPlayer):
+                player.memory = ConversationBufferMemory(return_messages=True, ai_prefix=player.name, human_prefix="Narrator")
+                # TODO: this is not working, we're trying to reset memory for the hand so that we don't hit the limit
     
     def determine_start_player(self):
         start_player = None
