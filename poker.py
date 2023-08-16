@@ -368,7 +368,7 @@ class PokerGame:
         print(f"""
                     ---***TURN***---
             {self.community_cards}
-        """)i
+        """)
         display_cards(self.community_cards)
 
     def reveal_river(self):
@@ -485,7 +485,7 @@ class PokerGame:
 
     def set_betting_round_state(self):
         # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
-        self.betting_round_state = f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} to call, you can also raise or fold."
+        self.betting_round_state = f"{self.last_move}. {self.next_player}, you are up now. It is ${self.cost_to_call} to call, you can also raise or fold."
 
     @staticmethod
     def export_game(self, file_name='game_state.pkl'):
@@ -580,36 +580,38 @@ def create_random_game(player_name: str = "Jeff", ai_players: [str] = None, num_
     definites = [
         Player(f"{player_name}")
     ]
+    
+    if ai_players is not None:
+        for ai_player in ai_players:
+            definites.append(AIPlayer(f"{ai_player}"))
 
-    for ai_player in ai_players:
-        definites.append(AIPlayer(f"{ai_player}"))
-
+    # Randomly select players from here
     celebrities = [
-        AIPlayer("Ace Ventura", ai_temp=.9),
+        AIPlayer("Ace Ventura"),
         AIPlayer("Khloe and Kim Khardashian"),
         AIPlayer("Fred Durst"),
         AIPlayer("Tom Cruise"),
         AIPlayer("James Bond"),
         AIPlayer("Jon Stewart"),
-        AIPlayer("Jim Cramer", ai_temp=.7),
-        AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
+        AIPlayer("Jim Cramer"),
+        AIPlayer("Marjorie Taylor Greene"),
         AIPlayer("Lizzo"),
         AIPlayer("Bill Clinton"),
         AIPlayer("Barack Obama"),
         AIPlayer("Jesus Christ"),
-        AIPlayer("Triumph the Insult Dog", ai_temp=.7),
-        AIPlayer("Donald Trump", ai_temp=.7),
+        AIPlayer("Triumph the Insult Dog"),
+        AIPlayer("Donald Trump"),
         AIPlayer("Batman"),
         AIPlayer("Deadpool"),
         AIPlayer("Lance Armstrong"),
-        AIPlayer("A Mime", ai_temp=.8),
+        AIPlayer("A Mime"),
         AIPlayer("Jay Gatsby"),
         AIPlayer("Whoopi Goldberg"),
         AIPlayer("Dave Chappelle"),
         AIPlayer("Chris Rock"),
         AIPlayer("Sarah Silverman"),
         AIPlayer("Kathy Griffin"),
-        AIPlayer("Dr. Seuss", ai_temp=.7),
+        AIPlayer("Dr. Seuss"),
         AIPlayer("Dr. Oz"),
         AIPlayer("A guy who tells too many dad jokes")
     ]
