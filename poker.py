@@ -185,6 +185,10 @@ class PokerGame:
         return self.players.index(self.dealer)
 
     @property
+    def current_player_is_ai(self):
+        return isinstance(self.current_player, AIPlayer)
+
+    @property
     def next_player(self):
         index = self.players.index(self.current_player)
 
@@ -219,6 +223,37 @@ class PokerGame:
                               "last_action": self.last_action
                               }
         return current_game_state
+
+    def save_game_state(self):
+        game_state = {
+            'discard_pile': self.discard_pile,
+            'all_in_allowed': self.all_in_allowed,
+            'starting_players': self.starting_players,
+            'players': self.players,
+            'remaining_players': self.remaining_players,
+            'last_to_act': self.last_to_act,
+            'betting_round_state': self.betting_round_state,
+            'last_action': self.last_action,
+            'deck': self.deck,
+            'community_cards': self.community_cards,
+            'current_bet': self.current_bet,
+            'pot': self.pot,
+            'small_blind': self.small_blind,
+            'current_round': self.current_round,
+            'dealer': self.dealer,
+            'small_blind_player': self.small_blind_player,
+            'big_blind_player': self.big_blind_player,
+            'under_the_gun': self.under_the_gun,
+            'current_player': self.current_player,
+            'player_options': self.player_options,
+            'min_bet': self.min_bet,
+            'max_bet': self.max_bet,
+            'pot_limit': self.pot_limit
+        }
+
+        with open('./game_saves/game_state.json', 'w') as file:
+            json.dump(game_state, file, indent=2)
+
 
     def play_hand(self):
         self.deck.shuffle()
@@ -285,10 +320,53 @@ class PokerGame:
     def player_add_to_pot(self, player, add_to_pot=0):
         player.get_for_pot(add_to_pot)
         self.pot += add_to_pot
-    
+
+    def player_turn(self, player_action, add_to_pot, next_round_queue):
+        player = self.current_player
+        # No checks are performed here on input. Relying on "determine_player_options" to work as expected
+        if player_action == "bet":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+            self.current_bet = player.total_bet_this_hand
+            return self.betting_round(next_round_queue, first_round=False)
+
+        elif player_action == "raise":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+            self.current_bet = player.total_bet_this_hand
+            return self.betting_round(next_round_queue, first_round=False)
+
+        elif player_action == "all-in":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+            raising = add_to_pot > self.current_bet
+            if raising:
+                self.current_bet = player.total_bet_this_hand
+                return self.betting_round(next_round_queue, first_round=False)
+
+        elif player_action == "call":
+            player.money -= add_to_pot
+            player.total_bet_this_hand += add_to_pot
+            self.pot += add_to_pot
+
+        elif player_action == "fold":
+            player.folded = True
+
+        elif player_action == "check":
+            pass
+
+        else:
+            print("Invalid Action")
+
+        return self.game_state
+
     def betting_round(self, round_queue: [Player], first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
         next_round_queue = round_queue.copy()   # Make a copy of the round queue to set up a queue for the next round in case we need it
-       
+
+
         if not first_round:     # all 4 players in the queue should bet in the first round, after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
             last_raiser = round_queue.pop()    # Remove the last raiser from the betting round. last_raiser is currently unused, keeping it in case we need it later
         
@@ -310,6 +388,7 @@ class PokerGame:
                 # TODO: the issue seems to come from the AI not sending the right number when calling because
                 # TODO: we send them bad info on what the bet/cost to call is
                 action, add_to_pot = player.action(self.game_state)
+                self.player_turn(action, add_to_pot, next_round_queue)
                 self.last_action = action
 
                 # No checks are performed here on input. Relying on "determine_player_options" to work as expected
@@ -349,7 +428,7 @@ class PokerGame:
                 
                 else:
                     print("Invalid Action")
-        
+
     def reveal_flop(self):
         self.discard_pile = self.deck.deal(1)
         self.community_cards = self.deck.deal(3)
@@ -466,7 +545,7 @@ class PokerGame:
 
     def set_betting_round_state(self):
         # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
-        self.betting_round_state = f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} to call, you can also raise or fold."
+        self.betting_round_state = f"{self.last_move}. {self.next_player}, you are up now. It is ${self.cost_to_call} to call, you can also raise or fold."
 
     @staticmethod
     def export_game(self, file_name='game_state.pkl'):
@@ -509,6 +588,13 @@ class PokerGame:
         self.player_options = player_options.copy()
         self.current_player.options = player_options.copy()
 
+    def run_game(self):
+        while len(self.players) > 1:
+            self.play_hand()
+            play_again = input("Play another hand? (y/n): ")
+            if play_again.lower() != "y":
+                break
+
 
 def main(test=False):
     # Create Players for the game
@@ -527,56 +613,11 @@ def main(test=False):
         players = basic_test_players
         game = PokerGame(players)
         game.set_dealer(players[1])
-        
+
     else:
-        celebrities = [
-            AIPlayer("Ace Ventura", ai_temp=.9),
-            AIPlayer("Khloe and Kim Khardashian"),
-            AIPlayer("Fred Durst"),
-            AIPlayer("Tom Cruise"),
-            AIPlayer("James Bond"),
-            AIPlayer("Jon Stewart"),
-            AIPlayer("Jim Cramer", ai_temp=.7),
-            AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
-            AIPlayer("Lizzo"),
-            AIPlayer("Bill Clinton"),
-            AIPlayer("Barack Obama"),
-            AIPlayer("Jesus Christ"),
-            AIPlayer("Triumph the Insult Dog", ai_temp=.7),
-            AIPlayer("Donald Trump", ai_temp=.7),
-            AIPlayer("Batman"),
-            AIPlayer("Deadpool"),
-            AIPlayer("Lance Armstrong"),
-            AIPlayer("A Mime", ai_temp=.8),
-            AIPlayer("Jay Gatsby"),
-            AIPlayer("Whoopi Goldberg"),
-            AIPlayer("Dave Chappelle"),
-            AIPlayer("Chris Rock"),
-            AIPlayer("Sarah Silverman"),
-            AIPlayer("Kathy Griffin"),
-            AIPlayer("Dr. Seuss", ai_temp=.7),
-            AIPlayer("Dr. Oz"),
-            AIPlayer("A guy who tells too many dad jokes")
-        ]
-
-    random.shuffle(celebrities)
-    randos = celebrities[0:(num_players-len(definites))]
-    players = definites + randos
-    for player in players:
-        if isinstance(player, AIPlayer):
-            i = random.randint(0, 2)
-            player.confidence = player.initialize_attribute("confidence", mood=i)
-            player.attitude = player.initialize_attribute("attittude", mood=i)
-    game = PokerGame(players)
-    game.set_dealer(players[random.randint(0, len(players) - 1)])
-    return game
-
+        game = create_random_game()
     # Run the game until it ends
-    while len(game.players) > 1:
-        game.play_hand()
-        play_again = input("Play another hand? (y/n): ")
-        if play_again.lower() != "y":
-            break
+    game.run_game()
 
 
 def shift_list_left(my_list: list, count: int = 1):
@@ -597,7 +638,61 @@ def shift_list_right(my_list: list, count: int = 1):
     for i in range(1, count+1):
         # Pop from the end of the list and insert it at the beginning
         my_list.insert(0, my_list.pop())
-    
+
+
+def create_random_game(player_name: str = "Jeff", ai_players: [str] = None, num_players: int = 5):
+    # Create Players for the game
+    definites = [
+        Player(f"{player_name}")
+    ]
+
+    if ai_players is not None:
+        for ai_player in ai_players:
+            definites.append(AIPlayer(f"{ai_player}"))
+
+    # Randomly select players from here
+    celebrities = [
+        AIPlayer("Ace Ventura"),
+        AIPlayer("Khloe and Kim Khardashian"),
+        AIPlayer("Fred Durst"),
+        AIPlayer("Tom Cruise"),
+        AIPlayer("James Bond"),
+        AIPlayer("Jon Stewart"),
+        AIPlayer("Jim Cramer"),
+        AIPlayer("Marjorie Taylor Greene"),
+        AIPlayer("Lizzo"),
+        AIPlayer("Bill Clinton"),
+        AIPlayer("Barack Obama"),
+        AIPlayer("Jesus Christ"),
+        AIPlayer("Triumph the Insult Dog"),
+        AIPlayer("Donald Trump"),
+        AIPlayer("Batman"),
+        AIPlayer("Deadpool"),
+        AIPlayer("Lance Armstrong"),
+        AIPlayer("A Mime"),
+        AIPlayer("Jay Gatsby"),
+        AIPlayer("Whoopi Goldberg"),
+        AIPlayer("Dave Chappelle"),
+        AIPlayer("Chris Rock"),
+        AIPlayer("Sarah Silverman"),
+        AIPlayer("Kathy Griffin"),
+        AIPlayer("Dr. Seuss"),
+        AIPlayer("Dr. Oz"),
+        AIPlayer("A guy who tells too many dad jokes")
+    ]
+
+    random.shuffle(celebrities)
+    randos = celebrities[0:(num_players-len(definites))]
+    players = definites + randos
+    for player in players:
+        if isinstance(player, AIPlayer):
+            i = random.randint(0, 2)
+            player.confidence = player.initialize_attribute("confidence", mood=i)
+            player.attitude = player.initialize_attribute("attittude", mood=i)
+    game = PokerGame(players)
+    game.set_dealer(players[random.randint(0, len(players) - 1)])
+    return game
+
 
 if __name__ == "__main__":
     main()
