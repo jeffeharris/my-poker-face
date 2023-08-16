@@ -23,6 +23,7 @@ def new_game():
 
 
 @app.route('/api/make_move', methods=['POST'])
+# TODO fix the game thing below by figuring out how to save and pass the game state
 def make_move():
     while game.is_current_player_ai():
         ai_move = game.current_player.generate_move(game)

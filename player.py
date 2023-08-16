@@ -677,3 +677,4 @@ What is your move?""")
 
         print(player_response)
         return player_response
+    
