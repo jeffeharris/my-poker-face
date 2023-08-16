@@ -141,7 +141,13 @@ class AIPlayer(Player):
             {{{{"responses" =  ["string", "string", "string"]}}}}""")])
 
         content = json.loads(response.content)
-        selection = content["responses"]
+        try:
+            response_json = json.loads(content)
+        except:
+            content = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
+            response_json = json.loads(content)
+            
+        selection = response_json["responses"]
         # random.shuffle(selection)     # used to randomly select the response mood
         # print(f"{selection[mood]}\n")
         return selection[mood]
