@@ -1,5 +1,6 @@
 import unittest
 from poker import *
+from player import *
 from unittest.mock import MagicMock
 import json
 import pickle
@@ -9,7 +10,7 @@ class TestDetermineStartPlayer(unittest.TestCase):
     def test_2_remaining_1_folded(self):
         player1 = Player(name="Player1")
         player2 = Player(name="Player2")
-        player3 = Player(name="Player3")
+        player3 = Player(name="Player3")   
         game = PokerGame([player1, player2, player3])
 
         game.set_dealer(player1)
@@ -280,7 +281,7 @@ class TestRotateDealer(unittest.TestCase):
     def test_when_dealer_is_out_of_money(self):
         game = PokerGame([Player(name="Dealer", starting_money=0),
                           Player(name="Player2", starting_money=200),
-                          Player(name="Player3", starting_money=200)])        
+                          Player(name="Player3", starting_money=200)])
         
         game.set_dealer(game.players[0])
         game.set_current_player("Player3")

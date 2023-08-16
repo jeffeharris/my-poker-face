@@ -128,7 +128,7 @@ class HandEvaluator:
             return True, [pair]*2, kickers
         return False, [], []
 
-  
+
 class PokerGame:
     def __init__(self, player_list=None, player_tuple=None):
         self.discard_pile = []  # list for the discarded cards to be placed in
@@ -205,6 +205,7 @@ class PokerGame:
 
         for player in self.players:
             position = f"{player.name} has ${player.money}\n"
+
             opponent_positions += position
 
         current_game_state = {"players": self.players,
@@ -285,7 +286,7 @@ class PokerGame:
     def player_add_to_pot(self, player, add_to_pot=0):
         player.get_for_pot(add_to_pot)
         self.pot += add_to_pot
-        
+
     def player_turn(self, player_action, add_to_pot, next_round_queue):
         player = self.current_player
         # No checks are performed here on input. Relying on "determine_player_options" to work as expected
@@ -331,6 +332,7 @@ class PokerGame:
     def betting_round(self, round_queue: [Player], first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
         next_round_queue = round_queue.copy()   # Make a copy of the round queue to set up a queue for the next round in case we need it
 
+
         if not first_round:     # all 4 players in the queue should bet in the first round, after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
             last_raiser = round_queue.pop()    # Remove the last raiser from the betting round. last_raiser is currently unused, keeping it in case we need it later
         
@@ -348,8 +350,50 @@ class PokerGame:
                 next_round_queue.remove(player)
                 # TODO: do other things when the player has folded, let them interact with the table etc.
             else:
-                action, add_to_pot = player.action(self.get_state)
+                # TODO: update the cost_to_call calculation or how the data is received or sent to the AI
+                # TODO: the issue seems to come from the AI not sending the right number when calling because
+                # TODO: we send them bad info on what the bet/cost to call is
+                action, add_to_pot = player.action(self.game_state)
                 self.player_turn(action, add_to_pot, next_round_queue)
+                self.last_action = action
+
+                # No checks are performed here on input. Relying on "determine_player_options" to work as expected
+                if action == "bet":
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    self.current_bet = player.total_bet_this_hand
+                    return self.betting_round(next_round_queue, first_round=False)
+                
+                elif action == "raise":
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    self.current_bet = player.total_bet_this_hand
+                    return self.betting_round(next_round_queue, first_round=False)
+                
+                elif action == "all-in":
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    raising = add_to_pot > self.current_bet
+                    if raising:
+                        self.current_bet = player.total_bet_this_hand
+                        return self.betting_round(next_round_queue, first_round=False)
+                    
+                elif action == "call":
+                    player.money -= add_to_pot
+                    player.total_bet_this_hand += add_to_pot
+                    self.pot += add_to_pot
+                    
+                elif action == "fold":
+                    player.folded = True
+                    
+                elif action == "check":
+                    pass
+                
+                else:
+                    print("Invalid Action")
 
     def reveal_flop(self):
         self.discard_pile = self.deck.deal(1)
@@ -447,6 +491,9 @@ class PokerGame:
             player.cards = []
             player.folded = False
             player.total_bet_this_hand = 0
+            if isinstance(player, AIPlayer):
+                player.memory = ConversationBufferMemory(return_messages=True, ai_prefix=player.name, human_prefix="Narrator")
+                # TODO: this is not working, we're trying to reset memory for the hand so that we don't hit the limit
     
     def determine_start_player(self):
         start_player = None
@@ -470,7 +517,7 @@ class PokerGame:
             index = reversed_players.index(self.dealer)
         else:
             index = reversed_players.index(player)
-        
+
         if self.current_round == "preflop" and self.current_bet == self.small_blind*2:
             # Player to left of big blind starts
             last_to_act = self.big_blind_player
@@ -500,7 +547,7 @@ class PokerGame:
     # TODO: change this to accept a player and retrun the options as a list of strings
     def determine_player_options(self):
         # How much is it to call the bet for the player?
-        players_cost_to_call = self.cost_to_call
+        players_cost_to_call = self.current_bet - self.current_player.total_bet_this_hand
         # Does the player have enough to call
         player_has_enough_to_call = self.current_player.money > players_cost_to_call
         # Is the current player also the big_blind TODO: add "and have they played this hand yet"
@@ -535,8 +582,12 @@ class PokerGame:
             if play_again.lower() != "y":
                 break
 
-
 def main(test=False):
+    # Create Players for the game
+    definites = [
+        Player("Jeff")
+    ]
+    
     if test:
         basic_test_players = [
             Player("Player1"),
@@ -548,7 +599,7 @@ def main(test=False):
         players = basic_test_players
         game = PokerGame(players)
         game.set_dealer(players[1])
-        
+
     else:
         game = create_random_game()
     # Run the game until it ends
@@ -580,7 +631,7 @@ def create_random_game(player_name: str = "Jeff", ai_players: [str] = None, num_
     definites = [
         Player(f"{player_name}")
     ]
-    
+
     if ai_players is not None:
         for ai_player in ai_players:
             definites.append(AIPlayer(f"{ai_player}"))
