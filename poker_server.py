@@ -19,7 +19,7 @@ def new_game():
     game.run_game()
 
     # Return a success message and the initial game state
-    return jsonify(message="New game started", game_state=game.get_state()), 200
+    return jsonify(message="New game started", game_state=game.game_state()), 200
 
 
 @app.route('/api/make_move', methods=['POST'])
