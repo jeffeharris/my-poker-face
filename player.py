@@ -96,6 +96,81 @@ class Player:
         return players.index(self)
 
 
+# Create a class that decouples the AI player from the LLM assistant
+class LLMAssistant:
+    def __init__(self,
+                 ai_temp=1.0,
+                 ai_model=None,
+                 system_message=None,
+                 memory=None):
+        # create a class that defines the client using OpenAI API directly
+        self.max_memory_length = 10
+        self.memory = memory
+        self.temp = ai_temp
+        self.model = ai_model
+        self.system_message = system_message
+
+    @property
+    def memory_length(self):
+        return len(self.memory)
+
+    # TODO: abstract to a memory class
+    def trim_memory(self):
+        if self.memory_length > self.max_memory_length:
+            self.memory = self.memory[-self.max_memory_length:]
+
+    @property
+    def messages(self):
+        # initialize memory
+        messages = [{"role": "system", "content": self.system_message}]
+        self.trim_memory()
+        messages.extend(self.memory)
+        return messages
+
+    def add_to_memory(self, message):
+        self.memory.append(message)
+        self.trim_memory()
+
+    def get_response(self, prompt):
+        response = "you said: " + prompt
+        return response
+
+
+class OpenAILLMAssistant(LLMAssistant):
+    def __init__(self,
+                 ai_model="gpt-3.5-turbo-16k",
+                 ai_temp=1.0,
+                 system_message="You are a helpful assistant.",
+                 memory=None,
+                 functions: list = None):
+        super().__init__(ai_temp, ai_model, system_message, memory)
+        if memory is None:
+            self.memory = []
+        self.client = OpenAI()
+        self.functions = functions
+
+    def get_response(self, messages):
+        print(messages)
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=self.temp,
+            max_tokens=5000,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
+        )
+        return response
+
+    def chat(self, user_content):
+        user_message = {"role": "user", "content": user_content}
+        self.add_to_memory(user_message)
+        response = self.get_response(self.messages)
+        self.add_to_memory(response.choices[0].message)
+
+        return response.choices[0].message.content
+
+
 class AIPlayer(Player):
     def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
