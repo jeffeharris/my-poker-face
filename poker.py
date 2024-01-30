@@ -1,21 +1,6 @@
 from collections import Counter
-from cards import *
-import random
-import json
-import pickle
 from player import *
 
-from langchain import ConversationChain
-
-from langchain.chat_models import ChatOpenAI
-
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-    MessagesPlaceholder,
-    HumanMessage
-)
 from langchain.memory import ConversationBufferMemory, ReadOnlySharedMemory, CombinedMemory
 
 from dotenv import load_dotenv
@@ -286,7 +271,7 @@ class Game:
         player.get_for_pot(add_to_pot)
         self.pot += add_to_pot
     
-    def betting_round(self, round_queue: [Player], first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
+    def betting_round(self, round_queue, first_round: bool = True):     # betting_round takes in a list of Players in order of their turns
         next_round_queue = round_queue.copy()   # Make a copy of the round queue to set up a queue for the next round in case we need it
        
         if not first_round:     # all 4 players in the queue should bet in the first round, after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
@@ -468,15 +453,15 @@ class Game:
         # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
         self.betting_round_state = f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} to call, you can also raise or fold."
 
-    @staticmethod
-    def export_game(self, file_name='game_state.pkl'):
-        with open(file_name, 'wb') as f:
-            return pickle.dump(self, f)
-
-    @staticmethod
-    def load_game(file_name='game_state.pkl'):
-        with open(file_name, 'rb') as f:
-            return pickle.load(f)
+    # @staticmethod
+    # def export_game(self, file_name='game_state.pkl'):
+    #     with open(file_name, 'wb') as f:
+    #         return pickle.dump(self, f)
+    #
+    # @staticmethod
+    # def load_game(file_name='game_state.pkl'):
+    #     with open(file_name, 'rb') as f:
+    #         return pickle.load(f)
 
     # TODO: change this to accept a player and retrun the options as a list of strings
     def determine_player_options(self):
