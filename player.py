@@ -1,20 +1,10 @@
 from cards import *
 import json
-import pickle
+from openai import OpenAI
+from dotenv import load_dotenv
+from poker import HandEvaluator
 
-from langchain import ConversationChain
-
-from langchain.chat_models import ChatOpenAI
-
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-    MessagesPlaceholder,
-    HumanMessage
-)
-from langchain.memory import ConversationBufferMemory, ReadOnlySharedMemory, CombinedMemory
-
+load_dotenv()
 
 class Player:
     def __init__(self, name="Player", starting_money=10000):
@@ -107,35 +97,34 @@ class Player:
 
 
 class AIPlayer(Player):
-    def __init__(self, name="AI Player", starting_money=10000, ai_model="gpt-3.5-turbo", ai_temp=.9):
+    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
         super().__init__(name, starting_money=starting_money)
-        self.chat = ChatOpenAI(temperature=ai_temp, model=ai_model)
-        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
-        # TODO: create logic to pull the Human prefix from the Human player name
-        self.conversation = ConversationChain(memory=self.memory, prompt=self.create_prompt(), llm=self.chat)
+        self.assistant = OpenAILLMAssistant(ai_temp=ai_temp, system_message=self.persona_prompt)
         self.confidence = "Unsure"
         self.attitude = "Distracted"
 
     def set_for_new_hand(self):
         super().set_for_new_hand()
-        self.memory = ConversationBufferMemory(return_messages=True, ai_prefix=self.name, human_prefix="Narrator")
+        self.assistant.memory = []
     
     def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players", mood=1):
-        response = self.chat([HumanMessage(content=f"""You are {self.name}'s inner voice. Describe their {attribute}
-        as they enter a poker game against {opponents}. This description is being used for a simulation of a poker game
-        and we want to have a variety of personalities and emotions for the players.
-        Your phrasing must be as if you are their inner voice and you are speaking to them. {constraints}
-        Provide 3 responses with different levels of {attribute} (low, regular, high) and put them in JSON format like:
-            {{{{"responses" =  ["string", "string", "string"]}}}}""")])
+        formatted_string =  f"You are {self.name}'s inner voice. Describe their {attribute} as they enter a poker game against {opponents}. This description is being used for a simulation of a poker game and we want to have a variety of personalities and emotions for the players. Your phrasing must be as if you are their inner voice and you are speaking to them. {constraints}"
+                            # f"Provide 3 responses with different levels of {attribute} (low, regular, high) and put them in JSON format like: {{{{\"responses\" =  [\"string\", \"string\", \"string\"]}}}}"
 
-        content = json.loads(response.content)
-        selection = content["responses"]
+        response = self.assistant.get_response(messages=[{"role": "user", "content": formatted_string}])
+
+        # content = json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        # selection = content["responses"]
         # random.shuffle(selection)     # used to randomly select the response mood
-        print(f"{selection[mood]}\n")
-        return selection[mood]
+        # print(f"{selection[mood]}\n")
+        # return selection[mood]
+        print(content)
+        return content
 
-    def create_prompt(self):
+    @property
+    def persona_prompt(self):
         persona = self.name
         confidence = self.confidence
         attitude = self.attitude
@@ -204,11 +193,12 @@ class AIPlayer(Player):
 
         """)
 
-        poker_prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(template=sample_string),
-            MessagesPlaceholder(variable_name="history"),
-            HumanMessagePromptTemplate.from_template("{input}")
-        ])
+        poker_prompt = sample_string
+        # poker_prompt = ChatPromptTemplate.from_messages([
+        #     SystemMessagePromptTemplate.from_template(template=sample_string),
+        #     MessagesPlaceholder(variable_name="history"),
+        #     HumanMessagePromptTemplate.from_template("{input}")
+        # ])
         return poker_prompt
 
     def action(self, game_state):
@@ -259,10 +249,10 @@ class AIPlayer(Player):
             response_json = json.loads(response)
         except:
             print(response)
-            response = self.conversation.predict(input="Please correct your response, it wasn't valid JSON.")
+            response = self.assistant.chat("Please correct your response, it wasn't valid JSON.")
             response_json = json.loads(response)
 
-        #print(json.dumps(response_json, indent=4))
+        # print(json.dumps(response_json, indent=4))
 
         action = response_json["action"]
         bet = response_json["amount"]
@@ -321,9 +311,9 @@ Remember {persona}, you're feeling {attitude} and {confidence}. And you can not 
 
 What is your move?""")
         # it's ${amount_to_call} to you to call and cover the blind and $20 to bet. Would you like to call or fold?
-        #print(sample_string)
+        # print(sample_string)
 
-        player_response = self.conversation.predict(input=sample_string)
+        player_response = self.assistant.chat(sample_string)
 
         print(player_response)
 
