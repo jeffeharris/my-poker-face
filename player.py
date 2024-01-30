@@ -1,10 +1,11 @@
-from cards import *
 import json
+from cards import *
 from openai import OpenAI
 from dotenv import load_dotenv
 from poker import HandEvaluator
 
 load_dotenv()
+
 
 class Player:
     def __init__(self, name="Player", starting_money=10000):
