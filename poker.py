@@ -1,8 +1,5 @@
 from collections import Counter
 from player import *
-
-from langchain.memory import ConversationBufferMemory, ReadOnlySharedMemory, CombinedMemory
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -432,8 +429,7 @@ class Game:
             player.folded = False
             player.total_bet_this_hand = 0
             if isinstance(player, AIPlayer):
-                player.memory = ConversationBufferMemory(return_messages=True, ai_prefix=player.name, human_prefix="Narrator")
-                # TODO: this is not working, we're trying to reset memory for the hand so that we don't hit the limit
+                player.assistant.trim_memory()
     
     def determine_start_player(self):
         start_player = None
