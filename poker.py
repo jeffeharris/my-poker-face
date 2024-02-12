@@ -1,5 +1,4 @@
 from collections import Counter
-from player import *
 import logging
 import random
 from enum import Enum
