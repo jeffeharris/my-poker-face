@@ -25,16 +25,21 @@ class ConsoleInterface(Interface):
 class StreamlitInterface(Interface):
     def request_action(self, options, request):
         placeholder = st.empty()
-        selected_option = placeholder.selectbox(request, options)
-        confirm_button = placeholder.button("Confirm")
+        selected_option = placeholder.selectbox(key=random.randint(0, 10000),
+                                                label=request,
+                                                options=options,
+                                                index=None)
+        # Check if user made the selection, then display confirm button
+        if selected_option:
+            confirm_button = st.button("Confirm")
+            if confirm_button:
+                return selected_option
 
-        if confirm_button:
-            return selected_option
-        else:
-            return None
+        # return None by default if no selection is made or confirmed
+        return None
 
     def display_text(self, text):
-        st.write(text)
+        st.text(body=text)
 
 
 class Player:
