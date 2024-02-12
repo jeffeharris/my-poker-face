@@ -1,45 +1,41 @@
 import unittest
 from poker import *
-from player import *
-from unittest.mock import MagicMock
-import json
-import pickle
 
 
 class TestDetermineStartPlayer(unittest.TestCase):
     def test_2_remaining_1_folded(self):
-        player1 = Player(name="Player1")
-        player2 = Player(name="Player2")
-        player3 = Player(name="Player3")
-        game = Game([player1, player2, player3])
+        player1 = PokerPlayer(name="Player1")
+        player2 = PokerPlayer(name="Player2")
+        player3 = PokerPlayer(name="Player3")
+        poker_game_instance = PokerGame([player1, player2, player3], Interface())
 
-        game.set_dealer(player1)
-        game.set_current_round("turn")
+        poker_game_instance.set_dealer(player1)
+        poker_game_instance.set_current_round("turn")
         player1.folded = True
         player2.folded = False
         player3.folded = False
 
-        self.assertEqual(game.determine_start_player(), player2)
+        self.assertEqual(poker_game_instance.determine_start_player(), player2)
         
     def test_1_remaining_2_folded(self):
-        player1 = Player(name="Player1")
-        player2 = Player(name="Player2")
-        player3 = Player(name="Player3")
-        game = Game([player1, player2, player3])
+        player1 = PokerPlayer(name="Player1")
+        player2 = PokerPlayer(name="Player2")
+        player3 = PokerPlayer(name="Player3")
+        poker_game_instance = PokerGame([player1, player2, player3], Interface())
 
-        game.set_dealer(player1)
-        game.set_current_round("flop")
+        poker_game_instance.set_dealer(player1)
+        poker_game_instance.set_current_round("flop")
         player1.folded = True
         player2.folded = True
         player3.folded = False
 
-        self.assertEqual(game.determine_start_player(), player3)
+        self.assertEqual(poker_game_instance.determine_start_player(), player3)
         
     def test_dealer_remaining_1_folded(self):
-        dealer = Player(name="Player1")
-        player2 = Player(name="Player2")
-        player3 = Player(name="Player3")
-        game = Game([dealer, player2, player3])
+        dealer = PokerPlayer(name="Player1")
+        player2 = PokerPlayer(name="Player2")
+        player3 = PokerPlayer(name="Player3")
+        game = PokerGame([dealer, player2, player3], Interface())
 
         game.set_dealer(dealer)
         game.set_current_round("flop")
@@ -50,10 +46,10 @@ class TestDetermineStartPlayer(unittest.TestCase):
         self.assertEqual(game.determine_start_player(), player3)
         
     def test_dealer_remaining_2_folded(self):
-        dealer = Player(name="Player1")
-        player2 = Player(name="Player2")
-        player3 = Player(name="Player3")
-        game = Game([dealer, player2, player3])
+        dealer = PokerPlayer(name="Player1")
+        player2 = PokerPlayer(name="Player2")
+        player3 = PokerPlayer(name="Player3")
+        game = PokerGame([dealer, player2, player3], Interface())
 
         game.set_dealer(dealer)
         game.set_current_round("flop")
@@ -104,7 +100,7 @@ class TestHandEvaluator(unittest.TestCase):
         
 class TestGame(unittest.TestCase):
     def test_determine_winner(self):
-        game = Game([Player("Winner"), Player("Loser")])
+        game = PokerGame([PokerPlayer("Winner"), PokerPlayer("Loser")], Interface())
         game.community_cards = [
             Card(rank='2', suit='hearts'),
             Card(rank='3', suit='diamonds'),
@@ -124,10 +120,10 @@ class TestGame(unittest.TestCase):
         self.assertEqual(winner, game.players[0])
         
     def test_three_player_game_1(self):
-        player1 = Player("Winner")
-        player2 = Player("Player2")
-        player3 = Player("Player3")
-        game = Game([player1, player2, player3])
+        player1 = PokerPlayer("Winner")
+        player2 = PokerPlayer("Player2")
+        player3 = PokerPlayer("Player3")
+        game = PokerGame([player1, player2, player3], Interface())
 
         # Scenario 1: Player 1 wins with a straight flush
         game.community_cards = [
@@ -152,10 +148,10 @@ class TestGame(unittest.TestCase):
         self.assertEqual(game.determine_winner(), player1)
 
     def test_three_player_game_2(self):
-        player1 = Player("Player1")
-        player2 = Player("Winner")
-        player3 = Player("Player3")
-        game = Game([player1, player2, player3])
+        player1 = PokerPlayer("Player1")
+        player2 = PokerPlayer("Winner")
+        player3 = PokerPlayer("Player3")
+        game = PokerGame([player1, player2, player3], Interface())
         
         # Scenario 2: Player 2 wins with a four of a kind
         game.community_cards = [
@@ -216,10 +212,10 @@ class TestBettingRound(unittest.TestCase):
         self.assertFalse(player3.folded)  # Player 3 didn't fold"""
 
     def test_three_player_game_3(self):
-        player1 = Player("Palyer1")
-        player2 = Player("Player2")
-        player3 = Player("Winner")
-        game = Game([player1, player2, player3])
+        player1 = PokerPlayer("Palyer1")
+        player2 = PokerPlayer("Player2")
+        player3 = PokerPlayer("Winner")
+        game = PokerGame([player1, player2, player3], Interface())
         
         # Scenario 3: Player 3 wins with a full house
         game.community_cards = [
@@ -244,14 +240,19 @@ class TestBettingRound(unittest.TestCase):
         self.assertEqual(game.determine_winner(), player3)
         
     def test_simulate_game(self):
-        player1 = AIPlayer("Player1")
-        player2 = AIPlayer("Player2")
-        player3 = AIPlayer("Player3")
-        game = Game([player1, player2, player3])
-        
+        player1 = AIPokerPlayer("Player1")
+        player2 = AIPokerPlayer("Player2")
+        player3 = AIPokerPlayer("Player3")
+        game = PokerGame([player1, player2, player3], Interface())
+        # uncomment the line below to enable this test to work
+        # game.set_dealer(player1)
+
         game.play_hand()
-        
-        self.assertTrue(game.determine_winner() in game.players)
+        winning_player = game.determine_winner()
+        print("winner: " + winning_player.name)
+        for player in game.players:
+            print(player.name)
+        self.assertTrue(winning_player in game.players)
 
 
 class TestDeterminePlayerOptions(unittest.TestCase):
@@ -270,24 +271,26 @@ class TestDeterminePlayerOptions(unittest.TestCase):
 
         game.current_bet = 50                               # High bet in the hand is $50
         game.last_action = 'call'                           
-        game.current_round = 'preflop'
-        game.determine_player_options()
+        game.current_round = 'pre-flop'
+        player_options = game.determine_player_options(game.current_player)
 
-        print(game.player_options)
-        self.assertEqual(game.player_options, ['check', 'raise', 'all-in'])
+        print(player_options)
+        self.assertEqual(player_options, ['check', 'raise', 'all-in'])
         
         
 class TestRotateDealer(unittest.TestCase):
     def test_when_dealer_is_out_of_money(self):
-        game = Game([Player(name="Dealer", starting_money=0),
-                     Player(name="Player2", starting_money=200),
-                     Player(name="Player3", starting_money=200)])        
+        game = PokerGame([PokerPlayer(name="Dealer", starting_money=0),
+                          PokerPlayer(name="Player2", starting_money=200),
+                          PokerPlayer(name="Player3", starting_money=200)],
+                         Interface())
         
         game.set_dealer(game.players[0])
         game.set_current_player("Player3")
         game.rotate_dealer()
         
         self.assertEqual(game.dealer.name, game.players[1].name)
+
 
 """class TestDetermineLastToAct(unittest.TestCase):
     def test_something(self):
@@ -298,7 +301,7 @@ class TestRotateDealer(unittest.TestCase):
 class TestCardDeck(unittest.TestCase):
     def test_display_cards(self):
         deck = Deck()
-        display_cards([deck.cards[0]])
+        render_cards([deck.cards[0]])
 
     def test_display_hole_cards(self):
         deck = Deck()
@@ -312,12 +315,12 @@ if __name__ == '__main__':
 def init_basic_player_game(num_players=2):
     players = []
     for i in range(1, num_players+1):
-        players.append(Player(f"Player{i}"))
-    return Game(players)
+        players.append(PokerPlayer(f"Player{i}"))
+    return PokerGame(players, Interface())
 
 
 def init_ai_player_game(num_players=2):
     players = []
     for i in range(1, num_players+1):
-        players.append(Player(f"Player{i}"))
-    return Game(players)
+        players.append(PokerPlayer(f"Player{i}"))
+    return PokerGame(players, Interface())
