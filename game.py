@@ -1,6 +1,7 @@
+import random
+
 import streamlit as st
 from typing import List
-
 from openai import OpenAI
 
 
