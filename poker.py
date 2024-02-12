@@ -351,6 +351,7 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
         return poker_prompt
 
     def action(self, game_state):
+        game_interface = game_state["game_interface"]
         community_cards = game_state["community_cards"]
         cost_to_call = game_state["cost_to_call"]
         current_bet = game_state["current_bet"]
@@ -395,6 +396,7 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
         return action, bet'''
 
         response = self.retrieve_response(game_state)
+
         try:
             response_json = json.loads(response)
         except:
@@ -410,7 +412,8 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
         self.attitude = response_json["new_attitude"]
         self.confidence = response_json["new_confidence"]
 
-        print(f"{self.name} chooses to {action} by {bet}.")
+        game_interface.display_text(f"{self.name}: '{self.chat_message}'")
+        game_interface.display_text(f"{self.name} chooses to {action} by {bet}.")
 
         return action, bet
 
