@@ -919,9 +919,14 @@ def get_players(test=False, num_players=2):
         for player in players:
             if isinstance(player, AIPokerPlayer):
                 i = random.randint(0, 2)
-                player.confidence = player.initialize_attribute("confidence", mood=i)
-                player.attitude = player.initialize_attribute("attitude", mood=i)
-
+                player.confidence = player.initialize_attribute("confidence",
+                                                                "Use less than 20 words",
+                                                                "other players",
+                                                                mood=i)
+                player.attitude = player.initialize_attribute("attitude",
+                                                              "Use less than 20 words",
+                                                              "other players",
+                                                              mood=i)
     return players
 
 
