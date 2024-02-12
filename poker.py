@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 import logging
 import random
@@ -820,103 +821,112 @@ class PokerGame(Game):
     #     with open(file_name, 'rb') as f:
     #         return pickle.load(f)
 
-    # TODO: change this to accept a player and retrun the options as a list of strings
-    def determine_player_options(self):
+    # TODO: change this to return the options as a PlayerAction enum
+    def determine_player_options(self, poker_player: PokerPlayer):
         # How much is it to call the bet for the player?
-        players_cost_to_call = self.current_bet - self.current_player.total_bet_this_hand
+        players_cost_to_call = self.current_bet - poker_player.total_bet_this_hand
         # Does the player have enough to call
-        player_has_enough_to_call = self.current_player.money > players_cost_to_call
+        player_has_enough_to_call = poker_player.money > players_cost_to_call
         # Is the current player also the big_blind TODO: add "and have they played this hand yet"
-        current_player_is_big_blind = self.current_player is self.big_blind_player
+        current_player_is_big_blind = poker_player is self.big_blind_player
 
-        if current_player_is_big_blind and self.current_round == "preflop" and self.current_bet == self.small_blind*2:
-            player_options = ['check', 'raise', 'all-in']   # If the current player is last to act aka big blind, and we're still in the blind round
+        # If the current player is last to act (aka big blind), and we're still in the pre-flop round
+        if (current_player_is_big_blind
+                and self.current_round == "pre-flop"
+                and self.current_bet == self.small_blind * 2):
+            player_options = ['check', 'raise', 'all-in']
         else:
             player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
             if players_cost_to_call == 0:
                 player_options.remove('fold')
-            # TODO: check not being removed when it should be
             if players_cost_to_call > 0:
                 player_options.remove('check')
-            # TODO: call not being removed when it should be
             if not player_has_enough_to_call or players_cost_to_call == 0:
                 player_options.remove('call')
             if self.current_bet > 0 or players_cost_to_call > 0:
                 player_options.remove('bet')
-            if self.current_player.money - self.current_bet <= 0 or 'bet' in player_options:
+            if poker_player.money - self.current_bet <= 0 or 'bet' in player_options:
                 player_options.remove('raise')
-            if not self.all_in_allowed or self.current_player.money == 0:
+            if not self.all_in_allowed or poker_player.money == 0:
                 player_options.remove('all-in')
-            
-        self.player_options = player_options.copy()
-        self.current_player.options = player_options.copy()
+
+        # self.player_options = player_options.copy()
+        poker_player.options = player_options.copy()
+        return player_options
 
 
-def main(test=False):
-    # Create Players for the game
+def get_players(test=False, num_players=2):
     definites = [
-        Player("Jeff")
+        PokerPlayer("Jeff")
     ]
-    
+
     if test:
         basic_test_players = [
-            Player("Player1"),
-            Player("Player2"),
-            Player("Player3"),
-            Player("Player4")
+            PokerPlayer("Player1"),
+            PokerPlayer("Player2"),
+            PokerPlayer("Player3"),
+            PokerPlayer("Player4")
         ]
-        
+
         players = basic_test_players
-        game = Game(players)
-        game.set_dealer(players[1])
-        
+
     else:
         celebrities = [
-            AIPlayer("Ace Ventura", ai_temp=.9),
-            AIPlayer("Khloe and Kim Khardashian"),
-            AIPlayer("Fred Durst"),
-            AIPlayer("Tom Cruise"),
-            AIPlayer("James Bond"),
-            AIPlayer("Jon Stewart"),
-            AIPlayer("Jim Cramer", ai_temp=.7),
-            AIPlayer("Marjorie Taylor Greene", ai_temp=.7),
-            AIPlayer("Lizzo"),
-            AIPlayer("Bill Clinton"),
-            AIPlayer("Barack Obama"),
-            AIPlayer("Jesus Christ"),
-            AIPlayer("Triumph the Insult Dog", ai_temp=.7),
-            AIPlayer("Donald Trump", ai_temp=.7),
-            AIPlayer("Batman"),
-            AIPlayer("Deadpool"),
-            AIPlayer("Lance Armstrong"),
-            AIPlayer("A Mime", ai_temp=.8),
-            AIPlayer("Jay Gatsby"),
-            AIPlayer("Whoopi Goldberg"),
-            AIPlayer("Dave Chappelle"),
-            AIPlayer("Chris Rock"),
-            AIPlayer("Sarah Silverman"),
-            AIPlayer("Kathy Griffin"),
-            AIPlayer("Dr. Seuss", ai_temp=.7),
-            AIPlayer("Dr. Oz"),
-            AIPlayer("A guy who tells too many dad jokes")
+            AIPokerPlayer("Ace Ventura", ai_temp=.9),
+            AIPokerPlayer("Khloe and Kim Khardashian"),
+            AIPokerPlayer("Fred Durst"),
+            AIPokerPlayer("Tom Cruise"),
+            AIPokerPlayer("James Bond"),
+            AIPokerPlayer("Jon Stewart"),
+            AIPokerPlayer("Jim Cramer", ai_temp=.7),
+            AIPokerPlayer("Marjorie Taylor Greene", ai_temp=.7),
+            AIPokerPlayer("Lizzo"),
+            AIPokerPlayer("Bill Clinton"),
+            AIPokerPlayer("Barack Obama"),
+            AIPokerPlayer("Jesus Christ"),
+            AIPokerPlayer("Triumph the Insult Dog", ai_temp=.7),
+            AIPokerPlayer("Donald Trump", ai_temp=.7),
+            AIPokerPlayer("Batman"),
+            AIPokerPlayer("Deadpool"),
+            AIPokerPlayer("Lance Armstrong"),
+            AIPokerPlayer("A Mime", ai_temp=.8),
+            AIPokerPlayer("Jay Gatsby"),
+            AIPokerPlayer("Whoopi Goldberg"),
+            AIPokerPlayer("Dave Chappelle"),
+            AIPokerPlayer("Chris Rock"),
+            AIPokerPlayer("Sarah Silverman"),
+            AIPokerPlayer("Kathy Griffin"),
+            AIPokerPlayer("Dr. Seuss", ai_temp=.7),
+            AIPokerPlayer("Dr. Oz"),
+            AIPokerPlayer("A guy who tells too many dad jokes")
         ]
 
         random.shuffle(celebrities)
-        randos = celebrities[0:(2-len(definites))]
+        randos = celebrities[0:(num_players - len(definites))]
         players = definites + randos
         for player in players:
-            if isinstance(player, AIPlayer):
+            if isinstance(player, AIPokerPlayer):
                 i = random.randint(0, 2)
                 player.confidence = player.initialize_attribute("confidence", mood=i)
-                player.attitude = player.initialize_attribute("attittude", mood=i)
-        game = Game(players)
-        game.set_dealer(players[random.randint(0, len(players) - 1)])
+                player.attitude = player.initialize_attribute("attitude", mood=i)
+
+    return players
+
+
+def main():
+    # Create Players for the game
+    players = get_players()
+
+    poker_game = PokerGame(players, ConsoleInterface())
+    poker_game.set_dealer(players[random.randint(0, len(players) - 1)])
 
     # Run the game until it ends
-    while len(game.players) > 1:
-        game.play_hand()
-        play_again = input("Play another hand? (y/n): ")
-        if play_again.lower() != "y":
+    while len(poker_game.players) > 1:
+        poker_game.play_hand()
+        play_again = poker_game.interface.request_action(
+            ["yes", "no"],
+            "Would you like to play another hand?")
+        if play_again.lower() != "yes":
             break
 
 

@@ -17,7 +17,7 @@ class Card:
     def __repr__(self):
         return f"{self.rank} of {self.suit}"
 
-    def draw_card(self):
+    def display_card(self):
         # Define the ASCII art templates for each rank and suit combination
         card_template = \
             '''
@@ -52,46 +52,23 @@ class Deck:
 
     def deal(self, num=1):
         return [self.cards.pop() for _ in range(num)]
-    
-    def draw(self, num=1):
-        drawn_cards = self.cards[:num]
-        self.cards = self.cards[num:]
-        return drawn_cards
 
 
-def display_cards(cards: [Card]):
-    # Split the ASCII art of each card into lines
-    card_lines = [card.draw_card().strip().split('\n') for card in cards]
+def render_cards(cards):
+    """
+    Function to display a set of cards
+    :param cards: a list of Card objects
+    :return: A string representation of the cards
+    """
+    card_lines = [card.display_card().strip().split('\n') for card in cards]
 
-    # Iterate over the lines and print them side by side
-    for i in range(len(card_lines[0])):
-        line = ''
-        for j in range(len(cards)):
-            line += card_lines[j][i] + '  '
-        print(line)
+    if not card_lines:
+        return None
 
+    ascii_card_lines = []
+    for lines in zip(*card_lines):
+        ascii_card_lines.append('  '.join(lines))
 
-def display_hole_cards(cards: [Card, Card]):
-    # Define the ASCII art templates for each rank and suit combination
-    card_template = \
-        '''
-.---.---------.
-|{}  |{}        |
-|  {}|  {}      |
-|   |         |
-|   |         |
-|   |       {} |
-|   |        {}|
-`---`---------'
-'''
+    ascii_card_string = '\n'.join(ascii_card_lines)
 
-    sorted_cards = sorted(cards, key=lambda card: card.value)
-    card_1 = sorted_cards[0]
-    card_2 = sorted_cards[1]
-
-    # Generate and print each card
-    hole_card_art = card_template.format(card_1.rank, card_2.rank,
-                                         card_1.suit_ascii[card_1.suit], card_2.suit_ascii[card_2.suit],
-                                         card_2.suit_ascii[card_2.suit],
-                                         card_2.rank)
-    print(hole_card_art)
+    return ascii_card_string
