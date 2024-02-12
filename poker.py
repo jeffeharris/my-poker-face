@@ -507,6 +507,7 @@ class PokerGame(Game):
     def set_current_player(self, player):
         self.current_player = player
 
+    # TODO: review this property, i think it's introduced a bug to how the AI is calling bets
     @property
     def cost_to_call(self):
         # Calculate the cost for the current player to call and be even with the pot
