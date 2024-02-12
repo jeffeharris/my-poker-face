@@ -127,7 +127,7 @@ class Game:
     players: List['Player']
     interface: Interface
 
-    def __init__(self, players: [Player], interface: Interface):
+    def __init__(self, players: List['Player'], interface: Interface = None):
         if interface is None:
             self.interface = ConsoleInterface()
 
