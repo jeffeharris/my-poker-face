@@ -2,48 +2,40 @@ import random
 
 
 class Card:
-    rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-                   '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+    SUIT_TO_ASCII = {'Hearts': '♥', 'Diamonds': '♦', 'Clubs': '♣', 'Spades': '♠'}
+    RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13,
+                   'A': 14}
 
     def __init__(self, rank, suit):
         self.rank = rank
         self.suit = suit
-        self.suit_ascii = {'Hearts': '♥',
-                           'Diamonds': '♦',
-                           'Clubs': '♣',
-                           'Spades': '♠'}
-        self.value = Card.rank_values[rank]
+        self.value = Card.RANK_VALUES[rank]
 
     def __repr__(self):
-        return f"{self.rank} of {self.suit}"
+        return f"Card('{self.rank.ljust(2)}', '{self.suit}')"
 
-    def display_card(self):
-        # Define the ASCII art templates for each rank and suit combination
+    def render_card(self):
         card_template = \
             '''
 .---------.
-|{}        |
+|{}       |
 | {}       |
 |         |
 |         |
 |    {}    |
-|        {}|
+|       {}|
 `---------'
 '''
-        # TODO: take care of extra character when the rank is '10'
-        # Generate and print each card
-        card = card_template.format(self.rank, self.suit_ascii[self.suit], self.suit_ascii[self.suit], self.rank)
+        rank_left = self.rank.ljust(2)
+        rank_right = self.rank.rjust(2)
+        card = card_template.format(rank_left, Card.SUIT_TO_ASCII[self.suit], Card.SUIT_TO_ASCII[self.suit], rank_right)
         return card
 
 
 class Deck:
     def __init__(self):
-        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-        suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
-        self.suits_ascii = {'Hearts': '♥',
-                            'Diamonds': '♦',
-                            'Clubs': '♣',
-                            'Spades': '♠'}
+        ranks = list(Card.RANK_VALUES.keys())
+        suits = list(Card.SUIT_TO_ASCII.keys())
         self.cards = [Card(rank, suit) for rank in ranks for suit in suits]
         self.shuffle()
 
@@ -55,20 +47,31 @@ class Deck:
 
 
 def render_cards(cards):
-    """
-    Function to display a set of cards
-    :param cards: a list of Card objects
-    :return: A string representation of the cards
-    """
-    card_lines = [card.display_card().strip().split('\n') for card in cards]
-
+    card_lines = [card.render_card().strip().split('\n') for card in cards]
     if not card_lines:
         return None
-
     ascii_card_lines = []
     for lines in zip(*card_lines):
         ascii_card_lines.append('  '.join(lines))
-
     ascii_card_string = '\n'.join(ascii_card_lines)
-
     return ascii_card_string
+
+
+def render_two_cards(card_1, card_2):
+    # Define the ASCII art templates for each rank and suit combination
+    card_template = '''
+.---.---------.
+|{}  |{}        |
+|  {}|  {}      |
+|   |         |
+|   |         |
+|   |       {} |
+|   |        {}|
+`---`---------'
+'''
+    # Generate and print each card
+    two_card_art = card_template.format(card_1.rank, card_2.rank,
+                                        Card.SUIT_TO_ASCII[card_1.suit], Card.SUIT_TO_ASCII[card_2.suit],
+                                        Card.SUIT_TO_ASCII[card_2.suit],
+                                        card_2.rank)
+    return two_card_art

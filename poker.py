@@ -5,7 +5,7 @@ import random
 from enum import Enum
 from typing import List
 
-from cards import Card, Deck, render_cards
+from cards import Card, Deck, render_cards, render_two_cards
 from game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
 
 from dotenv import load_dotenv
@@ -820,8 +820,10 @@ class PokerGame(Game):
         return start_player
 
     def set_betting_round_state(self):
-        # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call. You can also raise or fold.
-        self.betting_round_state = f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} to call, you can also raise or fold."
+        # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call.
+        # You can also raise or fold.
+        self.betting_round_state = (f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} "
+                                    f"to call, you can also raise or fold.")
 
     # @staticmethod
     # def export_game(self, file_name='game_state.pkl'):
@@ -989,10 +991,7 @@ def display_hole_cards(cards: [Card, Card]):
     card_2 = sorted_cards[1]
 
     # Generate and print each card
-    hole_card_art = card_template.format(card_1.rank, card_2.rank,
-                                         card_1.suit_ascii[card_1.suit], card_2.suit_ascii[card_2.suit],
-                                         card_2.suit_ascii[card_2.suit],
-                                         card_2.rank)
+    hole_card_art = render_two_cards(card_1, card_2)
     return hole_card_art
 
 
