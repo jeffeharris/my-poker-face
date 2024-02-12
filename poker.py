@@ -466,7 +466,7 @@ What is your move?""")
 
         player_response = self.assistant.chat(sample_string)
 
-        print(player_response)
+        # print(player_response)
 
         return player_response
 
@@ -925,19 +925,22 @@ def get_players(test=False, num_players=2):
     return players
 
 
-def main():
+def main(test=False, num_players=2):
     # Create Players for the game
-    players = get_players()
+    players = get_players(test=test, num_players=num_players)
 
     poker_game = PokerGame(players, ConsoleInterface())
     poker_game.set_dealer(players[random.randint(0, len(players) - 1)])
+    for player in poker_game.players:
+        if isinstance(player, AIPokerPlayer):
+            poker_game.display_text(player.name + ": " + player.player_state["attitude"])
 
     # Run the game until it ends
     while len(poker_game.players) > 1:
         poker_game.play_hand()
         play_again = poker_game.interface.request_action(
             ["yes", "no"],
-            "Would you like to play another hand?")
+            "Would you like to play another hand? ")
         if play_again.lower() != "yes":
             break
 
