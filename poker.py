@@ -252,19 +252,25 @@ class AIPokerPlayer(PokerPlayer):
         self.assistant.memory = []  #TODO: change this to use a reset_memory call in the assistant class
 
     def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players", mood=1):
-        formatted_string =  f"You are {self.name}'s inner voice. Describe their {attribute} as they enter a poker game against {opponents}. This description is being used for a simulation of a poker game and we want to have a variety of personalities and emotions for the players. Your phrasing must be as if you are their inner voice and you are speaking to them. {constraints}"
-                            # f"Provide 3 responses with different levels of {attribute} (low, regular, high) and put them in JSON format like: {{{{\"responses\" =  [\"string\", \"string\", \"string\"]}}}}"
+        formatted_string = \
+            f"""You are {self.name}'s inner voice. Describe their {attribute} as they enter a poker game against 
+{opponents}. This description is being used for a simulation of a poker game and we want to have a variety of 
+personalities and emotions for the players. Your phrasing must be as if you are their inner voice and you are speaking 
+to them. {constraints}
+
+Provide 3 responses with different levels of {attribute} (low, regular, high) and put them in JSON format like: 
+{{{{\"responses\" =  [\"string\", \"string\", \"string\"]}}}}"""
 
         response = self.assistant.get_response(messages=[{"role": "user", "content": formatted_string}])
 
-        # content = json.loads(response.choices[0].message.content)
-        content = response.choices[0].message.content
-        # selection = content["responses"]
-        # random.shuffle(selection)     # used to randomly select the response mood
+        content = json.loads(response.choices[0].message.content)
+        # content = response.choices[0].message.content
+        selection = content["responses"]
+        random.shuffle(selection)     # used to randomly select the response mood
         # print(f"{selection[mood]}\n")
-        # return selection[mood]
+        return selection[mood]
         # print(content)
-        return content
+        # return content
 
     @property
     def persona_prompt(self):
