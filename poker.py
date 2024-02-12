@@ -173,14 +173,16 @@ class PokerPlayer(Player):
 
         # TODO: update display_hole_cards to use the interface
         game_interface.display_text(display_hole_cards(self.cards))
-        text = (
-            f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
-            f"Community cards: {community_cards}\n",
-            f"Current bet: {current_bet}\n",
-            f"Current pot: {current_pot}\n",
-            f"Cost to call: {cost_to_call}\n",
+        text_lines = [
+            f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}",
+            f"Community cards: {community_cards}",
+            f"Current bet: {current_bet}",
+            f"Current pot: {current_pot}",
+            f"Cost to call: {cost_to_call}",
             f"Total to pot: {self.total_bet_this_hand}"
-        )
+        ]
+
+        text = "\n".join(text_lines)
 
         game_interface.display_text(text)
         action = game_interface.request_action(self.options, "Enter action: \n")
