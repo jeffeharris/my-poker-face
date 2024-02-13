@@ -50,6 +50,12 @@ class Player:
 
 
 class LLMAssistant:
+    ai_model: str
+    ai_temp: float
+    system_message: str
+    max_memory_length: int
+    memory: List[dict] or None
+
     def __init__(self,
                  ai_temp=1.0,
                  ai_model=None,
@@ -89,6 +95,9 @@ class LLMAssistant:
 
 
 class OpenAILLMAssistant(LLMAssistant):
+    client: OpenAI
+    functions: List[dict] or None
+
     def __init__(self,
                  ai_model="gpt-3.5-turbo-16k",
                  ai_temp=1.0,

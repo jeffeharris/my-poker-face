@@ -6,7 +6,7 @@ from enum import Enum
 from typing import List
 
 from cards import Card, Deck, render_cards, render_two_cards
-from game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
+from game import Player, Game, Interface, LLMAssistant, OpenAILLMAssistant, ConsoleInterface
 
 from dotenv import load_dotenv
 
@@ -233,12 +233,19 @@ class PokerPlayer(Player):
 
 
 class AIPokerPlayer(PokerPlayer):
+    name: str
+    money: int
+    confidence: str
+    attitude: str
+    assistant: OpenAILLMAssistant
+
     def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
         super().__init__(name, starting_money=starting_money)
         self.confidence = "Unsure"
         self.attitude = "Distracted"
-        self.assistant = OpenAILLMAssistant(ai_temp=ai_temp, system_message=self.persona_prompt)
+        self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
+                                            system_message=self.persona_prompt)
 
     @property
     def player_state(self):
@@ -775,20 +782,21 @@ class PokerHand:
                     ---***{round_name.upper()}***---
             {self.community_cards}
 """
-        output_text += render_cards(new_cards)
+        output_text += render_cards(self.community_cards)
 
         return output_text, new_cards
 
     def reveal_flop(self):
         output_text, new_cards = self.reveal_cards(3, "flop")
-        # render_cards(new_cards)
         self.interface.display_text(output_text)
 
     def reveal_turn(self):
-        self.reveal_cards(1, "turn")
+        output_text, new_cards = self.reveal_cards(1, "turn")
+        self.interface.display_text(output_text)
 
     def reveal_river(self):
-        self.reveal_cards(1, "river")
+        output_text, new_cards = self.reveal_cards(1, "river")
+        self.interface.display_text(output_text)
 
     def determine_winner(self):
         hands = []
@@ -1045,26 +1053,6 @@ def get_players(test=False, num_players=2):
     return players
 
 
-def main(test=False, num_players=2):
-    # Create Players for the game
-    players = get_players(test=test, num_players=num_players)
-
-    poker_game = PokerGame(players, ConsoleInterface())
-    poker_game.set_dealer(players[random.randint(0, len(players) - 1)])
-    for player in poker_game.players:
-        if isinstance(player, AIPokerPlayer):
-            poker_game.display_text(player.name + ": " + player.player_state["attitude"])
-
-    # Run the game until it ends
-    while len(poker_game.players) > 1:
-        poker_game.play_hand()
-        play_again = poker_game.interface.request_action(
-            ["yes", "no"],
-            "Would you like to play another hand? ")
-        if play_again.lower() != "yes":
-            break
-
-
 def shift_list_left(my_list: list, count: int = 1):
     """
     :param my_list: list that you want to manipulate
@@ -1106,6 +1094,26 @@ def display_hole_cards(cards: [Card, Card]):
     # Generate and print each card
     hole_card_art = render_two_cards(card_1, card_2)
     return hole_card_art
+
+
+def main(test=False, num_players=2):
+    # Create Players for the game
+    players = get_players(test=test, num_players=num_players)
+
+    poker_game = PokerGame(players, ConsoleInterface())
+    poker_game.set_dealer(players[random.randint(0, len(players) - 1)])
+    for player in poker_game.players:
+        if isinstance(player, AIPokerPlayer):
+            poker_game.display_text(player.name + ": " + player.player_state["attitude"])
+
+    # Run the game until it ends
+    while len(poker_game.players) > 1:
+        poker_game.play_hand()
+        play_again = poker_game.interface.request_action(
+            ["yes", "no"],
+            "Would you like to play another hand? ")
+        if play_again.lower() != "yes":
+            break
 
 
 if __name__ == "__main__":
