@@ -46,6 +46,11 @@ class Card:
 
 
 class Deck:
+    RANKS = list(Card.RANK_VALUES.keys())
+    SUITS = list(Card.SUIT_TO_ASCII.keys())
+    cards: List['Card']
+    discarded_cards: List['Card']
+
     def __init__(self):
         self.cards = [Card(rank, suit) for rank in Deck.RANKS for suit in Deck.SUITS]
         self.discard_pile = []
