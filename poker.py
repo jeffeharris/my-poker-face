@@ -6,7 +6,7 @@ from enum import Enum
 from typing import List
 
 from cards import Card, Deck, render_cards, render_two_cards
-from game import Player, Game, Interface, LLMAssistant, OpenAILLMAssistant, ConsoleInterface
+from game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
 
 from dotenv import load_dotenv
 
