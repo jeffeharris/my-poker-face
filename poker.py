@@ -249,7 +249,7 @@ class AIPokerPlayer(PokerPlayer):
 
     def set_for_new_hand(self):
         super().set_for_new_hand()
-        self.assistant.memory = []  #TODO: change this to use a reset_memory call in the assistant class
+        self.assistant.memory = []  # TODO: change this to use a reset_memory call in the assistant class
 
     def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players", mood=1):
         formatted_string = \
