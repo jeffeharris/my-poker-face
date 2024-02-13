@@ -12,16 +12,18 @@ load_dotenv()
 
 
 def display_player(player):
-    st.text(player.player_state)
+    st.text(f"Name: {player.name}")
 
 
 def display_game(game: PokerGame):
     # display game situation
     pot_total_display = st.metric("Pot Total", game.pot)
     # cost_to_call_display = st.metric("Cost to Call", game.cost_to_call)
-    dealer_display = st.text(f"Dealer: {game.dealer}")
+    dealer_display = st.text(f"Dealer: {game.dealer.name}")
     if game.current_round != "pre-flop":
         st.text(render_cards(game.community_cards))
+
+    st.text("Players:")
     for player in game.players:
         display_player(player)
 
