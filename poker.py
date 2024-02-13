@@ -357,11 +357,13 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
         current_bet = game_state["current_bet"]
         current_pot = game_state["current_pot"]
 
-        text = (f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}\n",
-              f"Community cards: {community_cards}\n",
-              f"Cost to call: {cost_to_call}\n",
-              f"Current bet: {current_bet}\n",
-              f"Current pot: {current_pot}\n")
+        text_lines = [f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}",
+                      f"Community cards: {community_cards}",
+                      f"Cost to call: {cost_to_call}",
+                      f"Current bet: {current_bet}",
+                      f"Current pot: {current_pot}"]
+
+        text = "\n".join(text_lines)
 
         game_state["game_interface"].display_text(text)
 
