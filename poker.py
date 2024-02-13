@@ -943,20 +943,27 @@ class PokerGame(Game):
     def set_dealer(self, player):
         self.dealer = player
 
-    @property
-    def next_player(self):
-        index = self.players.index(self.current_player)
+    def play_hand(self):
+        poker_hand = PokerHand(self.interface,
+                               self.players,
+                               self.players[random.randint(0, len(self.players) - 1)],
+                               self.deck)
+        poker_hand.play_hand()
 
-        while True:
-            index = (index + 1) % len(self.players)  # increment the index by 1 and wrap around the loop if needed
-            player = self.players[index]
-            if player in self.remaining_players:
-                remaining_players_index = self.remaining_players.index(player)
-                return self.remaining_players[remaining_players_index]
-
-    def player_add_to_pot(self, player, add_to_pot=0):
-        player.get_for_pot(add_to_pot)
-        self.pot += add_to_pot
+    # @property
+    # def next_player(self):
+    #     index = self.players.index(self.current_player)
+    #
+    #     while True:
+    #         index = (index + 1) % len(self.players)  # increment the index by 1 and wrap around the loop if needed
+    #         player = self.players[index]
+    #         if player in self.remaining_players:
+    #             remaining_players_index = self.remaining_players.index(player)
+    #             return self.remaining_players[remaining_players_index]
+    #
+    # def player_add_to_pot(self, player, add_to_pot=0):
+    #     player.get_for_pot(add_to_pot)
+    #     self.pot += add_to_pot
 
     # def set_betting_round_state(self):
     #     # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call.
@@ -1050,11 +1057,7 @@ def main(test=False, num_players=2):
 
     # Run the game until it ends
     while len(poker_game.players) > 1:
-        poker_hand = PokerHand(poker_game.interface,
-                               poker_game.players,
-                               poker_game.players[random.randint(0, len(players) - 1)],
-                               poker_game.deck)
-        poker_hand.play_hand()
+        poker_game.play_hand()
         play_again = poker_game.interface.request_action(
             ["yes", "no"],
             "Would you like to play another hand? ")
