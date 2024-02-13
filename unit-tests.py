@@ -261,7 +261,7 @@ class TestDeterminePlayerOptions(unittest.TestCase):
 
         game.big_blind_player = game.players[2]             # Player 3 is Big Blind
         game.current_player = game.players[1]               # It's big blind's turn
-        game.last_to_act = game.players[2]                  # Big Blind starts as last raiser
+        # game.last_to_act = game.players[2]                  # Big Blind starts as last raiser
         game.small_blind_player = game.players[1]
         
         game.pot = 150                                      # All 3 players have called the big blind
