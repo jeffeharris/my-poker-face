@@ -53,13 +53,13 @@ def render_cards(cards):
     ascii_card_lines = []
     for lines in zip(*card_lines):
         ascii_card_lines.append('  '.join(lines))
-    ascii_card_string = '\n'.join(ascii_card_lines)
-    return ascii_card_string
+    card_ascii_string = '\n'.join(ascii_card_lines)
+    return card_ascii_string
 
 
 def render_two_cards(card_1, card_2):
     # Define the ASCII art templates for each rank and suit combination
-    card_template = '''
+    two_card_template = '''
 .---.---------.
 |{}  |{}        |
 |  {}|  {}      |
@@ -70,8 +70,8 @@ def render_two_cards(card_1, card_2):
 `---`---------'
 '''
     # Generate and print each card
-    two_card_art = card_template.format(card_1.rank, card_2.rank,
+    two_card_ascii_string = two_card_template.format(card_1.rank, card_2.rank,
                                         Card.SUIT_TO_ASCII[card_1.suit], Card.SUIT_TO_ASCII[card_2.suit],
                                         Card.SUIT_TO_ASCII[card_2.suit],
                                         card_2.rank)
-    return two_card_art
+    return two_card_ascii_string
