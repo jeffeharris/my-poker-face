@@ -958,6 +958,24 @@ class PokerGame(Game):
                                self.deck)
         poker_hand.play_hand()
 
+    def play_game(self):
+        while len(self.remaining_players) > 1:
+            poker_hand = PokerHand(interface=self.interface,
+                                   players=self.players,
+                                   dealer=self.players[random.randint(0, len(self.players) - 1)],
+                                   deck=self.deck)
+            self.hands.append(poker_hand)
+            poker_hand.play_hand()
+
+            play_again = self.interface.request_action(
+                ["yes", "no"],
+                "Would you like to play another hand? ")
+            if play_again != "yes":
+                break
+
+        self.display_text("Game over!")
+
+
     # @property
     # def next_player(self):
     #     index = self.players.index(self.current_player)

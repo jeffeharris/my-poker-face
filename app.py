@@ -37,7 +37,7 @@ def simple_app():
         poker_game = PokerGame(players, StreamlitInterface())
         poker_game.set_dealer(players[random.randint(0, len(players) - 1)])
         display_game(poker_game)
-        poker_game.play_hand()
+        poker_game.play_game()
 
 
 def main():
