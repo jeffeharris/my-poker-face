@@ -56,7 +56,7 @@ class Deck:
         self.discard_pile = []
         self.shuffle()
 
-    def shuffle(self):
+    def shuffle(self) -> None:
         random.shuffle(self.cards)
 
     def deal(self, num=1) -> List['Card']:
@@ -71,8 +71,17 @@ class Deck:
         self.cards += cards
 
     def reset(self) -> None:
-        self.return_cards_to_deck(self.discard_pile)
-        self.shuffle()
+        if self._validate_deck():
+            self.return_cards_to_deck(self.discard_pile)
+            self.shuffle()
+        else:
+            SystemError("Deck is missing cards")
+
+    def _validate_deck(self) -> bool:
+        card_count = len(self.cards) + len(self.discard_pile)
+        if card_count != 52:
+            return False
+        return True
 
 
 def render_cards(cards: List['Card']) -> Optional[str]:

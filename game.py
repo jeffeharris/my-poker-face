@@ -1,7 +1,7 @@
 import random
 
 import streamlit as st
-from typing import List
+from typing import List, Optional, Dict
 from openai import OpenAI
 
 
@@ -85,7 +85,7 @@ class LLMAssistant:
         messages.extend(self.memory)
         return messages
 
-    def add_to_memory(self, message):
+    def add_to_memory(self, message: Dict[str, str]):
         self.memory.append(message)
         self.trim_memory()
 
@@ -99,7 +99,7 @@ class OpenAILLMAssistant(LLMAssistant):
     functions: List[dict] or None
 
     def __init__(self,
-                 ai_model="gpt-3.5-turbo-16k",
+                 ai_model="gpt-3.5-turbo-0125",     # gpt-3.5-turbo-16k
                  ai_temp=1.0,
                  system_message="You are a helpful assistant.",
                  memory=None,
@@ -116,18 +116,37 @@ class OpenAILLMAssistant(LLMAssistant):
             model=self.model,
             messages=messages,
             temperature=self.temp,
-            max_tokens=5000,
+            max_tokens=1500,
             top_p=1,
             frequency_penalty=0,
             presence_penalty=0
         )
         return response
 
-    def chat(self, user_content):
+    def get_json_response(self, messages: List[Dict[str, str]]):
+        json_response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=self.temp,
+            max_tokens=1500,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0,
+            response_format={"type": "json_object"}
+        )
+        return json_response
+
+    def chat(self, user_content, json_format: Optional[bool] = False):
         user_message = {"role": "user", "content": user_content}
         self.add_to_memory(user_message)
-        response = self.get_response(self.messages)
-        self.add_to_memory(response.choices[0].message)
+        if json_format:
+            response = self.get_json_response(self.messages)
+        else:
+            response = self.get_response(self.messages)
+
+        content = response.choices[0].message.content
+        ai_message = {"role": "assistant", "content": content}
+        self.add_to_memory(ai_message)
 
         return response.choices[0].message.content
 

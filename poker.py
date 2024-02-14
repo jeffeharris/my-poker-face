@@ -3,7 +3,7 @@ from collections import Counter
 import logging
 import random
 from enum import Enum
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from cards import Card, Deck, render_cards, render_two_cards
 from game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
@@ -128,6 +128,7 @@ class PokerPlayer(Player):
         FOLD = "fold"
         ALL_IN = "all-in"
         CHECK = "check"
+        NONE = None
 
     money: int
     cards: List['Card']
@@ -153,7 +154,7 @@ class PokerPlayer(Player):
 
         return player_state
 
-    def action(self, hand_state):
+    def get_player_action(self, hand_state):
         game_interface = hand_state["game_interface"]
         community_cards = hand_state['community_cards']
         current_bet = hand_state['current_bet']
@@ -177,12 +178,18 @@ class PokerPlayer(Player):
         action = game_interface.request_action(self.options, "Enter action: \n")
 
         add_to_pot = 0
+        if action is None:
+            if "check" in self.options:
+                action = "check"
+            elif "call" in self.options:
+                action = "call"
+            else:
+                action = "fold"
         if action in ["bet", "b", "be"]:
             add_to_pot = int(input("Enter amount: "))
             action = "bet"
         elif action in ["raise", "r", "ra", "rai", "rais"]:
             raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
-            # TODO: this causes an issue for the ai bet amount, it isn't aware of how i'm doing the math, need to update
             add_to_pot = raise_amount + cost_to_call
             action = "raise"
         elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
@@ -200,10 +207,8 @@ class PokerPlayer(Player):
         # self.chat_message = input("Enter chat message (optional): ")
         # if not self.chat_message:
         #     f"{self.name} chooses to {action}."
-        # TODO: return a PokerAction
         poker_action = PokerAction(self, action, add_to_pot, hand_state)
-        # return poker_action
-        return action, add_to_pot
+        return poker_action
 
     def get_for_pot(self, amount):
         self.money -= amount
@@ -242,7 +247,7 @@ class AIPokerPlayer(PokerPlayer):
         super().set_for_new_hand()
         self.assistant.memory = []  # TODO: change this to use a reset_memory call in the assistant class
 
-    def initialize_attribute(self, attribute, constraints="Use less than 50 words", opponents="other players", mood=1):
+    def initialize_attribute(self, attribute, constraints="Use less than 50 words.", opponents="other players", mood=1):
         formatted_string = \
             f"""You are {self.name}'s inner voice. Describe their {attribute} as they enter a poker game against 
 {opponents}. This description is being used for a simulation of a poker game and we want to have a variety of 
@@ -252,7 +257,7 @@ to them. {constraints}
 Provide 3 responses with different levels of {attribute} (low, regular, high) and put them in JSON format like: 
 {{{{\"responses\" =  [\"string\", \"string\", \"string\"]}}}}"""
 
-        response = self.assistant.get_response(messages=[{"role": "user", "content": formatted_string}])
+        response = self.assistant.get_json_response(messages=[{"role": "user", "content": formatted_string}])
 
         content = json.loads(response.choices[0].message.content)
         selection = content["responses"]
@@ -266,7 +271,7 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
         attitude = self.attitude
         player_money = self.money
 
-        sample_string = (
+        poker_prompt = (
             f"""
         Persona: {name}
         Attitude: {attitude}
@@ -329,15 +334,9 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
 
         """)
 
-        poker_prompt = sample_string
-        # poker_prompt = ChatPromptTemplate.from_messages([
-        #     SystemMessagePromptTemplate.from_template(template=sample_string),
-        #     MessagesPlaceholder(variable_name="history"),
-        #     HumanMessagePromptTemplate.from_template("{input}")
-        # ])
         return poker_prompt
 
-    def action(self, hand_state):
+    def get_player_action(self, hand_state):
         game_interface = hand_state["game_interface"]
         community_cards = hand_state["community_cards"]
         current_bet = hand_state["current_bet"]
@@ -388,25 +387,19 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
         self.chat_message = f"{self.name} chooses to {action} by {bet}."
         return action, bet'''
 
-        response = self.retrieve_response(hand_state)
-
-        try:
-            response_json = json.loads(response)
-        except:
-            game_interface.display_text("Error response: \n" + response)
-            response = self.assistant.chat("Please correct your response, it wasn't valid JSON.")
-            response_json = json.loads(response)
+        response_json = self.get_player_response(hand_state)
 
         action = response_json["action"]
-        bet = response_json["amount"]
-        self.chat_message = response_json["comment"]
+        add_to_pot = response_json["amount"]
+        chat_message = response_json["comment"]
         self.attitude = response_json["new_attitude"]
         self.confidence = response_json["new_confidence"]
 
-        game_interface.display_text(f"{self.name}: '{self.chat_message}'")
-        game_interface.display_text(f"{self.name} chooses to {action} by {bet}.")
+        game_interface.display_text(f"{self.name}: '{chat_message}'")
+        game_interface.display_text(f"{self.name} chooses to {action} by {add_to_pot}.")
 
-        return action, bet
+        poker_action = PokerAction(self, action, add_to_pot, hand_state, response_json)
+        return poker_action
 
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
@@ -418,7 +411,7 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
     #     hand_rank = sum(hand_ranks) / len(hand_ranks)
     #     return hand_rank
 
-    def retrieve_response(self, hand_state):
+    def get_player_response(self, hand_state) -> Dict[str, str]:
         persona = self.name
         confidence = self.confidence
         attitude = self.attitude
@@ -454,7 +447,7 @@ Remember {persona}, you're feeling {attitude} and {confidence}. And you can not 
 
 What is your move?""")
 
-        player_response = self.assistant.chat(hand_update_message)
+        player_response = json.loads(self.assistant.chat(hand_update_message, json_format=True))
 
         return player_response
 
@@ -483,54 +476,54 @@ class PokerSettings:
 
 class PokerAction:
     player: PokerPlayer
-    action: PokerPlayer.PlayerAction
-    amount: int or None
-    hand_state: dict or None
-    detail: str or None
+    player_action: PokerPlayer.PlayerAction
+    amount: Optional[int]
+    hand_state: Optional[dict]
+    action_detail: Optional[str]
 
     def __init__(self,
                  player: PokerPlayer,
-                 action: PokerPlayer.PlayerAction,
+                 action: str,
                  amount: int or None = None,
                  hand_state: dict or None = None,
-                 detail: str or None = None):
+                 action_detail: str or None = None):
         self.player = player
-        self.action = action
+        self.player_action = PokerPlayer.PlayerAction(action)
         self.amount = amount
         self.hand_state = hand_state
-        self.detail = detail
+        self.action_detail = action_detail
 
     def __str__(self):
         return (f"PokerAction("
                 f" player={self.player}, "
-                f" action={self.action}, "
+                f" action={self.player_action}, "
                 f" amount={self.amount}, "
                 f" hand_state={self.hand_state}, "
-                f" detail={self.detail}"
+                f" detail={self.action_detail}"
                 f")")
 
 
 class PokerHandPot:
-    participants: Dict['PokerPlayer', int]
-    winning_player: PokerPlayer or None
+    player_pot_amounts: Dict['PokerPlayer', int]
+    pot_winner: PokerPlayer or None
 
     @property
     def total(self) -> int:
-        return sum(self.participants.values())
+        return sum(self.player_pot_amounts.values())
 
     @property
     def current_bet(self) -> int:
-        return max(self.participants.values())
+        return max(self.player_pot_amounts.values())
 
     def __init__(self, poker_players: List[PokerPlayer]):
-        self.participants = {}
+        self.player_pot_amounts = {}
         self.pot_winner = None
 
         for player in poker_players:
-            self.participants[player] = 0
+            self.player_pot_amounts[player] = 0
 
     def get_player_pot_amount(self, player: PokerPlayer) -> int:
-        return self.participants[player]
+        return self.player_pot_amounts[player]
 
     def get_player_cost_to_call(self, player: PokerPlayer) -> int:
         player_contributed = self.get_player_pot_amount(player)
@@ -538,7 +531,7 @@ class PokerHandPot:
 
     def add_to_pot(self, player: PokerPlayer, amount: int) -> None:
         player.get_for_pot(amount)
-        self.participants[player] += amount
+        self.player_pot_amounts[player] += amount
 
     def resolve_pot(self, pot_winner: PokerPlayer) -> None:
         pot_winner.money += self.total
@@ -546,26 +539,26 @@ class PokerHandPot:
 
 
 class PokerHand:
-    class PokerRound(Enum):
+    class PokerHandPhase(Enum):
         INITIALIZING = "initializing"
         PRE_FLOP = "pre-flop"
         FLOP = "flop"
         TURN = "turn"
         RIVER = "river"
 
-    # define a class to represent a round/hand in a poker game
     interface: Interface
     players: List['PokerPlayer']
     starting_players: List['PokerPlayer']
     remaining_players: List['PokerPlayer']
     deck: Deck
+    table_positions: Dict[str, PokerPlayer]
     dealer: PokerPlayer
     small_blind_player: PokerPlayer
     big_blind_player: PokerPlayer
     under_the_gun: PokerPlayer
-    actions: List['PokerAction']
+    poker_actions: List['PokerAction']
     community_cards: List['Card']
-    current_round: PokerRound
+    current_round: PokerHandPhase
     pots: List['PokerHandPot']
     small_blind: int
     min_bet: int
@@ -582,8 +575,8 @@ class PokerHand:
             "current_bet": self.pots[0].current_bet,
             "current_pot": self.pots[0],
             "players": self.players,
-            "opponent_positions": self.get_opponent_positions(),
-            "current_situation": f"The {self.current_round} cards have just been dealt",
+            "opponent_positions": self.get_table_positions(),
+            "current_situation": f"The {self.current_round.value} cards have just been dealt",
             "current_round": self.current_round,
         }
         return hand_state
@@ -599,8 +592,9 @@ class PokerHand:
         self.remaining_players = list(players)
         self.dealer = dealer
         self.deck = deck
+        self.poker_actions = []
         self.community_cards = []
-        self.current_round = PokerHand.PokerRound.INITIALIZING
+        self.current_round = PokerHand.PokerHandPhase.INITIALIZING
         self.pots = [PokerHandPot(self.players)]
         self.small_blind = PokerSettings().starting_small_blind
         self.small_blind_player = self.players[(self.dealer_position + 1) % len(self.players)]
@@ -617,7 +611,7 @@ class PokerHand:
                 opponent_positions.append(position)
         return opponent_positions
 
-    def set_current_round(self, current_round: PokerRound):
+    def set_current_round(self, current_round: PokerHandPhase):
         self.current_round = current_round
 
     def set_remaining_players(self):
@@ -634,7 +628,6 @@ class PokerHand:
         big_blind = small_blind * 2
         self.pots[0].add_to_pot(self.small_blind_player, small_blind)
         self.pots[0].add_to_pot(self.big_blind_player, big_blind)
-        # self.last_to_act = self.big_blind_player
 
     def deal_hole_cards(self):
         for player in self.players:
@@ -642,7 +635,7 @@ class PokerHand:
 
     def determine_start_player(self):
         start_player = None
-        if self.current_round == "pre-flop":
+        if self.current_round == PokerHand.PokerHandPhase.PRE_FLOP:
             # Player after big blind starts
             start_player = self.players[(self.dealer_position + 3) % len(self.players)]
         else:
@@ -655,20 +648,17 @@ class PokerHand:
         return start_player
 
     def process_pot_update(self, player: PokerPlayer, amount_to_add: int):
-        # player.money -= add_to_pot
-        # player.total_bet_this_hand += add_to_pot
-        # self.pot += add_to_pot
         self.pots[0].add_to_pot(player, amount_to_add)
 
     def handle_bet_or_raise(self, player: PokerPlayer, add_to_pot: int, next_round_queue: List['PokerPlayer']):
         self.process_pot_update(player, add_to_pot)
-        return self.betting_round(next_round_queue, first_round=False)
+        return self.betting_round(next_round_queue, is_initial_round=False)
 
     def handle_all_in(self, player: PokerPlayer, add_to_pot: int, next_round_queue: List['PokerPlayer']):
         self.process_pot_update(player, add_to_pot)
         raising = add_to_pot > self.pots[0].current_bet
         if raising:
-            return self.betting_round(next_round_queue, first_round=False)
+            return self.betting_round(next_round_queue, is_initial_round=False)
 
     def handle_call(self, player: PokerPlayer, add_to_pot: int):
         self.process_pot_update(player, add_to_pot)
@@ -679,26 +669,26 @@ class PokerHand:
     # TODO: change this to return the options as a PlayerAction enum
     def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
         # How much is it to call the bet for the player?
-        players_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
+        player_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
         # Does the player have enough to call
-        player_has_enough_to_call = poker_player.money > players_cost_to_call
+        player_has_enough_to_call = poker_player.money > player_cost_to_call
         # Is the current player also the big_blind TODO: add "and have they played this hand yet"
         current_player_is_big_blind = poker_player is self.big_blind_player
 
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if (current_player_is_big_blind
-                and self.current_round == PokerHand.PokerRound.PRE_FLOP
+                and self.current_round == PokerHand.PokerHandPhase.PRE_FLOP
                 and self.pots[0].current_bet == self.small_blind * 2):
             player_options = ['check', 'raise', 'all-in']
         else:
             player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
-            if players_cost_to_call == 0:
+            if player_cost_to_call == 0:
                 player_options.remove('fold')
-            if players_cost_to_call > 0:
+            if player_cost_to_call > 0:
                 player_options.remove('check')
-            if not player_has_enough_to_call or players_cost_to_call == 0:
+            if not player_has_enough_to_call or player_cost_to_call == 0:
                 player_options.remove('call')
-            if self.pots[0].current_bet > 0 or players_cost_to_call > 0:
+            if self.pots[0].current_bet > 0 or player_cost_to_call > 0:
                 player_options.remove('bet')
             if poker_player.money - self.pots[0].current_bet <= 0 or 'bet' in player_options:
                 player_options.remove('raise')
@@ -713,18 +703,22 @@ class PokerHand:
         shift_list_left(next_round_queue)
         return next_round_queue
 
-    def betting_round(self, round_queue, first_round: bool = True):
+    def betting_round(self, round_queue, is_initial_round: bool = True):
         # betting_round takes in a list of Players in order of their turns
-        if not first_round:
+        if not is_initial_round:
             # all players in the queue should bet in the first round,
             # after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
             round_queue.pop()  # Remove the last raiser from the betting round.
+            # TODO: removing the player from the round queue means they aren't part of the queue that is sent
+            #  to the next round
 
         for player in round_queue:
             # Before each player action, several checks and updates are performed
             self.set_remaining_players()  # Update the hands' remaining players list
+            for p in round_queue:
+                print(p.name)
             if len(self.remaining_players) <= 1:  # Round ends if there are no players to bet
-                return False
+                SystemError("No remaining players left in the hand")
 
             self.set_player_options(player, PokerSettings())
 
@@ -733,24 +727,27 @@ class PokerHand:
                 round_queue.remove(player)
 
             else:
-                # poker_action = player.action(self.hand_state)
-                action, add_to_pot = player.action(self.hand_state)
-                # self.last_action = action
-                # No checks are performed here on input. Relying on "determine_player_options" to work as expected
-                if action == "bet" or action == "raise":
+                poker_action = player.get_player_action(self.hand_state)
+                self.poker_actions.append(poker_action)
+                player_action = poker_action.player_action
+                add_to_pot = poker_action.amount
+
+                if (player_action == PokerPlayer.PlayerAction.BET
+                        or player_action == PokerPlayer.PlayerAction.RAISE):
                     return self.handle_bet_or_raise(player, add_to_pot, self.get_next_round_queue(round_queue))
-                elif action == "all-in":
+                elif player_action == PokerPlayer.PlayerAction.ALL_IN:
+                    # Create a new pot for anyone else to contribute to if needed
                     return self.handle_all_in(player, add_to_pot, self.get_next_round_queue(round_queue))
-                elif action == "call":
+                elif player_action == PokerPlayer.PlayerAction.CALL:
                     self.handle_call(player, add_to_pot)
-                elif action == "fold":
+                elif player_action == PokerPlayer.PlayerAction.FOLD:
                     self.handle_fold(player)
-                elif action == "check":
+                elif player_action == PokerPlayer.PlayerAction.CHECK:
                     pass
                 else:
-                    return "ERROR: Invalid action"
+                    SystemError("Invalid action selected")
 
-    def reveal_cards(self, num_cards: int, round_name: PokerRound):
+    def reveal_cards(self, num_cards: int, round_name: PokerHandPhase):
         """
         Reveal the cards.
 
@@ -771,15 +768,15 @@ class PokerHand:
         return output_text, new_cards
 
     def reveal_flop(self):
-        output_text, new_cards = self.reveal_cards(3, PokerHand.PokerRound.FLOP)
+        output_text, new_cards = self.reveal_cards(3, PokerHand.PokerHandPhase.FLOP)
         self.interface.display_text(output_text)
 
     def reveal_turn(self):
-        output_text, new_cards = self.reveal_cards(1, PokerHand.PokerRound.TURN)
+        output_text, new_cards = self.reveal_cards(1, PokerHand.PokerHandPhase.TURN)
         self.interface.display_text(output_text)
 
     def reveal_river(self):
-        output_text, new_cards = self.reveal_cards(1, PokerHand.PokerRound.RIVER)
+        output_text, new_cards = self.reveal_cards(1, PokerHand.PokerHandPhase.RIVER)
         self.interface.display_text(output_text)
 
     def determine_winner(self):
@@ -845,12 +842,11 @@ class PokerHand:
             player.folded = False
 
         self.deck.reset()
-        self.deck.shuffle()
 
     def play_hand(self):
         self.deck.shuffle()
         self.set_remaining_players()
-        self.set_current_round(PokerHand.PokerRound.PRE_FLOP)
+        self.set_current_round(PokerHand.PokerHandPhase.PRE_FLOP)
         self.post_blinds()
 
         self.interface.display_text(f"{self.dealer.name}'s deal.\n")
@@ -879,7 +875,16 @@ class PokerHand:
         self.betting_round(round_queue)
 
         self.end_hand()
-        # TODO: add return winner, self.pot
+
+        return self.remaining_players, self.dealer
+
+    def get_table_positions(self) -> Dict[str, PokerPlayer]:
+        table_positions = {"dealer": self.dealer,
+                           "small_blind_player": self.players[(self.dealer_position + 1) % len(self.players)],
+                           "big_blind_player": self.players[(self.dealer_position + 2) % len(self.players)],
+                           "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)]
+                           }
+        return table_positions
 
 
 class PokerGame(Game):
@@ -900,89 +905,26 @@ class PokerGame(Game):
         self.hands = []
         self.assistant = OpenAILLMAssistant()
 
-        # to PokerHand
-        self.discard_pile = []  # list for the discarded cards to be placed in
-        self.community_cards = []
-        self.current_bet = 0
-        self.small_blind = 50
-        self.pot = 0
-        self.current_round = "initializing"
-        self.dealer = PokerPlayer("dealer")
-        self.small_blind_player = PokerPlayer("small_blind")
-        self.big_blind_player = PokerPlayer("big_blind")
-        self.under_the_gun = PokerPlayer("under_the_gun")
-        self.current_player = None
-        # self.player_options = []    # Check this one
-        self.min_bet = self.small_blind * 2
-
-        # Removed for now
-        # self.max_bet = None
-        # self.pot_limit = None
-        # self.last_to_act = None
-        # self.betting_round_state = None
-        # self.last_action = None  # represents the last action taken in a betting round
-
-    def set_current_round(self, current_round):
-        self.current_round = current_round
-
-    def set_dealer(self, player):
-        self.dealer = player
-
-    def play_hand(self):
-        poker_hand = PokerHand(self.interface,
-                               self.players,
-                               self.players[random.randint(0, len(self.players) - 1)],
-                               self.deck)
-        poker_hand.play_hand()
-
     def play_game(self):
+        poker_hand = PokerHand(interface=self.interface,
+                               players=self.players,
+                               dealer=self.players[random.randint(0, len(self.players) - 1)],
+                               deck=self.deck)
         while len(self.remaining_players) > 1:
-            poker_hand = PokerHand(interface=self.interface,
-                                   players=self.players,
-                                   dealer=self.players[random.randint(0, len(self.players) - 1)],
-                                   deck=self.deck)
             self.hands.append(poker_hand)
-            poker_hand.play_hand()
-
+            self.remaining_players, dealer = poker_hand.play_hand()
             play_again = self.interface.request_action(
                 ["yes", "no"],
                 "Would you like to play another hand? ")
             if play_again != "yes":
                 break
+            else:
+                poker_hand = PokerHand(interface=self.interface,
+                                       players=self.remaining_players,
+                                       dealer=dealer,
+                                       deck=self.deck)
 
         self.display_text("Game over!")
-
-
-    # @property
-    # def next_player(self):
-    #     index = self.players.index(self.current_player)
-    #
-    #     while True:
-    #         index = (index + 1) % len(self.players)  # increment the index by 1 and wrap around the loop if needed
-    #         player = self.players[index]
-    #         if player in self.remaining_players:
-    #             remaining_players_index = self.remaining_players.index(player)
-    #             return self.remaining_players[remaining_players_index]
-    #
-    # def player_add_to_pot(self, player, add_to_pot=0):
-    #     player.get_for_pot(add_to_pot)
-    #     self.pot += add_to_pot
-
-    # def set_betting_round_state(self):
-    #     # Sets the state of betting round i.e. Player 1 raised 20. Player 2 you're next, it's $30 to call.
-    #     # You can also raise or fold.
-    #     self.betting_round_state = (f"{self.last_move}. {self.next_player} you are up next. It is ${self.cost_to_call} "
-    #                                 f"to call, you can also raise or fold.")
-
-    # @staticmethod
-    # def export_game(self, file_name='game_state.pkl'):
-    #     with open(file_name, 'wb') as f:
-    #         return pickle.dump(self, f)
-    #
-    # @staticmethod
-    # def load_game(file_name='game_state.pkl'):
-    #     with open(file_name, 'rb') as f:
-    #         return pickle.load(f)
 
 
 def get_players(test=False, num_players=2):
@@ -1092,24 +1034,9 @@ def display_hole_cards(cards: [Card, Card]):
 
 
 def main(test=False, num_players=2):
-    # Create Players for the game
     players = get_players(test=test, num_players=num_players)
-
     poker_game = PokerGame(players, ConsoleInterface())
-    poker_game.set_dealer(players[random.randint(0, len(players) - 1)])
-    for player in poker_game.players:
-        if isinstance(player, AIPokerPlayer):
-            poker_game.display_text(player.name + ": " + player.player_state["attitude"])
-
     poker_game.play_game()
-    # while len(poker_game.players) > 1:
-    #     poker_game.play_hand()
-    #     play_again = poker_game.interface.request_action(
-    #         ["yes", "no"],
-    #         "Would you like to play another hand? ")
-    #     if play_again != "yes":
-    #         poker_game.display_text("Game over!")
-    #         break
 
 
 if __name__ == "__main__":
