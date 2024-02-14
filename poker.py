@@ -844,21 +844,8 @@ class PokerHand:
         self.deck.reset()
 
     def play_hand(self):
-        self.deck.shuffle()
-        self.set_remaining_players()
-        self.set_current_round(PokerHand.PokerHandPhase.PRE_FLOP)
-        self.post_blinds()
+        round_queue = self.setup_hand()
 
-        self.interface.display_text(f"{self.dealer.name}'s deal.\n")
-        self.interface.display_text(f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
-
-        self.deal_hole_cards()
-
-        start_player = self.determine_start_player()
-
-        index = self.players.index(start_player)  # Set index at the start_player
-        round_queue = self.players.copy()  # Copy list of all players that started the hand, could include folded
-        shift_list_left(round_queue, index)  # Move to the start_player
         self.betting_round(round_queue)
 
         self.reveal_flop()
@@ -877,6 +864,23 @@ class PokerHand:
         self.end_hand()
 
         return self.remaining_players, self.dealer
+
+    def setup_hand(self):
+        self.set_remaining_players()
+        self.set_current_round(PokerHand.PokerHandPhase.PRE_FLOP)
+        self.post_blinds()
+        self.interface.display_text(f"{self.dealer.name}'s deal.\n")
+        self.interface.display_text(
+            f"Small blind: {self.small_blind_player.name}\n Big blind: {self.big_blind_player.name}\n")
+        self.deal_hole_cards()
+
+        start_player = self.determine_start_player()
+
+        index = self.players.index(start_player)  # Set index at the start_player
+        round_queue = self.players.copy()  # Copy list of all players that started the hand, could include folded
+        shift_list_left(round_queue, index)  # Move to the start_player
+
+        return round_queue
 
     def get_table_positions(self) -> Dict[str, PokerPlayer]:
         table_positions = {"dealer": self.dealer,
