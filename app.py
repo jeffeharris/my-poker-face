@@ -1,7 +1,5 @@
 import streamlit as st
 import random
-
-from cards import render_cards
 from game import StreamlitInterface
 from poker import (PokerGame,
                    PokerAction,
@@ -58,23 +56,56 @@ def display_poker_action(poker_action: PokerAction):
 
     hand_state_expander = action_container.expander(label="Hand State", expanded=False)
     with hand_state_expander:
-        poker_action.hand_state
+        st.write(poker_action.hand_state)
     action_detail_expander = action_container.expander(label="Action Detail", expanded=False)
     with action_detail_expander:
-        poker_action.action_detail
+        st.write(poker_action.action_detail)
 
     return action_container
 
 
 def simple_app():
     st.title("My Poker Face")
-    if not st.button("Start Game"):
-        st.stop()
+    if "is_game_running" not in st.session_state:
+        st.session_state["is_game_running"] = False
+
+    if not st.session_state["is_game_running"]:
+        if not st.button("Start Game"):
+            st.stop()
+        else:
+            st.session_state["is_game_running"] = True
+            players = get_players(test=False, num_players=3)
+            poker_game = PokerGame(players, StreamlitInterface())
+            if "poker_game" not in st.session_state:
+                st.session_state["poker_game"] = poker_game
+            if "dealer" not in st.session_state:
+                st.session_state["dealer"] = poker_game.players[random.randint(0, len(poker_game.players) - 1)]
     else:
-        players = get_players(test=False, num_players=3)
-        poker_game = PokerGame(players, StreamlitInterface())
-        display_game(poker_game)
-        poker_game.play_game()
+        poker_game = st.session_state["poker_game"]
+
+    for poker_hand in poker_game.hands:
+        replay_hand(poker_hand)
+
+    poker_hand = PokerHand(interface=poker_game.interface,
+                           players=poker_game.players,
+                           dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],
+                           deck=poker_game.deck)
+    poker_game.hands.append(poker_hand)
+    display_game(poker_game)
+
+    poker_game.remaining_players, st.session_state["dealer"] = poker_hand.play_hand()
+
+    play_again = poker_game.interface.request_action(
+        ["yes", "no"],
+        "Would you like to play another hand? ",
+        0)
+    if play_again != "yes":
+        poker_game.display_text("Game over!")
+
+
+def replay_hand(poker_hand: PokerHand) -> None:
+    for action in poker_hand.poker_actions:
+        display_poker_action(action)
 
 
 def main():

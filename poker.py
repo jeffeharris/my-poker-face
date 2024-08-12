@@ -389,6 +389,8 @@ Provide 3 responses with different levels of {attribute} (low, regular, high) an
 
         response_json = self.get_player_response(hand_state)
 
+        game_interface.display_expander(label="Player Insights", body=response_json)
+
         action = response_json["action"]
         add_to_pot = response_json["amount"]
         chat_message = response_json["comment"]
@@ -490,7 +492,7 @@ class PokerAction:
         self.player = player
         self.player_action = PokerPlayer.PlayerAction(action)
         self.amount = amount
-        self.hand_state = hand_state
+        self.hand_state = hand_state.copy()
         self.action_detail = action_detail
 
     def __str__(self):
@@ -665,6 +667,7 @@ class PokerHand:
 
     def handle_fold(self, player: PokerPlayer):
         player.folded = True
+        self.set_remaining_players()
 
     # TODO: change this to return the options as a PlayerAction enum
     def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
@@ -697,55 +700,62 @@ class PokerHand:
 
         poker_player.options = player_options.copy()
 
-    @staticmethod
-    def get_next_round_queue(round_queue):
+    def get_next_round_queue(self, round_queue, betting_player: Optional['PokerPlayer']):
         next_round_queue = round_queue.copy()
-        shift_list_left(next_round_queue)
+        if betting_player:
+            index = round_queue.index(betting_player) + 1
+        else:
+            index = 1
+        shift_list_left(next_round_queue, index)
         return next_round_queue
 
-    def betting_round(self, round_queue, is_initial_round: bool = True):
+    def betting_round(self, round_queue: List['PokerPlayer'], is_initial_round: bool = True):
         # betting_round takes in a list of Players in order of their turns
+        active_queue = round_queue.copy()  # Active players in the current round
+
         if not is_initial_round:
             # all players in the queue should bet in the first round,
             # after any raise the entire queue is sent but the raiser is removed from the turn queue as they don't get a
-            round_queue.pop()  # Remove the last raiser from the betting round.
+            active_queue.pop()  # Remove the last raiser from the betting round.
             # TODO: removing the player from the round queue means they aren't part of the queue that is sent
             #  to the next round
 
-        for player in round_queue:
-            # Before each player action, several checks and updates are performed
-            self.set_remaining_players()  # Update the hands' remaining players list
-            for p in round_queue:
-                print(p.name)
+        for player in active_queue:
+            if player.folded:
+                continue
+            for i, p in enumerate(round_queue):
+                print(f"{i}: {p.name} - {p.folded}")
             if len(self.remaining_players) <= 1:  # Round ends if there are no players to bet
-                SystemError("No remaining players left in the hand")
+                ValueError("No remaining players left in the hand")
 
             self.set_player_options(player, PokerSettings())
+            active_queue = [player for player in active_queue if not player.folded]
+            # else:
+            poker_action = player.get_player_action(self.hand_state)
+            self.poker_actions.append(poker_action)
+            selected_action = poker_action.player_action
+            amount_to_add = poker_action.amount
 
-            # Once checks and updates above are complete, et the action from the player and decide what to do
-            if player.folded:
-                round_queue.remove(player)
-
+            if (selected_action == PokerPlayer.PlayerAction.BET
+                    or selected_action == PokerPlayer.PlayerAction.RAISE):
+                return self.handle_bet_or_raise(player,
+                                                amount_to_add,
+                                                self.get_next_round_queue(round_queue=self.remaining_players,
+                                                                          betting_player=player))
+            elif selected_action == PokerPlayer.PlayerAction.ALL_IN:
+                # Create a new pot for anyone else to contribute to if needed
+                return self.handle_all_in(player,
+                                          amount_to_add,
+                                          self.get_next_round_queue(round_queue=self.remaining_players,
+                                                                    betting_player=player))
+            elif selected_action == PokerPlayer.PlayerAction.CALL:
+                self.handle_call(player, amount_to_add)
+            elif selected_action == PokerPlayer.PlayerAction.FOLD:
+                self.handle_fold(player)
+            elif selected_action == PokerPlayer.PlayerAction.CHECK:
+                continue
             else:
-                poker_action = player.get_player_action(self.hand_state)
-                self.poker_actions.append(poker_action)
-                player_action = poker_action.player_action
-                add_to_pot = poker_action.amount
-
-                if (player_action == PokerPlayer.PlayerAction.BET
-                        or player_action == PokerPlayer.PlayerAction.RAISE):
-                    return self.handle_bet_or_raise(player, add_to_pot, self.get_next_round_queue(round_queue))
-                elif player_action == PokerPlayer.PlayerAction.ALL_IN:
-                    # Create a new pot for anyone else to contribute to if needed
-                    return self.handle_all_in(player, add_to_pot, self.get_next_round_queue(round_queue))
-                elif player_action == PokerPlayer.PlayerAction.CALL:
-                    self.handle_call(player, add_to_pot)
-                elif player_action == PokerPlayer.PlayerAction.FOLD:
-                    self.handle_fold(player)
-                elif player_action == PokerPlayer.PlayerAction.CHECK:
-                    pass
-                else:
-                    SystemError("Invalid action selected")
+                ValueError("Invalid action selected")
 
     def reveal_cards(self, num_cards: int, round_name: PokerHandPhase):
         """
@@ -821,7 +831,7 @@ class PokerHand:
     def end_hand(self):
         # Evaluate and announce the winner
         winning_player = self.determine_winner()
-        self.interface.display_text(f"The winner is {winning_player.name}! They win the pot of {self.pots[0]}")
+        self.interface.display_text(f"The winner is {winning_player.name}! They win the pot of {self.pots[0].total}")
 
         # Reset game for next round
         self.pots[0].resolve_pot(winning_player)
@@ -919,7 +929,8 @@ class PokerGame(Game):
             self.remaining_players, dealer = poker_hand.play_hand()
             play_again = self.interface.request_action(
                 ["yes", "no"],
-                "Would you like to play another hand? ")
+                "Would you like to play another hand? ",
+                0)
             if play_again != "yes":
                 break
             else:
@@ -1037,7 +1048,7 @@ def display_hole_cards(cards: [Card, Card]):
     return hole_card_art
 
 
-def main(test=False, num_players=2):
+def main(test=False, num_players=3):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players, ConsoleInterface())
     poker_game.play_game()
