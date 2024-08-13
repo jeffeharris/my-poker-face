@@ -5,7 +5,9 @@ from poker import (PokerGame,
                    PokerAction,
                    PokerHand,
                    PokerPlayer,
-                   get_players, AIPokerPlayer)
+                   AIPokerPlayer,
+                   get_players,
+                   shift_list_left)
 
 from dotenv import load_dotenv
 
@@ -48,7 +50,7 @@ def display_poker_action(poker_action: PokerAction):
     poker_action_lines = [f"Player: {poker_action.player.name}",
                           f"Action: {poker_action.player_action.value}"]
     if poker_action.amount:
-        poker_action_lines.append(f"Amount: {poker_action.amount}")
+        poker_action_lines.append(f"Amount: ${poker_action.amount}")
 
     # join the poker_action_lines into a single string
     action_text = "\n".join(poker_action_lines)
@@ -64,6 +66,29 @@ def display_poker_action(poker_action: PokerAction):
     return action_container
 
 
+def play_hand(poker_hand: PokerHand):
+    round_queue = poker_hand.setup_hand()
+
+    poker_hand.betting_round(round_queue)
+
+    poker_hand.reveal_flop()
+    start_player = poker_hand.determine_start_player()
+    index = poker_hand.players.index(start_player)
+    round_queue = poker_hand.players.copy()  # Copy list of all players that started the hand, could include folded
+    shift_list_left(round_queue, index)  # Move to the start_player
+    poker_hand.betting_round(round_queue)
+
+    poker_hand.reveal_turn()
+    # poker_hand.betting_round(round_queue)
+
+    poker_hand.reveal_river()
+    # poker_hand.betting_round(round_queue)
+
+    poker_hand.end_hand()
+
+    return poker_hand.remaining_players, poker_hand.dealer
+
+
 def simple_app():
     st.title("My Poker Face")
     if "is_game_running" not in st.session_state:
@@ -74,7 +99,7 @@ def simple_app():
             st.stop()
         else:
             st.session_state["is_game_running"] = True
-            players = get_players(test=False, num_players=3)
+            players = get_players(test=False, num_players=2)
             poker_game = PokerGame(players, StreamlitInterface())
             if "poker_game" not in st.session_state:
                 st.session_state["poker_game"] = poker_game
@@ -82,6 +107,9 @@ def simple_app():
                 st.session_state["dealer"] = poker_game.players[random.randint(0, len(poker_game.players) - 1)]
     else:
         poker_game = st.session_state["poker_game"]
+        poker_hand = poker_game.hands[-1]
+        poker_game.remaining_players, st.session_state["dealer"] = play_hand(poker_hand)
+
 
     for poker_hand in poker_game.hands:
         replay_hand(poker_hand)
@@ -93,7 +121,8 @@ def simple_app():
     poker_game.hands.append(poker_hand)
     display_game(poker_game)
 
-    poker_game.remaining_players, st.session_state["dealer"] = poker_hand.play_hand()
+    poker_game.remaining_players, st.session_state["dealer"] = play_hand(poker_hand)
+    # TODO: create a new "play_hand" that stops the game to get the input from the user
 
     play_again = poker_game.interface.request_action(
         ["yes", "no"],
