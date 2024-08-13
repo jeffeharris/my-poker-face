@@ -109,7 +109,7 @@ class OpenAILLMAssistant(LLMAssistant):
     functions: List[dict] or None
 
     def __init__(self,
-                 ai_model="gpt-3.5-turbo-0125",     # gpt-3.5-turbo-16k
+                 ai_model="gpt-4o-mini",      # "gpt-3.5-turbo-0125"     # gpt-3.5-turbo-16k
                  ai_temp=1.0,
                  system_message="You are a helpful assistant.",
                  memory=None,
