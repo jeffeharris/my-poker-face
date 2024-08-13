@@ -1,0 +1,4 @@
+streamlit~=1.31.1
+openai~=1.40.6
+python-dotenv~=1.0.1
+Flask>=2.0.1

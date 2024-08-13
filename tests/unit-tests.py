@@ -1,5 +1,5 @@
 import unittest
-from poker import *
+from core import *
 
 
 class TestDetermineStartPlayer(unittest.TestCase):

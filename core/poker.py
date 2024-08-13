@@ -6,8 +6,8 @@ import random
 from enum import Enum
 from typing import List, Dict, Optional
 
-from cards import Card, Deck, render_cards, render_two_cards
-from game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
+from .cards import Card, Deck, render_cards, render_two_cards
+from .game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
 
 from dotenv import load_dotenv
 
@@ -144,7 +144,7 @@ class PokerPlayer(Player):
         self.folded = False
     
     def __str__(self):
-        # Create a function that prints the name of the poker player
+        # Create a function that prints the name of the core player
         return self.name
 
     @property

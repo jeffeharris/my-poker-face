@@ -1,7 +1,7 @@
 import streamlit as st
 import random
-from game import StreamlitInterface
-from poker import (PokerGame,
+from core.game import StreamlitInterface
+from core.poker import (PokerGame,
                    PokerAction,
                    PokerHand,
                    PokerPlayer,
