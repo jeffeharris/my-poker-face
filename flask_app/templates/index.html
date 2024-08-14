@@ -8,7 +8,18 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<h1>Welcome to Poker Night!</h1>
-<p>Let's play some poker.</p>
+    <h1>Welcome to Poker Night!</h1>
+    <p>Let's play some poker.</p>
+    <p>{{ players }}</p>
+
+    <form action="/player_action" method="post">
+        <p><select>
+            <option>option 1</option>
+            <option>option 2</option>
+        </select></p>
+        <p><input type="text" name="action" placeholder="{{ options }}"></p>
+        <p><input type="number" name="amount" placeholder="Bet Amount"></p>
+        <p><button type="submit">Bet</button></p>
+    </form>
 </body>
 </html>
