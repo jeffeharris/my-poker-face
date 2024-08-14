@@ -1,7 +1,7 @@
 # flask_app/app.py
 from flask import Flask, render_template
 import random
-# from core.game import FlaskInterface
+from core.game import Interface
 from core.poker import (PokerGame,
                         PokerAction,
                         PokerHand,
@@ -12,7 +12,39 @@ from core.poker import (PokerGame,
 
 from dotenv import load_dotenv
 
+class FlaskInterface(Interface):
+    def display_game(self, game):
+        pass
+
+    def display_hand(self, hand):
+        pass
+
+    def display_player_hand(self, player, hand):
+        pass
+
+    def get_user_action(self, player):
+        pass
+
+    def display_player(self, winner):
+        pass
+
+    def display_poker_action(self, action):
+        pass
+
+
+# def poker_game_from_dict(poker_game_dict: dict):
+#     players = player_list_from_dict(poker_game_dict["players"])
+#     interface = Interface.from_dict(poker_game_dict["interface"])
+#
+#     poker_game = PokerGame(players, interface)
+#     poker_game.starting_players = player_list_from_dict(poker_game_dict["starting_players"])
+#     poker_game.remaining_players = player_list_from_dict(poker_game_dict["remaining_players"])
+#     poker_game.deck = deck_from_dict(poker_game_dict["deck"])
+#     poker_game.hands = hand_list_from_dict(poker_game_dict["hands"])
+#     return poker_game
+
 app = Flask(__name__)
+app.secret_key = 'my_secret_key_poker_app'
 
 
 @app.route('/')
