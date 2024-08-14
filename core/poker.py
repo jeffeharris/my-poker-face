@@ -6,7 +6,7 @@ import random
 from enum import Enum
 from typing import List, Dict, Optional
 
-from .cards import Card, Deck, render_cards, render_two_cards
+from .cards import Card, Deck, render_cards, render_two_cards, cards_from_dict, deck_from_dict
 from .game import Player, Game, Interface, OpenAILLMAssistant, ConsoleInterface
 
 from dotenv import load_dotenv
@@ -142,10 +142,23 @@ class PokerPlayer(Player):
         self.cards = []
         self.options = []
         self.folded = False
-    
-    def __str__(self):
-        # Create a function that prints the name of the core player
-        return self.name
+
+    def to_dict(self):
+        return {
+            "type": "PokerPlayer",
+            "name": self.name,
+            "money": self.money,
+            "cards": [card.to_dict() for card in self.cards],
+            "options": [option.value for option in self.options],
+            "folded": self.folded
+        }
+
+    def from_dict(self, player_dict: dict):
+        self.name = player_dict["name"]
+        self.money = player_dict["money"]
+        self.cards = player_dict["cards"]
+        self.options = player_dict["options"]
+        self.folded = player_dict["folded"]
 
     @property
     def player_state(self):
@@ -240,6 +253,31 @@ class AIPokerPlayer(PokerPlayer):
         self.attitude = "Distracted"
         self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
                                             system_message=self.persona_prompt)
+
+    def to_dict(self):
+        return {
+            "type": "AIPokerPlayer",
+            "name": self.name,
+            "money": self.money,
+            "cards": [card.to_dict() for card in self.cards],
+            "options": [option.value for option in self.options],
+            "folded": self.folded,
+            "confidence": self.confidence,
+            "attitude": self.attitude,
+            "assistant": { "ai_temp": self.assistant.ai_temp,
+                           "system_message": self.assistant.system_message }
+        }
+
+    def from_dict(self, player_dict):
+        self.name = player_dict["name"]
+        self.money = player_dict["money"]
+        self.cards = cards_from_dict(player_dict["cards"])
+        self.options = player_dict["options"]
+        self.folded = player_dict["folded"]
+        self.confidence = player_dict["confidence"]
+        self.attitude = player_dict["attitude"]
+        self.assistant = OpenAILLMAssistant(ai_temp=player_dict["assistant"]["ai_temp"],
+                                            system_message=player_dict["assistant"]["system_message"])
 
     @property
     def player_state(self):
@@ -480,6 +518,9 @@ class PokerSettings:
         else:
             self.ai_player_starting_money = ai_player_starting_money
 
+    def to_dict(self):
+        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4)
+
 
 class PokerAction:
     player: PokerPlayer
@@ -612,6 +653,12 @@ class PokerHand:
         self.small_blind_player = self.players[(self.dealer_position + 1) % len(self.players)]
         self.big_blind_player = self.players[(self.dealer_position + 2) % len(self.players)]
         self.under_the_gun = self.players[(self.dealer_position + 3) % len(self.players)]
+
+    def to_dict(self):
+        hand_state_dict = self.hand_state
+        del hand_state_dict['game_interface']
+        del hand_state_dict['current_situation']
+        return hand_state_dict
 
     def get_opponent_positions(self, requesting_player=None) -> List[str]:
         opponent_positions = []
@@ -906,6 +953,22 @@ class PokerHand:
         return table_positions
 
 
+def players_to_dict(players: List[PokerPlayer]) -> List[Dict]:
+    player_json_list = []
+    for player in players:
+        player_json = player.to_dict()
+        player_json_list.append(player_json)
+    return player_json_list
+
+
+def hands_to_dict(hands: List[PokerHand]) -> List[Dict]:
+    hand_json_list = []
+    for hand in hands:
+        hand_json = hand.to_dict()
+        hand_json_list.append(hand_json)
+    return hand_json_list
+
+
 class PokerGame(Game):
     settings: PokerSettings
     players: List['PokerPlayer']
@@ -923,6 +986,44 @@ class PokerGame(Game):
         self.deck = Deck()
         self.hands = []
         self.assistant = OpenAILLMAssistant()
+
+    def to_dict(self):
+        def serialize(object):
+            """
+            Helper function to serialize a value.
+            Recursively handles lists and dictionaries.
+            """
+            if hasattr(object, 'to_dict'):
+                return object.to_dict()
+            elif isinstance(object, dict):
+                return {k: serialize(v) for k, v in object.items()}
+            elif isinstance(object, list):
+                return [serialize(v) for v in object]
+            elif isinstance(object, (str, int, float, bool, type(None))):
+                return object
+            else:
+                return str(object)  # Convert to string or use a placeholder
+
+        result = {}
+        for key, value in self.__dict__.items():
+            try:
+                result[key] = serialize(value)
+            except Exception as e:
+                result[key] = f"Error serializing {key}: {str(e)}"
+        return result
+
+    # def to_dict(self):
+    #     poker_game_dict = {
+    #         "players": players_to_dict(self.players),
+    #         "interface": self.interface.to_dict(),
+    #         "settings": self.settings.to_dict(),
+    #         "starting_players": players_to_dict(self.starting_players),
+    #         "remaining_players": players_to_dict(self.remaining_players),
+    #         "deck": self.deck.to_dict(),
+    #         "hands": hands_to_dict(self.hands),
+    #         # "assistant": self.assistant.to_json(),
+    #     }
+    #     return poker_game_dict
 
     def play_game(self):
         poker_hand = PokerHand(interface=self.interface,
@@ -945,8 +1046,6 @@ class PokerGame(Game):
                                        deck=self.deck)
 
         self.display_text("Game over!")
-
-
 def get_players(test=False, num_players=2):
     definites = [
         PokerPlayer("Jeff")
@@ -1051,6 +1150,30 @@ def display_hole_cards(cards: [Card, Card]):
     # Generate and print each card
     hole_card_art = render_two_cards(card_1, card_2)
     return hole_card_art
+
+
+def poker_player_from_dict(player_dict: Dict) -> PokerPlayer:
+    if player_dict["type"] == "PokerPlayer":
+        player = PokerPlayer(name=player_dict["name"])
+    elif player_dict["type"] == "AIPokerPlayer":
+        player = AIPokerPlayer(name=player_dict["name"], ai_temp=player_dict["ai_temp"])
+    else:
+        ValueError("Invalid player type")
+
+    player.from_dict(player_dict)
+    return player
+
+
+def hand_from_dict(hand_dict):
+    pass
+
+
+def hand_list_from_dict(hand_dict_list):
+    hand_list = []
+    for hand_dict in hand_dict_list:
+        hand = hand_from_dict(hand_dict)
+        hand_list.append(hand)
+    return hand_list
 
 
 def main(test=False, num_players=3):

@@ -16,6 +16,20 @@ class Interface:
     def display_expander(self, label, body):
         pass
 
+    def to_dict(self):
+        return type(self).__name__
+
+    @classmethod
+    def from_dict(cls, d):
+        if d["__name__"] == "ConsoleInterface":
+            return ConsoleInterface()
+        elif d["__name__"] == "StreamlitInterface":
+            return StreamlitInterface()
+        elif d["__name__"] == "Interface":
+            return Interface()
+        elif d["__name__"] == "FlaskInterface":
+            return FlaskInterface()
+
 
 class ConsoleInterface(Interface):
     def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
@@ -70,6 +84,9 @@ class Player:
 
     def __init__(self, name: str):
         self.name = name
+
+    def __str__(self):
+        return self.name
 
 
 class LLMAssistant:
