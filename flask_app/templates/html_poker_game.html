@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Poker Face</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <header class="menu">
+        <a href="/">Home</a>
+        <a href="#">Rules</a>
+        <a href="/settings">Settings</a>
+        <a href="#">About</a>
+    </header>
+    
+    <div class="game-info">
+        <h1>Poker Game</h1>
+        <p>Current Round: Pre-Flop</p>
+        <p>Pot: $1000</p>
+    </div>
+
+    <div class="table">
+        {% for player in players %}
+        <div class="player">
+            <h2>{{ player.name }}</h2>
+            <p>Chips: ${{ player.money }}</p>
+            <p>Bet: ${{ player.bet }}</p>
+            <div class="player-cards">
+                {% for card in player.cards %}
+                    <span class="card
+                        {% if card.suit == '♥' %}hearts{% elif card.suit == '♦' %}diamonds
+                        {% elif card.suit == '♣' %}clubs{% elif card.suit == '♠' %}spades{% endif %}
+                    ">{{ card.rank }}{{ card.suit }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="community-cards">
+        {% for card in community_cards %}
+            <span class="card
+                {% if card.suit == '♥' %}hearts{% elif card.suit == '♦' %}diamonds
+                {% elif card.suit == '♣' %}clubs{% elif card.suit == '♠' %}spades{% endif %}
+            ">{{ card.rank }}{{ card.suit }}</span>
+        {% endfor %}
+    </div>
+
+    <div class="player-options">
+        {% for option in player_options %}
+            <button onclick="playerAction('{{ option }}')">{{ option }}</button>
+        {% endfor %}
+    </div>
+
+    <div class="message-window">
+        <p>Player 1 has bet $50. It's Player 2's turn.</p>
+    </div>
+
+    <script>
+        function playerAction(action) {
+            fetch('/api/player_action', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ action: action })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+    </script>
+
+</body>
+</html>

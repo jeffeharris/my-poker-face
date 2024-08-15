@@ -7,19 +7,18 @@
     <title>My Poker Face</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
-    <h1>Welcome to Poker Night!</h1>
-    <p>Let's play some poker.</p>
-    <p>{{ players }}</p>
 
-    <form action="/player_action" method="post">
-        <p><select>
-            <option>option 1</option>
-            <option>option 2</option>
-        </select></p>
-        <p><input type="text" name="action" placeholder="{{ options }}"></p>
-        <p><input type="number" name="amount" placeholder="Bet Amount"></p>
-        <p><button type="submit">Bet</button></p>
-    </form>
+<body>
+    <div class="menu">
+        <a href="/">Home</a>
+        <a href="#">Rules</a>
+        <a href="/settings">Settings</a>
+        <a href="#">About</a>
+    </div>
+    <div class="container">
+        <h1>Welcome to My Poker Face!</h1>
+        <p>Let's play some poker.</p>
+        <a href="/game" class="start-button">Start Game</a>
+    </div>
 </body>
 </html>
