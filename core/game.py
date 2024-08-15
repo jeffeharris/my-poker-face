@@ -30,6 +30,10 @@ class Interface:
         elif d["__name__"] == "FlaskInterface":
             return FlaskInterface()
 
+    @staticmethod
+    def display_game(g):
+        pass
+
 
 class ConsoleInterface(Interface):
     def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:

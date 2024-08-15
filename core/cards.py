@@ -119,7 +119,8 @@ def render_two_cards(card_1, card_2):
 
 
 def card_to_dict(card: Card) -> dict:
-    return {'rank': card.rank, 'suit': card.suit, 'value': card.value}
+    suit_ascii = Card.SUIT_TO_ASCII[card.suit]
+    return {'rank': card.rank, 'suit': suit_ascii, 'value': card.value}
 
 
 def deck_to_dict(deck: Deck) -> dict:

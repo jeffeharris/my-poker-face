@@ -149,7 +149,7 @@ class PokerPlayer(Player):
             "name": self.name,
             "money": self.money,
             "cards": [card.to_dict() for card in self.cards],
-            "options": [option.value for option in self.options],
+            "options": self.options,
             "folded": self.folded
         }
 
@@ -260,11 +260,11 @@ class AIPokerPlayer(PokerPlayer):
             "name": self.name,
             "money": self.money,
             "cards": [card.to_dict() for card in self.cards],
-            "options": [option.value for option in self.options],
+            "options": self.options,
             "folded": self.folded,
             "confidence": self.confidence,
             "attitude": self.attitude,
-            "assistant": { "ai_temp": self.assistant.ai_temp,
+            "assistant": { "ai_temp": self.assistant.temp,
                            "system_message": self.assistant.system_message }
         }
 
@@ -519,7 +519,7 @@ class PokerSettings:
             self.ai_player_starting_money = ai_player_starting_money
 
     def to_dict(self):
-        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4)
+        return self.__dict__
 
 
 class PokerAction:
@@ -624,7 +624,7 @@ class PokerHand:
     def hand_state(self):
         hand_state = {
             "game_interface": self.interface,
-            "community_cards": copy.deepcopy(self.community_cards),
+            "community_cards": self.community_cards.copy(),
             "current_bet": self.pots[0].current_bet,
             "current_pot": self.pots[0],
             "players": self.players,
@@ -987,43 +987,43 @@ class PokerGame(Game):
         self.hands = []
         self.assistant = OpenAILLMAssistant()
 
-    def to_dict(self):
-        def serialize(object):
-            """
-            Helper function to serialize a value.
-            Recursively handles lists and dictionaries.
-            """
-            if hasattr(object, 'to_dict'):
-                return object.to_dict()
-            elif isinstance(object, dict):
-                return {k: serialize(v) for k, v in object.items()}
-            elif isinstance(object, list):
-                return [serialize(v) for v in object]
-            elif isinstance(object, (str, int, float, bool, type(None))):
-                return object
-            else:
-                return str(object)  # Convert to string or use a placeholder
-
-        result = {}
-        for key, value in self.__dict__.items():
-            try:
-                result[key] = serialize(value)
-            except Exception as e:
-                result[key] = f"Error serializing {key}: {str(e)}"
-        return result
-
     # def to_dict(self):
-    #     poker_game_dict = {
-    #         "players": players_to_dict(self.players),
-    #         "interface": self.interface.to_dict(),
-    #         "settings": self.settings.to_dict(),
-    #         "starting_players": players_to_dict(self.starting_players),
-    #         "remaining_players": players_to_dict(self.remaining_players),
-    #         "deck": self.deck.to_dict(),
-    #         "hands": hands_to_dict(self.hands),
-    #         # "assistant": self.assistant.to_json(),
-    #     }
-    #     return poker_game_dict
+    #     def serialize(converted_object):
+    #         """
+    #         Helper function to serialize a value.
+    #         Recursively handles lists and dictionaries.
+    #         """
+    #         if hasattr(converted_object, 'to_dict'):
+    #             return converted_object.to_dict()
+    #         elif isinstance(converted_object, dict):
+    #             return {k: serialize(v) for k, v in converted_object.items()}
+    #         elif isinstance(converted_object, list):
+    #             return [serialize(v) for v in converted_object]
+    #         elif isinstance(converted_object, (str, int, float, bool, type(None))):
+    #             return converted_object
+    #         else:
+    #             return str(converted_object)  # Convert to string or use a placeholder
+    #
+    #     result = {}
+    #     for key, value in self.__dict__.items():
+    #         try:
+    #             result[key] = serialize(value)
+    #         except Exception as e:
+    #             result[key] = f"Error serializing {key}: {str(e)}"
+    #     return result
+
+    def to_dict(self):
+        poker_game_dict = {
+            "players": players_to_dict(self.players),
+            "interface": self.interface.to_dict(),
+            "settings": self.settings.to_dict(),
+            "starting_players": players_to_dict(self.starting_players),
+            "remaining_players": players_to_dict(self.remaining_players),
+            "deck": self.deck.to_dict(),
+            "hands": hands_to_dict(self.hands),
+            # "assistant": self.assistant.to_json(),
+        }
+        return poker_game_dict
 
     def play_game(self):
         poker_hand = PokerHand(interface=self.interface,
