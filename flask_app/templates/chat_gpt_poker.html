@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Poker Face</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #000;
+            margin: 0;
+            padding: 0;
+            color: #fff;
+            overflow-x: hidden;
+        }
+
+        .menu {
+            background-color: #3D8B37;
+            padding: 10px;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .menu a {
+            color: #fff;
+            margin: 0 15px;
+            text-decoration: none;
+        }
+
+        .title {
+            font-family: 'Bangers', cursive;
+            text-align: center;
+            font-size: clamp(24px, 5vw, 72px);
+            margin: 10px 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .container {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            padding: 10px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .players {
+            background-color: #222;
+            padding: 10px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            width: 60%;
+        }
+
+        .player-card {
+            background-color: #333;
+            padding: 10px;
+            border-radius: 10px;
+            width: 22%;
+            text-align: center;
+        }
+
+        .player-card h3 {
+            margin: 5px 0;
+            font-size: 18px;
+        }
+
+        .player-headshot {
+            width: 100%;  /* Set desired width */
+            height: auto; /* Set desired height */
+            object-fit: cover; /* Maintain aspect ratio, crop if necessary */
+        }
+
+        .player-card .chips {
+            font-size: 16px;
+        }
+
+        .table-container {
+            display: flex;
+            justify-content: center;
+            position: relative;
+            margin-top: 20px;
+            z-index: 2;
+        }
+
+        .table {
+            background-color: #228B22;
+            padding: 20px;
+            border-radius: 50%;
+            width: 80%;
+            position: relative;
+            z-index: 1; /* Ensure it stays above the background */
+            height: 30vh;
+        }
+
+        .pot {
+            text-align: center;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+
+        .community-cards, .deck {
+            position: absolute;
+            background-color: #444;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .community-cards {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .deck {
+            bottom: 10px;
+            right: 10px;
+        }
+
+        .player-options {
+            background-color: #1E90FF;
+            padding: 10px;
+            margin: 10px auto;
+            width: 60%;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            border-radius: 10px;
+            position: relative;
+            z-index: 2; /* Ensure it stays above the background */
+        }
+
+        .player-options button {
+            background-color: #1E90FF;
+            border: none;
+            padding: 10px 20px;
+            color: #fff;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .player-options button:hover {
+            background-color: #104E8B;
+        }
+
+        .advantages {
+            width: 30%;
+            margin-top: 20px;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            background-color: #333;
+            z-index: 3; /* Higher value to stay on top */
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .nav-tabs {
+            display: flex;
+            overflow-x: auto;
+            justify-content: space-between;
+            padding: 2px;
+            background-color: #333;
+            border-radius: 5px;
+            scrollbar-color: #344 #333;
+            position: relative;
+            z-index: inherit;
+        }
+
+        .nav-tabs .tabs {
+            width: 20%;
+            background-color: #444;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            cursor: pointer;
+            margin: 5px;
+            transition: background-color 0.3s, color 0.3s;
+            position: relative;
+            z-index: inherit;
+            opacity: 10;
+        }
+
+        .nav-tabs .tabs.active {
+            background-color: #1E90FF;
+            color: #fff;
+        }
+
+        .tab-content {
+            display: none;
+            background-color: #222;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            color: #fff;
+            position: relative;
+            z-index: inherit;
+            transition: transform 0.3s ease-in-out;
+        }
+
+        /* Display the active tab's content */
+        .tab-content.active {
+            display: block;
+            height: 10vh;
+        }
+
+        .advantages.collapsed {
+            transform: translateY(calc(100% - 40px));
+        }
+
+        /* Background Image for the Bottom Portion */
+        .background-bottom {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 30vh; /* Adjust the height as needed */
+            background-image: url('{{ url_for('static', filename='images/image.png') }}');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-position: center bottom;
+            z-index: 0; /* Ensure it's behind other content */
+        }
+
+        /* Overlayed Messages Window (Slide Up from Bottom Right) */
+        .messages {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            width: 400px;
+            max-height: 75%; /* Adjust this to control how much of the screen it can cover */
+            background-color: #222;
+            overflow-y: auto;
+            z-index: 1000; /* Ensure it's on top of other elements */
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .messages-header {
+            background-color: #333333;
+            text-align: center;
+            font-size: 1em;
+            position: relative;
+            z-index: inherit;
+            cursor: pointer;
+        }
+
+        .messages.collapsed {
+            transform: translateY(calc(100% - 40px));
+        }
+
+        .message-input {
+            width: 90%
+        }
+
+        /* Additional styling to make the send button look nicer */
+        button {
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+        button:focus {
+            outline: none;
+        }
+        button .fa-paper-plane {
+            width: 100%;
+            color: #007bff;
+        }
+
+        .message-input {
+
+        }
+
+        #messageInput {
+            width: 80%;
+            padding: 10px;
+            font-size: 1em;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="menu">
+        <a href="/">Home</a> | <a href="/game">Game</a> | <a href="/settings">Settings</a> | <a href="/about">About</a>
+    </div>
+
+    <div class="title">
+        My Poker Face
+    </div>
+
+    <div class="container content">
+        <div class="players">
+            <div class="player-card">
+                <img src="{{ url_for('static', filename='images/kanye.jpg') }}"
+                     class="player-headshot" alt="Player picture">
+                <h3>Jeff</h3>
+                <p class="chips">$9400</p>
+            </div>
+            <div class="player-card">
+                <img src="{{ url_for('static', filename='images/kanye.jpg') }}"
+                     class="player-headshot" alt="Player picture">
+                <h3>Tom Cruise</h3>
+                <p class="chips">$9400</p>
+            </div>
+            <div class="player-card">
+                <img src="{{ url_for('static', filename='images/kanye.jpg') }}"
+                     class="player-headshot" alt="Player picture">
+                <h3>Lizzo</h3>
+                <p class="chips">$9950</p>
+            </div>
+            <div class="player-card">
+                <img src="{{ url_for('static', filename='images/kanye.jpg') }}"
+                     class="player-headshot" alt="Player picture">
+                <h3>Triumph the Insult Dog</h3>
+                <p class="chips">$10000</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-container content">
+        <div class="table">
+            <div class="pot">
+                Pot: $1250 | Min: $50
+            </div>
+            <div class="community-cards">
+                [Cards]
+            </div>
+            <div class="deck">
+                [Deck]
+            </div>
+        </div>
+    </div>
+
+    <div class="player-options content">
+        <button>Fold</button>
+        <button>Check</button>
+        <button>Raise</button>
+        <button>All-In</button>
+    </div>
+
+    <div id="advantages-container" class="advantages collapsed">
+        <div id="advantages-toggle-bar" class="messages-header">
+            <h3>ADVANTAGES</h3>
+        </div>
+        <div class="nav-tabs">
+            <div class="tabs active" id="tab-strategy">Strategy</div>
+            <div class="tabs" id="tab-history">History</div>
+            <div class="tabs" id="tab-actions">Actions</div>
+            <div class="tabs" id="tab-inventory">Inventory</div>
+        </div>
+
+        <!-- Tab Content Sections -->
+        <div class="tab-content active" id="content-strategy">
+            <p>This is the strategy content.</p>
+        </div>
+
+        <div class="tab-content" id="content-history">
+            <p>This is the history content.</p>
+            <p>And this is more that we can see, we want to know what is happening?</p>
+        </div>
+
+        <div class="tab-content" id="content-actions">
+            <p>This is the actions content.</p>
+        </div>
+
+        <div class="tab-content" id="content-inventory">
+            <p>This is the inventory content.</p>
+        </div>
+    </div>
+
+    <!-- Messages Window -->
+    <div id="messages" class="messages collapsed">
+        <div id="messages-toggle-bar" class="messages-header">
+            <h3>MESSAGES</h3>
+        </div>
+        <div id="messages-display" class="messages-display">
+            <p>Turn card is dealt: Qh</p>
+            <p>Player 1's turn...</p>
+            <!-- Additional messages... -->
+        </div>
+        <div>
+            <label for="message-input"></label>
+            <input type="text" id="message-input" placeholder="Send a message..." class="message-input">
+            <button onclick="sendMessage()">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Background Image for the Bottom Portion -->
+    <div class="background-bottom"></div>
+
+    <script>
+        document.getElementById('messages-toggle-bar').addEventListener('click', function() {
+            var messages = document.getElementById('messages');
+            messages.classList.toggle('collapsed');
+        });
+
+        document.getElementById('advantages-toggle-bar').addEventListener('click', function() {
+            var advantages = document.getElementById('advantages-container');
+            advantages.classList.toggle('collapsed');
+        });
+
+        // JavaScript to handle tab switching logic
+        document.addEventListener("DOMContentLoaded", function() {
+            const tabs = document.querySelectorAll(".tabs");
+            const tabContents = document.querySelectorAll(".tab-content");
+            const navTabs = document.querySelector(".nav-tabs");
+
+            tabs.forEach(tab => {
+                tab.addEventListener("click", function() {
+                    const targetId = this.id.replace("tab-", "content-");
+
+                    tabs.forEach(t => t.classList.remove("active"));
+                    tabContents.forEach(tc => tc.classList.remove("active"));
+
+                    this.classList.add("active");
+                    document.getElementById(targetId).classList.add("active");
+
+                    // Auto-scroll to the selected tab
+                    tab.scrollIntoView({
+                        behavior: 'smooth',
+                        inline: 'center',
+                        block: 'nearest'
+                    });
+                });
+            });
+
+            // Horizontal scrolling with mouse wheel
+            navTabs.addEventListener("wheel", function(event) {
+                if (event.deltaY !== 0) {
+                    navTabs.scrollLeft += event.deltaY * 2;  // Adjust scroll speed if needed
+                    event.preventDefault();  // Prevent vertical scrolling
+                }
+            });
+        });
+
+        // Fetch and display messages
+        function fetchMessages() {
+            fetch('/messages')
+                .then(response => response.json())
+                .then(data => {
+                    let messagesDiv = document.getElementById('messages');
+                    messagesDiv.innerHTML = '';
+                    data.forEach(msg => {
+                        let p = document.createElement('p');
+                        p.textContent = msg;
+                        messagesDiv.appendChild(p);
+                    });
+                });
+        }
+
+        // Send a new message
+        function sendMessage() {
+            let messageInput = document.getElementById('messageInput');
+            let message = messageInput.value;
+
+            fetch('/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message: message })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    messageInput.value = '';
+                    fetchMessages();
+                } else {
+                    alert('Error sending message');
+                }
+            });
+        }
+
+        // Initial message fetch
+        fetchMessages();
+    </script>
+</body>
+</html>
