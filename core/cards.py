@@ -41,6 +41,10 @@ class Card:
     def __dict__(self):
         return card_to_dict(self)
 
+    def __eq__(self, other):
+        if isinstance(other, Card):
+            return self.rank == other.rank and self.suit == other.suit
+
     def render_card(self):
         rank_left = self.rank.ljust(2)
         rank_right = self.rank.rjust(2)
