@@ -108,7 +108,7 @@ class LLMAssistant:
         # create a class that defines the client using OpenAI API directly
         self.max_memory_length = 10
         self.memory = memory
-        self.temp = ai_temp
+        self.ai_temp = ai_temp
         self.model = ai_model
         self.system_message = system_message
 
@@ -159,7 +159,7 @@ class OpenAILLMAssistant(LLMAssistant):
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.temp,
+            temperature=self.ai_temp,
             max_tokens=1500,
             top_p=1,
             frequency_penalty=0,
@@ -171,7 +171,7 @@ class OpenAILLMAssistant(LLMAssistant):
         json_response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=self.temp,
+            temperature=self.ai_temp,
             max_tokens=1500,
             top_p=1,
             frequency_penalty=0,

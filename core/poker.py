@@ -264,7 +264,7 @@ class AIPokerPlayer(PokerPlayer):
             "folded": self.folded,
             "confidence": self.confidence,
             "attitude": self.attitude,
-            "assistant": { "ai_temp": self.assistant.temp,
+            "assistant": { "ai_temp": self.assistant.ai_temp,
                            "system_message": self.assistant.system_message }
         }
 
