@@ -657,7 +657,6 @@ class PokerHand:
     def to_dict(self):
         hand_state_dict = self.hand_state
         del hand_state_dict['game_interface']
-        del hand_state_dict['current_situation']
         return hand_state_dict
 
     def get_opponent_positions(self, requesting_player=None) -> List[str]:
