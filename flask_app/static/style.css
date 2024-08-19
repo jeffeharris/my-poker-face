@@ -103,6 +103,19 @@ body {
     color: black;
 }
 
+.player-options {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    margin: 20px;
+}
+
+.player-action {
+    color: olive;
+    background-color: whitesmoke;
+    font: bold 14px/1.5 "Roboto", sans-serif;
+}
+
 .message-window {
     width: 80%;
     height: 100px;

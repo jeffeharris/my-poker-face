@@ -50,7 +50,7 @@
 
     <div class="player-options">
         {% for option in player_options %}
-            <button onclick="playerAction('{{ option }}')">{{ option }}</button>
+            <button class="player-action" onclick="playerAction('{{ option }}')">{{ option }}</button>
         {% endfor %}
     </div>
 
