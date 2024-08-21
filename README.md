@@ -12,11 +12,17 @@ browser game
 - use the following commands to create a venv. first switch to the root 
 directory of the project and then run the following. Depending on your 
 python interpreter, you may need to switch 'python' to 'python3' below
-```
-python -m venv my_poker_face_venv
-source my_poker_face_venv/bin/activate
-pip install -r requirements.txt
-```
+
+`python -m venv my_poker_face_venv`
+
+`source my_poker_face_venv/bin/activate`
+
+`pip install -r requirements.txt`
+
+### set up your `.env` file
+Create a local `.env` file and add your `OPENAI_API_KEY` to it. 
+This will be enabled to use the AI PLayers and Assistants.
+
 ### run the Flask app locally:
 Once the environment is configured and the requirements installed you can
 start the Flask application
