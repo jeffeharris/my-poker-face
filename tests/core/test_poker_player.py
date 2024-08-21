@@ -1,9 +1,8 @@
 import unittest
 
 from core.game import OpenAILLMAssistant
-from core.poker import AIPokerPlayer
-from core.poker import PokerPlayer
-from core.poker import Card
+from core.poker_player import PokerPlayer, AIPokerPlayer
+from core.card import Card
 
 
 class AIPokerPlayerTests(unittest.TestCase):

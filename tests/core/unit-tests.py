@@ -1,5 +1,6 @@
 import unittest
-from core import *
+from core.poker import *
+from core.poker_player import PokerPlayer, AIPokerPlayer
 
 
 class TestDetermineStartPlayer(unittest.TestCase):
