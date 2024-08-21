@@ -194,6 +194,9 @@ class OpenAILLMAssistant(LLMAssistant):
 
         return response.choices[0].message.content
 
+    def reset_memory(self):
+        self.memory = []
+
 
 class Game:
     players: List['Player']
