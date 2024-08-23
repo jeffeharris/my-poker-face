@@ -1,25 +1,13 @@
 import json
 import random
-from enum import Enum
 from typing import List, Dict
 
 from core.card import Card
 from core.game import Player, OpenAILLMAssistant
-
-# Constraints used for initializing the AI PLayer attitude and confidence
-DEFAULT_CONSTRAINTS = "Use less than 50 words."
+from core.poker_action import PokerAction, PlayerAction
 
 
 class PokerPlayer(Player):
-    class PlayerAction(Enum):
-        BET = "bet"
-        RAISE = "raise"
-        CALL = "call"
-        FOLD = "fold"
-        ALL_IN = "all-in"
-        CHECK = "check"
-        NONE = None
-
     money: int
     cards: List[Card]
     options: List[PlayerAction]
@@ -53,6 +41,18 @@ class PokerPlayer(Player):
         player.folded = player_dict["folded"]
         return player
 
+    @classmethod
+    def list_from_dict_list(cls, player_dict_list: List[Dict]):
+        pass
+
+    @staticmethod
+    def players_to_dict(players: List['PokerPlayer']) -> List[Dict]:
+        player_dict_list = []
+        for player in players:
+            player_dict = player.to_dict()
+            player_dict_list.append(player_dict)
+        return player_dict_list
+
     @property
     def player_state(self):
         return {
@@ -62,63 +62,6 @@ class PokerPlayer(Player):
             "player_options": self.options,
             "has_folded": self.folded
         }
-
-    # TODO: remove get_player_action from here once it's confirmed to work int he Console App
-    # def get_player_action(self, hand_state):
-    #     game_interface = hand_state["game_interface"]
-    #     community_cards = hand_state['community_cards']
-    #     current_bet = hand_state['current_bet']
-    #     current_pot = hand_state['current_pot']
-    #     cost_to_call = current_pot.get_player_cost_to_call(self)
-    #     total_to_pot = current_pot.get_player_pot_amount(self)
-    #
-    #     game_interface.display_text(display_hole_cards(self.cards))
-    #     text_lines = [
-    #         f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}",
-    #         f"Community cards: {community_cards}",
-    #         f"Current bet: {current_bet}",
-    #         f"Current pot: {current_pot.total}",
-    #         f"Cost to call: {cost_to_call}",
-    #         f"Total to pot: {total_to_pot}"
-    #     ]
-    #
-    #     text = "\n".join(text_lines)
-    #
-    #     game_interface.display_text(text)
-    #     action = game_interface.request_action(self.options, "Enter action: \n")
-    #
-    #     add_to_pot = 0
-    #     if action is None:
-    #         if "check" in self.options:
-    #             action = "check"
-    #         elif "call" in self.options:
-    #             action = "call"
-    #         else:
-    #             action = "fold"
-    #     if action in ["bet", "b", "be"]:
-    #         add_to_pot = int(input("Enter amount: "))
-    #         action = "bet"
-    #     elif action in ["raise", "r", "ra", "rai", "rais"]:
-    #         raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
-    #         add_to_pot = raise_amount + cost_to_call
-    #         action = "raise"
-    #     elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
-    #         add_to_pot = self.money
-    #         action = "all-in"
-    #     elif action in ["call", "ca", "cal"]:
-    #         add_to_pot = cost_to_call
-    #         action = "call"
-    #     elif action in ["fold", "f", "fo", "fol"]:
-    #         add_to_pot = 0
-    #         action = "fold"
-    #     elif action in ["check", "ch", "che", "chec"]:
-    #         add_to_pot = 0
-    #         action = "check"
-    #     # self.chat_message = input("Enter chat message (optional): ")
-    #     # if not self.chat_message:
-    #     #     f"{self.name} chooses to {action}."
-    #     poker_action = PokerAction(self, action, add_to_pot, hand_state)
-    #     return poker_action
 
     def get_for_pot(self, amount):
         self.money -= amount
@@ -137,6 +80,9 @@ class AIPokerPlayer(PokerPlayer):
     confidence: str
     attitude: str
     assistant: OpenAILLMAssistant
+
+    # Constraints used for initializing the AI PLayer attitude and confidence
+    DEFAULT_CONSTRAINTS = "Use less than 50 words."
 
     def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
@@ -374,7 +320,7 @@ class AIPokerPlayer(PokerPlayer):
         game_interface.display_text(f"{self.name} chooses to {action} by {add_to_pot}.")
 
         # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
-        poker_action = PokerAction(self, action, add_to_pot, hand_state, response_json)
+        poker_action = PokerAction(self.name, action, add_to_pot, hand_state, response_json)
         return poker_action
 
     # TODO: re-introduce this logic to help AI examine cards
