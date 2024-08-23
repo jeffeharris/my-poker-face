@@ -4,7 +4,7 @@ from typing import List, Dict
 
 from core.card import Card
 from core.game import Player, OpenAILLMAssistant
-from core.poker_action import PokerAction, PlayerAction
+from core.poker_action import PlayerAction
 
 
 class PokerPlayer(Player):
