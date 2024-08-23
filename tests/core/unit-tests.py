@@ -1,5 +1,5 @@
 import unittest
-from core.poker import *
+from core.poker_game import *
 from core.poker_player import PokerPlayer, AIPokerPlayer
 
 

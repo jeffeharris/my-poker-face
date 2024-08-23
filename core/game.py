@@ -1,7 +1,3 @@
-# import random
-# import time
-
-# import streamlit as st
 from typing import List, Optional, Dict, Any
 from openai import OpenAI
 
@@ -21,32 +17,15 @@ class Interface:
 
     @classmethod
     def from_dict(cls, d):
-        if d["__name__"] == "ConsoleInterface":
-            return ConsoleInterface()
-        # elif d["__name__"] == "StreamlitInterface":
-        #     return StreamlitInterface()
-        elif d["__name__"] == "Interface":
+        if d["__name__"] == "Interface":
             return Interface()
-        # elif d["__name__"] == "FlaskInterface":
-        #     return FlaskInterface()
+        raise TypeError("Expected an Interface object, but got: " + d["__name__"])
 
     @staticmethod
     def display_game(g):
         pass
-
-
-class ConsoleInterface(Interface):
-    def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
-        print(options)
-        return input(request)
-
-    def display_text(self, text):
-        print(text)
-
-    def display_expander(self, label: str, body: Any):
-        self.display_text(body)
-
-
+#
+# TODO: remove interfaces from the Game class, move to each application's code
 # class StreamlitInterface(Interface):
 #     def request_action(self, options: List[str], request: str, default_option: Optional[int] = None) -> Optional[str]:
 #         placeholder = st.empty()
@@ -197,20 +176,33 @@ class OpenAILLMAssistant(LLMAssistant):
     def reset_memory(self):
         self.memory = []
 
+    def to_dict(self):
+        return {
+            "__name__": "OpenAILLMAssistant",   # TODO: change __name__ to type if there isnt a magic property of name
+            "ai_model": self.ai_model,
+            "ai_temp": self.ai_temp,
+            "system_message": self.system_message,
+            "max_memory_length": self.max_memory_length,
+            "memory": self.memory,
+            "functions": self.functions
+        }
+
 
 class Game:
     players: List['Player']
-    interface: Interface
+    # interface: Interface
 
-    def __init__(self, players: List['Player'], interface: Interface = None):
-        if interface is None:
-            self.interface = ConsoleInterface()
-
+    def __init__(self, players: List['Player']):
         self.players = players
-        self.interface = interface
 
-    def request_action(self, options, request=None):
-        return self.interface.request_action(options, request)
+    # TODO: decide if needed and remove if not
+    # def __init__(self, players: List['Player'], interface: Interface = None):
+        # if interface is None:
+        #     self.interface = ConsoleInterface()
+        # self.interface = interface
 
-    def display_text(self, text):
-        self.interface.display_text(text)
+    # def request_action(self, options, request=None):
+    #     return self.interface.request_action(options, request)
+    #
+    # def display_text(self, text):
+    #     self.interface.display_text(text)
