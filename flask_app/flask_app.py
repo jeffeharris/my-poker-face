@@ -6,12 +6,11 @@ from flask_session import Session
 import random
 
 from core.game import Interface
-from core.poker import (PokerGame,
-                        PokerAction,
-                        PokerHand)
+from core.poker_game import (PokerGame)
+from core.poker_hand import PokerHand
+from core.poker_action import PokerAction
 from core.poker_player import PokerPlayer, AIPokerPlayer
-from core.utils import get_players, shift_list_left
-from core.serialization import obj_to_dict
+from core.utils import get_players, shift_list_left, obj_to_dict
 
 from dotenv import load_dotenv
 
