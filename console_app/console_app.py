@@ -211,15 +211,18 @@ def print_queue_status(player_queue: List[PokerPlayer]):
 def process_pot_update(poker_hand, player: PokerPlayer, amount_to_add: int):
     poker_hand.pots[0].add_to_pot(player, amount_to_add)
 
-def handle_bet_or_raise(poker_hand, player: PokerPlayer, add_to_pot: int, next_round_queue: List['PokerPlayer']):
+def handle_bet_or_raise(poker_hand, player: PokerPlayer, add_to_pot: int, next_round_queue: List[PokerPlayer]):
     process_pot_update(poker_hand, player, add_to_pot)
     return betting_round(poker_hand, next_round_queue, is_initial_round=False)
 
-def handle_all_in(poker_hand, player: PokerPlayer, add_to_pot: int, next_round_queue: List['PokerPlayer']):
-    process_pot_update(poker_hand, player, add_to_pot)
+def handle_all_in(poker_hand, player: PokerPlayer, add_to_pot: int, next_round_queue: List[PokerPlayer]):
     raising = add_to_pot > poker_hand.pots[0].current_bet
+    process_pot_update(poker_hand, player, add_to_pot)
     if raising:
-        return poker_hand.betting_round(next_round_queue, is_initial_round=False)
+        return betting_round(poker_hand, next_round_queue, is_initial_round=False)
+    else:
+        # TODO: create a side pot
+        pass
 
 def handle_call(poker_hand, player: PokerPlayer, add_to_pot: int):
     process_pot_update(poker_hand, player, add_to_pot)
@@ -230,23 +233,34 @@ def handle_fold(poker_hand, player: PokerPlayer):
 
 
 def betting_round(poker_hand, player_queue: List[PokerPlayer], is_initial_round: bool = True):
-    active_players = initialize_active_players(player_queue, is_initial_round)
+    # Check to see if remaining players are all-in
+
+    active_player_queue = initialize_active_players(player_queue, is_initial_round)
 
     if len(poker_hand.remaining_players) <= 0:
         raise ValueError("No remaining players left in the hand")
 
-    for player in active_players:
+    for player in active_player_queue:
         if player.folded:
             continue
 
-        print_queue_status(player_queue)
-        poker_hand.set_player_options(player, PokerSettings())
-
-        poker_action = get_player_action(player, poker_hand.hand_state)
-        poker_hand.poker_actions.append(poker_action)
-
-        if process_player_action(poker_hand, player, poker_action):
+        all_in_count = 0
+        for p in poker_hand.remaining_players:
+            if p.money <= 0:
+                all_in_count += 1
+        if all_in_count == len(poker_hand.remaining_players):
             return
+        elif len(poker_hand.remaining_players) <= 1:
+            return
+        else:
+            print_queue_status(player_queue)
+            poker_hand.set_player_options(player, PokerSettings())
+
+            poker_action = get_player_action(player, poker_hand.hand_state)
+            poker_hand.poker_actions.append(poker_action)
+
+            if process_player_action(poker_hand, player, poker_action):
+                return
 
 
 def initialize_active_players(player_queue: List[PokerPlayer], is_initial_round: bool) -> List[
@@ -324,11 +338,11 @@ def play_hand(poker_hand):
 
     # Check if the game should continue
     # Remove players from the hand if they are out of money
-    poker_hand.players = [player for player in poker_hand.starting_players if player.money > 0]
-    if len(poker_hand.players) == 1:
+    poker_hand.remaining_players = [player for player in poker_hand.starting_players if player.money > 0]
+    if len(poker_hand.remaining_players) == 1:
         CONSOLE_INTERFACE.display_text(f"{poker_hand.players[0].name} is the last player remaining and wins the game!")
         return
-    elif len(poker_hand.players) == 0:
+    elif len(poker_hand.remaining_players) == 0:
         CONSOLE_INTERFACE.display_text("You... you all lost. Somehow you all have no money.")
         return
 
@@ -357,7 +371,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=True, num_players=3):
+def main(test=False, num_players=3):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)
