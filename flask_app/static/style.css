@@ -1,0 +1,317 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #000;
+    margin: 0;
+    padding: 0;
+    color: #fff;
+    overflow-x: hidden;
+}
+
+.menu {
+    background-color: #3D8B37;
+    padding: 10px;
+    text-align: center;
+    position: relative;
+    z-index: 2;
+}
+
+.menu a {
+    color: #fff;
+    margin: 0 15px;
+    text-decoration: none;
+}
+
+.title {
+    font-family: 'Bangers', cursive;
+    text-align: center;
+    font-size: clamp(24px, 5vw, 72px);
+    margin: 10px 0;
+    position: relative;
+    z-index: 2;
+}
+
+.container {
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-start;
+    padding: 10px;
+    position: relative;
+    z-index: 2;
+}
+
+.players {
+    background-color: #222;
+    padding: 10px;
+    border-radius: 10px;
+    display: flex;
+    justify-content: space-evenly;
+    width: fit-content;
+    max-width: 60%;
+}
+
+.player-card {
+    background-color: #333;
+    padding: 10px;
+    border-radius: 10px;
+    width: 22%;
+    text-align: center;
+    position: relative;
+}
+
+.player-card h3 {
+    margin: 5px 0;
+    font-size: 18px;
+}
+
+.player-headshot {
+    width: 100%;  /* Set desired width */
+    height: auto; /* Set desired height */
+    object-fit: cover; /* Maintain aspect ratio, crop if necessary */
+}
+
+.player-card .chips {
+    font-size: 16px;
+}
+
+.table-container {
+    display: flex;
+    justify-content: center;
+    position: relative;
+    margin-top: 20px;
+    z-index: 2;
+}
+
+.table {
+    background-color: #228B22;
+    padding: 20px;
+    border-radius: 50%;
+    width: 80%;
+    position: relative;
+    z-index: 1; /* Ensure it stays above the background */
+    height: 30vh;
+}
+
+.pot {
+    text-align: center;
+    font-size: 18px;
+    margin-bottom: 20px;
+}
+
+.community-cards, .deck {
+    position: absolute;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.community-cards {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+    gap: 10px;
+}
+
+.player-cards {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.card {
+    width: 50px;
+    height: 75px;
+    border: 1px solid white;
+    border-radius: 5px;
+    margin: 0 5px;
+    background-color: #fff;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+}
+
+.hearts {
+    color: red;
+}
+
+.diamonds {
+    color: red;
+}
+
+.clubs {
+    color: black;
+}
+
+.spades {
+    color: black;
+}
+
+.deck {
+    bottom: 10px;
+    right: 10px;
+}
+
+.player-options {
+    background-color: #1E90FF;
+    padding: 10px;
+    margin: 10px auto;
+    width: 60%;
+    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    border-radius: 10px;
+    position: relative;
+    z-index: 2; /* Ensure it stays above the background */
+}
+
+.player-options button {
+    background-color: #1E90FF;
+    border: none;
+    padding: 10px 20px;
+    color: #fff;
+    margin: 5px;
+    border-radius: 5px;
+    font-size: x-large;
+    cursor: pointer;
+}
+
+.player-options button:hover {
+    background-color: #104E8B;
+}
+
+.advantages {
+    width: 30%;
+    margin-top: 20px;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    background-color: #333;
+    z-index: 3; /* Higher value to stay on top */
+    transition: transform 0.3s ease-in-out;
+}
+
+.nav-tabs {
+    display: flex;
+    overflow-x: auto;
+    justify-content: space-between;
+    padding: 2px;
+    background-color: #333;
+    border-radius: 5px;
+    scrollbar-color: #344 #333;
+    position: relative;
+    z-index: inherit;
+}
+
+.nav-tabs .tabs {
+    width: 20%;
+    background-color: #444;
+    padding: 10px;
+    border-radius: 5px;
+    text-align: center;
+    cursor: pointer;
+    margin: 5px;
+    transition: background-color 0.3s, color 0.3s;
+    position: relative;
+    z-index: inherit;
+    opacity: 10;
+}
+
+.nav-tabs .tabs.active {
+    background-color: #1E90FF;
+    color: #fff;
+}
+
+.tab-content {
+    display: none;
+    background-color: #222;
+    padding: 10px;
+    border-radius: 5px;
+    margin-top: 10px;
+    color: #fff;
+    position: relative;
+    z-index: inherit;
+    transition: transform 0.3s ease-in-out;
+}
+
+/* Display the active tab's content */
+.tab-content.active {
+    display: block;
+    height: 10vh;
+}
+
+.advantages.collapsed {
+    transform: translateY(calc(100% - 40px));
+}
+
+/* Background Image for the Bottom Portion */
+.background-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 30vh; /* Adjust the height as needed */
+    background-image: url('../static/images/image.png');
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center bottom;
+    z-index: 0; /* Ensure it's behind other content */
+}
+
+/* Overlaid Messages Window (Slide Up from Bottom Right) */
+.messages {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    width: 400px;
+    max-height: 75%; /* Adjust this to control how much of the screen it can cover */
+    background-color: #222;
+    overflow-y: auto;
+    z-index: 1000; /* Ensure it's on top of other elements */
+    transition: transform 0.3s ease-in-out;
+}
+
+.messages-header {
+    background-color: #333333;
+    text-align: center;
+    font-size: 1em;
+    position: relative;
+    z-index: inherit;
+    cursor: pointer;
+}
+
+.messages.collapsed {
+    transform: translateY(calc(100% - 40px));
+}
+
+.message-input {
+    width: 90%
+}
+
+/* Additional styling to make the send button look nicer */
+button {
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+button:focus {
+    outline: none;
+}
+button .fa-paper-plane {
+    width: 100%;
+    color: #007bff;
+}
+
+.message-input {
+
+}
+
+#messageInput {
+    width: 80%;
+    padding: 10px;
+    font-size: 1em;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}

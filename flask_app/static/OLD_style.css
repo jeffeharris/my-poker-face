@@ -1,0 +1,127 @@
+/* flask_app/static/OLD_style.css */
+body {
+    font-family: Arial, sans-serif;
+    background-color: green;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+}
+
+.start-button {
+    padding: 10px 20px;
+    font-size: 18px;
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.container {
+    text-align: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+.menu {
+    width: 100%;
+    background-color: #2f4f4f;
+    padding: 10px;
+    text-align: center;
+}
+
+.menu a {
+    margin: 0 15px;
+    color: white;
+    text-decoration: none;
+}
+
+.game-info {
+    margin: 20px 0;
+}
+
+.table {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 70%;
+    margin-bottom: 30px;
+}
+
+.player {
+    border: 2px solid white;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 10px;
+    width: 150px;
+    text-align: center;
+}
+
+.community-cards {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.player-cards {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.card {
+    width: 50px;
+    height: 75px;
+    border: 1px solid white;
+    border-radius: 5px;
+    margin: 0 5px;
+    background-color: #fff;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+}
+
+.hearts {
+    color: red;
+}
+
+.diamonds {
+    color: red;
+}
+
+.clubs {
+    color: black;
+}
+
+.spades {
+    color: black;
+}
+
+.player-options {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    margin: 20px;
+}
+
+.player-action {
+    color: olive;
+    background-color: whitesmoke;
+    font: bold 14px/1.5 "Roboto", sans-serif;
+}
+
+.message-window {
+    width: 80%;
+    height: 100px;
+    background-color: #2f4f4f;
+    border: 2px solid white;
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+}

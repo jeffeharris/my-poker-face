@@ -1,13 +1,11 @@
 import streamlit as st
 import random
-from game import StreamlitInterface
-from poker import (PokerGame,
-                   PokerAction,
-                   PokerHand,
-                   PokerPlayer,
-                   AIPokerPlayer,
-                   get_players,
-                   shift_list_left)
+from core.game import StreamlitInterface
+from core.poker_game import (PokerGame)
+from core.poker_hand import PokerHand
+from core.poker_action import PokerAction
+from core.poker_player import PokerPlayer, AIPokerPlayer
+from core.utils import get_players, shift_list_left
 
 from dotenv import load_dotenv
 
