@@ -84,3 +84,29 @@ def shift_list_right(my_list: list, count: int = 1):
     for i in range(1, count + 1):
         # Pop from the end of the list and insert it at the beginning
         my_list.insert(0, my_list.pop())
+
+
+def obj_to_dict(self):
+        def serialize(converted_object):
+            """
+            Helper function to serialize a value.
+            Recursively handles lists and dictionaries.
+            """
+            if hasattr(converted_object, 'to_dict'):
+                return converted_object.to_dict()
+            elif isinstance(converted_object, dict):
+                return {k: serialize(v) for k, v in converted_object.items()}
+            elif isinstance(converted_object, list):
+                return [serialize(v) for v in converted_object]
+            elif isinstance(converted_object, (str, int, float, bool, type(None))):
+                return converted_object
+            else:
+                return str(converted_object)  # Convert to string or use a placeholder
+
+        result = {}
+        for key, value in self.__dict__.items():
+            try:
+                result[key] = serialize(value)
+            except Exception as e:
+                result[key] = f"Error serializing {key}: {str(e)}"
+        return result
