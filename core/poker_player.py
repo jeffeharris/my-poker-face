@@ -104,7 +104,9 @@ class AIPokerPlayer(PokerPlayer):
             "attitude": self.attitude if self.attitude is not None else "Distracted",
             "assistant": {
                 "ai_temp": self.assistant.ai_temp,
-                "system_message": self.assistant.system_message
+                "system_message": self.assistant.system_message,
+                "messages": self.assistant.messages,
+                "model": self.assistant.model,
             } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"}
         }
 
@@ -255,74 +257,6 @@ class AIPokerPlayer(PokerPlayer):
 
         return poker_prompt
 
-    def get_player_action(self, hand_state):
-        game_interface = hand_state["game_interface"]
-        community_cards = hand_state["community_cards"]
-        current_bet = hand_state["current_bet"]
-        current_pot = hand_state["current_pot"]
-        cost_to_call = current_pot.get_player_cost_to_call(self)
-        total_to_pot = current_pot.get_player_pot_amount(self)
-
-        text_lines = [
-            f"{self.name}'s turn. Current cards: {self.cards} Current money: {self.money}",
-            f"Community cards: {community_cards}",
-            f"Current bet: {current_bet}",
-            f"Current pot: {current_pot.total}",
-            f"Cost to call: {cost_to_call}",
-            f"Total to pot: {total_to_pot}"
-        ]
-
-        text = "\n".join(text_lines)
-
-        game_interface.display_text(text)
-
-        # TODO: re-introduce the logic for AI Players
-        # if len(community_cards) < 3:
-        #     hand_rank = self.evaluate_hole_cards()
-        # else:
-        #     hand_rank = HandEvaluator(self.cards + community_cards).evaluate_hand()["hand_rank"]
-        #
-        # pot_odds = current_pot / current_bet if current_bet else 1
-        # money_left = self.money / current_bet if current_bet else 1
-        #
-        # bet = 0
-        #
-        # # Adjust these thresholds as needed
-        # if current_bet == 0:
-        #     if hand_rank < 5 or pot_odds > 3 or money_left > 3:
-        #         action = "raise"
-        #         bet = self.money // 10  # Bet 10% of AI's money
-        #     else:
-        #         action = "check"
-        # elif hand_rank > 5 and pot_odds < 2 and money_left < 2:
-        #     action = "fold"
-        # elif hand_rank < 5 or pot_odds > 3 or money_left > 3:
-        #     action = "raise"
-        #     bet = self.money // 10  # Bet 10% of AI's money
-        # else:
-        #     action = "call"
-        #     bet = current_bet
-        #
-        # self.chat_message = f"{self.name} chooses to {action} by {bet}."
-        # return action, bet
-
-        response_json = self.get_player_response(hand_state)
-
-        game_interface.display_expander(label="Player Insights", body=response_json)
-
-        action = response_json["action"]
-        add_to_pot = response_json["amount"]
-        chat_message = response_json["comment"]
-        self.attitude = response_json["new_attitude"]
-        self.confidence = response_json["new_confidence"]
-
-        game_interface.display_text(f"{self.name}: '{chat_message}'")
-        game_interface.display_text(f"{self.name} chooses to {action} by {add_to_pot}.")
-
-        # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
-        poker_action = PokerAction(self.name, action, add_to_pot, hand_state, response_json)
-        return poker_action
-
     # TODO: re-introduce this logic to help AI examine cards
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
@@ -333,6 +267,35 @@ class AIPokerPlayer(PokerPlayer):
     #         hand_ranks.append(simulated_hand_rank)
     #     hand_rank = sum(hand_ranks) / len(hand_ranks)
     #     return hand_rank
+    # *** MORE BELOW ***
+    # if len(community_cards) < 3:
+    #     hand_rank = player.evaluate_hole_cards()
+    # else:
+    #     hand_rank = HandEvaluator(player.cards + community_cards).evaluate_hand()["hand_rank"]
+    #
+    # pot_odds = current_pot / current_bet if current_bet else 1
+    # money_left = player.money / current_bet if current_bet else 1
+    #
+    # bet = 0
+    #
+    # # Adjust these thresholds as needed
+    # if current_bet == 0:
+    #     if hand_rank < 5 or pot_odds > 3 or money_left > 3:
+    #         action = "raise"
+    #         bet = player.money // 10  # Bet 10% of AI's money
+    #     else:
+    #         action = "check"
+    # elif hand_rank > 5 and pot_odds < 2 and money_left < 2:
+    #     action = "fold"
+    # elif hand_rank < 5 or pot_odds > 3 or money_left > 3:
+    #     action = "raise"
+    #     bet = player.money // 10  # Bet 10% of AI's money
+    # else:
+    #     action = "call"
+    #     bet = current_bet
+    #
+    # player.chat_message = f"{player.name} chooses to {action} by {bet}."
+    # return action, bet
 
     def get_player_response(self, hand_state) -> Dict[str, str]:
         persona = self.name

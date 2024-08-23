@@ -64,6 +64,14 @@ class PokerHand:
         # hand_state_dict['players'] = players_to_dict(self.players)
         # return hand_state_dict
 
+    @staticmethod
+    def list_to_dict(hands):
+        hand_dict_list = []
+        for hand in hands:
+            hand_dict = hand.to_dict()
+            hand_dict_list.append(hand_dict)
+        return hand_dict_list
+
     @classmethod
     def from_dict(cls, data: dict):
         hand = cls(**data)
@@ -131,8 +139,8 @@ class PokerHand:
                     start_player = self.players[index]
                     break
         return start_player
-
     # TODO: change this to return the options as a PlayerAction enum
+
     def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
         # How much is it to call the bet for the player?
         player_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
@@ -172,82 +180,6 @@ class PokerHand:
         shift_list_left(next_round_queue, index)
         return next_round_queue
 
-#     def betting_round(self, player_queue: List['PokerPlayer'], is_initial_round: bool = True):
-#         active_players = self.initialize_active_players(player_queue, is_initial_round)
-#
-#         if len(self.remaining_players) <= 1:
-#             raise ValueError("No remaining players left in the hand")
-#
-#         for player in active_players:
-#             if player.folded:
-#                 continue
-#
-#             print_queue_status(player_queue)
-#             self.set_player_options(player, PokerSettings())
-#
-#             poker_action = player.get_player_action(self.hand_state)
-#             self.poker_actions.append(poker_action)
-#
-#             if self.process_player_action(player, poker_action):
-#                 return
-#
-#     def initialize_active_players(self, player_queue: List['PokerPlayer'], is_initial_round: bool) -> List[
-#         'PokerPlayer']:
-#         return player_queue.copy() if is_initial_round else player_queue[:-1]
-#
-#     def process_player_action(self, player: 'PokerPlayer', poker_action: 'PokerAction') -> bool:
-#         player_action = poker_action.player_action
-#         amount = poker_action.amount
-#
-#         if player_action in {PokerPlayer.PlayerAction.BET, PokerPlayer.PlayerAction.RAISE}:
-#             self.handle_bet_or_raise(player, amount, self.get_next_round_queue(self.remaining_players, player))
-#             return True
-#         elif player_action == PokerPlayer.PlayerAction.ALL_IN:
-#             self.handle_all_in(player, amount, self.get_next_round_queue(self.remaining_players, player))
-#             return True
-#         elif player_action == PokerPlayer.PlayerAction.CALL:
-#             self.handle_call(player, amount)
-#         elif player_action == PokerPlayer.PlayerAction.FOLD:
-#             self.handle_fold(player)
-#         elif player_action == PokerPlayer.PlayerAction.CHECK:
-#             return False
-#         else:
-#             raise ValueError("Invalid action selected: " + str(player_action))
-#         return False
-#
-#     def reveal_cards(self, num_cards: int, round_name: PokerHandPhase):
-#         """
-#         Reveal the cards.
-#
-#         :param num_cards: Number of cards to reveal
-#         :param round_name: Name of the current round
-#         :return: string with text to output and revealed cards
-#         """
-#         self.deck.discard(1)
-#         new_cards = self.deck.deal(num_cards)
-#         self.community_cards += new_cards
-#         self.current_round = round_name
-#         output_text = f"""
-#                     ---***{round_name}***---
-#             {self.community_cards}
-# """
-#         output_text += render_cards(self.community_cards)
-#
-#         return output_text, new_cards
-#
-#     # TODO: update to not use interface
-#     def reveal_flop(self):
-#         output_text, new_cards = self.reveal_cards(3, PokerHandPhase.FLOP)
-#         self.interface.display_text(output_text)
-#
-#     def reveal_turn(self):
-#         output_text, new_cards = self.reveal_cards(1, PokerHandPhase.TURN)
-#         self.interface.display_text(output_text)
-#
-#     def reveal_river(self):
-#         output_text, new_cards = self.reveal_cards(1, PokerHandPhase.RIVER)
-#         self.interface.display_text(output_text)
-
     def determine_winner(self):
         hands = []
 
@@ -280,13 +212,6 @@ class PokerHand:
         winner = hands[0][0]
         return winner
 
-    def rotate_dealer(self):
-        current_dealer_starting_player_index = self.starting_players.index(self.dealer)
-        new_dealer_starting_player_index = (current_dealer_starting_player_index + 1) % len(self.starting_players)
-        self.dealer = self.starting_players[new_dealer_starting_player_index]
-        if self.dealer.money <= 0:
-            self.rotate_dealer()
-
     # # TODO: update to not use interface
     # def end_hand(self):
     #     # Evaluate and announce the winner
@@ -312,6 +237,37 @@ class PokerHand:
     #         player.folded = False
     #
     #     self.deck.reset()
+
+    def rotate_dealer(self):
+        """
+        Rotates the dealer to the next player in the starting players list.
+        If the new dealer has no money, recursively finds the next eligible dealer.
+
+        Parameters:
+        - None
+
+        Returns:
+        - None
+
+        Usage example:
+
+          game = Game()  # create an instance of the Game class
+          game.rotate_dealer()  # rotate the dealer
+        """
+
+        # Find the current dealer's position in the starting players list
+        current_index = self.starting_players.index(self.dealer)
+
+        # Calculate the new dealer's index using modulo for wrap-around
+        new_index = (current_index + 1) % len(self.starting_players)
+
+        # Update the dealer to the new player at the calculated index
+        self.dealer = self.starting_players[new_index]
+
+        # Check if the new dealer has no money left
+        if self.dealer.money <= 0:
+            # Recursively find the next eligible dealer
+            self.rotate_dealer()
 
     def setup_hand(self):
         self.set_remaining_players()

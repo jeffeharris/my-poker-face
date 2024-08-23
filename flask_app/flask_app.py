@@ -75,17 +75,20 @@ def index():
             code=302
         )
 
+
 @app.route(rule='/home', methods=['GET'])
 def home():
     return render_template(
         template_name_or_list='home.html',
     )
 
+
 @app.route('/game', methods=['GET'])
 def game():
     return render_template(
         template_name_or_list='poker_game.html',
     )
+
 
 @app.route('/start-game', methods=['POST'])
 def start_game():
@@ -130,10 +133,9 @@ def add_message():
 
 def initialize_game_state():
     poker_players = get_players(test=False, num_players=2)
-    poker_game = PokerGame(poker_players, FlaskInterface())
+    poker_game = PokerGame(poker_players)
 
-    poker_hand = PokerHand(interface=poker_game.interface,
-                           players=poker_game.players,
+    poker_hand = PokerHand(players=poker_game.players,
                            dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],
                            deck=poker_game.deck)
     poker_game.hands.append(poker_hand)
@@ -144,7 +146,7 @@ def initialize_game_state():
 def process_player_action(game_state, action):
     # get poker_hand
     poker_hand_dict = game_state['hands'][-1]
-    poker_hand = PokerHand.from_dict(poker_hand_dict, FlaskInterface())
+    poker_hand = PokerHand.from_dict(poker_hand_dict)
     player_action = PokerAction.from_dict(action)
     poker_hand.process_player_action(player=game_state['current_player'],
                                      poker_action=player_action)

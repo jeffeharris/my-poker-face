@@ -6,9 +6,9 @@ from core.game import Interface
 from core.poker_action import PokerAction, PlayerAction
 from core.poker_game import PokerGame
 from core.poker_hand import PokerHand, PokerHandPhase
-from core.poker_player import PokerPlayer
+from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.poker_settings import PokerSettings
-from core.utils import get_players, shift_list_left
+from core.utils import get_players, shift_list_left, print_pretty_json
 
 CARD_TEMPLATE = '''
 .---------.
@@ -38,7 +38,7 @@ class ConsoleInterface(Interface):
         return input(request)
 
     def display_text(self, text: str):
-        print(text)
+        print_pretty_json(text)
 
     def display_expander(self, label: str, body: Any):
         self.display_text(body)
@@ -106,14 +106,18 @@ def reveal_cards(poker_hand, num_cards: int, round_name: PokerHandPhase):
 
 
 def get_player_action(player, hand_state):
+    if isinstance(player, AIPokerPlayer):
+        return get_ai_player_action(player, hand_state)
+
     community_cards = hand_state['community_cards']
     current_bet = hand_state['current_bet']
     current_pot = hand_state['current_pot']
     cost_to_call = current_pot.get_player_cost_to_call(player)
     total_to_pot = current_pot.get_player_pot_amount(player)
 
-    CONSOLE_INTERFACE.display_text(display_hole_cards(player.cards))
-    text_lines = [
+
+
+    game_update_text_lines = [
         f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
         f"Community cards: {community_cards}",
         f"Current bet: {current_bet}",
@@ -122,9 +126,10 @@ def get_player_action(player, hand_state):
         f"Total to pot: {total_to_pot}"
     ]
 
-    text = "\n".join(text_lines)
+    game_update_text = "\n".join(game_update_text_lines)
 
-    CONSOLE_INTERFACE.display_text(text)
+    CONSOLE_INTERFACE.display_text(display_hole_cards(player.cards))
+    CONSOLE_INTERFACE.display_text(game_update_text)
     action = CONSOLE_INTERFACE.request_action(player.options, "Enter action: \n")
 
     add_to_pot = 0
@@ -162,6 +167,43 @@ def get_player_action(player, hand_state):
     return poker_action
 
 # TODO: determine if this is needed or can be deleted
+def get_ai_player_action(player, hand_state):
+    community_cards = hand_state["community_cards"]
+    current_bet = hand_state["current_bet"]
+    current_pot = hand_state["current_pot"]
+    cost_to_call = current_pot.get_player_cost_to_call(player)
+    total_to_pot = current_pot.get_player_pot_amount(player)
+
+    text_lines = [
+        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
+        f"Community cards: {community_cards}",
+        f"Current bet: {current_bet}",
+        f"Current pot: {current_pot.total}",
+        f"Cost to call: {cost_to_call}",
+        f"Total to pot: {total_to_pot}"
+    ]
+
+    text = "\n".join(text_lines)
+
+    CONSOLE_INTERFACE.display_text(text)
+
+    response_json = player.get_player_response(hand_state)
+
+    CONSOLE_INTERFACE.display_expander(label="Player Insights", body=response_json)
+
+    action = response_json["action"]
+    add_to_pot = response_json["amount"]
+    chat_message = response_json["comment"]
+    player.attitude = response_json["new_attitude"]
+    player.confidence = response_json["new_confidence"]
+
+    CONSOLE_INTERFACE.display_text(f"{player.name}: '{chat_message}'")
+    CONSOLE_INTERFACE.display_text(f"{player.name} chooses to {action} by {add_to_pot}.")
+
+    # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
+    poker_action = PokerAction(player.name, action, add_to_pot, hand_state, response_json)
+    return poker_action
+
 def print_queue_status(player_queue: List[PokerPlayer]):
     for index, player in enumerate(player_queue):
         print(f"{index}: {player.name} - {player.folded}")
@@ -186,6 +228,7 @@ def handle_fold(poker_hand, player: PokerPlayer):
     player.folded = True
     poker_hand.set_remaining_players()
 
+
 def betting_round(poker_hand, player_queue: List[PokerPlayer], is_initial_round: bool = True):
     active_players = initialize_active_players(player_queue, is_initial_round)
 
@@ -205,11 +248,13 @@ def betting_round(poker_hand, player_queue: List[PokerPlayer], is_initial_round:
         if process_player_action(poker_hand, player, poker_action):
             return
 
-def initialize_active_players(player_queue: List['PokerPlayer'], is_initial_round: bool) -> List[
-    'PokerPlayer']:
+
+def initialize_active_players(player_queue: List[PokerPlayer], is_initial_round: bool) -> List[
+    PokerPlayer]:
     return player_queue.copy() if is_initial_round else player_queue[:-1]
 
-def process_player_action(poker_hand, player: 'PokerPlayer', poker_action: 'PokerAction') -> bool:
+
+def process_player_action(poker_hand, player: PokerPlayer, poker_action: PokerAction) -> bool:
     player_action = poker_action.player_action
     amount = poker_action.amount
 
@@ -268,10 +313,17 @@ def play_hand(poker_hand):
     CONSOLE_INTERFACE.display_text(f"The winner is {winning_player.name}! They win the pot of {poker_hand.pots[0].total}")
 
     # Reset game for next round
-    poker_hand.pots[0].resolve_pot(winning_player)
+    poker_hand.pots[0].resolve_pot(winning_player)  # TODO: implement support for side-pots (multiple pots)
     poker_hand.rotate_dealer()
+    # Return community cards to Deck
+    poker_hand.deck.return_cards_to_discard_pile(poker_hand.community_cards)
+    # Reset players
+    for player in poker_hand.players:
+        poker_hand.deck.return_cards_to_discard_pile(player.cards)
+        player.folded = False
 
     # Check if the game should continue
+    # Remove players from the hand if they are out of money
     poker_hand.players = [player for player in poker_hand.starting_players if player.money > 0]
     if len(poker_hand.players) == 1:
         CONSOLE_INTERFACE.display_text(f"{poker_hand.players[0].name} is the last player remaining and wins the game!")
@@ -279,13 +331,6 @@ def play_hand(poker_hand):
     elif len(poker_hand.players) == 0:
         CONSOLE_INTERFACE.display_text("You... you all lost. Somehow you all have no money.")
         return
-
-    # Return community cards to Deck
-    poker_hand.deck.return_cards_to_discard_pile(poker_hand.community_cards)
-    # Reset players
-    for player in poker_hand.players:
-        poker_hand.deck.return_cards_to_discard_pile(player.cards)
-        player.folded = False
 
     poker_hand.deck.reset()
 
@@ -312,7 +357,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=3):
+def main(test=True, num_players=3):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)

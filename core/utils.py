@@ -1,4 +1,5 @@
 import random
+import json
 
 from core.poker_player import PokerPlayer, AIPokerPlayer
 
@@ -12,8 +13,8 @@ def get_players(test=False, num_players=2):
         basic_test_players = [
             PokerPlayer("Player1"),
             PokerPlayer("Player2"),
-            PokerPlayer("Player3"),
-            PokerPlayer("Player4")
+            # PokerPlayer("Player3"),
+            # PokerPlayer("Player4")
         ]
 
         players = basic_test_players
@@ -64,6 +65,24 @@ def get_players(test=False, num_players=2):
                                                               "other players",
                                                               mood=i)
     return players
+
+
+def print_pretty_json(input_value):
+    try:
+        # If the input is a string, attempt to parse it as JSON
+        if isinstance(input_value, str):
+            parsed_json = json.loads(input_value)
+        elif isinstance(input_value, dict):
+            parsed_json = input_value
+        else:
+            raise ValueError("Input must be a JSON string or a dictionary")
+
+        # Convert the parsed JSON or dictionary to a pretty-printed JSON string
+        pretty_json = json.dumps(parsed_json, indent=4)
+        print(pretty_json)
+    except (json.JSONDecodeError, ValueError) as e:
+        # If parsing fails or input is invalid, print the original value
+        print(input_value)
 
 
 def shift_list_left(my_list: list, count: int = 1):
