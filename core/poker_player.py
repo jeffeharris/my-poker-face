@@ -4,7 +4,7 @@ from typing import List, Dict
 
 from core.card import Card
 from core.game import Player, OpenAILLMAssistant
-from core.poker_action import PokerAction, PlayerAction
+from core.poker_action import PlayerAction
 
 
 class PokerPlayer(Player):
@@ -342,6 +342,6 @@ class AIPokerPlayer(PokerPlayer):
             f"To call, you would owe ${cost_to_call}.\n"
             f"Your options are: {player_options}\n"
             f"Remember, you're feeling {attitude} and {confidence}. You cannot bet more than you have, ${player_money}.\n"
-            f"What is your move, {persona}?"
+            f"What is your move, {persona}?\n\n"
         )
         return hand_update_message

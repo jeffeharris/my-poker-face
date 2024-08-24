@@ -1,5 +1,5 @@
 import random
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 from core.card import Card
 from core.game import Interface
@@ -37,7 +37,7 @@ class ConsoleInterface(Interface):
         print(options)
         return input(request)
 
-    def display_text(self, text: str):
+    def display_text(self, text: str or Dict or List):
         print_pretty_json(text)
 
     def display_expander(self, label: str, body: Any):
@@ -105,7 +105,34 @@ def reveal_cards(poker_hand, num_cards: int, round_name: PokerHandPhase):
     return output_text, new_cards
 
 
-def get_player_action(player, hand_state):
+def run_chat(hand_state):
+    player_names = [player.name for player in hand_state["players"]]
+    human_player_name = ""
+    ai_player_names = []
+
+    for player in hand_state["players"]:
+        if isinstance(player, AIPokerPlayer):
+            ai_player_names.append(player.name)
+        else:
+            human_player_name = player.name
+
+    player_input = input(f"Who do you want to message? {ai_player_names}\n")
+    while player_input not in ai_player_names:
+        player_input = input(f"Please enter a name form the list: {ai_player_names}\n")
+    player_to_message = hand_state["players"][player_names.index(player_input)]
+
+    chat_message = input("Enter message: ")
+    while chat_message != "quit":
+        chat_message = (f"Message from {human_player_name}: "
+                       f"{chat_message}")
+        response_json = player_to_message.get_player_response(chat_message)
+        player_to_message.attitude = response_json["new_attitude"]
+        player_to_message.confidence = response_json["new_confidence"]
+        print_pretty_json(response_json)
+        chat_message = input("Enter response: ")
+
+
+def get_player_action(player, hand_state) -> PokerAction:
     if isinstance(player, AIPokerPlayer):
         return get_ai_player_action(player, hand_state)
 
@@ -144,9 +171,15 @@ def get_player_action(player, hand_state):
     elif action in ["check", "ch", "che", "chec"]:
         add_to_pot = 0
         action = "check"
-    # self.chat_message = input("Enter chat message (optional): ")
-    # if not self.chat_message:
-    #     f"{self.name} chooses to {action}."
+    elif action in ["show", "sh", "sho"]:
+        pass
+    elif action in ["quit", "q", "qui"]:
+        exit()
+    elif action in ["chat"]:
+        run_chat(hand_state)
+        return get_player_action(player, hand_state)
+
+
     # TODO: return a dict that can be converted to a PokerAction on the other end
     poker_action = PokerAction(player, action, add_to_pot, hand_state)
     return poker_action
@@ -181,12 +214,12 @@ def display_hand_update_text(hand_state, player):
     cost_to_call = current_pot.get_player_cost_to_call(player)
     total_to_pot = current_pot.get_player_pot_amount(player)
     game_update_text_lines = [
-        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
+        f"\n{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
         f"Community cards: {community_cards}",
         f"Current bet: ${current_bet}",
         f"Current pot: ${current_pot.total}",
         f"Cost to call: ${cost_to_call}",
-        f"Total to pot: ${total_to_pot}"
+        f"Total to pot: ${total_to_pot}\n"
     ]
     game_update_text = "\n".join(game_update_text_lines)
     CONSOLE_INTERFACE.display_text(game_update_text)
@@ -322,6 +355,7 @@ def play_hand(poker_hand):
     winning_player = poker_hand.determine_winner()
     CONSOLE_INTERFACE.display_text(f"The winner is {winning_player.name}! They win the pot of {poker_hand.pots[0].total}")
 
+    # Get end fo hand reactions from AI players
     player_reactions = []
     for player in poker_hand.players:
         if isinstance(player, AIPokerPlayer):
@@ -338,11 +372,12 @@ def play_hand(poker_hand):
                 }
             player_reactions.append(reaction)
 
-    for reaction in player_reactions:
-        if reaction is not None:
-            name = reaction["name"]
-            message = print_pretty_json(reaction["response_json"])
-            CONSOLE_INTERFACE.display_text(f"{name}: {message}")
+    for r in player_reactions:
+        if r is not None:
+            name = r["name"]
+            message = r["response_json"]
+            CONSOLE_INTERFACE.display_text(name)
+            CONSOLE_INTERFACE.display_text(message)
 
 
     # Reset game for next round
@@ -390,7 +425,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=4):
+def main(test=False, num_players=2):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)

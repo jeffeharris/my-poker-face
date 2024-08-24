@@ -9,6 +9,7 @@ class PlayerAction(Enum):
     BET = "bet"
     RAISE = "raise"
     ALL_IN = "all-in"
+    CHAT = "chat"
     NONE = None  # TODO: remove None as an option
 
 

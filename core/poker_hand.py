@@ -155,7 +155,7 @@ class PokerHand:
                 and self.pots[0].current_bet == self.small_blind * 2):
             player_options = ['check', 'raise', 'all-in']
         else:
-            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
+            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in', 'chat']
             if player_cost_to_call == 0:
                 player_options.remove('fold')
             if player_cost_to_call > 0:
