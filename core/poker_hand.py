@@ -90,7 +90,7 @@ class PokerHand:
             "players": self.players,
             "opponent_positions": self.get_table_positions(),
             "current_situation": f"The {self.current_round.value} cards have just been dealt",
-            "current_round": self.current_round,
+            "current_round": self.current_round.value,
         }
         return hand_state
 
@@ -283,10 +283,10 @@ class PokerHand:
 
         return round_queue
 
-    def get_table_positions(self) -> Dict[str, PokerPlayer]:
-        table_positions = {"dealer": self.dealer,
-                           "small_blind_player": self.players[(self.dealer_position + 1) % len(self.players)],
-                           "big_blind_player": self.players[(self.dealer_position + 2) % len(self.players)],
-                           "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)]
+    def get_table_positions(self) -> Dict[str, str]:
+        table_positions = {"dealer": self.dealer.name,
+                           "small_blind_player": self.players[(self.dealer_position + 1) % len(self.players)].name,
+                           "big_blind_player": self.players[(self.dealer_position + 2) % len(self.players)].name,
+                           "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)].name
                            }
         return table_positions

@@ -190,7 +190,7 @@ class AIPokerPlayer(PokerPlayer):
             f"    Persona: {self.name}\n"
             f"    Attitude: {self.attitude}\n"
             f"    Confidence: {self.confidence}\n"
-            f"    Starting money: {self.money}\n"
+            f"    Starting money: ${self.money}\n"
             f"    You are taking on the role of {self.name} playing a round of Texas Hold em with a group of celebrities.\n"
             f"    All of your actions should be taken with your persona, attitude and confidence in mind."
         )
@@ -199,7 +199,7 @@ class AIPokerPlayer(PokerPlayer):
             f"    Strategy:\n"
             f"    Begin by examining your cards and any cards that may be on the table. Evaluate your hand and decide how\n"
             f"    you want to play. You can bluff, be strategic, or any other way you think would be appropriate and fun to\n"
-            f"    approach the game."
+            f"    approach the game. Keep your money for as long as you can and try to win the game!"
         )
 
         direction = (
@@ -216,9 +216,11 @@ class AIPokerPlayer(PokerPlayer):
         response_template = (
             f"    Response template:\n"
             f"    {{\n"
+            f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
+            f"        \"chasing:\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
             f"        \"hand_strategy\": <short analysis of current situation based on your persona and the cards>,\n"
             f"        \"action\": <enter the action you're going to take here, select from the options provided>,\n"
-            f"        \"amount\": <enter the dollar amount to bet here>,\n"
+            f"        \"amount\": <enter the dollar amount to bet here, if calling this would be the amount needed to call, if raising this would be the amount in addition you want to add after calling the current bet>,\n"
             f"        \"comment\": <enter what you want to say here, this will be heard by your opponents. try to use this to your advantage>,\n"
             f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table>,\n"
             f"        \"persona_response\": <based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
@@ -232,7 +234,8 @@ class AIPokerPlayer(PokerPlayer):
         sample_response = (
             f"    Sample response for an Eyeore persona:\n"
             f"    {{\n"
-            f"        \"hand_analysis\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
+            f"        \"best_hand\": \"2D | 3C\",\n"
+            f"        \"hand_strategy\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
             f"        \"action\": \"check\",\n"
             f"        \"amount\": 0,\n"
             f"        \"comment\": \"I check\",\n"
@@ -257,7 +260,7 @@ class AIPokerPlayer(PokerPlayer):
 
         return poker_prompt
 
-    # TODO: re-introduce this logic to help AI examine cards
+    # TODO: re-introduce this logic to help AI examine cards - also used to show player some advantages during the hand
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
     #     hand_ranks = []
@@ -297,45 +300,48 @@ class AIPokerPlayer(PokerPlayer):
     # player.chat_message = f"{player.name} chooses to {action} by {bet}."
     # return action, bet
 
-    def get_player_response(self, hand_state) -> Dict[str, str]:
+    def get_player_response(self, message) -> Dict[str, str]:
+        try:
+            print(message)
+            player_response = json.loads(self.assistant.chat(message, json_format=True))
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"Error decoding player response: {e}")
+            player_response = {"error": "Invalid response from assistant"}
+        return player_response
+
+    def build_hand_update_message(self, hand_state):
+        # Currently used values
         persona = self.name
-        confidence = self.confidence
         attitude = self.attitude
+        confidence = self.confidence
+        opponent_positions = hand_state["opponent_positions"]
+        current_round = hand_state["current_round"]
+        community_cards = [str(card) for card in hand_state["community_cards"]]
         opponents = hand_state["players"]
         number_of_opponents = len(opponents) - 1
+        player_money = self.money
         # TODO: decide what to do with this position idea
         # position = hand_state["positions"][self]
-        player_money = self.money
         current_situation = hand_state["current_situation"]
-        hole_cards = self.cards
-        community_cards = hand_state["community_cards"]
+        hole_cards = [str(card) for card in self.cards]
         current_pot = hand_state["current_pot"]
         current_bet = current_pot.current_bet
         cost_to_call = current_pot.get_player_cost_to_call(self)
         player_options = self.options
-        opponent_positions = hand_state["opponent_positions"]
-        current_round = hand_state["current_round"]
-
         hand_update_message = (
             f"Persona: {persona}\n"
             f"Attitude: {attitude}\n"
             f"Confidence: {confidence}\n"
-            f"Opponents: {opponent_positions}\n"
             f"Game Round: {current_round}\n"
+            f"Your Cards: {hole_cards}\n"
             f"Community Cards: {community_cards}\n"
+            f"Table Positions: {opponent_positions}\n"
             f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
             f"You have ${player_money} in chips remaining. {current_situation}.\n"
-            f"You have {hole_cards} in your hand. The current pot is ${current_pot}, the current bet is ${current_bet} and\n"
-            f"it is {cost_to_call} to you.\n"
+            f"You have {hole_cards} in your hand. The current pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
+            f"To call, you would owe ${cost_to_call}.\n"
             f"Your options are: {player_options}\n"
-            f"Remember {persona}, you're feeling {attitude} and {confidence}. And you cannot bet more than you have, ${player_money}.\n"
-            f"What is your move?"
+            f"Remember, you're feeling {attitude} and {confidence}. You cannot bet more than you have, ${player_money}.\n"
+            f"What is your move, {persona}?"
         )
-
-        try:
-            player_response = json.loads(self.assistant.chat(hand_update_message, json_format=True))
-        except (json.JSONDecodeError, TypeError) as e:
-            print(f"Error decoding player response: {e}")
-            player_response = {"error": "Invalid response from assistant"}
-
-        return player_response
+        return hand_update_message

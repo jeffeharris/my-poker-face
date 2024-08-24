@@ -109,27 +109,12 @@ def get_player_action(player, hand_state):
     if isinstance(player, AIPokerPlayer):
         return get_ai_player_action(player, hand_state)
 
-    community_cards = hand_state['community_cards']
-    current_bet = hand_state['current_bet']
-    current_pot = hand_state['current_pot']
+    current_pot = hand_state["current_pot"]
     cost_to_call = current_pot.get_player_cost_to_call(player)
-    total_to_pot = current_pot.get_player_pot_amount(player)
-
-
-
-    game_update_text_lines = [
-        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
-        f"Community cards: {community_cards}",
-        f"Current bet: {current_bet}",
-        f"Current pot: {current_pot.total}",
-        f"Cost to call: {cost_to_call}",
-        f"Total to pot: {total_to_pot}"
-    ]
-
-    game_update_text = "\n".join(game_update_text_lines)
 
     CONSOLE_INTERFACE.display_text(display_hole_cards(player.cards))
-    CONSOLE_INTERFACE.display_text(game_update_text)
+    display_hand_update_text(hand_state, player)
+
     action = CONSOLE_INTERFACE.request_action(player.options, "Enter action: \n")
 
     add_to_pot = 0
@@ -168,26 +153,10 @@ def get_player_action(player, hand_state):
 
 # TODO: determine if this is needed or can be deleted
 def get_ai_player_action(player, hand_state):
-    community_cards = hand_state["community_cards"]
-    current_bet = hand_state["current_bet"]
-    current_pot = hand_state["current_pot"]
-    cost_to_call = current_pot.get_player_cost_to_call(player)
-    total_to_pot = current_pot.get_player_pot_amount(player)
+    display_hand_update_text(hand_state, player)
 
-    text_lines = [
-        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
-        f"Community cards: {community_cards}",
-        f"Current bet: {current_bet}",
-        f"Current pot: {current_pot.total}",
-        f"Cost to call: {cost_to_call}",
-        f"Total to pot: {total_to_pot}"
-    ]
-
-    text = "\n".join(text_lines)
-
-    CONSOLE_INTERFACE.display_text(text)
-
-    response_json = player.get_player_response(hand_state)
+    hand_update_message = player.build_hand_update_message(hand_state)
+    response_json = player.get_player_response(hand_update_message)
 
     CONSOLE_INTERFACE.display_expander(label="Player Insights", body=response_json)
 
@@ -203,6 +172,25 @@ def get_ai_player_action(player, hand_state):
     # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
     poker_action = PokerAction(player.name, action, add_to_pot, hand_state, response_json)
     return poker_action
+
+
+def display_hand_update_text(hand_state, player):
+    community_cards = hand_state["community_cards"]
+    current_bet = hand_state["current_bet"]
+    current_pot = hand_state["current_pot"]
+    cost_to_call = current_pot.get_player_cost_to_call(player)
+    total_to_pot = current_pot.get_player_pot_amount(player)
+    game_update_text_lines = [
+        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
+        f"Community cards: {community_cards}",
+        f"Current bet: ${current_bet}",
+        f"Current pot: ${current_pot.total}",
+        f"Cost to call: ${cost_to_call}",
+        f"Total to pot: ${total_to_pot}"
+    ]
+    game_update_text = "\n".join(game_update_text_lines)
+    CONSOLE_INTERFACE.display_text(game_update_text)
+
 
 def print_queue_status(player_queue: List[PokerPlayer]):
     for index, player in enumerate(player_queue):
@@ -301,6 +289,14 @@ def reveal_river(poker_hand):
     output_text, new_cards = reveal_cards(poker_hand,1, PokerHandPhase.RIVER)
     CONSOLE_INTERFACE.display_text(output_text)
 
+
+def build_hand_complete_update_message(player_name, winning_player_name, total_pot, amount_lost, shown_cards=None):
+    message = f"The winner is {winning_player_name}! They win the pot of ${total_pot}.\n"
+    if winning_player_name != player_name:
+        message.join(f"You lost ${amount_lost} this hand, better luck next time!")
+    return message
+
+
 def play_hand(poker_hand):
     round_queue = poker_hand.setup_hand()
     CONSOLE_INTERFACE.display_text(f"{poker_hand.dealer.name}'s deal.\n")
@@ -325,6 +321,29 @@ def play_hand(poker_hand):
     # Evaluate and announce the winner
     winning_player = poker_hand.determine_winner()
     CONSOLE_INTERFACE.display_text(f"The winner is {winning_player.name}! They win the pot of {poker_hand.pots[0].total}")
+
+    player_reactions = []
+    for player in poker_hand.players:
+        if isinstance(player, AIPokerPlayer):
+            message = build_hand_complete_update_message(player_name=player.name,
+                                                         winning_player_name=winning_player.name,
+                                                         total_pot=poker_hand.pots[0].total,
+                                                         amount_lost=poker_hand.pots[0].player_pot_amounts[player]
+                                                         )
+            response_json = player.get_player_response(message)
+
+            reaction = {
+                "name": player.name,
+                "response_json": response_json
+                }
+            player_reactions.append(reaction)
+
+    for reaction in player_reactions:
+        if reaction is not None:
+            name = reaction["name"]
+            message = print_pretty_json(reaction["response_json"])
+            CONSOLE_INTERFACE.display_text(f"{name}: {message}")
+
 
     # Reset game for next round
     poker_hand.pots[0].resolve_pot(winning_player)  # TODO: implement support for side-pots (multiple pots)
@@ -371,7 +390,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=3):
+def main(test=False, num_players=4):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)
