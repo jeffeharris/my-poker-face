@@ -27,10 +27,10 @@ Once the environment is configured and requirements installed you can run the ap
 
 ### run the console app locally:
 
-`python ./console_app/console_app.py`
+`python -m console_app.console_app`
 
 ### run the Flask app locally:
 
-`python ./flask_app/flask_app.py`
+`python -m flask_app.flask_app`
 
 And now you can access the local web app by going to http://127.0.0.1:5000
