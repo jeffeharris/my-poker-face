@@ -38,7 +38,7 @@ class PokerHand:
     min_bet: int
 
     def __init__(self,
-                 players: List['PokerPlayer'],
+                 players: List[PokerPlayer],
                  dealer: PokerPlayer,
                  deck: Deck):
         self.players = players
