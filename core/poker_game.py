@@ -14,6 +14,11 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)     # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
+def summarize_hand(hand: PokerHand):
+    summary = hand.summarize_poker_actions()
+    return summary
+
+
 class PokerGame(Game):
     # Class-level type hints
     settings: PokerSettings
@@ -44,6 +49,16 @@ class PokerGame(Game):
             "assistant": self.assistant.to_dict(),
         }
         return poker_game_dict
+
+    def summarize_hands(self, count=1):
+        hand_summaries = []
+        for hand in self.hands[-count:]:
+            summary = summarize_hand(hand)
+            hand_summaries.append(summary)
+
+        response = self.assistant.chat(f"Please review these poker hands and provide a brief summary:\n"
+                                         f"{hand_summaries}")
+        return response
 
     @classmethod
     def from_dict(cls, poker_game_dict: dict):

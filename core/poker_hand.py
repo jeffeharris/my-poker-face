@@ -290,3 +290,10 @@ class PokerHand:
                            "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)].name
                            }
         return table_positions
+
+    def summarize_poker_actions(self, count=None):
+        summary = []
+        for action in self.poker_actions:
+            s = summarize_action(action)
+            summary.append(s)
+

@@ -338,7 +338,8 @@ class AIPokerPlayer(PokerPlayer):
             f"Table Positions: {opponent_positions}\n"
             f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
             f"You have ${player_money} in chips remaining. {current_situation}.\n"
-            f"You have {hole_cards} in your hand. The current pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
+            f"You have {hole_cards} in your hand. The current total pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
+            f""
             f"To call, you would owe ${cost_to_call}.\n"
             f"Your options are: {player_options}\n"
             f"Remember, you're feeling {attitude} and {confidence}. You cannot bet more than you have, ${player_money}.\n"

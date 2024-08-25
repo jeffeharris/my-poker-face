@@ -157,7 +157,8 @@ def get_player_action(player, hand_state) -> PokerAction:
         action = "bet"
     elif action in ["raise", "r", "ra", "rai", "rais"]:
         raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
-        add_to_pot = raise_amount + cost_to_call
+        add_to_pot = raise_amount - current_pot.max_bet_amount
+        # add_to_pot = raise_amount + cost_to_call
         action = "raise"
     elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
         add_to_pot = player.money
