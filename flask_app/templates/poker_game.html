@@ -29,11 +29,12 @@
                     <h2>{{ player.name }}</h2>
                     <p>${{ player.stack }}</p>
                     <div id="cards-player-{{ loop.index + 1 }}" class="player-cards">
-                        {% for card in player.cards %}
+                        {% for card in player.hand %}
                             <span class="card
-                                {% if card.suit_symbol == '♥' %}hearts{% elif card.suit_symbol == '♦' %}diamonds
-                                {% elif card.suit_symbol == '♣' %}clubs{% elif card.suit_symbol == '♠' %}spades{% endif %}
-                            ">{{ card.rank }}{{ card.suit_symbol }}</span>
+                                {% if card.suit == 'Hearts' %}hearts{% elif card.suit_symbol == 'Diamonds' %}diamonds
+                                {% elif card.suit_symbol == 'Clubs' %}clubs{% elif card.suit_symbol == 'Spades' %}spades{% endif %}
+                            ">{{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦
+                                {% elif card.suit == 'Clubs' %}♣{% elif card.suit == 'Spades' %}♠{% endif %}</span>
                         {% endfor %}
                     </div>
                 </div>

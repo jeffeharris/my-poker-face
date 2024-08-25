@@ -1,21 +1,41 @@
-let socket = io();
+// let socket = io();
 
 // Function to initialize the game
 function startGame() {
-    fetch('/start-game', { method: 'POST' })
+    fetch('/game', { method: 'GET' })
         .then(response => response.json())
         .then(data => {
             updateGameState(data);
         });
 }
 
-/* TODO: update this to reference actual elements or switch to Jinja */
 // Function to update the UI based on the game state
 function updateGameState(gameState) {
-    document.getElementById('community-cards').innerHTML = JSON.stringify(gameState.community_cards);
-    document.getElementById('pot').innerHTML = `Pot: $${gameState.current_pot.total_pot} | Min: ${gameState.small_blind}`;
-    document.getElementById('player-options').innerHTML = `${gameState.players[0].options}`;
-    document.getElementById('players').innerHTML = ``
+    document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
+    document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
+    document.getElementById('player-options').innerHTML = `${gameState['current_player_options']}`;
+    updatePlayerState(gameState.get('players'))
+}
+
+function playerAction(action) {
+   fetch('/action', {
+       method: 'POST',
+       headers: {
+           'Content-Type': 'application/json'
+       },
+       body: JSON.stringify({ action: action })
+   })
+   .then(response => response.json())
+   .then(data => {
+       if (data.redirect) {
+           window.location.href = data.redirect; // Navigate to updated game view
+       } else {
+           console.error('Server error:', data.error);
+       }
+   })
+   .catch(error => {
+       console.error('Network error:', error);
+   });
 }
 
 function updatePlayerState(playerState) {
@@ -36,20 +56,24 @@ function updatePlayerState(playerState) {
         playerName.textContent = player.name;
 
         let playerMoney = document.createElement('p');
-        playerMoney.textContent = `$${player.money}`;
+        playerMoney.textContent = `$${player.stack}`;
 
         let playerCardsContainer = document.createElement('div');
         playerCardsContainer.id = `cards-player-${index + 1}`;
         playerCardsContainer.classList.add('player-cards');
 
-        player.cards.forEach(card => {
+        player.hand.forEach(card => {
             let cardSpan = document.createElement('span');
             cardSpan.classList.add('card');
-            if (card.suit_symbol == '♥') cardSpan.classList.add('hearts');
-            if (card.suit_symbol == '♦') cardSpan.classList.add('diamonds');
-            if (card.suit_symbol == '♣') cardSpan.classList.add('clubs');
-            if (card.suit_symbol == '♠') cardSpan.classList.add('spades');
-            cardSpan.textContent = `${card.rank} ${card.suit_symbol}`;
+            // if (card.suit_symbol == '♥') cardSpan.classList.add('hearts');
+            // if (card.suit_symbol == '♦') cardSpan.classList.add('diamonds');
+            // if (card.suit_symbol == '♣') cardSpan.classList.add('clubs');
+            // if (card.suit_symbol == '♠') cardSpan.classList.add('spades');
+            if (card.suit == 'Hearts') cardSpan.classList.add('hearts');
+            if (card.suit == 'Diamonds') cardSpan.classList.add('diamonds');
+            if (card.suit == 'Clubs') cardSpan.classList.add('clubs');
+            if (card.suit == 'Spades') cardSpan.classList.add('spades');
+            cardSpan.textContent = `${card.rank} ${card.suit}`;
             playerCardsContainer.appendChild(cardSpan);
         });
 

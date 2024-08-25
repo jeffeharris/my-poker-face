@@ -1,6 +1,8 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from functional_poker import initialize_game_state, reset_game_state_for_new_hand, end_game, deal_hole_cards, \
-    play_turn, play_betting_round, deal_community_cards, determine_winner, advance_to_next_active_player
+    play_turn, play_betting_round, deal_community_cards, determine_winner, advance_to_next_active_player, place_bet, \
+    setup_hand
+from ui_console import display_game_state
 from utils import get_celebrities
 import pickle
 
@@ -11,6 +13,7 @@ app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessio
 # Helper function to save game state to session
 def save_game_state(game_state):
     session['game_state'] = pickle.dumps(game_state)
+    display_game_state(game_state, include_deck=False)
 
 
 # Helper function to load game state from session
@@ -31,41 +34,67 @@ def new_game():
     game_state = initialize_game_state(player_names=ai_player_names)
     save_game_state(game_state)
     return redirect(url_for('game'))
+    # TODO: route to a new hand
 
 
-@app.route('/game')
+@app.route('/game', methods=['GET'])
 def game():
+    """
+    Loads and renders the current game state. Identifies what phase of the game it's in and directs the user to the
+    right next state.
+
+    :return: the rendered game template
+    """
     # Load the current game state
     game_state = load_game_state()
     if not game_state:
         return redirect(url_for('index'))  # Redirect to index if there's no game state
 
+    game_state = setup_hand(game_state)
+    game_state = play_betting_round(game_state, get_player_action)
+
+    save_game_state(game_state)
     # Render the current game state
     return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
 
+def get_player_action(game_state):
+    return game_state
+
+
 @app.route('/action', methods=['POST'])
 def player_action():
-    # Load the current game state
+    try:
+        data = request.get_json()
+        app.logger.debug(f"Received data: {data}")
+
+        if not data or 'action' not in data:
+            return jsonify({'error': 'Invalid request payload'}), 400
+
+        action = data['action']
+        amount = int(data.get('amount', 0))
+        app.logger.debug(f"Action: {action}, Amount: {amount}")
+    except (KeyError, TypeError, ValueError) as e:
+        app.logger.error(f"Error parsing request: {e}")
+        return jsonify({'error': str(e)}), 400
+
     game_state = load_game_state()
     if not game_state:
-        return redirect(url_for('index'))
+        return jsonify({'redirect': url_for('index')}), 400
 
     current_player = game_state.current_player
     if current_player['is_human']:
-        # Get action from form
-        action = request.form['action']
-        amount = int(request.form.get('amount', 0))
-
-        # Play turn based on user action
+        app.logger.debug("Current player is human")
         game_state = play_turn(game_state, action, amount)
         save_game_state(game_state)
-
-        # Advance to next player
         game_state = advance_to_next_active_player(game_state)
         save_game_state(game_state)
+        app.logger.debug("Game state updated successfully")
 
-    return redirect(url_for('game'))
+    response = jsonify({'redirect': url_for('game')})
+    app.logger.debug(f"Response: {response.get_data(as_text=True)}")
+    return response
+
 
 
 @app.route('/next_round', methods=['POST'])
