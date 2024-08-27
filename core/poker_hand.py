@@ -88,13 +88,14 @@ class PokerHand:
             "current_bet": self.pots[0].current_bet,
             "current_pot": self.pots[0],
             "players": self.players,
-            "opponent_positions": self.get_table_positions(),
+            "opponent_status": self.get_opponent_status(),
+            "table_positions": self.get_table_positions(),
             "current_situation": f"The {self.current_round.value} cards have just been dealt",
             "current_round": self.current_round.value,
         }
         return hand_state
 
-    def get_opponent_positions(self, requesting_player=None) -> List[str]:
+    def get_opponent_status(self, requesting_player=None) -> List[str]:
         opponent_positions = []
         for player in self.players:
             if player != requesting_player:
@@ -171,7 +172,7 @@ class PokerHand:
 
         poker_player.options = player_options.copy()
 
-    def get_next_round_queue(self, round_queue, betting_player: Optional['PokerPlayer']):
+    def get_next_round_queue(self, round_queue, betting_player: Optional[PokerPlayer]):
         next_round_queue = round_queue.copy()
         if betting_player:
             index = round_queue.index(betting_player) + 1
@@ -181,12 +182,15 @@ class PokerHand:
         return next_round_queue
 
     def determine_winner(self):
+        # initialize a list which will hold a Tuple of (PokerPlayer, HandEvaluator)
         hands = []
 
         for player in self.players:
             if not player.folded:
                 hands.append((player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()))
 
+
+        # TODO: remove all of the prints from determine_winner, replace with a different UX
         print("Before sorting:")
         for player, hand_info in hands:
             print(f"{player.name}'s hand: {hand_info}")
@@ -209,8 +213,9 @@ class PokerHand:
         for player, hand_info in hands:
             print(f"{player.name}'s hand: {hand_info}")
 
-        winner = hands[0][0]
-        return winner
+        winner_name = hands[0][0]
+        winning_hand = hands[0][1]["hand_values"]
+        return winner_name, winning_hand
 
     # # TODO: update to not use interface
     # def end_hand(self):

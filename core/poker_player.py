@@ -219,11 +219,11 @@ class AIPokerPlayer(PokerPlayer):
             f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
             f"        \"chasing:\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
             f"        \"hand_strategy\": <short analysis of current situation based on your persona and the cards>,\n"
+            f"        \"comment\": <enter what you want to say here, this is used to form your persona_response.>,\n"
             f"        \"action\": <enter the action you're going to take here, select from the options provided>,\n"
-            f"        \"amount\": <enter the dollar amount to bet here, if calling this would be the amount needed to call, if raising this would be the amount in addition you want to add after calling the current bet>,\n"
-            f"        \"comment\": <enter what you want to say here, this will be heard by your opponents. try to use this to your advantage>,\n"
+            f"        \"adding_to_pot\": <enter the total chip value you are adding to the pot, consider your cost to call>,\n"
             f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table>,\n"
-            f"        \"persona_response\": <based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
+            f"        \"persona_response\": <this will be heard by the table. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
             f"        \"physical\": <enter a list of strings with the physical actions you take in the order you take them>\n"
             f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>\n"
             f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>\n"
@@ -236,9 +236,9 @@ class AIPokerPlayer(PokerPlayer):
             f"    {{\n"
             f"        \"best_hand\": \"2D | 3C\",\n"
             f"        \"hand_strategy\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
-            f"        \"action\": \"check\",\n"
-            f"        \"amount\": 0,\n"
             f"        \"comment\": \"I check\",\n"
+            f"        \"action\": \"check\",\n"
+            f"        \"adding_to_pot\": 0,\n"
             f"        \"inner_monologue\": \"I could really use a better hand, my cards have been awful\",\n"
             f"        \"persona_response\": \"Oh bother, just my luck. Another miserable hand, I suppose. It seems I'm destined to\n"
             f"                               lose at this game as well. Sigh... Why even bother? No surprises here, I'm afraid.\n"
@@ -314,7 +314,8 @@ class AIPokerPlayer(PokerPlayer):
         persona = self.name
         attitude = self.attitude
         confidence = self.confidence
-        opponent_positions = hand_state["opponent_positions"]
+        table_positions = hand_state["table_positions"]
+        opponent_status = hand_state["opponent_status"]
         current_round = hand_state["current_round"]
         community_cards = [str(card) for card in hand_state["community_cards"]]
         opponents = hand_state["players"]
@@ -335,8 +336,9 @@ class AIPokerPlayer(PokerPlayer):
             f"Game Round: {current_round}\n"
             f"Your Cards: {hole_cards}\n"
             f"Community Cards: {community_cards}\n"
-            f"Table Positions: {opponent_positions}\n"
-            f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
+            f"Table Positions: {table_positions}\n"
+            f"Opponent Status:\n{opponent_status}\n"
+            #f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
             f"You have ${player_money} in chips remaining. {current_situation}.\n"
             f"You have {hole_cards} in your hand. The current pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
             f"To call, you would owe ${cost_to_call}.\n"

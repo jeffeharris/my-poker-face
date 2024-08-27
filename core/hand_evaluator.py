@@ -43,7 +43,7 @@ class HandEvaluator:
             has_straight, straight_values, _ = HandEvaluator(flush_cards).check_straight()
             if has_straight:
                 return True, straight_values, [], flush_suit
-        return False, [], [], []
+        return False, [], [], []        # TODO: should we handle the 4th return value for suit?
 
     def check_four_of_a_kind(self):
         for rank, count in self.rank_counts.items():
@@ -69,7 +69,7 @@ class HandEvaluator:
             if count >= 5:
                 flush_cards = sorted([card.value for card in self.cards if card.suit == suit], reverse=True)
                 return True, flush_cards, [], suit
-        return False, [], [], None
+        return False, [], [], None      # TODO: should we handle the 4th return value for suit?
 
     def check_straight(self):
         sorted_values = sorted(self.ranks, reverse=True)
