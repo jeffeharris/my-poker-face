@@ -195,8 +195,8 @@ def get_ai_player_action(player, hand_state):
     CONSOLE_INTERFACE.display_expander(label="Player Insights", body=response_json)
 
     action = response_json["action"]
-    add_to_pot = response_json["amount"]
-    chat_message = response_json["comment"]
+    add_to_pot = response_json["adding_to_pot"]
+    chat_message = response_json["persona_response"]
     player.attitude = response_json["new_attitude"]
     player.confidence = response_json["new_confidence"]
 
@@ -306,6 +306,9 @@ def process_player_action(poker_hand, player: PokerPlayer, poker_action: PokerAc
         handle_fold(poker_hand, player)
     elif player_action == PlayerAction.CHECK:
         return False
+    elif player_action == PlayerAction.CHAT:
+        # TODO: implement handle_chat to open up  ability for AIs to chat with each other or the player.
+        pass
     else:
         raise ValueError("Invalid action selected: " + str(player_action))
     return False
@@ -324,10 +327,12 @@ def reveal_river(poker_hand):
     CONSOLE_INTERFACE.display_text(output_text)
 
 
-def build_hand_complete_update_message(player_name, winning_player_name, total_pot, amount_lost, shown_cards=None):
-    message = f"The winner is {winning_player_name}! They win the pot of ${total_pot}.\n"
+def build_hand_complete_update_message(player_name, winning_player_name, total_pot, amount_lost, winning_hand, shown_cards=None):
+    message = (f"The winner is {winning_player_name}! They win the pot of ${total_pot}.\n"
+               f"Winners cards: {shown_cards}\n"
+               f"Winning hand: {winning_hand}\n")
     if winning_player_name != player_name:
-        message.join(f"You lost ${amount_lost} this hand, better luck next time!")
+        message += f"You lost ${amount_lost} this hand, better luck next time!\n"
     return message
 
 
@@ -353,17 +358,26 @@ def play_hand(poker_hand):
     betting_round(poker_hand, round_queue)
 
     # Evaluate and announce the winner
-    winning_player = poker_hand.determine_winner()
+    winning_player, winning_hand = poker_hand.determine_winner()
     CONSOLE_INTERFACE.display_text(f"The winner is {winning_player.name}! They win the pot of {poker_hand.pots[0].total}")
 
     # Get end fo hand reactions from AI players
     player_reactions = []
     for player in poker_hand.players:
         if isinstance(player, AIPokerPlayer):
+            winner_shows_cards = True   # TODO: let the winner decide if they want to show their cards in cases where they don't need to
+            winners_cards_string = f"{winning_player.name} didn't show their cards!"
+            if winner_shows_cards:
+                winning_hand_string = [str(card) for card in winning_hand]
+                winners_cards_string = [str(card) for card in winning_player.cards]
+                winners_cards_string = "|".join(winners_cards_string)
+
             message = build_hand_complete_update_message(player_name=player.name,
                                                          winning_player_name=winning_player.name,
                                                          total_pot=poker_hand.pots[0].total,
-                                                         amount_lost=poker_hand.pots[0].player_pot_amounts[player]
+                                                         amount_lost=poker_hand.pots[0].player_pot_amounts[player],
+                                                         winning_hand=winning_hand_string,
+                                                         shown_cards=winners_cards_string
                                                          )
             response_json = player.get_player_response(message)
 
@@ -391,13 +405,14 @@ def play_hand(poker_hand):
         poker_hand.deck.return_cards_to_discard_pile(player.cards)
         player.folded = False
 
+    # TODO: move to the play_game function to handle there
     # Check if the game should continue
     # Remove players from the hand if they are out of money
     poker_hand.remaining_players = [player for player in poker_hand.starting_players if player.money > 0]
-    if len(poker_hand.remaining_players) == 1:
+    if len(poker_hand.remaining_players) == 1:      # When all other players have lost
         CONSOLE_INTERFACE.display_text(f"{poker_hand.players[0].name} is the last player remaining and wins the game!")
-        return
-    elif len(poker_hand.remaining_players) == 0:
+        return  # This causes an error when there is only 1 player eft in the game. Later, the player should be given the option to enter another tournament.
+    elif len(poker_hand.remaining_players) == 0:    # This case should never happen
         CONSOLE_INTERFACE.display_text("You... you all lost. Somehow you all have no money.")
         return
 
@@ -426,7 +441,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=2):
+def main(test=False, num_players=3):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)
