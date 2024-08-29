@@ -8,6 +8,7 @@ from core.poker_action import PokerAction
 from core.poker_hand_pot import PokerHandPot
 from core.poker_player import PokerPlayer
 from core.poker_settings import PokerSettings
+from core.table_manager import TableManager
 from core.utils import shift_list_left, obj_to_dict
 
 
@@ -22,6 +23,7 @@ class PokerHandPhase(Enum):
 
 class PokerHand:
     players: List[PokerPlayer]
+    table_messages: List[Dict[str, str]]
     starting_players: List[PokerPlayer]
     remaining_players: List[PokerPlayer]
     deck: Deck
@@ -54,6 +56,7 @@ class PokerHand:
         self.small_blind_player = self.players[(self.dealer_position + 1) % len(self.players)]
         self.big_blind_player = self.players[(self.dealer_position + 2) % len(self.players)]
         self.under_the_gun = self.players[(self.dealer_position + 3) % len(self.players)]
+        self.table_manager = TableManager()
 
     def to_dict(self):
         return obj_to_dict(self.hand_state)
@@ -92,6 +95,10 @@ class PokerHand:
             "table_positions": self.get_table_positions(),
             "current_situation": f"The {self.current_round.value} cards have just been dealt",
             "current_round": self.current_round.value,
+            "table_messages": self.table_manager.table_messages,
+            "table_manager": self.table_manager,
+            "poker_actions": self.poker_actions,
+            "remaining_players": self.remaining_players,
         }
         return hand_state
 
@@ -140,8 +147,8 @@ class PokerHand:
                     start_player = self.players[index]
                     break
         return start_player
-    # TODO: change this to return the options as a PlayerAction enum
 
+    # TODO: change this to return the options as a PlayerAction enum
     def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
         # How much is it to call the bet for the player?
         player_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
@@ -171,6 +178,20 @@ class PokerHand:
                 player_options.remove('all-in')
 
         poker_player.options = player_options.copy()
+
+    def summarize_actions(self, count) -> str:
+        """
+        Function should take in text descriptions of actions taken during a poker round and create a summary.
+        """
+        actions = self.poker_actions[-count:]
+
+        if actions is str:
+            action_summary = actions
+        else:
+            summary_request = f"Please summarize these actions for a poker game in the style of {self.name}: {actions}\n"
+            message = [{"role": "user", "content": summary_request}]
+            action_summary = self.table_manager.assistant.get_response(message)
+        return action_summary
 
     def get_next_round_queue(self, round_queue, betting_player: Optional[PokerPlayer]):
         next_round_queue = round_queue.copy()
@@ -297,8 +318,11 @@ class PokerHand:
         return table_positions
 
     def summarize_poker_actions(self, count=None):
+        """
+        Get the last N actions for the hand summarized
+        """
         summary = []
-        for action in self.poker_actions:
+        for action in self.poker_actions[-count:]:
             s = summarize_action(action)
             summary.append(s)
 

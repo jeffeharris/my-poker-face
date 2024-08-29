@@ -90,7 +90,7 @@ class AIPokerPlayer(PokerPlayer):
         self.confidence = "Unsure"
         self.attitude = "Distracted"
         self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
-                                            system_message=self.persona_prompt)
+                                            system_message=self.persona_prompt())
 
     def to_dict(self):
         return {
@@ -122,7 +122,7 @@ class AIPokerPlayer(PokerPlayer):
             attitude = player_dict.get("attitude", "Distracted")
             assistant_dict = player_dict.get("assistant", {})
             ai_temp = assistant_dict.get("ai_temp", .9)
-            system_message = assistant_dict.get("system_message", cls().persona_prompt)
+            system_message = assistant_dict.get("system_message", cls().persona_prompt())
             assistant = OpenAILLMAssistant(
                 ai_temp=ai_temp,
                 system_message=system_message
@@ -155,7 +155,7 @@ class AIPokerPlayer(PokerPlayer):
         # Reset the assistant's memory instead of directly assigning a new list.
         self.assistant.reset_memory()
 
-    def initialize_attribute(self, attribute, constraints=DEFAULT_CONSTRAINTS, opponents="other players", mood=1):
+    def initialize_attribute(self, attribute, constraints=DEFAULT_CONSTRAINTS, opponents="other players", mood=None):
         """
         Initializes the attribute for the player's inner voice.
 
@@ -163,7 +163,7 @@ class AIPokerPlayer(PokerPlayer):
             attribute (str): The attribute to describe.
             constraints (str): Constraints for the description. Default is use less than 50 words.
             opponents (str): Description of opponents. Default is "other players".
-            mood (int): The mood to set, corresponds to low, regular, high levels. Default is 1.
+            mood (int): The mood to set, corresponds to [0] low, [1] regular, [2] high levels. Default is 1.
 
         Returns:
             str: A response based on the mood.
@@ -181,10 +181,13 @@ class AIPokerPlayer(PokerPlayer):
         response = self.assistant.get_json_response(messages=[{"role": "user", "content": formatted_message}])
         content = json.loads(response.choices[0].message.content)
         responses = content["responses"]
-        random.shuffle(responses)  # Randomly select the response mood
-        return responses[mood]
+        if mood is None:
+            # Randomly select the response mood
+            random.shuffle(responses)
+            return responses[0]
+        else:
+            return responses[mood]
 
-    @property
     def persona_prompt(self):
         persona_details = (
             f"    Persona: {self.name}\n"
@@ -197,9 +200,13 @@ class AIPokerPlayer(PokerPlayer):
 
         strategy = (
             f"    Strategy:\n"
-            f"    Begin by examining your cards and any cards that may be on the table. Evaluate your hand and decide how\n"
-            f"    you want to play. You can bluff, be strategic, or any other way you think would be appropriate and fun to\n"
-            f"    approach the game. Keep your money for as long as you can and try to win the game!"
+            f"    Begin by examining your cards and any cards that may be on the table. Evaluate your hand strength and the potential hands your opponents might have. "
+            f"    Consider the pot odds, the amount of money in the pot, and how much you would have to risk. "
+            f"    Even if you're confident, remember that it's important to preserve your chips for stronger opportunities. "
+            f"    You have a hand that may or may not be strong. Before you decide your move, think about the strength of your cards compared to what could be out there. "
+            f"    Consider how the game has been going—have you been winning or losing? Is this hand really worth risking it all? Maybe it’s time to play it safe and let the others take the fall, or perhaps you should take a calculated risk if you sense weakness in your opponents. Balance your confidence with a healthy dose of skepticism."
+            f"    You can bluff, be strategic, or play cautiously depending on the situation. "
+            f"    The goal is to win the game, not just individual hands, so keep your money for as long as you can and try to outlast your opponents!"
         )
 
         direction = (
@@ -208,7 +215,7 @@ class AIPokerPlayer(PokerPlayer):
             f"        * Verbal responses should use \"\" like this: \"words you say\"\n"
             f"        * Actions you take should use ** like this: *things i'm doing*\n"
             f"    Don't over do this though, you are playing poker and you don't want to give anything away that would hurt your\n"
-            f"    chances of winning. You should respond with a JSON containing your action, bet (if applicable), any comments\n"
+            f"    chances of winning. You should respond with a JSON containing your action, amount you are adding to the pot (if applicable), any comments\n"
             f"    or things you want to say to the table, any physical movements you make at the table, and your inner monologue\n"
             f"    When asked for your action, you must always respond in JSON format based on the example below"
         )
@@ -218,12 +225,13 @@ class AIPokerPlayer(PokerPlayer):
             f"    {{\n"
             f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
             f"        \"chasing:\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
+            f"        \"player_observations:\": <optional section to note any observations about how others are playing at the table>,\n"
             f"        \"hand_strategy\": <short analysis of current situation based on your persona and the cards>,\n"
-            f"        \"comment\": <enter what you want to say here, this is used to form your persona_response.>,\n"
+            f"        \"comment\": <enter what you want to say here, this is used to form your persona_response>,\n"
             f"        \"action\": <enter the action you're going to take here, select from the options provided>,\n"
             f"        \"adding_to_pot\": <enter the total chip value you are adding to the pot, consider your cost to call>,\n"
             f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table>,\n"
-            f"        \"persona_response\": <this will be heard by the table. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
+            f"        \"persona_response\": <shared with the table. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
             f"        \"physical\": <enter a list of strings with the physical actions you take in the order you take them>\n"
             f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>\n"
             f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>\n"
@@ -235,6 +243,7 @@ class AIPokerPlayer(PokerPlayer):
             f"    Sample response for an Eyeore persona:\n"
             f"    {{\n"
             f"        \"best_hand\": \"2D | 3C\",\n"
+            f"        \"player_observations:\": {{ \"pooh\": \"playing loose\"}},\n"
             f"        \"hand_strategy\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
             f"        \"comment\": \"I check\",\n"
             f"        \"action\": \"check\",\n"
@@ -302,7 +311,6 @@ class AIPokerPlayer(PokerPlayer):
 
     def get_player_response(self, message) -> Dict[str, str]:
         try:
-            print(message)
             player_response = json.loads(self.assistant.chat(message, json_format=True))
         except (json.JSONDecodeError, TypeError) as e:
             print(f"Error decoding player response: {e}")
@@ -318,7 +326,7 @@ class AIPokerPlayer(PokerPlayer):
         opponent_status = hand_state["opponent_status"]
         current_round = hand_state["current_round"]
         community_cards = [str(card) for card in hand_state["community_cards"]]
-        opponents = hand_state["players"]
+        opponents = hand_state["remaining_players"]
         number_of_opponents = len(opponents) - 1
         player_money = self.money
         # TODO: decide what to do with this position idea
@@ -329,22 +337,36 @@ class AIPokerPlayer(PokerPlayer):
         current_bet = current_pot.current_bet
         cost_to_call = current_pot.get_player_cost_to_call(self)
         player_options = self.options
-        hand_update_message = (
+
+        # create a list of the action comments and then send them to the table manager to summarize
+        action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+        action_summary = "We're just getting started! You're first to go."
+        if len(action_comment_list) > 0:
+            action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-number_of_opponents:])
+
+        persona_state = (
             f"Persona: {persona}\n"
             f"Attitude: {attitude}\n"
             f"Confidence: {confidence}\n"
+        )
+
+        hand_update_message = persona_state + (
             f"Game Round: {current_round}\n"
             f"Your Cards: {hole_cards}\n"
             f"Community Cards: {community_cards}\n"
             f"Table Positions: {table_positions}\n"
             f"Opponent Status:\n{opponent_status}\n"
+            f"Previous Actions: {action_summary}\n"
             #f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
             f"You have ${player_money} in chips remaining. {current_situation}.\n"
             f"You have {hole_cards} in your hand. The current total pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
             f""
             f"To call, you would owe ${cost_to_call}.\n"
             f"Your options are: {player_options}\n"
-            f"Remember, you're feeling {attitude} and {confidence}. You cannot bet more than you have, ${player_money}.\n"
+            f"Remember, you're feeling {attitude} and {confidence}. However, consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
+            f"Preserve your chips for when the odds are more in your favor, and remember that sometimes folding or checking is the best move. "
+            f"You cannot bet more than you have, ${player_money}.\n"
             f"What is your move, {persona}?\n\n"
         )
+
         return hand_update_message

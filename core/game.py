@@ -134,7 +134,6 @@ class OpenAILLMAssistant(LLMAssistant):
         self.functions = functions
 
     def get_response(self, messages: List[Dict[str, str]]):
-        # print(messages)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,

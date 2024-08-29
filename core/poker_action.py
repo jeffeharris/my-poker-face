@@ -20,18 +20,21 @@ class PokerAction:
     amount: Optional[int]
     hand_state: Optional[dict]
     action_detail: Optional[str]
+    action_comment: Optional[str]
 
     def __init__(self,
                  player: str,
                  action: str,
                  amount: int or None = None,
                  hand_state: dict or None = None,
-                 action_detail: str or None = None):
+                 action_detail: str or None = None,
+                 action_comment: str or None = None):
         self.player = player
         self.player_action = PlayerAction(action)
         self.amount = amount
         self.hand_state = hand_state.copy()
         self.action_detail = action_detail
+        self.action_comment = action_comment
 
     def to_dict(self):
         return {
