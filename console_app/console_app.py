@@ -228,7 +228,7 @@ def get_player_action(player, hand_state) -> PokerAction:
     action_detail = { "comment": chat_message }
     table_message = f"{player.name} chooses to {action} by {add_to_pot}."
     action_comment = (f"{player.name}:\t'{chat_message}'\n"
-                      f"Table Manager:\t{table_message}\n")
+                      f"\t{table_message}\n")
 
     # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
     poker_action = PokerAction(player, action, add_to_pot, hand_state, action_detail, action_comment)
@@ -240,11 +240,11 @@ def get_ai_player_action(player, hand_state):
 
     hand_update_message = player.build_hand_update_message(hand_state)
     # Show the update shared with the AI
-    # CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Hand Update",body=hand_update_message)
+    CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Hand Update",body=hand_update_message)
     response_json = player.get_player_response(hand_update_message)
 
     # Show the entire JSON response form the AI
-    # CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Insights", body=response_json)
+    CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Insights", body=response_json)
 
     action = response_json["action"]
     add_to_pot = response_json["adding_to_pot"]
@@ -256,7 +256,7 @@ def get_ai_player_action(player, hand_state):
     table_message = f"{player.name} chooses to {action} by {add_to_pot}."
     action_comment = (f"{player.name}:\t'{chat_message}'\n"
                       f"      actions:\t{physical_actions}\n"
-                      f"Table Manager:\t{table_message}\n")
+                      f"\t{table_message}\n")
 
     CONSOLE_INTERFACE.display_text(action_comment)
 
@@ -273,8 +273,8 @@ def display_hand_update_text(hand_state, player):
     cost_to_call = current_pot.get_player_cost_to_call(player)
     total_to_pot = current_pot.get_player_pot_amount(player)
     game_update_text_lines = [
-        f"\n{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
-        f"Community cards: {community_cards}",
+        f"\n{player.name}'s turn. Current money: {player.money}",
+        f"Community cards: {[str(card) for card in community_cards]}",
         f"Current bet: ${current_bet}",
         f"Current pot: ${current_pot.total}",
         f"Cost to call: ${cost_to_call}",
@@ -429,15 +429,15 @@ def play_hand(poker_hand):
 
     # Get end fo hand reactions from AI players
     player_reactions = []
+    winner_shows_cards = True  # TODO: let the winner decide if they want to show their cards in cases where they don't need to
+    winners_cards_string = f"{winning_player.name} didn't show their cards!"  # Initialize the message in the case that the winner did not show their cards
+    if winner_shows_cards:
+        winning_hand_string = [str(card) for card in winning_hand]
+        winners_cards_string = [str(card) for card in winning_player.cards]
+        winners_cards_string = "|".join(winners_cards_string)
+
     for player in poker_hand.players:
         if isinstance(player, AIPokerPlayer):
-            winner_shows_cards = True   # TODO: let the winner decide if they want to show their cards in cases where they don't need to
-            winners_cards_string = f"{winning_player.name} didn't show their cards!"    # Initialize the message in the case that the winner did not show their cards
-            if winner_shows_cards:
-                winning_hand_string = [str(card) for card in winning_hand]
-                winners_cards_string = [str(card) for card in winning_player.cards]
-                winners_cards_string = "|".join(winners_cards_string)
-
             message = build_hand_complete_update_message(player_name=player.name,
                                                          winning_player_name=winning_player.name,
                                                          total_pot=poker_hand.pots[0].total,
@@ -465,7 +465,15 @@ def play_hand(poker_hand):
     #         CONSOLE_INTERFACE.display_text(name)
     #         CONSOLE_INTERFACE.display_text(message)
 
-    game_summary = poker_hand.table_manager.summarize_actions([action.action_comment for action in poker_hand.poker_actions])
+    game_actions = [action.action_comment for action in poker_hand.poker_actions]
+    game_actions.append(build_hand_complete_update_message(player_name=winning_player.name,
+                                                         winning_player_name=winning_player.name,
+                                                         total_pot=poker_hand.pots[0].total,
+                                                         amount_lost=None,
+                                                         winning_hand=winning_hand_string,
+                                                         shown_cards=winners_cards_string))
+
+    game_summary = poker_hand.round_manager.summarize_actions(game_actions)
     CONSOLE_INTERFACE.display_text(game_summary)
 
     # Reset game for next round
@@ -514,7 +522,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=2):
+def main(test=False, num_players=4):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)

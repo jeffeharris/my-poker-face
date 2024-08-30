@@ -85,7 +85,7 @@ class LLMAssistant:
                  system_message=None,
                  memory=None):
         # create a class that defines the client using OpenAI API directly
-        self.max_memory_length = 10
+        self.max_memory_length = 15
         self.memory = memory
         self.ai_temp = ai_temp
         self.model = ai_model
@@ -187,8 +187,13 @@ class OpenAILLMAssistant(LLMAssistant):
         }
 
 
+class Manager:
+    pass
+
+
 class Game:
     players: List['Player']
+    manager: 'Manager'
     # interface: Interface
 
     def __init__(self, players: List['Player']):

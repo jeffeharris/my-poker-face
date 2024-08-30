@@ -223,7 +223,7 @@ class AIPokerPlayer(PokerPlayer):
         response_template = (
             f"    Response template:\n"
             f"    {{\n"
-            f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
+            #f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
             f"        \"chasing:\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
             f"        \"player_observations:\": <optional section to note any observations about how others are playing at the table>,\n"
             f"        \"hand_strategy\": <short analysis of current situation based on your persona and the cards>,\n"
@@ -231,7 +231,7 @@ class AIPokerPlayer(PokerPlayer):
             f"        \"action\": <enter the action you're going to take here, select from the options provided>,\n"
             f"        \"adding_to_pot\": <enter the total chip value you are adding to the pot, consider your cost to call>,\n"
             f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table>,\n"
-            f"        \"persona_response\": <shared with the table. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
+            f"        \"persona_response\": <this is shared with the table, don't reveal the specifics of your hand. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
             f"        \"physical\": <enter a list of strings with the physical actions you take in the order you take them>\n"
             f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>\n"
             f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>\n"
@@ -242,7 +242,7 @@ class AIPokerPlayer(PokerPlayer):
         sample_response = (
             f"    Sample response for an Eyeore persona:\n"
             f"    {{\n"
-            f"        \"best_hand\": \"2D | 3C\",\n"
+            #f"        \"best_hand\": \"2D | 3C\",\n"
             f"        \"player_observations:\": {{ \"pooh\": \"playing loose\"}},\n"
             f"        \"hand_strategy\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
             f"        \"comment\": \"I check\",\n"
@@ -342,30 +342,38 @@ class AIPokerPlayer(PokerPlayer):
         action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
         action_summary = "We're just getting started! You're first to go."
         if len(action_comment_list) > 0:
-            action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-number_of_opponents:])
+            action_summary = hand_state["table_manager"].summarize_actions_for_player(action_comment_list[-number_of_opponents:], self.name)
 
         persona_state = (
             f"Persona: {persona}\n"
             f"Attitude: {attitude}\n"
             f"Confidence: {confidence}\n"
+            f"Your Cards: {hole_cards}\n"
+            f"Your Money: {player_money}\n"
         )
 
-        hand_update_message = persona_state + (
-            f"Game Round: {current_round}\n"
-            f"Your Cards: {hole_cards}\n"
+        hand_state = (
+            f"{current_situation}\n"
+            f"Current Round: {current_round}\n"
             f"Community Cards: {community_cards}\n"
             f"Table Positions: {table_positions}\n"
             f"Opponent Status:\n{opponent_status}\n"
-            f"Previous Actions: {action_summary}\n"
-            #f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
-            f"You have ${player_money} in chips remaining. {current_situation}.\n"
-            f"You have {hole_cards} in your hand. The current total pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
-            f""
-            f"To call, you would owe ${cost_to_call}.\n"
-            f"Your options are: {player_options}\n"
-            f"Remember, you're feeling {attitude} and {confidence}. However, consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
-            f"Preserve your chips for when the odds are more in your favor, and remember that sometimes folding or checking is the best move. "
+            f"Actions since your last turn: {action_summary}\n"
+        )
+
+        pot_state = (
+            f"Pot Total: ${current_pot.total}\n"
+            f"How much you've bet: ${current_pot.get_player_pot_amount(self)}\n"
+            f"Your cost to call: ${cost_to_call}\n"
+        )
+
+        hand_update_message = persona_state + hand_state + pot_state + (
+            #f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
+            # f"Remember, you're feeling {attitude} and {confidence}.\n"
+            f"Consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
+            f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
             f"You cannot bet more than you have, ${player_money}.\n"
+            f"You must select from these options: {player_options}\n"
             f"What is your move, {persona}?\n\n"
         )
 

@@ -4,14 +4,13 @@ from typing import List
 from core.poker_hand import PokerHand
 from core.poker_player import PokerPlayer
 from core.poker_settings import PokerSettings
-# from core.serialization import cards_to_dict, players_to_dict, hands_to_dict
 from core.deck import Deck
-from core.game import Game, OpenAILLMAssistant, LLMAssistant  # , Interface, ConsoleInterface
+from core.game import Game, OpenAILLMAssistant  # , Interface, ConsoleInterface
 
 from dotenv import load_dotenv
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)     # DEBUG, INFO, WARNING, ERROR, CRITICAL
+logging.basicConfig(level=logging.WARNING)     # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
 def summarize_hand(hand: PokerHand):
