@@ -8,6 +8,7 @@ from core.poker_action import PokerAction
 from core.poker_hand_pot import PokerHandPot
 from core.poker_player import PokerPlayer
 from core.poker_settings import PokerSettings
+from core.table_manager import TableManager
 from core.utils import shift_list_left, obj_to_dict
 
 
@@ -22,6 +23,7 @@ class PokerHandPhase(Enum):
 
 class PokerHand:
     players: List[PokerPlayer]
+    table_messages: List[Dict[str, str]]
     starting_players: List[PokerPlayer]
     remaining_players: List[PokerPlayer]
     deck: Deck
@@ -38,7 +40,7 @@ class PokerHand:
     min_bet: int
 
     def __init__(self,
-                 players: List['PokerPlayer'],
+                 players: List[PokerPlayer],
                  dealer: PokerPlayer,
                  deck: Deck):
         self.players = players
@@ -54,6 +56,7 @@ class PokerHand:
         self.small_blind_player = self.players[(self.dealer_position + 1) % len(self.players)]
         self.big_blind_player = self.players[(self.dealer_position + 2) % len(self.players)]
         self.under_the_gun = self.players[(self.dealer_position + 3) % len(self.players)]
+        self.table_manager = TableManager()
 
     def to_dict(self):
         return obj_to_dict(self.hand_state)
@@ -88,13 +91,18 @@ class PokerHand:
             "current_bet": self.pots[0].current_bet,
             "current_pot": self.pots[0],
             "players": self.players,
-            "opponent_positions": self.get_table_positions(),
+            "opponent_status": self.get_opponent_status(),
+            "table_positions": self.get_table_positions(),
             "current_situation": f"The {self.current_round.value} cards have just been dealt",
-            "current_round": self.current_round,
+            "current_round": self.current_round.value,
+            "table_messages": self.table_manager.table_messages,
+            "table_manager": self.table_manager,
+            "poker_actions": self.poker_actions,
+            "remaining_players": self.remaining_players,
         }
         return hand_state
 
-    def get_opponent_positions(self, requesting_player=None) -> List[str]:
+    def get_opponent_status(self, requesting_player=None) -> List[str]:
         opponent_positions = []
         for player in self.players:
             if player != requesting_player:
@@ -139,8 +147,8 @@ class PokerHand:
                     start_player = self.players[index]
                     break
         return start_player
-    # TODO: change this to return the options as a PlayerAction enum
 
+    # TODO: change this to return the options as a PlayerAction enum
     def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
         # How much is it to call the bet for the player?
         player_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
@@ -155,7 +163,7 @@ class PokerHand:
                 and self.pots[0].current_bet == self.small_blind * 2):
             player_options = ['check', 'raise', 'all-in']
         else:
-            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in']
+            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in', 'chat']
             if player_cost_to_call == 0:
                 player_options.remove('fold')
             if player_cost_to_call > 0:
@@ -171,7 +179,21 @@ class PokerHand:
 
         poker_player.options = player_options.copy()
 
-    def get_next_round_queue(self, round_queue, betting_player: Optional['PokerPlayer']):
+    def summarize_actions(self, count) -> str:
+        """
+        Function should take in text descriptions of actions taken during a poker round and create a summary.
+        """
+        actions = self.poker_actions[-count:]
+
+        if actions is str:
+            action_summary = actions
+        else:
+            summary_request = f"Please summarize these actions for a poker game in the style of {self.name}: {actions}\n"
+            message = [{"role": "user", "content": summary_request}]
+            action_summary = self.table_manager.assistant.get_response(message)
+        return action_summary
+
+    def get_next_round_queue(self, round_queue, betting_player: Optional[PokerPlayer]):
         next_round_queue = round_queue.copy()
         if betting_player:
             index = round_queue.index(betting_player) + 1
@@ -181,12 +203,15 @@ class PokerHand:
         return next_round_queue
 
     def determine_winner(self):
+        # initialize a list which will hold a Tuple of (PokerPlayer, HandEvaluator)
         hands = []
 
         for player in self.players:
             if not player.folded:
                 hands.append((player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()))
 
+
+        # TODO: remove all of the prints from determine_winner, replace with a different UX
         print("Before sorting:")
         for player, hand_info in hands:
             print(f"{player.name}'s hand: {hand_info}")
@@ -209,8 +234,9 @@ class PokerHand:
         for player, hand_info in hands:
             print(f"{player.name}'s hand: {hand_info}")
 
-        winner = hands[0][0]
-        return winner
+        winner_name = hands[0][0]
+        winning_hand = hands[0][1]["hand_values"]
+        return winner_name, winning_hand
 
     # # TODO: update to not use interface
     # def end_hand(self):
@@ -283,10 +309,20 @@ class PokerHand:
 
         return round_queue
 
-    def get_table_positions(self) -> Dict[str, PokerPlayer]:
-        table_positions = {"dealer": self.dealer,
-                           "small_blind_player": self.players[(self.dealer_position + 1) % len(self.players)],
-                           "big_blind_player": self.players[(self.dealer_position + 2) % len(self.players)],
-                           "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)]
+    def get_table_positions(self) -> Dict[str, str]:
+        table_positions = {"dealer": self.dealer.name,
+                           "small_blind_player": self.players[(self.dealer_position + 1) % len(self.players)].name,
+                           "big_blind_player": self.players[(self.dealer_position + 2) % len(self.players)].name,
+                           "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)].name
                            }
         return table_positions
+
+    def summarize_poker_actions(self, count=None):
+        """
+        Get the last N actions for the hand summarized
+        """
+        summary = []
+        for action in self.poker_actions[-count:]:
+            s = summarize_action(action)
+            summary.append(s)
+

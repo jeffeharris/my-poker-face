@@ -23,10 +23,14 @@ python interpreter, you may need to switch 'python' to 'python3' below
 Create a local `.env` file and add your `OPENAI_API_KEY` to it. 
 This will be enabled to use the AI PLayers and Assistants.
 
-### run the Flask app locally:
-Once the environment is configured and the requirements installed you can
-start the Flask application
+Once the environment is configured and requirements installed you can run the application in either the Console or as a Flask web app
 
-`python ./flask_app/flask_app.py`
+### run the console app locally:
+
+`python -m console_app.console_app`
+
+### run the Flask app locally:
+
+`python -m flask_app.flask_app`
 
 And now you can access the local web app by going to http://127.0.0.1:5000

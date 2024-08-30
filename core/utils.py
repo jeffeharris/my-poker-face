@@ -1,5 +1,4 @@
 import random
-import json
 
 from core.poker_player import PokerPlayer, AIPokerPlayer
 
@@ -47,42 +46,44 @@ def get_players(test=False, num_players=2):
             AIPokerPlayer("Kathy Griffin"),
             AIPokerPlayer("Dr. Seuss", ai_temp=.7),
             AIPokerPlayer("Dr. Oz"),
-            AIPokerPlayer("A guy who tells too many dad jokes")
+            AIPokerPlayer("A guy who tells too many dad jokes"),
+            AIPokerPlayer("Someone who is very, very mean to people"),
+            AIPokerPlayer("Socrates"),
+            AIPokerPlayer("Shakespeare"),
+            AIPokerPlayer("C3PO"),
+            AIPokerPlayer("R2-D2"),
+            AIPokerPlayer("Winston Churchill"),
+            AIPokerPlayer("Abraham Lincoln"),
+            AIPokerPlayer("Buddha"),
+            AIPokerPlayer("Crocodile Dundee"),
+            AIPokerPlayer("Tyler Durden"),
+            AIPokerPlayer("Hulk Hogan"),
+            AIPokerPlayer("The Rock"),
+            AIPokerPlayer("The Hulk"),
+            AIPokerPlayer("King Henry VIII"),
+            AIPokerPlayer("Louis XIV"),
+            AIPokerPlayer("Kim Jong Un"),
+            AIPokerPlayer("Scarlett Johansson"),
+            AIPokerPlayer("Joan of Ark")
         ]
 
         random.shuffle(celebrities)
         randos = celebrities[0:(num_players - len(definites))]
         players = definites + randos
         for player in players:
+            player_names = [player.name for player in players]
+            player_names.remove(player.name)
             if isinstance(player, AIPokerPlayer):
                 i = random.randint(0, 2)
                 player.confidence = player.initialize_attribute("confidence",
                                                                 "Use less than 20 words",
-                                                                "other players",
+                                                                player_names,
                                                                 mood=i)
                 player.attitude = player.initialize_attribute("attitude",
                                                               "Use less than 20 words",
-                                                              "other players",
+                                                              player_names,
                                                               mood=i)
     return players
-
-
-def print_pretty_json(input_value):
-    try:
-        # If the input is a string, attempt to parse it as JSON
-        if isinstance(input_value, str):
-            parsed_json = json.loads(input_value)
-        elif isinstance(input_value, dict):
-            parsed_json = input_value
-        else:
-            raise ValueError("Input must be a JSON string or a dictionary")
-
-        # Convert the parsed JSON or dictionary to a pretty-printed JSON string
-        pretty_json = json.dumps(parsed_json, indent=4)
-        print(pretty_json)
-    except (json.JSONDecodeError, ValueError) as e:
-        # If parsing fails or input is invalid, print the original value
-        print(input_value)
 
 
 def shift_list_left(my_list: list, count: int = 1):

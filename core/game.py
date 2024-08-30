@@ -133,8 +133,7 @@ class OpenAILLMAssistant(LLMAssistant):
         self.client = OpenAI()
         self.functions = functions
 
-    def get_response(self, messages):
-        # print(messages)
+    def get_response(self, messages: List[Dict[str, str]]):
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,

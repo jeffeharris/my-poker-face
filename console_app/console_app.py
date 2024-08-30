@@ -1,5 +1,6 @@
+import json
 import random
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 from core.card import Card
 from core.game import Interface
@@ -8,7 +9,7 @@ from core.poker_game import PokerGame
 from core.poker_hand import PokerHand, PokerHandPhase
 from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.poker_settings import PokerSettings
-from core.utils import get_players, shift_list_left, print_pretty_json
+from core.utils import get_players, shift_list_left
 
 CARD_TEMPLATE = '''
 .---------.
@@ -31,17 +32,56 @@ TWO_CARD_TEMPLATE = '''
 `---`---------'
 '''
 
-
 class ConsoleInterface(Interface):
+    class TextFormat:
+        CYAN = '\033[96m'
+        RED = '\033[91m'
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        BLUE = '\033[94m'
+        MAGENTA = '\033[95m'
+        CYAN_BOLD = '\033[96m\033[1m'
+        RED_BOLD = '\033[91m\033[1m'
+        GREEN_BOLD = '\033[92m\033[1m'
+        YELLOW_BOLD = '\033[93m\033[1m'
+        BLUE_BOLD = '\033[94m\033[1m'
+        MAGENTA_BOLD = '\033[95m\033[1m'
+        RESET = '\033[0m'
+        BOLD = '\033[1m'
+        UNDERLINE = '\033[4m'
+
+        def __add__(self, other: str or Dict or List) -> str:
+            return str(self) + str(other)
+
     def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
-        print(options)
+        self.display_text(f"{self.TextFormat.CYAN_BOLD}Actions: {self.TextFormat.CYAN}{options}{self.TextFormat.RESET}")
         return input(request)
 
-    def display_text(self, text: str):
-        print_pretty_json(text)
+    def display_text(self, text: str or Dict or List, style: TextFormat = None):
+        if style is not None:
+            self.print_pretty_json(style + text + style.RESET)
+        self.print_pretty_json(text)
 
     def display_expander(self, label: str, body: Any):
+        self.display_text(self.TextFormat.BLUE_BOLD + label + self.TextFormat.RESET)
         self.display_text(body)
+
+    def print_pretty_json(self, input_value):
+        try:
+            # If the input is a string, attempt to parse it as JSON
+            if isinstance(input_value, str):
+                parsed_json = json.loads(input_value)
+            elif isinstance(input_value, dict):
+                parsed_json = input_value
+            else:
+                raise ValueError("Input must be a JSON string or a dictionary")
+
+            # Convert the parsed JSON or dictionary to a pretty-printed JSON string
+            pretty_json = json.dumps(parsed_json, indent=4)
+            print(self.TextFormat.BLUE + pretty_json + self.TextFormat.RESET)
+        except (json.JSONDecodeError, ValueError) as e:
+            # If parsing fails or input is invalid, print the original value
+            print(input_value)
 
 CONSOLE_INTERFACE = ConsoleInterface()
 
@@ -105,31 +145,44 @@ def reveal_cards(poker_hand, num_cards: int, round_name: PokerHandPhase):
     return output_text, new_cards
 
 
-def get_player_action(player, hand_state):
+def run_chat(hand_state):
+    player_names = [player.name for player in hand_state["players"]]
+    human_player_name = ""
+    ai_player_names = []
+
+    for player in hand_state["players"]:
+        if isinstance(player, AIPokerPlayer):
+            ai_player_names.append(player.name)
+        else:
+            human_player_name = player.name
+
+    player_input = input(f"Who do you want to message? {ai_player_names}\n")
+    while player_input not in ai_player_names:
+        player_input = input(f"Please enter a name form the list: {ai_player_names}\n")
+    player_to_message = hand_state["players"][player_names.index(player_input)]
+
+    chat_message = input("Enter message: ")
+    chat_message = player_to_message.build_hand_update_message(hand_state) + chat_message
+    while chat_message != "quit":
+        chat_message = (f"Message from {human_player_name}: "
+                       f"{chat_message}")
+        response_json = player_to_message.get_player_response(chat_message)
+        player_to_message.attitude = response_json["new_attitude"]
+        player_to_message.confidence = response_json["new_confidence"]
+        CONSOLE_INTERFACE.print_pretty_json(response_json)
+        chat_message = input("Enter response: ")
+
+
+def get_player_action(player, hand_state) -> PokerAction:
     if isinstance(player, AIPokerPlayer):
         return get_ai_player_action(player, hand_state)
 
-    community_cards = hand_state['community_cards']
-    current_bet = hand_state['current_bet']
-    current_pot = hand_state['current_pot']
+    current_pot = hand_state["current_pot"]
     cost_to_call = current_pot.get_player_cost_to_call(player)
-    total_to_pot = current_pot.get_player_pot_amount(player)
-
-
-
-    game_update_text_lines = [
-        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
-        f"Community cards: {community_cards}",
-        f"Current bet: {current_bet}",
-        f"Current pot: {current_pot.total}",
-        f"Cost to call: {cost_to_call}",
-        f"Total to pot: {total_to_pot}"
-    ]
-
-    game_update_text = "\n".join(game_update_text_lines)
 
     CONSOLE_INTERFACE.display_text(display_hole_cards(player.cards))
-    CONSOLE_INTERFACE.display_text(game_update_text)
+    display_hand_update_text(hand_state, player)
+
     action = CONSOLE_INTERFACE.request_action(player.options, "Enter action: \n")
 
     add_to_pot = 0
@@ -145,6 +198,7 @@ def get_player_action(player, hand_state):
         action = "bet"
     elif action in ["raise", "r", "ra", "rai", "rais"]:
         raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+        # add_to_pot = raise_amount - current_pot.current_bet
         add_to_pot = raise_amount + cost_to_call
         action = "raise"
     elif action in ["all-in", "all in", "allin", "a", "al", "all", "all-", "all-i", "alli"]:
@@ -159,51 +213,85 @@ def get_player_action(player, hand_state):
     elif action in ["check", "ch", "che", "chec"]:
         add_to_pot = 0
         action = "check"
-    # self.chat_message = input("Enter chat message (optional): ")
-    # if not self.chat_message:
-    #     f"{self.name} chooses to {action}."
-    # TODO: return a dict that can be converted to a PokerAction on the other end
-    poker_action = PokerAction(player, action, add_to_pot, hand_state)
+    elif action in ["show", "sh", "sho"]:
+        pass
+    elif action in ["quit", "q", "qui"]:
+        exit()
+    elif action in ["chat"]:
+        run_chat(hand_state)
+        return get_player_action(player, hand_state)
+
+    chat_message = input("Enter table comment (optional): ")
+    if chat_message != "":
+        hand_state["table_messages"].append({"name": player.name, "message": chat_message})
+
+    action_detail = { "comment": chat_message }
+    table_message = f"{player.name} chooses to {action} by {add_to_pot}."
+    action_comment = (f"{player.name}:\t'{chat_message}'\n"
+                      f"Table Manager:\t{table_message}\n")
+
+    # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
+    poker_action = PokerAction(player, action, add_to_pot, hand_state, action_detail, action_comment)
     return poker_action
 
 # TODO: determine if this is needed or can be deleted
 def get_ai_player_action(player, hand_state):
+    display_hand_update_text(hand_state, player)
+
+    hand_update_message = player.build_hand_update_message(hand_state)
+    # Show the update shared with the AI
+    # CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Hand Update",body=hand_update_message)
+    response_json = player.get_player_response(hand_update_message)
+
+    # Show the entire JSON response form the AI
+    # CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Insights", body=response_json)
+
+    action = response_json["action"]
+    add_to_pot = response_json["adding_to_pot"]
+    chat_message = response_json["persona_response"]
+    player.attitude = response_json["new_attitude"]
+    player.confidence = response_json["new_confidence"]
+
+    physical_actions = response_json["physical"]
+    table_message = f"{player.name} chooses to {action} by {add_to_pot}."
+    action_comment = (f"{player.name}:\t'{chat_message}'\n"
+                      f"      actions:\t{physical_actions}\n"
+                      f"Table Manager:\t{table_message}\n")
+
+    CONSOLE_INTERFACE.display_text(action_comment)
+
+    # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
+    # TODO: reduce what is sent from hand_state to just what is needed - unknown at this point what that will be
+    poker_action = PokerAction(player.name, action, add_to_pot, hand_state, response_json, action_comment)
+    return poker_action
+
+
+def display_hand_update_text(hand_state, player):
     community_cards = hand_state["community_cards"]
     current_bet = hand_state["current_bet"]
     current_pot = hand_state["current_pot"]
     cost_to_call = current_pot.get_player_cost_to_call(player)
     total_to_pot = current_pot.get_player_pot_amount(player)
-
-    text_lines = [
-        f"{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
+    game_update_text_lines = [
+        f"\n{player.name}'s turn. Current cards: {player.cards} Current money: {player.money}",
         f"Community cards: {community_cards}",
-        f"Current bet: {current_bet}",
-        f"Current pot: {current_pot.total}",
-        f"Cost to call: {cost_to_call}",
-        f"Total to pot: {total_to_pot}"
+        f"Current bet: ${current_bet}",
+        f"Current pot: ${current_pot.total}",
+        f"Cost to call: ${cost_to_call}",
+        f"Total to pot: ${total_to_pot}\n"
     ]
+    game_update_text = "\n".join(game_update_text_lines)
+    CONSOLE_INTERFACE.display_text(game_update_text)
 
-    text = "\n".join(text_lines)
 
-    CONSOLE_INTERFACE.display_text(text)
+    # # create a list of the action comments and then send them to the table manager to summarize
+    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+    # if len(action_comment_list) > 0:
+    #     action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-3:])
+    #     # display the summary to the console
+    #     CONSOLE_INTERFACE.display_text("\n" + action_summary + "\n")
 
-    response_json = player.get_player_response(hand_state)
-
-    CONSOLE_INTERFACE.display_expander(label="Player Insights", body=response_json)
-
-    action = response_json["action"]
-    add_to_pot = response_json["amount"]
-    chat_message = response_json["comment"]
-    player.attitude = response_json["new_attitude"]
-    player.confidence = response_json["new_confidence"]
-
-    CONSOLE_INTERFACE.display_text(f"{player.name}: '{chat_message}'")
-    CONSOLE_INTERFACE.display_text(f"{player.name} chooses to {action} by {add_to_pot}.")
-
-    # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
-    poker_action = PokerAction(player.name, action, add_to_pot, hand_state, response_json)
-    return poker_action
-
+# Used to debug issues with folding and player_queue can likely be removed
 def print_queue_status(player_queue: List[PokerPlayer]):
     for index, player in enumerate(player_queue):
         print(f"{index}: {player.name} - {player.folded}")
@@ -253,7 +341,7 @@ def betting_round(poker_hand, player_queue: List[PokerPlayer], is_initial_round:
         elif len(poker_hand.remaining_players) <= 1:
             return
         else:
-            print_queue_status(player_queue)
+            # print_queue_status(player_queue)
             poker_hand.set_player_options(player, PokerSettings())
 
             poker_action = get_player_action(player, poker_hand.hand_state)
@@ -284,6 +372,9 @@ def process_player_action(poker_hand, player: PokerPlayer, poker_action: PokerAc
         handle_fold(poker_hand, player)
     elif player_action == PlayerAction.CHECK:
         return False
+    elif player_action == PlayerAction.CHAT:
+        # TODO: implement handle_chat to open up  ability for AIs to chat with each other or the player.
+        pass
     else:
         raise ValueError("Invalid action selected: " + str(player_action))
     return False
@@ -300,6 +391,16 @@ def reveal_turn(poker_hand):
 def reveal_river(poker_hand):
     output_text, new_cards = reveal_cards(poker_hand,1, PokerHandPhase.RIVER)
     CONSOLE_INTERFACE.display_text(output_text)
+
+
+def build_hand_complete_update_message(player_name, winning_player_name, total_pot, amount_lost, winning_hand, shown_cards=None):
+    message = (f"The winner is {winning_player_name}! They win the pot of ${total_pot}.\n"
+               f"Winners cards: {shown_cards}\n"
+               f"Winning hand: {winning_hand}\n")
+    if winning_player_name != player_name:
+        message += f"You lost ${amount_lost} this hand, better luck next time!\n"
+    return message
+
 
 def play_hand(poker_hand):
     round_queue = poker_hand.setup_hand()
@@ -323,8 +424,49 @@ def play_hand(poker_hand):
     betting_round(poker_hand, round_queue)
 
     # Evaluate and announce the winner
-    winning_player = poker_hand.determine_winner()
+    winning_player, winning_hand = poker_hand.determine_winner()
     CONSOLE_INTERFACE.display_text(f"The winner is {winning_player.name}! They win the pot of {poker_hand.pots[0].total}")
+
+    # Get end fo hand reactions from AI players
+    player_reactions = []
+    for player in poker_hand.players:
+        if isinstance(player, AIPokerPlayer):
+            winner_shows_cards = True   # TODO: let the winner decide if they want to show their cards in cases where they don't need to
+            winners_cards_string = f"{winning_player.name} didn't show their cards!"    # Initialize the message in the case that the winner did not show their cards
+            if winner_shows_cards:
+                winning_hand_string = [str(card) for card in winning_hand]
+                winners_cards_string = [str(card) for card in winning_player.cards]
+                winners_cards_string = "|".join(winners_cards_string)
+
+            message = build_hand_complete_update_message(player_name=player.name,
+                                                         winning_player_name=winning_player.name,
+                                                         total_pot=poker_hand.pots[0].total,
+                                                         amount_lost=poker_hand.pots[0].player_pot_amounts[player],
+                                                         winning_hand=winning_hand_string,
+                                                         shown_cards=winners_cards_string
+                                                         )
+            response_json = player.get_player_response(message)
+
+            reaction = {
+                "name": player.name,
+                "response_json": response_json
+                }
+            player_reactions.append(reaction)
+            if reaction is not None:
+                name = reaction["name"]
+                message = reaction["response_json"]
+                CONSOLE_INTERFACE.display_text(name)
+                CONSOLE_INTERFACE.display_text(message)
+
+    # for r in player_reactions:
+    #     if r is not None:
+    #         name = r["name"]
+    #         message = r["response_json"]
+    #         CONSOLE_INTERFACE.display_text(name)
+    #         CONSOLE_INTERFACE.display_text(message)
+
+    game_summary = poker_hand.table_manager.summarize_actions([action.action_comment for action in poker_hand.poker_actions])
+    CONSOLE_INTERFACE.display_text(game_summary)
 
     # Reset game for next round
     poker_hand.pots[0].resolve_pot(winning_player)  # TODO: implement support for side-pots (multiple pots)
@@ -336,13 +478,14 @@ def play_hand(poker_hand):
         poker_hand.deck.return_cards_to_discard_pile(player.cards)
         player.folded = False
 
+    # TODO: move to the play_game function to handle there
     # Check if the game should continue
     # Remove players from the hand if they are out of money
     poker_hand.remaining_players = [player for player in poker_hand.starting_players if player.money > 0]
-    if len(poker_hand.remaining_players) == 1:
+    if len(poker_hand.remaining_players) == 1:      # When all other players have lost
         CONSOLE_INTERFACE.display_text(f"{poker_hand.players[0].name} is the last player remaining and wins the game!")
-        return
-    elif len(poker_hand.remaining_players) == 0:
+        return  # This causes an error when there is only 1 player eft in the game. Later, the player should be given the option to enter another tournament.
+    elif len(poker_hand.remaining_players) == 0:    # This case should never happen
         CONSOLE_INTERFACE.display_text("You... you all lost. Somehow you all have no money.")
         return
 
@@ -371,7 +514,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=3):
+def main(test=False, num_players=2):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)
