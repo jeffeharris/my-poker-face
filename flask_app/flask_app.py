@@ -3,7 +3,7 @@ from flask import Flask, render_template, session, request, redirect, jsonify
 import random
 
 from core.cards import card_to_dict
-from core.game import Interface
+from core.game import Interface, ConsoleInterface
 from core.poker import (PokerGame,
                         PokerAction,
                         PokerHand,
@@ -14,45 +14,45 @@ from core.poker import (PokerGame,
 
 from dotenv import load_dotenv
 
-class FlaskInterface(Interface):
-    @staticmethod
-    def display_game(g: PokerGame):
-        player_dict_list = []
-        for player in g.players:
-            player_dict_list.append(player.to_dict())
-
-        community_cards_dict_list = []
-        if len(g.hands) > 0:
-            for card in g.hands[-1].community_cards:
-                community_cards_dict_list.append(card_to_dict(card))
-
-        player_options = []
-        for player in g.remaining_players:      # TODO: update this to show all players and indicate if in hand still
-            if isinstance(player, PokerPlayer):
-                player_options = player.options
-                break
-
-        return render_template(
-            template_name_or_list='poker_game.html',
-            players=player_dict_list,
-            community_cards=community_cards_dict_list ,
-            player_options=player_options
-        )
-
-    def display_hand(self, hand):
-        pass
-
-    def display_player_hand(self, player, hand):
-        pass
-
-    def get_user_action(self, player):
-        pass
-
-    def display_player(self, winner):
-        pass
-
-    def display_poker_action(self, action):
-        pass
+# class FlaskInterface(Interface):
+#     @staticmethod
+#     def display_game(g: PokerGame):
+#         player_dict_list = []
+#         for player in g.players:
+#             player_dict_list.append(player.to_dict())
+#
+#         community_cards_dict_list = []
+#         if len(g.hands) > 0:
+#             for card in g.hands[-1].community_cards:
+#                 community_cards_dict_list.append(card_to_dict(card))
+#
+#         player_options = []
+#         for player in g.remaining_players:      # TODO: update this to show all players and indicate if in hand still
+#             if isinstance(player, PokerPlayer):
+#                 player_options = player.options
+#                 break
+#
+#         return render_template(
+#             template_name_or_list='poker_game.html',
+#             players=player_dict_list,
+#             community_cards=community_cards_dict_list ,
+#             player_options=player_options
+#         )
+#
+#     def display_hand(self, hand):
+#         pass
+#
+#     def display_player_hand(self, player, hand):
+#         pass
+#
+#     def get_user_action(self, player):
+#         pass
+#
+#     def display_player(self, winner):
+#         pass
+#
+#     def display_poker_action(self, action):
+#         pass
 
 # def poker_game_from_dict(poker_game_dict: dict):
 #     players = player_list_from_dict(poker_game_dict["players"])
@@ -93,7 +93,7 @@ def home():
 @app.route('/game', methods=['GET'])
 def game():
     poker_players = get_players(test=False, num_players=2)
-    poker_game = PokerGame(poker_players, FlaskInterface())
+    poker_game = PokerGame(poker_players, ConsoleInterface())
 
     poker_hand = PokerHand(interface=poker_game.interface,
                            players=poker_game.players,
@@ -104,7 +104,27 @@ def game():
     poker_hand.betting_round(player_queue)
     poker_hand.reveal_flop()
 
-    return poker_game.interface.display_game(g=poker_game)
+    player_dict_list = []
+    for player in poker_game.players:
+        player_dict_list.append(player.to_dict())
+
+    community_cards_dict_list = []
+    if len(poker_game.hands) > 0:
+        for card in poker_game.hands[-1].community_cards:
+            community_cards_dict_list.append(card_to_dict(card))
+
+    player_options = []
+    for player in poker_game.remaining_players:  # TODO: update this to show all players and indicate if in hand still
+        if isinstance(player, PokerPlayer):
+            player_options = player.options
+            break
+
+    return render_template(
+        template_name_or_list='poker_game.html',
+        players=player_dict_list,
+        community_cards=community_cards_dict_list,
+        player_options=player_options
+    )
 
 # @app.route('/api/start_game', methods=['POST'])
 # def start_game():
@@ -172,14 +192,43 @@ def player_action():
 
 @app.route('/messages', methods=['GET'])
 def get_messages():
-    return jsonify(game['messages'])
+    return jsonify(
+        [
+            {
+                "sender": "Jeff",
+                "content": "hello!",
+                "timestamp": "11:23 Aug 25 2024",
+                "message_type": "user"
+            },
+            {
+                "sender": "Kanye West",
+                "content": "the way to the truth is through my hands",
+                "timestamp": "11:25 Aug 25 2024",
+                "message_type": "ai"
+            },
+            {
+                "sender": "table",
+                "content": "The flop has been dealt",
+                "timestamp": "11:26 Aug 25 2024",
+                "message_type": "table"
+            },
+            {
+                "sender": "Jeff",
+                "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
+                "timestamp": "11:27 Aug 25 2024",
+                "message_type": "user"
+            }
+        ]
+    )
+    # return jsonify(game['messages'])
 
 
 @app.route('/messages', methods=['POST'])
 def add_message():
     new_message = request.json.get('message')
     if new_message:
-        game['messages'].append(new_message)
+        # Add the message to the games messages and trigger actions
+        # game['messages'].append(new_message)
         return jsonify({"status": "success"}), 201
     return jsonify({"status": "error"}), 400
 
