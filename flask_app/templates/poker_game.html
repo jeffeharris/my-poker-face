@@ -277,18 +277,22 @@
             width: 400px;
             max-height: 75%; /* Adjust this to control how much of the screen it can cover */
             background-color: #222;
-            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
             z-index: 1000; /* Ensure it's on top of other elements */
             transition: transform 0.3s ease-in-out;
         }
 
+        /* Header styling for the collapsed section */
         .messages-header {
+            position: sticky;
+            top: 0;
             background-color: #333333;
             text-align: center;
             font-size: 1em;
-            position: relative;
-            z-index: inherit;
             cursor: pointer;
+            z-index: 10; /* Ensure it stays on top */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .messages.collapsed {
@@ -306,23 +310,112 @@
             cursor: pointer;
         }
         button:focus {
-            outline: none;
+            outline: azure;
         }
         button .fa-paper-plane {
             width: 100%;
             color: #007bff;
+            font-size: clamp(10px, 2vw, 36px);
+        }
+
+        /* Input area styling */
+        .messages-input-container {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background-color: #222;
+            box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .message-input {
-
-        }
-
-        #messageInput {
             width: 80%;
             padding: 10px;
             font-size: 1em;
             border: 1px solid #ccc;
             border-radius: 4px;
+            margin-right: 10px;
+        }
+
+        /* General messages display styling */
+        #messages-display {
+            flex-grow: 1;
+            overflow-y: auto;
+            width: 100%;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 15px; /* Adds spacing between messages */
+            padding: 10px;
+        }
+
+        /* Styling each message container */
+        .message-container {
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.1);
+            max-width: 75%; /* Ensures the message container doesn't take full width */
+            width: fit-content;
+        }
+
+        /* Styling the message header which includes sender and timestamp */
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #555;
+        }
+
+        /* Sender styling */
+        .message-sender {
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* Timestamp styling */
+        .message-timestamp {
+            font-style: italic;
+            color: #888;
+        }
+
+        /* The main content of the message */
+        .message-content {
+            font-size: 16px;
+            color: #333;
+            margin-top: 5px;
+        }
+
+        /* Specific styles for user messages */
+        .user-message {
+            background-color: #e0f7fa;
+            border: 1px solid #00acc1;
+            align-self: flex-end; /* Aligns the container to the right */
+        }
+
+        /* Specific styles for AI messages */
+        .ai-message {
+            background-color: #fff3e0;
+            border: 1px solid #fb8c00;
+            align-self: flex-start; /* Aligns the container to the left */
+        }
+
+        /* Specific styles for table messages */
+        .table-message {
+            max-width: 100%; /* Ensure the container takes full width */
+            width: 100%; /* Ensure the container takes full width */
+            background-color: transparent;
+            border: none;
+            text-align: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: none; /* Removes the shadow */
+            padding: 0; /* Removes padding to take full width */
+            align-self: center; /* Center align the table message container */
+        }
+
+        /* Specific styles for the content of table messages */
+        .table-message .message-content {
+            color: white; /* Ensure the message content text color is white */
         }
     </style>
 </head>
@@ -417,14 +510,11 @@
             <h3>MESSAGES</h3>
         </div>
         <div id="messages-display" class="messages-display">
-            <p>Turn card is dealt: Qh</p>
-            <p>Player 1's turn...</p>
-            <!-- Additional messages... -->
+            <!-- Messages will be filled here when fetched... -->
         </div>
-        <div>
-            <label for="message-input"></label>
+        <div class="messages-input-container">
             <input type="text" id="message-input" placeholder="Send a message..." class="message-input">
-            <button onclick="sendMessage()">
+            <button onclick="sendMessage()" title="send-button">
                 <i class="fas fa-paper-plane"></i>
             </button>
         </div>
@@ -483,19 +573,54 @@
             fetch('/messages')
                 .then(response => response.json())
                 .then(data => {
-                    let messagesDiv = document.getElementById('messages');
-                    messagesDiv.innerHTML = '';
+                    let messagesDiv = document.getElementById('messages-display');
+                    // Uncomment the following line if you want to clear previous messages
+                    // messagesDiv.innerHTML = '';
                     data.forEach(msg => {
-                        let p = document.createElement('p');
-                        p.textContent = msg;
-                        messagesDiv.appendChild(p);
+                        // Create a container for each message
+                        let messageContainer = document.createElement('div');
+                        messageContainer.classList.add('message-container');
+
+                        // Add classes based on message_type
+                        if (msg.message_type === 'user') {
+                            messageContainer.classList.add('user-message');
+                        } else if (msg.message_type === 'ai') {
+                            messageContainer.classList.add('ai-message');
+                        } else if (msg.message_type === 'table') {
+                            messageContainer.classList.add('table-message');
+                        }
+
+                        // Create and append the header containing sender and timestamp
+                        let headerDiv = document.createElement('div');
+                        headerDiv.classList.add('message-header');
+
+                        let senderSpan = document.createElement('span');
+                        senderSpan.textContent = msg.sender;
+                        senderSpan.classList.add('message-sender');
+                        headerDiv.appendChild(senderSpan);
+
+                        let timestampSpan = document.createElement('span');
+                        timestampSpan.textContent = msg.timestamp;
+                        timestampSpan.classList.add('message-timestamp');
+                        headerDiv.appendChild(timestampSpan);
+
+                        messageContainer.appendChild(headerDiv);
+
+                        // Create and append the content paragraph
+                        let contentP = document.createElement('p');
+                        contentP.textContent = msg.content;
+                        contentP.classList.add('message-content');
+                        messageContainer.appendChild(contentP);
+
+                        // Append the message container to the messages display div
+                        messagesDiv.appendChild(messageContainer);
                     });
                 });
         }
 
         // Send a new message
         function sendMessage() {
-            let messageInput = document.getElementById('messageInput');
+            let messageInput = document.getElementById('message-input');
             let message = messageInput.value;
 
             fetch('/messages', {
