@@ -97,7 +97,7 @@ def simple_app():
             st.stop()
         else:
             st.session_state["is_game_running"] = True
-            players = get_players(test=False, num_players=2)
+            players = get_players(test=False, num_players=4)
             poker_game = PokerGame(players, StreamlitInterface())
             if "poker_game" not in st.session_state:
                 st.session_state["poker_game"] = poker_game
