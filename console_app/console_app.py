@@ -3,13 +3,13 @@ import random
 from typing import List, Optional, Any, Dict
 
 from core.card import Card
-from core.game import Interface
+from core.interface import Interface
 from core.poker_action import PokerAction, PlayerAction
 from core.poker_game import PokerGame
-from core.poker_hand import PokerHand, PokerHandPhase
+from core.poker_hand import PokerHand
 from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.poker_settings import PokerSettings
-from core.utils import get_players, shift_list_left
+from core.utils import get_players, shift_list_left, PokerHandPhase
 
 CARD_TEMPLATE = '''
 .---------.
@@ -136,7 +136,7 @@ def reveal_cards(poker_hand, num_cards: int, round_name: PokerHandPhase):
     poker_hand.deck.discard(1)
     new_cards = poker_hand.deck.deal(num_cards)
     poker_hand.community_cards += new_cards
-    poker_hand.current_round = round_name
+    poker_hand.current_phase = round_name
     output_text = f"""
                 ---***{round_name}***---
 """
@@ -284,12 +284,12 @@ def display_hand_update_text(hand_state, player):
     CONSOLE_INTERFACE.display_text(game_update_text)
 
 
-    # # create a list of the action comments and then send them to the table manager to summarize
-    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-    # if len(action_comment_list) > 0:
-    #     action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-3:])
-    #     # display the summary to the console
-    #     CONSOLE_INTERFACE.display_text("\n" + action_summary + "\n")
+    # create a list of the action comments and then send them to the table manager to summarize
+    action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+    if len(action_comment_list) > 0:
+        action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-3:])
+        # display the summary to the console
+        CONSOLE_INTERFACE.display_text("\n" + action_summary + "\n")
 
 # Used to debug issues with folding and player_queue can likely be removed
 def print_queue_status(player_queue: List[PokerPlayer]):
@@ -524,7 +524,8 @@ def play_game(poker_game: PokerGame):
 
 def main(test=False, num_players=4):
     players = get_players(test=test, num_players=num_players)
-    poker_game = PokerGame(players)
+    poker_game = PokerGame()
+    poker_game.round_manager.add_players(players)
     play_game(poker_game)
 
 

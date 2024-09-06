@@ -1,4 +1,5 @@
 import random
+from enum import Enum
 
 from core.poker_player import PokerPlayer, AIPokerPlayer
 
@@ -130,3 +131,12 @@ def obj_to_dict(self):
             except Exception as e:
                 result[key] = f"Error serializing {key}: {str(e)}"
         return result
+
+
+class PokerHandPhase(Enum):
+    INITIALIZING = "initializing"
+    PRE_FLOP = "pre-flop"
+    FLOP = "flop"
+    TURN = "turn"
+    RIVER = "river"
+    SHOWDOWN = "showdown"   # TODO: implement showdown gameplay

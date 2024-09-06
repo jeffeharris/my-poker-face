@@ -5,54 +5,12 @@ from flask_session import Session
 
 import random
 
-from core.game import Interface, ConsoleInterface
 from core.poker_game import (PokerGame)
 from core.poker_hand import PokerHand
 from core.poker_action import PokerAction
-from core.poker_player import PokerPlayer, AIPokerPlayer
-from core.utils import get_players, shift_list_left, obj_to_dict
+from core.utils import get_players, obj_to_dict
 
 from dotenv import load_dotenv
-
-# class FlaskInterface(Interface):
-#     @staticmethod
-#     def display_game(g: PokerGame):
-#         player_dict_list = []
-#         for player in g.players:
-#             player_dict_list.append(player.to_dict())
-#
-#         community_cards_dict_list = []
-#         if len(g.hands) > 0:
-#             for card in g.hands[-1].community_cards:
-#                 community_cards_dict_list.append(card_to_dict(card))
-#
-#         player_options = []
-#         for player in g.remaining_players:      # TODO: update this to show all players and indicate if in hand still
-#             if isinstance(player, PokerPlayer):
-#                 player_options = player.options
-#                 break
-#
-#         return render_template(
-#             template_name_or_list='poker_game.html',
-#             players=player_dict_list,
-#             community_cards=community_cards_dict_list ,
-#             player_options=player_options
-#         )
-#
-#     def display_hand(self, hand):
-#         pass
-#
-#     def display_player_hand(self, player, hand):
-#         pass
-#
-#     def get_user_action(self, player):
-#         pass
-#
-#     def display_player(self, winner):
-#         pass
-#
-#     def display_poker_action(self, action):
-#         pass
 
 app = Flask(__name__,
             template_folder='./templates',
@@ -86,7 +44,9 @@ def home():
 @app.route('/game', methods=['GET'])
 def game():
     poker_players = get_players(test=False, num_players=2)
-    poker_game = PokerGame(poker_players, ConsoleInterface())
+    # poker_game = PokerGame(poker_players, ConsoleInterface())
+    poker_game = PokerGame()
+    poker_game.round_manager.add_players(poker_players)
     return render_template(
         template_name_or_list='poker_game.html',
     )

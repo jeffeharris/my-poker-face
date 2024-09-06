@@ -1,6 +1,6 @@
 import streamlit as st
 import random
-from core.game import StreamlitInterface
+from core.interface import StreamlitInterface
 from core.poker_game import (PokerGame)
 from core.poker_hand import PokerHand
 from core.poker_action import PokerAction

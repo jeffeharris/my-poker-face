@@ -1,6 +1,6 @@
 import unittest
 
-from core.game import OpenAILLMAssistant
+from core.assistants import OpenAILLMAssistant
 from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.card import Card
 

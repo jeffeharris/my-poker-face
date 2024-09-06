@@ -1,49 +1,29 @@
-from enum import Enum
 from typing import List, Optional
 
 from core.deck import CardSet
-from core.hand_evaluator import HandEvaluator
 from core.poker_action import PokerAction
 from core.poker_hand_pot import PokerHandPot
 from core.poker_player import PokerPlayer
-from core.round_manager import RoundManager
-from core.utils import shift_list_left, obj_to_dict
-
-
-class PokerHandPhase(Enum):
-    INITIALIZING = "initializing"
-    PRE_FLOP = "pre-flop"
-    FLOP = "flop"
-    TURN = "turn"
-    RIVER = "river"
-    SHOWDOWN = "showdown"
+from core.utils import shift_list_left, obj_to_dict, PokerHandPhase
 
 
 class PokerHand:
     """
-    PokerHand manages teh state of a hand within a game
+    PokerHand manages the state of a hand within a game
     """
     poker_actions: List[PokerAction]
     community_cards: CardSet
-    current_round: PokerHandPhase
+    current_phase: PokerHandPhase
     pots: List[PokerHandPot]
-    round_manager: RoundManager
 
     def __init__(self):
         self.poker_actions = []
         self.community_cards = CardSet()
-        self.current_round = PokerHandPhase.INITIALIZING
+        self.current_phase = PokerHandPhase.INITIALIZING
         self.pots = [PokerHandPot(self.round_manager.players)]
-        self.round_manager = RoundManager()
 
     def to_dict(self):
         return obj_to_dict(self.hand_state)
-        # TODO: clean up unnecessary code for PokerHand.to_dict()
-        # hand_state_dict = self.hand_state
-        # hand_state_dict['community_cards'] = Card.list_to_dict(self.community_cards)
-        # hand_state_dict['current_pot'] = self.pots[0].to_dict()
-        # hand_state_dict['players'] = players_to_dict(self.table_manager.players)
-        # return hand_state_dict
 
     @staticmethod
     def list_to_dict(hands):
@@ -67,8 +47,8 @@ class PokerHand:
             "players": self.round_manager.players,
             "opponent_status": self.get_opponent_status(),
             "table_positions": self.get_table_positions(),
-            "current_situation": f"The {self.current_round.value} cards have just been dealt",
-            "current_round": self.current_round.value,
+            "current_situation": f"The {self.current_phase.value} cards have just been dealt",
+            "current_phase": self.current_phase.value,
             "table_messages": self.round_manager.table_messages,
             "table_manager": self.round_manager,
             "poker_actions": self.poker_actions,
@@ -77,7 +57,7 @@ class PokerHand:
         return hand_state
 
     def set_current_round(self, current_round: PokerHandPhase):
-        self.current_round = current_round
+        self.current_phase = current_round
 
     def player_bet_this_hand(self, player: PokerPlayer) -> int:
         pot_contributions = []
@@ -87,7 +67,7 @@ class PokerHand:
 
     def determine_start_player(self):
         start_player = None
-        if self.current_round == PokerHandPhase.PRE_FLOP:
+        if self.current_phase == PokerHandPhase.PRE_FLOP:
             # Player after big blind starts
             start_player = self.round_manager.players[(self.dealer_position + 3) % len(self.round_manager.players)]
         else:
@@ -121,42 +101,6 @@ class PokerHand:
             index = 1
         shift_list_left(next_round_queue, index)
         return next_round_queue
-
-    def determine_winner(self):
-        # initialize a list which will hold a Tuple of (PokerPlayer, HandEvaluator)
-        hands = []
-
-        for player in self.round_manager.players:
-            if not player.folded:
-                hands.append((player, HandEvaluator(player.cards + self.community_cards).evaluate_hand()))
-
-
-        # TODO: remove all of the prints from determine_winner, replace with a different UX
-        print("Before sorting:")
-        for player, hand_info in hands:
-            print(f"{player.name}'s hand: {hand_info}")
-
-        hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
-
-        print("After sorting by kicker values:")
-        for player, hand_info in hands:
-            print(f"{player.name}'s hand: {hand_info}")
-
-        hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
-
-        print("After sorting by hand values:")
-        for player, hand_info in hands:
-            print(f"{player.name}'s hand: {hand_info}")
-
-        hands.sort(key=lambda x: x[1]["hand_rank"])
-
-        print("After sorting by hand rank:")
-        for player, hand_info in hands:
-            print(f"{player.name}'s hand: {hand_info}")
-
-        winner_name = hands[0][0]
-        winning_hand = hands[0][1]["hand_values"]
-        return winner_name, winning_hand
 
     # # TODO: update to not use interface
     # def end_hand(self):

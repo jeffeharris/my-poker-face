@@ -1,8 +1,10 @@
 from typing import List, Dict
 
 from core.deck import Deck
-from core.game import Manager, LLMAssistant, OpenAILLMAssistant
-from core.poker_player import AIPokerPlayer, PokerPlayer
+from core.assistants import OpenAILLMAssistant
+from core.utils import PokerHandPhase
+from core.poker_player import PokerPlayer
+from core.poker_settings import PokerSettings
 
 
 class SystemPrompt:
@@ -78,14 +80,14 @@ class SystemPrompt:
     """You are the table manager for a celebrity poker game. You will be presented with a set of actions and comments that have happened.
     Please provide a brief summary of the events to share with the next player. Format your summaries as a bulleted list."""
 
-class RoundManager(Manager):
+class RoundManager:
     assistant: OpenAILLMAssistant
+    table_messages: List[str]
     deck: Deck
     players: List[PokerPlayer]
-    table_messages: List[str]
+    table_positions: Dict[str, PokerPlayer]
     starting_players: List[PokerPlayer]
     remaining_players: List[PokerPlayer]
-    table_positions: Dict[str, PokerPlayer]
     dealer: PokerPlayer or None
     small_blind_player: PokerPlayer
     big_blind_player: PokerPlayer
@@ -98,7 +100,7 @@ class RoundManager(Manager):
     LESS_THAN_100_WORDS = "Use less than 100 words."
 
     def __init__(self):
-        self.assistant = OpenAILLMAssistant(system_message=self.persona_prompt())
+        self.assistant = self.initialize_assistant()
         self.table_messages = []
         self.deck = Deck()
         self.players = []
@@ -107,24 +109,37 @@ class RoundManager(Manager):
         self.remaining_players = []
         self.dealer = None
         self.small_blind = 50
-        self.small_blind_player = self.players[(self.dealer_position + 1) % len(self.players)]
-        self.big_blind_player = self.players[(self.dealer_position + 2) % len(self.players)]
-        self.under_the_gun = self.players[(self.dealer_position + 3) % len(self.players)]
 
-    def persona_prompt(self) -> str:
-        prompt = SystemPrompt.SUMMARY_PROMPT
-        return prompt
+    @property
+    def small_blind_player(self):
+        return self.players[(self.dealer_position + 1) % len(self.players)]
+
+    @property
+    def big_blind_player(self):
+        return self.players[(self.dealer_position + 2) % len(self.players)]
+
+    @property
+    def under_the_gun(self):
+        return self.players[(self.dealer_position + 3) % len(self.players)]
 
     @property
     def dealer_position(self):
         return self.players.index(self.dealer)
 
-    # TODO: update this to be a property and to initialize the object attribute
+    @staticmethod
+    def persona_prompt() -> str:
+        prompt = SystemPrompt.SUMMARY_PROMPT
+        return prompt
+
+    def add_players(self, player_names: List[str]):
+        for name in player_names:
+            self.players.append(PokerPlayer(name))
+
     def get_table_positions(self) -> Dict[str, str]:
         table_positions = {"dealer": self.dealer.name,
-                           "small_blind_player": self.players[(self.dealer_position + 1) % len(self.players)].name,
-                           "big_blind_player": self.players[(self.dealer_position + 2) % len(self.players)].name,
-                           "under_the_gun": self.players[(self.dealer_position + 3) % len(self.players)].name
+                           "small_blind_player": self.small_blind_player.name,
+                           "big_blind_player": self.big_blind_player.name,
+                           "under_the_gun": self.under_the_gun.name
                            }
         return table_positions
 
@@ -160,7 +175,7 @@ class RoundManager(Manager):
             self.rotate_dealer()
 
     def set_remaining_players(self):
-        self.remaining_players = [player for player in self.table_manager.players if not player.folded]
+        self.remaining_players = [player for player in self.players if not player.folded]
 
     # TODO: change this to return the options as a PlayerAction enum
     def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
@@ -173,9 +188,9 @@ class RoundManager(Manager):
 
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if (current_player_is_big_blind
-                and self.current_round == PokerHandPhase.PRE_FLOP
+                and self.current_phase == PokerHandPhase.PRE_FLOP
                 and self.pots[0].current_bet == self.small_blind * 2):
-            player_options = ['check', 'raise', 'all-in']
+            player_options = ['check', 'raise', 'all-in', 'chat']
         else:
             player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in', 'chat']
             if player_cost_to_call == 0:
@@ -243,3 +258,6 @@ class RoundManager(Manager):
             response_json = self.assistant.get_response(message)
             action_summary = response_json.choices[0].message.content
         return action_summary
+
+    def initialize_assistant(self):
+        return OpenAILLMAssistant(system_message=self.persona_prompt())

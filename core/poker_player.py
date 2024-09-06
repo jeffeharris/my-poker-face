@@ -3,22 +3,25 @@ import random
 from typing import List, Dict
 
 from core.card import Card
-from core.game import Player, OpenAILLMAssistant
+from core.assistants import OpenAILLMAssistant
 from core.poker_action import PlayerAction
 
 
-class PokerPlayer(Player):
+class PokerPlayer:
     money: int
     cards: List[Card]
     options: List[PlayerAction]
     folded: bool
 
     def __init__(self, name="Player", starting_money=10000):
-        super().__init__(name)
+        self.name = name
         self.money = starting_money
         self.cards = []
         self.options = []
         self.folded = False
+
+    def __str__(self):
+        return self.name
 
     def to_dict(self):
         return {
@@ -324,7 +327,7 @@ class AIPokerPlayer(PokerPlayer):
         confidence = self.confidence
         table_positions = hand_state["table_positions"]
         opponent_status = hand_state["opponent_status"]
-        current_round = hand_state["current_round"]
+        current_round = hand_state["current_phase"]
         community_cards = [str(card) for card in hand_state["community_cards"]]
         opponents = hand_state["remaining_players"]
         number_of_opponents = len(opponents) - 1
