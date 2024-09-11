@@ -93,15 +93,6 @@ class PokerHand:
             action_summary = self.round_manager.assistant.get_response(message)
         return action_summary
 
-    def get_next_round_queue(self, round_queue, betting_player: Optional[PokerPlayer]):
-        next_round_queue = round_queue.copy()
-        if betting_player:
-            index = round_queue.index(betting_player) + 1
-        else:
-            index = 1
-        shift_list_left(next_round_queue, index)
-        return next_round_queue
-
     # # TODO: update to not use interface
     # def end_hand(self):
     #     # Evaluate and announce the winner

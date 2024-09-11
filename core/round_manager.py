@@ -1,10 +1,9 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from core.deck import Deck
 from core.assistants import OpenAILLMAssistant
-from core.utils import PokerHandPhase
 from core.poker_player import PokerPlayer
-from core.poker_settings import PokerSettings
+from core.utils import shift_list_left
 
 
 class SystemPrompt:
@@ -76,9 +75,11 @@ class SystemPrompt:
     
     Now, channel your inner Cookie Masterson and keep the game entertaining, sarcastic, and fun!"""
 
-    SUMMARY_PROMPT = \
+    GENERIC_PROMPT = \
     """You are the table manager for a celebrity poker game. You will be presented with a set of actions and comments that have happened.
     Please provide a brief summary of the events to share with the next player. Format your summaries as a bulleted list."""
+
+MANAGER_PERSONA = "George Carlin"
 
 class RoundManager:
     assistant: OpenAILLMAssistant
@@ -100,6 +101,7 @@ class RoundManager:
     LESS_THAN_100_WORDS = "Use less than 100 words."
 
     def __init__(self):
+        self.name = MANAGER_PERSONA
         self.assistant = self.initialize_assistant()
         self.table_messages = []
         self.deck = Deck()
@@ -128,7 +130,7 @@ class RoundManager:
 
     @staticmethod
     def persona_prompt() -> str:
-        prompt = SystemPrompt.SUMMARY_PROMPT
+        prompt = SystemPrompt.GENERIC_PROMPT
         return prompt
 
     def add_players(self, player_names: List[str]):
@@ -177,37 +179,6 @@ class RoundManager:
     def set_remaining_players(self):
         self.remaining_players = [player for player in self.players if not player.folded]
 
-    # TODO: change this to return the options as a PlayerAction enum
-    def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
-        # How much is it to call the bet for the player?
-        player_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
-        # Does the player have enough to call
-        player_has_enough_to_call = poker_player.money > player_cost_to_call
-        # Is the current player also the big_blind TODO: add "and have they played this hand yet"
-        current_player_is_big_blind = poker_player is self.big_blind_player
-
-        # If the current player is last to act (aka big blind), and we're still in the pre-flop round
-        if (current_player_is_big_blind
-                and self.current_phase == PokerHandPhase.PRE_FLOP
-                and self.pots[0].current_bet == self.small_blind * 2):
-            player_options = ['check', 'raise', 'all-in', 'chat']
-        else:
-            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in', 'chat']
-            if player_cost_to_call == 0:
-                player_options.remove('fold')
-            if player_cost_to_call > 0:
-                player_options.remove('check')
-            if not player_has_enough_to_call or player_cost_to_call == 0:
-                player_options.remove('call')
-            if self.pots[0].current_bet > 0 or player_cost_to_call > 0:
-                player_options.remove('bet')
-            if poker_player.money - self.pots[0].current_bet <= 0 or 'bet' in player_options:
-                player_options.remove('raise')
-            if not settings.all_in_allowed or poker_player.money == 0:
-                player_options.remove('all-in')
-
-        poker_player.options = player_options.copy()
-
     def post_blinds(self):
         small_blind = self.small_blind
         big_blind = small_blind * 2
@@ -216,7 +187,7 @@ class RoundManager:
 
     def deal_hole_cards(self):
         for player in self.players:
-            player.cards = self.deck.deal(2)
+            self.deck.card_deck.deal(player.cards,2)
 
     def get_opponent_status(self, requesting_player=None) -> List[str]:
         opponent_positions = []
@@ -227,6 +198,16 @@ class RoundManager:
                 position += '.\n'
                 opponent_positions.append(position)
         return opponent_positions
+
+    @staticmethod
+    def get_next_round_queue(round_queue, betting_player: Optional[PokerPlayer]):
+        next_round_queue = round_queue.copy()
+        if betting_player:
+            index = round_queue.index(betting_player) + 1
+        else:
+            index = 1
+        shift_list_left(next_round_queue, index)
+        return next_round_queue
 
     def summarize_actions_for_player(self, actions: List[str] or str, player_name: str, constraints=LESS_THAN_50_WORDS) -> str:
         """

@@ -4,19 +4,20 @@ from typing import List, Dict
 
 from core.card import Card
 from core.assistants import OpenAILLMAssistant
+from core.deck import CardSet
 from core.poker_action import PlayerAction
 
 
 class PokerPlayer:
     money: int
-    cards: List[Card]
+    cards: CardSet
     options: List[PlayerAction]
     folded: bool
 
     def __init__(self, name="Player", starting_money=10000):
         self.name = name
         self.money = starting_money
-        self.cards = []
+        self.cards = CardSet()
         self.options = []
         self.folded = False
 
@@ -28,7 +29,7 @@ class PokerPlayer:
             "type": "PokerPlayer",
             "name": self.name,
             "money": self.money,
-            "cards": Card.list_to_dict(self.cards),
+            "cards": Card.list_to_dict(self.cards.cards),
             "options": self.options,
             "folded": self.folded
         }
@@ -70,7 +71,7 @@ class PokerPlayer:
         self.money -= amount
 
     def set_for_new_hand(self):
-        self.cards = []
+        self.cards = CardSet()
         self.folded = False
 
     def get_index(self, players):

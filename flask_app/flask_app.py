@@ -122,7 +122,9 @@ def add_message():
 
 def initialize_game_state():
     poker_players = get_players(test=False, num_players=2)
-    poker_game = PokerGame(poker_players)
+    poker_game = PokerGame()
+
+    poker_game.add_players(players=poker_players)
 
     poker_hand = PokerHand(players=poker_game.players,
                            dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],

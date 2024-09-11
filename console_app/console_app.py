@@ -11,7 +11,8 @@ from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.poker_settings import PokerSettings
 from core.utils import get_players, shift_list_left, PokerHandPhase
 
-CARD_TEMPLATE = '''
+class CardRenderer:
+    _CARD_TEMPLATE = '''
 .---------.
 |{}       |
 | {}       |
@@ -21,7 +22,7 @@ CARD_TEMPLATE = '''
 |       {}|
 `---------'
 '''
-TWO_CARD_TEMPLATE = '''
+    _TWO_CARD_TEMPLATE = '''
 .---.---------.
 |{}  |{}        |
 |  {}|  {}      |
@@ -32,41 +33,78 @@ TWO_CARD_TEMPLATE = '''
 `---`---------'
 '''
 
+    @staticmethod
+    def render_card(card):
+        # Prints a Card to the console
+        rank_left = card.rank.ljust(2)
+        rank_right = card.rank.rjust(2)
+        card = CardRenderer._CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
+        return card
+
+    @staticmethod
+    def render_cards(cards: List[Card]) -> Optional[str]:
+        # Prints a list of Cards to the console
+        card_lines = [CardRenderer.render_card(card).strip().split('\n') for card in cards]
+        if not card_lines:
+            return None
+        ascii_card_lines = []
+        for lines in zip(*card_lines):
+            ascii_card_lines.append('  '.join(lines))
+        card_ascii_string = '\n'.join(ascii_card_lines)
+        return card_ascii_string
+
+    @staticmethod
+    def render_two_cards(card_1, card_2):
+        # Prints two cards to the console. Meant to represent the cards as the players hole cards
+        two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(card_1.rank,
+                                                         card_2.rank,
+                                                         Card.SUIT_TO_ASCII[card_1.suit],
+                                                         Card.SUIT_TO_ASCII[card_2.suit],
+                                                         Card.SUIT_TO_ASCII[card_2.suit],
+                                                         card_2.rank)
+        return two_card_ascii_string
+
+
+class TextFormat:
+    COLOR_CODES = {
+        "CYAN": '\033[96m',
+        "RED": '\033[91m',
+        "GREEN": '\033[92m',
+        "YELLOW": '\033[93m',
+        "BLUE": '\033[94m',
+        "MAGENTA": '\033[95m',
+        "RESET": '\033[0m',
+        "BOLD": '\033[1m',
+        "UNDERLINE": '\033[4m',
+    }
+
+    @staticmethod
+    def format_text(text, *styles):
+        return ''.join(styles) + text + TextFormat.COLOR_CODES["RESET"]
+
+
 class ConsoleInterface(Interface):
-    class TextFormat:
-        CYAN = '\033[96m'
-        RED = '\033[91m'
-        GREEN = '\033[92m'
-        YELLOW = '\033[93m'
-        BLUE = '\033[94m'
-        MAGENTA = '\033[95m'
-        CYAN_BOLD = '\033[96m\033[1m'
-        RED_BOLD = '\033[91m\033[1m'
-        GREEN_BOLD = '\033[92m\033[1m'
-        YELLOW_BOLD = '\033[93m\033[1m'
-        BLUE_BOLD = '\033[94m\033[1m'
-        MAGENTA_BOLD = '\033[95m\033[1m'
-        RESET = '\033[0m'
-        BOLD = '\033[1m'
-        UNDERLINE = '\033[4m'
-
-        def __add__(self, other: str or Dict or List) -> str:
-            return str(self) + str(other)
-
-    def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
-        self.display_text(f"{self.TextFormat.CYAN_BOLD}Actions: {self.TextFormat.CYAN}{options}{self.TextFormat.RESET}")
+    @staticmethod
+    def get_user_input(request):
         return input(request)
 
-    def display_text(self, text: str or Dict or List, style: TextFormat = None):
+    def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
+        self.display_text(TextFormat.format_text(f"Actions: {options}",
+                                                 TextFormat.COLOR_CODES["CYAN"], TextFormat.COLOR_CODES["BOLD"]))
+        return self.get_user_input(request)
+
+    def display_text(self, text: str or Dict or List, style: str = None):
         if style is not None:
-            self.print_pretty_json(style + text + style.RESET)
+            self.print_pretty_json(style + text + TextFormat.COLOR_CODES["RESET"])
         self.print_pretty_json(text)
 
     def display_expander(self, label: str, body: Any):
-        self.display_text(self.TextFormat.BLUE_BOLD + label + self.TextFormat.RESET)
+        self.display_text(TextFormat.format_text(label,
+                                                 TextFormat.COLOR_CODES["BLUE"], TextFormat.COLOR_CODES["BOLD"]))
         self.display_text(body)
 
-    def print_pretty_json(self, input_value):
+    @staticmethod
+    def print_pretty_json(input_value):
         try:
             # If the input is a string, attempt to parse it as JSON
             if isinstance(input_value, str):
@@ -78,7 +116,8 @@ class ConsoleInterface(Interface):
 
             # Convert the parsed JSON or dictionary to a pretty-printed JSON string
             pretty_json = json.dumps(parsed_json, indent=4)
-            print(self.TextFormat.BLUE + pretty_json + self.TextFormat.RESET)
+            print(TextFormat.format_text(pretty_json,
+                                         TextFormat.COLOR_CODES["BLUE"]))
         except (json.JSONDecodeError, ValueError) as e:
             # If parsing fails or input is invalid, print the original value
             print(input_value)
@@ -91,37 +130,8 @@ def display_hole_cards(cards: [Card, Card]):
     card_2 = sorted_cards[1]
 
     # Generate and print each card
-    hole_card_art = render_two_cards(card_1, card_2)
+    hole_card_art = CardRenderer.render_two_cards(card_1, card_2)
     return hole_card_art
-
-
-def render_card(card):
-    rank_left = card.rank.ljust(2)
-    rank_right = card.rank.rjust(2)
-    card = CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
-    return card
-
-
-def render_cards(cards: List[Card]) -> Optional[str]:
-    card_lines = [render_card(card).strip().split('\n') for card in cards]
-    if not card_lines:
-        return None
-    ascii_card_lines = []
-    for lines in zip(*card_lines):
-        ascii_card_lines.append('  '.join(lines))
-    card_ascii_string = '\n'.join(ascii_card_lines)
-    return card_ascii_string
-
-
-def render_two_cards(card_1, card_2):
-    # Generate and print each card
-    two_card_ascii_string = TWO_CARD_TEMPLATE.format(card_1.rank,
-                                                          card_2.rank,
-                                                          Card.SUIT_TO_ASCII[card_1.suit],
-                                                          Card.SUIT_TO_ASCII[card_2.suit],
-                                                          Card.SUIT_TO_ASCII[card_2.suit],
-                                                          card_2.rank)
-    return two_card_ascii_string
 
 
 def reveal_cards(poker_hand, num_cards: int, round_name: PokerHandPhase):
@@ -140,37 +150,76 @@ def reveal_cards(poker_hand, num_cards: int, round_name: PokerHandPhase):
     output_text = f"""
                 ---***{round_name}***---
 """
-    output_text += render_cards(poker_hand.community_cards)
+    output_text += CardRenderer.render_cards(poker_hand.community_cards)
 
     return output_text, new_cards
 
 
-def run_chat(hand_state):
+def get_player_names(hand_state):
     player_names = [player.name for player in hand_state["players"]]
-    human_player_name = ""
-    ai_player_names = []
+    ai_player_names = [player.name for player in hand_state["players"] if isinstance(player, AIPokerPlayer)]
+    human_player_name = next(
+        player.name for player in hand_state["players"] if not isinstance(player, AIPokerPlayer))
+    return player_names, ai_player_names, human_player_name
 
-    for player in hand_state["players"]:
-        if isinstance(player, AIPokerPlayer):
-            ai_player_names.append(player.name)
-        else:
-            human_player_name = player.name
 
-    player_input = input(f"Who do you want to message? {ai_player_names}\n")
+def select_ai_player(ai_player_names, player_names, hand_state):
+    # Prompt the user to select an AI player to message from the given list
+    player_input = CONSOLE_INTERFACE.get_user_input(f"Who do you want to message? {ai_player_names}\n")
     while player_input not in ai_player_names:
-        player_input = input(f"Please enter a name form the list: {ai_player_names}\n")
-    player_to_message = hand_state["players"][player_names.index(player_input)]
+        player_input = CONSOLE_INTERFACE.get_user_input(f"Please enter a name from the list: {ai_player_names}\n")
+    # Return the selected AI player object from the hand_state
+    return hand_state["players"][player_names.index(player_input)]
 
-    chat_message = input("Enter message: ")
-    chat_message = player_to_message.build_hand_update_message(hand_state) + chat_message
+
+def chat_with_ai(hand_state, human_player_name, player_to_message):
+    chat_message = CONSOLE_INTERFACE.get_user_input("Enter message: ")
     while chat_message != "quit":
-        chat_message = (f"Message from {human_player_name}: "
-                       f"{chat_message}")
-        response_json = player_to_message.get_player_response(chat_message)
-        player_to_message.attitude = response_json["new_attitude"]
-        player_to_message.confidence = response_json["new_confidence"]
+        formatted_message = (
+            f"Message from {human_player_name}: "
+            f"{player_to_message.build_hand_update_message(hand_state) + chat_message}"
+        )
+        response_json = player_to_message.get_player_response(formatted_message)
         CONSOLE_INTERFACE.print_pretty_json(response_json)
-        chat_message = input("Enter response: ")
+        chat_message = CONSOLE_INTERFACE.get_user_input("Enter response: ")
+
+
+def run_chat(hand_state):
+    player_names, ai_player_names, human_player_name = get_player_names(hand_state)
+    player_to_message = select_ai_player(ai_player_names, player_names, hand_state)
+    chat_with_ai(hand_state, human_player_name, player_to_message)
+
+
+# TODO: change this to return the options as a PlayerAction enum
+def set_player_options(self, poker_player: PokerPlayer, settings: PokerSettings):
+    # How much is it to call the bet for the player?
+    player_cost_to_call = self.pots[0].get_player_cost_to_call(poker_player)
+    # Does the player have enough to call
+    player_has_enough_to_call = poker_player.money > player_cost_to_call
+    # Is the current player also the big_blind TODO: add "and have they played this hand yet"
+    current_player_is_big_blind = poker_player is self.big_blind_player
+
+    # If the current player is last to act (aka big blind), and we're still in the pre-flop round
+    if (current_player_is_big_blind
+            and self.current_phase == PokerHandPhase.PRE_FLOP
+            and self.pots[0].current_bet == self.small_blind * 2):
+        player_options = ['check', 'raise', 'all-in', 'chat']
+    else:
+        player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in', 'chat']
+        if player_cost_to_call == 0:
+            player_options.remove('fold')
+        if player_cost_to_call > 0:
+            player_options.remove('check')
+        if not player_has_enough_to_call or player_cost_to_call == 0:
+            player_options.remove('call')
+        if self.pots[0].current_bet > 0 or player_cost_to_call > 0:
+            player_options.remove('bet')
+        if poker_player.money - self.pots[0].current_bet <= 0 or 'bet' in player_options:
+            player_options.remove('raise')
+        if not settings.all_in_allowed or poker_player.money == 0:
+            player_options.remove('all-in')
+
+    poker_player.options = player_options.copy()
 
 
 def get_player_action(player, hand_state) -> PokerAction:
@@ -194,10 +243,10 @@ def get_player_action(player, hand_state) -> PokerAction:
         else:
             action = "fold"
     if action in ["bet", "b", "be"]:
-        add_to_pot = int(input("Enter amount: "))
+        add_to_pot = int(CONSOLE_INTERFACE.get_user_input("Enter amount: "))
         action = "bet"
     elif action in ["raise", "r", "ra", "rai", "rais"]:
-        raise_amount = int(input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+        raise_amount = int(CONSOLE_INTERFACE.get_user_input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
         # add_to_pot = raise_amount - current_pot.current_bet
         add_to_pot = raise_amount + cost_to_call
         action = "raise"
@@ -221,7 +270,7 @@ def get_player_action(player, hand_state) -> PokerAction:
         run_chat(hand_state)
         return get_player_action(player, hand_state)
 
-    chat_message = input("Enter table comment (optional): ")
+    chat_message = CONSOLE_INTERFACE.get_user_input("Enter table comment (optional): ")
     if chat_message != "":
         hand_state["table_messages"].append({"name": player.name, "message": chat_message})
 
@@ -427,10 +476,12 @@ def play_hand(poker_hand):
     winning_player, winning_hand = poker_hand.determine_winner()
     CONSOLE_INTERFACE.display_text(f"The winner is {winning_player.name}! They win the pot of {poker_hand.pots[0].total}")
 
-    # Get end fo hand reactions from AI players
+    # Get end of hand reactions from AI players
     player_reactions = []
     winner_shows_cards = True  # TODO: let the winner decide if they want to show their cards in cases where they don't need to
     winners_cards_string = f"{winning_player.name} didn't show their cards!"  # Initialize the message in the case that the winner did not show their cards
+
+    winning_hand_string = ""
     if winner_shows_cards:
         winning_hand_string = [str(card) for card in winning_hand]
         winners_cards_string = [str(card) for card in winning_player.cards]
