@@ -159,7 +159,7 @@ class AIPokerPlayer(PokerPlayer):
         # Reset the assistant's memory instead of directly assigning a new list.
         self.assistant.reset_memory()
 
-    def initialize_attribute(self, attribute, constraints=DEFAULT_CONSTRAINTS, opponents="other players", mood=None):
+    def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
         Initializes the attribute for the player's inner voice.
 
@@ -172,7 +172,6 @@ class AIPokerPlayer(PokerPlayer):
         Returns:
             str: A response based on the mood.
         """
-
         formatted_message = (
             f"You are {self.name}'s inner voice. Describe their {attribute} as they enter a poker game against {opponents}. "
             f"This description is being used for a simulation of a poker game and we want to have a variety of personalities "
@@ -185,6 +184,8 @@ class AIPokerPlayer(PokerPlayer):
         response = self.assistant.get_json_response(messages=[{"role": "user", "content": formatted_message}])
         content = json.loads(response.choices[0].message.content)
         responses = content["responses"]
+
+        # if mood is None, randomly assign the mood from the response
         if mood is None:
             # Randomly select the response mood
             random.shuffle(responses)

@@ -503,18 +503,13 @@ def play_hand(poker_hand):
                 "response_json": response_json
                 }
             player_reactions.append(reaction)
-            if reaction is not None:
-                name = reaction["name"]
-                message = reaction["response_json"]
-                CONSOLE_INTERFACE.display_text(name)
-                CONSOLE_INTERFACE.display_text(message)
 
-    # for r in player_reactions:
-    #     if r is not None:
-    #         name = r["name"]
-    #         message = r["response_json"]
-    #         CONSOLE_INTERFACE.display_text(name)
-    #         CONSOLE_INTERFACE.display_text(message)
+    for r in player_reactions:
+        if r is not None:
+            name = r["name"]
+            message = r["response_json"]
+            CONSOLE_INTERFACE.display_text(name)
+            CONSOLE_INTERFACE.display_text(message)
 
     game_actions = [action.action_comment for action in poker_hand.poker_actions]
     game_actions.append(build_hand_complete_update_message(player_name=winning_player.name,

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List
 
 from core.deck import CardSet
 from core.poker_action import PokerAction

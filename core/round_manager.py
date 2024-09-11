@@ -1,8 +1,9 @@
+import random
 from typing import List, Dict, Optional
 
 from core.deck import Deck
 from core.assistants import OpenAILLMAssistant
-from core.poker_player import PokerPlayer
+from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.utils import shift_list_left
 
 
@@ -97,6 +98,7 @@ class RoundManager:
     min_bet: int
 
     # Constraints used for initializing the AI PLayer attitude and confidence
+    LESS_THAN_20_WORDS = "Use less than 20 words."
     LESS_THAN_50_WORDS = "Use less than 50 words."
     LESS_THAN_100_WORDS = "Use less than 100 words."
 
@@ -136,6 +138,29 @@ class RoundManager:
     def add_players(self, player_names: List[str]):
         for name in player_names:
             self.players.append(PokerPlayer(name))
+
+    def initialize_ai_player(self, player, player_names):
+        """Set initial confidence and attitude attributes for AI Poker Player."""
+        # Choose AI attribute  at random, using 3 different values; low, medium and high for any attribute.
+        i = random.randint(0, 2)
+        player.confidence = player.initialize_attribute(
+            "confidence",
+            self.LESS_THAN_20_WORDS,
+            player_names,
+            mood=1
+        )
+        player.attitude = player.initialize_attribute(
+            "attitude",
+            self.LESS_THAN_20_WORDS,
+            player_names,
+            mood=i
+        )
+
+    def initialize_players(self):
+        for player in self.players:
+            if isinstance(player, AIPokerPlayer):
+                player_names = [p.name for p in self.players if p != player]
+                self.initialize_ai_player(player, player_names)
 
     def get_table_positions(self) -> Dict[str, str]:
         table_positions = {"dealer": self.dealer.name,

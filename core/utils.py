@@ -1,9 +1,6 @@
 import random
 from enum import Enum
 
-from core.poker_player import PokerPlayer, AIPokerPlayer
-
-
 # Constants for configuration
 DEFAULT_NUM_PLAYERS = 2
 ATTRIBUTE_CONSTRAINT = "Use less than 20 words"
@@ -19,7 +16,9 @@ CELEBRITIES_LIST = [
     "C3PO", "R2-D2", "Winston Churchill", "Abraham Lincoln", "Buddha",
     "Crocodile Dundee", "Tyler Durden", "Hulk Hogan", "The Rock", "The Hulk",
     "King Henry VIII", "Louis XIV", "Kim Jong Un", "Scarlett Johansson",
-    "Joan of Ark"
+    "Joan of Ark", "John Wayne", "Doc Holiday", "Captain Jack Sparrow",
+    "Terry Tate, Office Linebacker", "Bob Dylan", "Captain Spock", "Scarlett Johansson",
+    "Howard Stern", "Elmo", "Captain Ahab", "Dracula", "Ludacris", "Lil John",
 ]
 
 
@@ -33,44 +32,26 @@ def initialize_test_players():
     return ["Player1", "Player2"]
 
 
-# TODO: move this logic to the game initialization
-def initialize_ai_player(player, player_names):
-    """Set initial confidence and attitude attributes for AI Poker Player."""
-    i = random.randint(0, 2)
-    player.confidence = player.initialize_attribute(
-        "confidence",
-        ATTRIBUTE_CONSTRAINT,
-        player_names,
-        mood=i
-    )
-    player.attitude = player.initialize_attribute(
-        "attitude",
-        ATTRIBUTE_CONSTRAINT,
-        player_names,
-        mood=i
-    )
-
-
 def get_players(test=False, num_players=DEFAULT_NUM_PLAYERS,
-                definites=None, celebrities=None, random_seed=None):
+                humans=None, celebrities=None, random_seed=None):
     """
     Retrieve a list of players, either for testing or actual gameplay.
 
     Parameters:
         test (bool): Flag to indicate if test players should be used.
         num_players (int): Total number of players required.
-        definites (list): List of definite players.
+        humans (list): List of definite players.
         celebrities (list): List of celebrity names.
         random_seed (int): Seed for random number generator (optional).
 
     Returns:
         list: List of initialized player names or objects.
     """
-    definites = definites if definites else ["Jeff"]
+    humans = humans if humans else ["Jeff"]
     celebrities = celebrities if celebrities else get_celebrities()
 
-    if num_players < len(definites):
-        raise ValueError("Number of players cannot be less than the number of definite players.")
+    if num_players < len(humans):
+        raise ValueError("Number of players cannot be less than the number of human players.")
 
     if test:
         return initialize_test_players()
@@ -79,14 +60,8 @@ def get_players(test=False, num_players=DEFAULT_NUM_PLAYERS,
         random.seed(random_seed)
 
     random.shuffle(celebrities)
-    randos = celebrities[:num_players - len(definites)]
-    player_list = definites + randos
-
-    # TODO: relocate this logic to the game initialization or RoundManager
-    # for player in player_list:
-    #     if isinstance(player, AIPokerPlayer):
-    #         player_names = [p.name for p in player_list if p != player]
-    #         initialize_ai_player(player, player_names)
+    randos = celebrities[:num_players - len(humans)]
+    player_list = humans + randos
 
     return player_list
 
