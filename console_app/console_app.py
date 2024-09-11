@@ -11,6 +11,10 @@ from core.poker_player import PokerPlayer, AIPokerPlayer
 from core.poker_settings import PokerSettings
 from core.utils import get_players, shift_list_left
 
+
+VIEW_AI_HAND_UPDATES = True
+VIEW_AI_ACTION_INSIGHTS = True
+
 CARD_TEMPLATE = '''
 .---------.
 |{}       |
@@ -238,13 +242,18 @@ def get_player_action(player, hand_state) -> PokerAction:
 def get_ai_player_action(player, hand_state):
     display_hand_update_text(hand_state, player)
 
+    # Create the update message to be shared with the AI before they take their action
     hand_update_message = player.build_hand_update_message(hand_state)
     # Show the update shared with the AI
-    # CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Hand Update",body=hand_update_message)
+    if VIEW_AI_HAND_UPDATES:
+        CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Hand Update",body=hand_update_message)
+
+    # Get the response from the AI player
     response_json = player.get_player_response(hand_update_message)
 
     # Show the entire JSON response form the AI
-    # CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Insights", body=response_json)
+    if VIEW_AI_ACTION_INSIGHTS:
+        CONSOLE_INTERFACE.display_expander(label=f"{player.name}'s Insights", body=response_json)
 
     action = response_json["action"]
     add_to_pot = response_json["adding_to_pot"]
@@ -458,12 +467,13 @@ def play_hand(poker_hand):
                 CONSOLE_INTERFACE.display_text(name)
                 CONSOLE_INTERFACE.display_text(message)
 
-    # for r in player_reactions:
-    #     if r is not None:
-    #         name = r["name"]
-    #         message = r["response_json"]
-    #         CONSOLE_INTERFACE.display_text(name)
-    #         CONSOLE_INTERFACE.display_text(message)
+    if VIEW_AI_ACTION_INSIGHTS:
+        for r in player_reactions:
+            if r is not None:
+                name = r["name"]
+                message = r["response_json"]
+                CONSOLE_INTERFACE.display_text(name)
+                CONSOLE_INTERFACE.display_text(message)
 
     game_summary = poker_hand.table_manager.summarize_actions([action.action_comment for action in poker_hand.poker_actions])
     CONSOLE_INTERFACE.display_text(game_summary)
