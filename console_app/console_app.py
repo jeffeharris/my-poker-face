@@ -14,6 +14,9 @@ from core.utils import get_players, shift_list_left
 
 VIEW_AI_HAND_UPDATES = True
 VIEW_AI_ACTION_INSIGHTS = True
+VIEW_AI_HAND_SUMMARY = True
+NUM_PLAYERS = 4
+TEST_MODE = False
 
 CARD_TEMPLATE = '''
 .---------.
@@ -293,12 +296,13 @@ def display_hand_update_text(hand_state, player):
     CONSOLE_INTERFACE.display_text(game_update_text)
 
 
-    # # create a list of the action comments and then send them to the table manager to summarize
-    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-    # if len(action_comment_list) > 0:
-    #     action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-3:])
-    #     # display the summary to the console
-    #     CONSOLE_INTERFACE.display_text("\n" + action_summary + "\n")
+    # create a list of the action comments and then send them to the table manager to summarize
+    if VIEW_AI_HAND_SUMMARY:
+        action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+        if len(action_comment_list) > 0:
+            action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-3:])
+            # display the summary to the console
+            CONSOLE_INTERFACE.display_text("\n" + action_summary + "\n")
 
 # Used to debug issues with folding and player_queue can likely be removed
 def print_queue_status(player_queue: List[PokerPlayer]):
@@ -461,11 +465,6 @@ def play_hand(poker_hand):
                 "response_json": response_json
                 }
             player_reactions.append(reaction)
-            if reaction is not None:
-                name = reaction["name"]
-                message = reaction["response_json"]
-                CONSOLE_INTERFACE.display_text(name)
-                CONSOLE_INTERFACE.display_text(message)
 
     if VIEW_AI_ACTION_INSIGHTS:
         for r in player_reactions:
@@ -524,7 +523,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(test=False, num_players=2):
+def main(test=TEST_MODE, num_players=NUM_PLAYERS):
     players = get_players(test=test, num_players=num_players)
     poker_game = PokerGame(players)
     play_game(poker_game)
