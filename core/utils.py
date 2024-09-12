@@ -32,8 +32,7 @@ def initialize_test_players():
     return ["Player1", "Player2"]
 
 
-def get_players(test=False, num_players=DEFAULT_NUM_PLAYERS,
-                humans=None, celebrities=None, random_seed=None):
+def get_ai_players(num_players=DEFAULT_NUM_PLAYERS, celebrities=None, random_seed=None):
     """
     Retrieve a list of players, either for testing or actual gameplay.
 
@@ -45,25 +44,18 @@ def get_players(test=False, num_players=DEFAULT_NUM_PLAYERS,
         random_seed (int): Seed for random number generator (optional).
 
     Returns:
-        list: List of initialized player names or objects.
+        Dict: 2 lists of player names.
     """
-    humans = humans if humans else ["Jeff"]
     celebrities = celebrities if celebrities else get_celebrities()
-
-    if num_players < len(humans):
-        raise ValueError("Number of players cannot be less than the number of human players.")
-
-    if test:
-        return initialize_test_players()
 
     if random_seed is not None:
         random.seed(random_seed)
 
     random.shuffle(celebrities)
-    randos = celebrities[:num_players - len(humans)]
-    player_list = humans + randos
+    randos = celebrities[:num_players]
+    player_names = randos
 
-    return player_list
+    return player_names
 
 
 def shift_list_left(my_list: list, count: int = 1):
