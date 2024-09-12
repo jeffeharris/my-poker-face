@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Optional, Dict
 
 
 class PlayerAction(Enum):
@@ -18,7 +18,7 @@ class PokerAction:
     player: str
     player_action: PlayerAction
     amount: Optional[int]
-    hand_state: Optional[dict]
+    hand_state: Optional[Dict]
     action_detail: Optional[str]
     action_comment: Optional[str]
 
@@ -26,7 +26,7 @@ class PokerAction:
                  player: str,
                  action: str,
                  amount: int or None = None,
-                 hand_state: dict or None = None,
+                 hand_state: Dict or None = None,
                  action_detail: str or None = None,
                  action_comment: str or None = None):
         self.player = player
