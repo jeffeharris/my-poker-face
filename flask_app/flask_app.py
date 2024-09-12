@@ -135,7 +135,7 @@ def initialize_game_state():
 
 
 def process_player_action(game_state, action):
-    # get poker_hand
+    # get ph
     poker_hand_dict = game_state['hands'][-1]
     poker_hand = PokerHand.from_dict(poker_hand_dict)
     player_action = PokerAction.from_dict(action)

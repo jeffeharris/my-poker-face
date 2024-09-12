@@ -77,10 +77,10 @@ def play_hand(poker_hand: PokerHand):
     poker_hand.betting_round(round_queue)
 
     poker_hand.reveal_turn()
-    # poker_hand.betting_round(round_queue)
+    # ph.betting_round(round_queue)
 
     poker_hand.reveal_river()
-    # poker_hand.betting_round(round_queue)
+    # ph.betting_round(round_queue)
 
     poker_hand.end_hand()
 
