@@ -32,16 +32,16 @@ class Interface:
         pass
 
 
-class ConsoleInterface(Interface):
-    def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
-        print(options)
-        return input(request)
-
-    def display_text(self, text):
-        print(text)
-
-    def display_expander(self, label: str, body: Any):
-        self.display_text(body)
+# class ConsoleInterface(Interface):
+#     def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
+#         print(options)
+#         return input(request)
+#
+#     def display_text(self, text):
+#         print(text)
+#
+#     def display_expander(self, label: str, body: Any):
+#         self.display_text(body)
 
 
 class StreamlitInterface(Interface):
