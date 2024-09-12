@@ -43,7 +43,7 @@ class HandEvaluator:
             has_straight, straight_values, _ = HandEvaluator(flush_cards).check_straight()
             if has_straight:
                 return True, straight_values, [], flush_suit
-        return False, [], [], []        # TODO: should we handle the 4th return value for suit?
+        return False, [], [], []        # TODO: <REFACTOR> should we handle the 4th return value for suit?
 
     def check_four_of_a_kind(self):
         for rank, count in self.rank_counts.items():

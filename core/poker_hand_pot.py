@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 
-# TODO: Remove bug where two players with the same name would have a clash. May require player UUID?
+# TODO: <BUG> Remove bug where two players with the same name would have a clash. May require player UUID? Unlikely to be an issue in the short term
 class PokerHandPot:
     player_pot_amounts: Dict[str, int]  # Use player names instead of PokerPlayer objects
     pot_winner: Optional[str]

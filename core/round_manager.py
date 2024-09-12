@@ -98,7 +98,7 @@ class RoundManager:
     small_blind: int
     min_bet: int
 
-    # TODO: Move these to a constraints class
+    # TODO: <REFACTOR> Move these to a constraints class
     # Constraints used for initializing the AI PLayer attitude and confidence
     LESS_THAN_20_WORDS = "Use less than 20 words."
     LESS_THAN_50_WORDS = "Use less than 50 words."
@@ -223,7 +223,7 @@ class RoundManager:
         self.remaining_players = [player for player in self.players if not player.folded]
 
     def setup_hand(self, poker_hand_pot, poker_hand_phase):
-        self.set_remaining_players()  # TODO: review set_remaining_players to understand why it's here.
+        self.set_remaining_players()  # TODO: <REFACTOR> review set_remaining_players to understand why it's here.
         self.dealer = self.players[random.randint(0, len(self.players) - 1)]
         self.post_blinds(poker_hand_pot)
         self.deal_hole_cards()
@@ -280,6 +280,7 @@ class RoundManager:
         shift_list_left(next_round_queue, index)
         return next_round_queue
 
+    # TODO: <REFACTOR> summarize_actions and summarize_actions_for_player have too much in common, better to combine so future updates are more maintainable
     def summarize_actions_for_player(self, actions: List[str] or str, player_name: str, constraints=LESS_THAN_50_WORDS) -> str:
         """
         Function should take in text descriptions of actions taken during a poker round and create a summary.
@@ -295,7 +296,7 @@ class RoundManager:
             action_summary = response_json.choices[0].message.content
         return action_summary
 
-    def summarize_actions(self, actions: List[str] or str, constraints="Use less than 100 words") -> str:
+    def summarize_actions(self, actions: List[str] or str, constraints=LESS_THAN_100_WORDS) -> str:
         """
         Function should take in text descriptions of actions taken during a poker round and create a summary.
         """

@@ -10,10 +10,10 @@ class PlayerAction(Enum):
     RAISE = "raise"
     ALL_IN = "all-in"
     CHAT = "chat"
-    NONE = None  # TODO: remove None as an option
+    NONE = None  # TODO: <REFACTOR> remove None as an option, here for testing
 
 
-# TODO: write unit tests for PokerAction
+# TODO: <TESTING> write unit tests for PokerAction
 class PokerAction:
     player: str
     player_action: PlayerAction

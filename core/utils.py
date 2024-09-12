@@ -112,7 +112,7 @@ def serialize(converted_object):
         return str(converted_object)
 
 
-# TODO: move bake to PokerHand or RoundManager
+# TODO: <REFACTOR> move bake to PokerHand or RoundManager
 class PokerHandPhase(Enum):
     INITIALIZING = "initializing"
     PRE_FLOP = "pre-flop"

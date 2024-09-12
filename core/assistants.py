@@ -26,7 +26,7 @@ class LLMAssistant:
     def memory_length(self):
         return len(self.memory)
 
-    # TODO: abstract to a memory class
+    # TODO: <FEATURE> abstract to a memory class
     def trim_memory(self):
         if self.memory_length > self.max_memory_length:
             self.memory = self.memory[-self.max_memory_length:]
@@ -108,7 +108,7 @@ class OpenAILLMAssistant(LLMAssistant):
 
     def to_dict(self):
         return {
-            "__name__": "OpenAILLMAssistant",   # TODO: change __name__ to type if there isnt a magic property of name
+            "__name__": "OpenAILLMAssistant",   # TODO: <BUG> change __name__ to type if there isnt a magic property of name
             "ai_model": self.ai_model,
             "ai_temp": self.ai_temp,
             "system_message": self.system_message,

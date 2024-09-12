@@ -86,7 +86,7 @@ class PokerGame:
                 hands.append((player, HandEvaluator(player.cards + self.hands[-1].community_cards).evaluate_hand()))
 
 
-        # TODO: remove all of the prints from determine_winner, replace with a different UX
+        # TODO: <REFACTOR> remove all of the prints from determine_winner, replace with a different UX
         print(f"Before sorting:\n"
               f"Community Cards: {hand.community_cards.cards}\n")
         for player, hand_info in hands:

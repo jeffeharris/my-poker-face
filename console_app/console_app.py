@@ -1,5 +1,4 @@
 import json
-import random
 from typing import List, Optional, Any, Dict
 
 from core.card import Card
@@ -206,13 +205,13 @@ def run_chat(hand_state):
     chat_with_ai(hand_state, human_player_name, player_to_message)
 
 
-# TODO: change this to return the options as a PlayerAction enum
+# TODO: <REFACTOR> change this to return the options as a PlayerAction enum
 def set_player_options(poker_hand, poker_player: PokerPlayer, settings: PokerSettings, big_blind_player_name: str, small_blind: int):
     # How much is it to call the bet for the player?
     player_cost_to_call = poker_hand.pots[0].get_player_cost_to_call(poker_player.name)
     # Does the player have enough to call
     player_has_enough_to_call = poker_player.money > player_cost_to_call
-    # Is the current player also the big_blind TODO: add "and have they played this hand yet"
+    # Is the current player also the big_blind TODO: <BUG> add "and have they played this hand yet"
     current_player_is_big_blind = (poker_player.name == big_blind_player_name)
 
     # If the current player is last to act (aka big blind), and we're still in the pre-flop round
@@ -299,7 +298,6 @@ def get_player_action(player, hand_state) -> PokerAction:
     poker_action = PokerAction(player, action, add_to_pot, hand_state, action_detail, action_comment)
     return poker_action
 
-# TODO: determine if this is needed or can be deleted
 def get_ai_player_action(player, hand_state):
     display_hand_update_text(hand_state, player)
 
@@ -330,8 +328,7 @@ def get_ai_player_action(player, hand_state):
 
     CONSOLE_INTERFACE.display_text(action_comment)
 
-    # TODO: return a dict that can be converted to a PokerAction so we can decouple the Classes
-    # TODO: reduce what is sent from hand_state to just what is needed - unknown at this point what that will be
+    # TODO: <REFACTOR> reduce what is sent from hand_state to just what is needed - unknown at this point what that will be
     poker_action = PokerAction(player.name, action, add_to_pot, hand_state, response_json, action_comment)
     return poker_action
 
@@ -380,7 +377,7 @@ def handle_all_in(poker_hand, round_manager, player: PokerPlayer, add_to_pot: in
     if raising:
         return betting_round(poker_hand, next_round_queue, round_manager, is_initial_round=False)
     else:
-        # TODO: create a side pot
+        # TODO: <FEATURE> create a side pot
         pass
 
 def handle_call(poker_hand, player: PokerPlayer, add_to_pot: int):
@@ -450,13 +447,13 @@ def process_player_action(poker_hand, round_manager, player: PokerPlayer, poker_
     elif player_action == PlayerAction.CHECK:
         return False
     elif player_action == PlayerAction.CHAT:
-        # TODO: implement handle_chat to open up  ability for AIs to chat with each other or the player.
+        # TODO: <FEATURE> implement handle_chat to open up ability for AIs to chat with each other or the player.
         pass
     else:
         raise ValueError("Invalid action selected: " + str(player_action))
     return False
 
-# TODO: update to not use interface
+# TODO: <REFACTOR> update to separate the game action from the interface ouput
 def reveal_flop(poker_hand, deck):
     output_text = reveal_cards(poker_hand, deck, 3, PokerHandPhase.FLOP)
     CONSOLE_INTERFACE.display_text(output_text)
@@ -510,7 +507,7 @@ def play_hand(poker_game):
 
     # Get end of hand reactions from AI players
     player_reactions = []
-    winner_shows_cards = True  # TODO: let the winner decide if they want to show their cards in cases where they don't need to
+    winner_shows_cards = True  # TODO: <FEATURE> let the winner decide if they want to show their cards in cases where they don't need to
     winners_cards_string = f"{winning_player_name} didn't show their cards!"  # Initialize the message in the case that the winner did not show their cards
 
     winning_hand_string = ""
@@ -547,7 +544,7 @@ def play_hand(poker_game):
     CONSOLE_INTERFACE.display_text(game_summary)
 
     # Reset game for next round
-    ph.pots[0].resolve_pot(winning_player_name, winning_player.collect_winnings)  # TODO: implement support for side-pots (multiple pots)
+    ph.pots[0].resolve_pot(winning_player_name, winning_player.collect_winnings)  # TODO: <FEATURE> implement support for side-pots (multiple pots)
     rm.rotate_dealer()
     # Return community cards to Deck discard pile
     rm.deck.return_cards_to_discard_pile(ph.community_cards)

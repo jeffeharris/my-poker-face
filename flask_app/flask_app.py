@@ -77,7 +77,7 @@ def handle_player_action(data):
             handle_ai_turns()
 
 
-# TODO: update these messages interactions to use socketio for real time back/forth
+# TODO: <FEATURE> update these messages interactions to use socketio for real time back/forth
 @app.route('/messages', methods=['GET'])
 def get_messages():
     return jsonify(

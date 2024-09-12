@@ -277,7 +277,7 @@ class AIPokerPlayer(PokerPlayer):
 
         return poker_prompt
 
-    # TODO: re-introduce this logic to help AI examine cards - also used to show player some advantages during the hand
+    # TODO: <FEATURE> re-introduce this logic to help AI examine cards - also used to show player some advantages during the hand
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
     #     hand_ranks = []
@@ -337,7 +337,7 @@ class AIPokerPlayer(PokerPlayer):
         opponents = hand_state["remaining_players"]
         number_of_opponents = len(opponents) - 1
         player_money = self.money
-        # TODO: decide what to do with this position idea
+        # TODO: <FEATURE> decide what to do with this position idea
         # position = hand_state["positions"][self]
         current_situation = hand_state["current_situation"]
         hole_cards = [str(card) for card in self.cards]

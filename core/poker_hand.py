@@ -6,7 +6,6 @@ from core.poker_hand_pot import PokerHandPot
 from core.poker_player import PokerPlayer
 from core.utils import obj_to_dict, PokerHandPhase
 
-
 class PokerHand:
     """
     PokerHand manages the state of a hand within a game
@@ -22,11 +21,11 @@ class PokerHand:
         self.current_phase = PokerHandPhase.PRE_FLOP
         self.pots = [PokerHandPot()]
 
-    # def to_dict(self):
-    #     return obj_to_dict(self.hand_state)
+    def to_dict(self):
+        return obj_to_dict(self.hand_state)
 
     @staticmethod
-    def list_to_dict(hands):
+    def list_to_dict(hands: List['PokerHand']):
         hand_dict_list = []
         for hand in hands:
             hand_dict = hand.to_dict()
@@ -35,7 +34,7 @@ class PokerHand:
 
     @classmethod
     def from_dict(cls, data: dict):
-        hand = cls(**data)
+        hand = cls(**data) # TODO: <BUG> implement a from_dict function to deserialize a PokerHand
         return hand
 
     @property
@@ -59,21 +58,7 @@ class PokerHand:
             pot_contributions.append(pot.get_player_pot_amount(player.name))
         return sum(pot_contributions)
 
-    def summarize_actions(self, count) -> str:
-        """
-        Function should take in text descriptions of actions taken during a poker round and create a summary.
-        """
-        actions = self.poker_actions[-count:]
-
-        if actions is str:
-            action_summary = actions
-        else:
-            summary_request = f"Please summarize these actions for a poker game in the style of {self.name}: {actions}\n"
-            message = [{"role": "user", "content": summary_request}]
-            action_summary = self.round_manager.assistant.get_response(message)
-        return action_summary
-
-    # # TODO: update to not use interface
+    # # TODO: <REFACTOR> bring back end_hand - maybe here or maybe the round_manager
     # def end_hand(self):
     #     # Evaluate and announce the winner
     #     winning_player = self.determine_winner()
