@@ -579,11 +579,11 @@ def play_game(poker_game: PokerGame):
 
         # Check if the game should continue
         # Remove players from the hand if they are out of money
-        poker_hand.remaining_players = [player for player in poker_game.round_manager.starting_players if player.money > 0]
-        if len(poker_hand.remaining_players) == 1:      # When all other players have lost
+        poker_game.round_manager.remaining_players = [player for player in poker_game.round_manager.starting_players if player.money > 0]
+        if len(poker_game.round_manager.remaining_players) == 1:      # When all other players have lost
             CONSOLE_INTERFACE.display_text(f"{poker_game.round_manager.players[0].name} is the last player remaining and wins the hand!")
             return  # This causes an error when there is only 1 player eft in the game. Later, the player should be given the option to enter another tournament.
-        elif len(poker_hand.remaining_players) == 0:    # This case should never happen
+        elif len(poker_game.round_manager.remaining_players) == 0:    # This case should never happen
             CONSOLE_INTERFACE.display_text("You... you all lost. Somehow you all have no money.")
             return
         poker_game.round_manager.deck.reset()
@@ -596,9 +596,12 @@ def play_game(poker_game: PokerGame):
             break
         else:
             # TODO: implement playing another round with the new class updates
-            poker_hand = PokerHand(players=poker_game.round_manager.remaining_players,
-                                   dealer=poker_game.round_manager.dealer,
-                                   deck=poker_game.round_manager.deck)
+            new_hand = PokerHand()
+            new_hand.pots[0].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
+            poker_hand = new_hand
+            # poker_hand = PokerHand(players=poker_game.round_manager.remaining_players,
+            #                        dealer=poker_game.round_manager.dealer,
+            #                        deck=poker_game.round_manager.deck)
 
     CONSOLE_INTERFACE.display_text("Game over!")
 

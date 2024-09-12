@@ -83,9 +83,9 @@ class Deck:
         if shuffle:
             self.shuffle()
 
-    def return_cards_to_discard_pile(self, cards: List[Card]) -> None:
+    def return_cards_to_discard_pile(self, cards: CardSet) -> None:
         """Return cards to the discard pile."""
-        self.discard_pile.cards += cards
+        cards.deal(self.discard_pile, len(cards))
 
     def reset(self) -> None:
         """Reset the Deck by returning all cards from the discard pile."""
@@ -93,7 +93,7 @@ class Deck:
             self._return_cards_to_deck(self.discard_pile.cards)
             self.shuffle()
         else:
-            raise DeckError("Deck is missing cards")
+            raise DeckError("Deck card count is wrong")
 
     def _validate_deck(self) -> bool:
         return len(self.card_deck) + len(self.discard_pile) == 52
