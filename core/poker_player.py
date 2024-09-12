@@ -70,6 +70,9 @@ class PokerPlayer:
     def get_for_pot(self, amount):
         self.money -= amount
 
+    def collect_winnings(self, amount):
+        self.money += amount
+
     def set_for_new_hand(self):
         self.cards = CardSet()
         self.folded = False
@@ -339,8 +342,8 @@ class AIPokerPlayer(PokerPlayer):
         current_situation = hand_state["current_situation"]
         hole_cards = [str(card) for card in self.cards]
         current_pot = hand_state["current_pot"]
-        current_bet = current_pot.current_bet
-        cost_to_call = current_pot.get_player_cost_to_call(self)
+        # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
+        cost_to_call = current_pot.get_player_cost_to_call(self.name)
         player_options = self.options
 
         # create a list of the action comments and then send them to the table manager to summarize
@@ -368,7 +371,7 @@ class AIPokerPlayer(PokerPlayer):
 
         pot_state = (
             f"Pot Total: ${current_pot.total}\n"
-            f"How much you've bet: ${current_pot.get_player_pot_amount(self)}\n"
+            f"How much you've bet: ${current_pot.get_player_pot_amount(self.name)}\n"
             f"Your cost to call: ${cost_to_call}\n"
         )
 
