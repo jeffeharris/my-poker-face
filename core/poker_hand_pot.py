@@ -1,17 +1,21 @@
 from typing import Dict, List, Optional
 
+# TODO: Remove bug where two players with the same name would have a clash. May require player UUID?
 class PokerHandPot:
     player_pot_amounts: Dict[str, int]  # Use player names instead of PokerPlayer objects
     pot_winner: Optional[str]
 
-    def __init__(self, player_names: List[str], player_pot_amounts: Optional[Dict[str, int]] = None,
+    def __init__(self, player_pot_amounts: Optional[Dict[str, int]] = None,
                  pot_winner: Optional[str] = None):
-        self.player_pot_amounts = player_pot_amounts or self._initialize_pot_amounts(player_names)
+        self.player_pot_amounts = player_pot_amounts or {}
         self.pot_winner = pot_winner
 
     @staticmethod
     def _initialize_pot_amounts(player_names: List[str]) -> Dict[str, int]:
         return {name: 0 for name in player_names}
+
+    def initialize_pot(self, player_names: List[str]):
+        self.player_pot_amounts = self._initialize_pot_amounts(player_names)
 
     def to_dict(self) -> Dict:
         return {
