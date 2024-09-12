@@ -479,26 +479,11 @@ def build_hand_complete_update_message(player_name, winning_player_name, total_p
     return message
 
 
-def setup_hand(poker_hand, round_manager):
-    round_manager.set_remaining_players()   # TODO: review set_remaining_players to understand why it's here.
-    round_manager.dealer = round_manager.players[random.randint(0, len(round_manager.players) - 1)]
-    round_manager.post_blinds(poker_hand.pots[0])
-    round_manager.deal_hole_cards()
-
-    start_player = round_manager.determine_start_player(poker_hand.current_phase)
-
-    index = round_manager.players.index(start_player)  # Set index at the start_player
-    round_queue = round_manager.players.copy()  # Copy list of all players that started the hand, could include folded
-    shift_list_left(round_queue, index)  # Move to the start_player
-
-    return round_queue
-
-
 def play_hand(poker_game):
     ph = poker_game.hands[-1]
     rm = poker_game.round_manager
 
-    round_queue = setup_hand(ph, rm)
+    round_queue = rm.setup_hand(ph.pots[0], ph.current_phase)
     CONSOLE_INTERFACE.display_text(f"{rm.dealer.name}'s deal.\n")
     CONSOLE_INTERFACE.display_text(
         f"Small blind: {rm.small_blind_player.name}\n Big blind: {rm.big_blind_player.name}\n")

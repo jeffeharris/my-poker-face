@@ -222,6 +222,20 @@ class RoundManager:
     def set_remaining_players(self):
         self.remaining_players = [player for player in self.players if not player.folded]
 
+    def setup_hand(self, poker_hand_pot, poker_hand_phase):
+        self.set_remaining_players()  # TODO: review set_remaining_players to understand why it's here.
+        self.dealer = self.players[random.randint(0, len(self.players) - 1)]
+        self.post_blinds(poker_hand_pot)
+        self.deal_hole_cards()
+
+        start_player = self.determine_start_player(poker_hand_phase)
+
+        index = self.players.index(start_player)  # Set index at the start_player
+        round_queue = self.players.copy()  # Copy list of all players that started the hand, could include folded
+        shift_list_left(round_queue, index)  # Move to the start_player
+
+        return round_queue
+
     def determine_start_player(self, poker_hand_phase: PokerHandPhase):
         start_player = None
         if poker_hand_phase == PokerHandPhase.PRE_FLOP:

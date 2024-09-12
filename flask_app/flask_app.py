@@ -128,7 +128,7 @@ def initialize_game_state():
 
     poker_hand = PokerHand()
     poker_game.hands.append(poker_hand)
-    poker_hand.setup_hand()
+    poker_game.round_manager.setup_hand(poker_hand.pots[0], poker_hand.current_phase)
     return jsonify(obj_to_dict(poker_game))
 
 
