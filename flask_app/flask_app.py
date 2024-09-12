@@ -8,7 +8,7 @@ import random
 from core.poker_game import (PokerGame)
 from core.poker_hand import PokerHand
 from core.poker_action import PokerAction
-from core.utils import get_players, obj_to_dict
+from core.utils import get_ai_players, obj_to_dict
 
 from dotenv import load_dotenv
 
@@ -43,7 +43,7 @@ def home():
 
 @app.route('/game', methods=['GET'])
 def game():
-    poker_players = get_players(test=False, num_players=2)
+    poker_players = get_ai_players(num_players=2)
     # poker_game = PokerGame(poker_players, ConsoleInterface())
     poker_game = PokerGame()
     poker_game.round_manager.add_players(poker_players)
@@ -121,14 +121,12 @@ def add_message():
 
 
 def initialize_game_state():
-    poker_players = get_players(test=False, num_players=2)
+    poker_players = get_ai_players(num_players=2)
     poker_game = PokerGame()
 
-    poker_game.add_players(players=poker_players)
+    poker_game.round_manager.add_players(poker_players)
 
-    poker_hand = PokerHand(players=poker_game.players,
-                           dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],
-                           deck=poker_game.deck)
+    poker_hand = PokerHand()
     poker_game.hands.append(poker_hand)
     poker_hand.setup_hand()
     return jsonify(obj_to_dict(poker_game))

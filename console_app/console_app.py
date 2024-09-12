@@ -87,13 +87,14 @@ class TextFormat:
         "UNDERLINE": '\033[4m',
     }
 
+    @staticmethod
+    def format_text(text, *styles):
+        return ''.join(styles) + text + TextFormat.COLOR_CODES["RESET"]
 
-    def __add__(self, other: str or Dict or List) -> str:
-        return str(self) + str(other)
 
 class ConsoleInterface(Interface):
-    def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
-        self.display_text(f"{TextFormat.CYAN_BOLD}Actions: {TextFormat.CYAN}{options}{TextFormat.RESET}")
+    @staticmethod
+    def get_user_input(request):
         return input(request)
 
     def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
@@ -557,7 +558,7 @@ def play_hand(poker_game):
                 CONSOLE_INTERFACE.display_text(name)
                 CONSOLE_INTERFACE.display_text(message)
 
-    game_summary = poker_game.round_manager.summarize_actions([action.action_comment for action in poker_game.poker_hand.poker_actions])
+    game_summary = poker_game.round_manager.summarize_actions([action.action_comment for action in ph.poker_actions])
     CONSOLE_INTERFACE.display_text(game_summary)
 
     # Reset game for next round
