@@ -5,54 +5,12 @@ from flask_session import Session
 
 import random
 
-from core.game import Interface
 from core.poker_game import (PokerGame)
 from core.poker_hand import PokerHand
 from core.poker_action import PokerAction
-from core.poker_player import PokerPlayer, AIPokerPlayer
-from core.utils import get_players, shift_list_left, obj_to_dict
+from core.utils import get_players, obj_to_dict
 
 from dotenv import load_dotenv
-
-class FlaskInterface(Interface):
-    @staticmethod
-    def display_game(g: PokerGame):
-        player_dict_list = []
-        for player in g.players:
-            player_dict_list.append(player.to_dict())
-
-        community_cards_dict_list = []
-        if len(g.hands) > 0:
-            for card in g.hands[-1].community_cards:
-                community_cards_dict_list.append(card.to_dict())
-
-        player_options = []
-        for player in g.remaining_players:      # TODO: update this to show all players and indicate if in hand still
-            if isinstance(player, PokerPlayer):
-                player_options = player.options
-                break
-
-        return render_template(
-            template_name_or_list='poker_game.html',
-            players=player_dict_list,
-            community_cards=community_cards_dict_list ,
-            player_options=player_options
-        )
-
-    def display_hand(self, hand):
-        pass
-
-    def display_player_hand(self, player, hand):
-        pass
-
-    def get_user_action(self, player):
-        pass
-
-    def display_player(self, winner):
-        pass
-
-    def display_poker_action(self, action):
-        pass
 
 app = Flask(__name__,
             template_folder='./templates',
@@ -85,6 +43,10 @@ def home():
 
 @app.route('/game', methods=['GET'])
 def game():
+    poker_players = get_players(test=False, num_players=2)
+    # poker_game = PokerGame(poker_players, ConsoleInterface())
+    poker_game = PokerGame()
+    poker_game.round_manager.add_players(poker_players)
     return render_template(
         template_name_or_list='poker_game.html',
     )
@@ -118,7 +80,34 @@ def handle_player_action(data):
 # TODO: update these messages interactions to use socketio for real time back/forth
 @app.route('/messages', methods=['GET'])
 def get_messages():
-    return {'message 1': 'this is the message'}
+    return jsonify(
+        [
+            {
+                "sender": "Jeff",
+                "content": "hello!",
+                "timestamp": "11:23 Aug 25 2024",
+                "message_type": "user"
+            },
+            {
+                "sender": "Kanye West",
+                "content": "the way to the truth is through my hands",
+                "timestamp": "11:25 Aug 25 2024",
+                "message_type": "ai"
+            },
+            {
+                "sender": "table",
+                "content": "The flop has been dealt",
+                "timestamp": "11:26 Aug 25 2024",
+                "message_type": "table"
+            },
+            {
+                "sender": "Jeff",
+                "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
+                "timestamp": "11:27 Aug 25 2024",
+                "message_type": "user"
+            }
+        ]
+    )
     # return jsonify(game['messages'])
 
 
@@ -133,7 +122,9 @@ def add_message():
 
 def initialize_game_state():
     poker_players = get_players(test=False, num_players=2)
-    poker_game = PokerGame(poker_players)
+    poker_game = PokerGame()
+
+    poker_game.add_players(players=poker_players)
 
     poker_hand = PokerHand(players=poker_game.players,
                            dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],
@@ -144,7 +135,7 @@ def initialize_game_state():
 
 
 def process_player_action(game_state, action):
-    # get poker_hand
+    # get ph
     poker_hand_dict = game_state['hands'][-1]
     poker_hand = PokerHand.from_dict(poker_hand_dict)
     player_action = PokerAction.from_dict(action)

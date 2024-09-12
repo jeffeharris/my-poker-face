@@ -1,6 +1,6 @@
 import streamlit as st
 import random
-from core.game import StreamlitInterface
+from core.interface import StreamlitInterface
 from core.poker_game import (PokerGame)
 from core.poker_hand import PokerHand
 from core.poker_action import PokerAction
@@ -77,10 +77,10 @@ def play_hand(poker_hand: PokerHand):
     poker_hand.betting_round(round_queue)
 
     poker_hand.reveal_turn()
-    # poker_hand.betting_round(round_queue)
+    # ph.betting_round(round_queue)
 
     poker_hand.reveal_river()
-    # poker_hand.betting_round(round_queue)
+    # ph.betting_round(round_queue)
 
     poker_hand.end_hand()
 
@@ -97,7 +97,7 @@ def simple_app():
             st.stop()
         else:
             st.session_state["is_game_running"] = True
-            players = get_players(test=False, num_players=2)
+            players = get_players(test=False, num_players=4)
             poker_game = PokerGame(players, StreamlitInterface())
             if "poker_game" not in st.session_state:
                 st.session_state["poker_game"] = poker_game

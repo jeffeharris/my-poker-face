@@ -3,29 +3,33 @@ import random
 from typing import List, Dict
 
 from core.card import Card
-from core.game import Player, OpenAILLMAssistant
+from core.assistants import OpenAILLMAssistant
+from core.deck import CardSet
 from core.poker_action import PlayerAction
 
 
-class PokerPlayer(Player):
+class PokerPlayer:
     money: int
-    cards: List[Card]
+    cards: CardSet
     options: List[PlayerAction]
     folded: bool
 
     def __init__(self, name="Player", starting_money=10000):
-        super().__init__(name)
+        self.name = name
         self.money = starting_money
-        self.cards = []
+        self.cards = CardSet()
         self.options = []
         self.folded = False
+
+    def __str__(self):
+        return self.name
 
     def to_dict(self):
         return {
             "type": "PokerPlayer",
             "name": self.name,
             "money": self.money,
-            "cards": Card.list_to_dict(self.cards),
+            "cards": Card.list_to_dict(self.cards.cards),
             "options": self.options,
             "folded": self.folded
         }
@@ -66,8 +70,11 @@ class PokerPlayer(Player):
     def get_for_pot(self, amount):
         self.money -= amount
 
+    def collect_winnings(self, amount):
+        self.money += amount
+
     def set_for_new_hand(self):
-        self.cards = []
+        self.cards = CardSet()
         self.folded = False
 
     def get_index(self, players):
@@ -155,7 +162,7 @@ class AIPokerPlayer(PokerPlayer):
         # Reset the assistant's memory instead of directly assigning a new list.
         self.assistant.reset_memory()
 
-    def initialize_attribute(self, attribute, constraints=DEFAULT_CONSTRAINTS, opponents="other players", mood=None):
+    def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
         Initializes the attribute for the player's inner voice.
 
@@ -168,7 +175,6 @@ class AIPokerPlayer(PokerPlayer):
         Returns:
             str: A response based on the mood.
         """
-
         formatted_message = (
             f"You are {self.name}'s inner voice. Describe their {attribute} as they enter a poker game against {opponents}. "
             f"This description is being used for a simulation of a poker game and we want to have a variety of personalities "
@@ -181,6 +187,8 @@ class AIPokerPlayer(PokerPlayer):
         response = self.assistant.get_json_response(messages=[{"role": "user", "content": formatted_message}])
         content = json.loads(response.choices[0].message.content)
         responses = content["responses"]
+
+        # if mood is None, randomly assign the mood from the response
         if mood is None:
             # Randomly select the response mood
             random.shuffle(responses)
@@ -223,7 +231,7 @@ class AIPokerPlayer(PokerPlayer):
         response_template = (
             f"    Response template:\n"
             f"    {{\n"
-            f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
+            #f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
             f"        \"chasing:\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
             f"        \"player_observations:\": <optional section to note any observations about how others are playing at the table>,\n"
             f"        \"hand_strategy\": <short analysis of current situation based on your persona and the cards>,\n"
@@ -231,7 +239,7 @@ class AIPokerPlayer(PokerPlayer):
             f"        \"action\": <enter the action you're going to take here, select from the options provided>,\n"
             f"        \"adding_to_pot\": <enter the total chip value you are adding to the pot, consider your cost to call>,\n"
             f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table>,\n"
-            f"        \"persona_response\": <shared with the table. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
+            f"        \"persona_response\": <this is shared with the table, don't reveal the specifics of your hand. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
             f"        \"physical\": <enter a list of strings with the physical actions you take in the order you take them>\n"
             f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>\n"
             f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>\n"
@@ -242,7 +250,7 @@ class AIPokerPlayer(PokerPlayer):
         sample_response = (
             f"    Sample response for an Eyeore persona:\n"
             f"    {{\n"
-            f"        \"best_hand\": \"2D | 3C\",\n"
+            #f"        \"best_hand\": \"2D | 3C\",\n"
             f"        \"player_observations:\": {{ \"pooh\": \"playing loose\"}},\n"
             f"        \"hand_strategy\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
             f"        \"comment\": \"I check\",\n"
@@ -324,7 +332,7 @@ class AIPokerPlayer(PokerPlayer):
         confidence = self.confidence
         table_positions = hand_state["table_positions"]
         opponent_status = hand_state["opponent_status"]
-        current_round = hand_state["current_round"]
+        current_round = hand_state["current_phase"]
         community_cards = [str(card) for card in hand_state["community_cards"]]
         opponents = hand_state["remaining_players"]
         number_of_opponents = len(opponents) - 1
@@ -334,38 +342,46 @@ class AIPokerPlayer(PokerPlayer):
         current_situation = hand_state["current_situation"]
         hole_cards = [str(card) for card in self.cards]
         current_pot = hand_state["current_pot"]
-        current_bet = current_pot.current_bet
-        cost_to_call = current_pot.get_player_cost_to_call(self)
+        # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
+        cost_to_call = current_pot.get_player_cost_to_call(self.name)
         player_options = self.options
 
         # create a list of the action comments and then send them to the table manager to summarize
         action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
         action_summary = "We're just getting started! You're first to go."
         if len(action_comment_list) > 0:
-            action_summary = hand_state["table_manager"].summarize_actions(action_comment_list[-number_of_opponents:])
+            action_summary = hand_state["table_manager"].summarize_actions_for_player(action_comment_list[-number_of_opponents:], self.name)
 
         persona_state = (
             f"Persona: {persona}\n"
             f"Attitude: {attitude}\n"
             f"Confidence: {confidence}\n"
+            f"Your Cards: {hole_cards}\n"
+            f"Your Money: {player_money}\n"
         )
 
-        hand_update_message = persona_state + (
-            f"Game Round: {current_round}\n"
-            f"Your Cards: {hole_cards}\n"
+        hand_state = (
+            f"{current_situation}\n"
+            f"Current Round: {current_round}\n"
             f"Community Cards: {community_cards}\n"
             f"Table Positions: {table_positions}\n"
             f"Opponent Status:\n{opponent_status}\n"
-            f"Previous Actions: {action_summary}\n"
-            #f"You are {persona} playing a round of Texas Hold 'em with {number_of_opponents} other people.\n"
-            f"You have ${player_money} in chips remaining. {current_situation}.\n"
-            f"You have {hole_cards} in your hand. The current total pot is ${current_pot.total}.\n"  # The current bet is ${current_bet} and
-            f""
-            f"To call, you would owe ${cost_to_call}.\n"
-            f"Your options are: {player_options}\n"
-            f"Remember, you're feeling {attitude} and {confidence}. However, consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
-            f"Preserve your chips for when the odds are more in your favor, and remember that sometimes folding or checking is the best move. "
+            f"Actions since your last turn: {action_summary}\n"
+        )
+
+        pot_state = (
+            f"Pot Total: ${current_pot.total}\n"
+            f"How much you've bet: ${current_pot.get_player_pot_amount(self.name)}\n"
+            f"Your cost to call: ${cost_to_call}\n"
+        )
+
+        hand_update_message = persona_state + hand_state + pot_state + (
+            #f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
+            # f"Remember, you're feeling {attitude} and {confidence}.\n"
+            f"Consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
+            f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
             f"You cannot bet more than you have, ${player_money}.\n"
+            f"You must select from these options: {player_options}\n"
             f"What is your move, {persona}?\n\n"
         )
 
