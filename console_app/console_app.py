@@ -43,7 +43,7 @@ class CardRenderer:
 
     @staticmethod
     def render_card(card):
-        # Prints a Card to the console
+        # Renders a Card for output to the console
         rank_left = card.rank.ljust(2)
         rank_right = card.rank.rjust(2)
         card = CardRenderer._CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
@@ -51,7 +51,7 @@ class CardRenderer:
 
     @staticmethod
     def render_cards(cards: List[Card]) -> Optional[str]:
-        # Prints a list of Cards to the console
+        # Renders a list of Cards for output to the console
         card_lines = [CardRenderer.render_card(card).strip().split('\n') for card in cards]
         if not card_lines:
             return None
@@ -63,7 +63,7 @@ class CardRenderer:
 
     @staticmethod
     def render_two_cards(card_1, card_2):
-        # Prints two cards to the console. Meant to represent the cards as the players hole cards
+        # Renders two cards for output to the console. Meant to represent the cards as the players hole cards
         two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(card_1.rank,
                                                          card_2.rank,
                                                          Card.SUIT_TO_ASCII[card_1.suit],
@@ -71,6 +71,16 @@ class CardRenderer:
                                                          Card.SUIT_TO_ASCII[card_2.suit],
                                                          card_2.rank)
         return two_card_ascii_string
+
+    @staticmethod
+    def render_hole_cards(cards: List[Card]):
+        sorted_cards = sorted(cards, key=lambda card: card.value)
+        card_1 = sorted_cards[0]
+        card_2 = sorted_cards[1]
+
+        # Generate console output for the Cards
+        hole_card_art = CardRenderer.render_two_cards(card_1, card_2)
+        return hole_card_art
 
 
 class TextFormat:
@@ -132,15 +142,6 @@ class ConsoleInterface(Interface):
 
 CONSOLE_INTERFACE = ConsoleInterface()
 
-def display_hole_cards(cards: [Card, Card]):
-    sorted_cards = sorted(cards, key=lambda card: card.value)
-    card_1 = sorted_cards[0]
-    card_2 = sorted_cards[1]
-
-    # Generate and print each card
-    hole_card_art = CardRenderer.render_two_cards(card_1, card_2)
-    return hole_card_art
-
 
 def reveal_cards(poker_hand, deck: Deck, num_cards: int, new_phase: PokerHandPhase):
     """
@@ -169,7 +170,7 @@ def reveal_cards(poker_hand, deck: Deck, num_cards: int, new_phase: PokerHandPha
 
     return output_text
 
-
+# TODO: <REFACTOR> Refactor the chat interface to it's own class
 def get_player_names(hand_state):
     player_names = [player.name for player in hand_state["players"]]
     ai_player_names = [player.name for player in hand_state["players"] if isinstance(player, AIPokerPlayer)]
@@ -244,7 +245,7 @@ def get_player_action(player, hand_state) -> PokerAction:
     current_pot = hand_state["current_pot"]
     cost_to_call = current_pot.get_player_cost_to_call(player.name)
 
-    CONSOLE_INTERFACE.display_text(display_hole_cards(player.cards))
+    CONSOLE_INTERFACE.display_text(CardRenderer.render_hole_cards(cards=player.cards))
     display_hand_update_text(hand_state, player)
 
     action = CONSOLE_INTERFACE.request_action(player.options, "Enter action: \n")

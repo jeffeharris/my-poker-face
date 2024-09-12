@@ -40,23 +40,7 @@ class PokerGame:
     def game_state(self):
         rm = self.round_manager
         hand = self.hands[-1]
-
         state = rm.round_manager_state + hand.hand_state
-
-        # state = {
-        #     "table_manager": rm,
-        #     "players": rm.players,
-        #     "remaining_players": rm.remaining_players,
-        #     "opponent_status": rm.get_opponent_status(),
-        #     "table_positions": rm.get_table_positions(),
-        #     "table_messages": rm.table_messages,
-        #     "community_cards": hand.community_cards.copy(),
-        #     "current_pot": hand.pots[0],
-        #     "current_bet": hand.pots[0].current_bet,
-        #     "current_situation": f"The {hand.current_phase.value} cards have just been dealt",
-        #     "current_phase": hand.current_phase.value,
-        #     "poker_actions": hand.poker_actions,
-        # }
         return state
 
     def to_dict(self):
