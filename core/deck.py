@@ -13,6 +13,9 @@ class CardSet:
     def __len__(self):
         return len(self.cards)
 
+    def __add__(self, other: 'CardSet'):
+        return self.cards + other.cards
+
     def __getitem__(self, index):
         return self.cards[index]
 
@@ -82,7 +85,7 @@ class Deck:
 
     def return_cards_to_discard_pile(self, cards: List[Card]) -> None:
         """Return cards to the discard pile."""
-        self.discard_pile += cards
+        self.discard_pile.cards += cards
 
     def reset(self) -> None:
         """Reset the Deck by returning all cards from the discard pile."""
