@@ -3,7 +3,6 @@ from typing import List
 from core.deck import CardSet
 from core.poker_action import PokerAction
 from core.poker_hand_pot import PokerHandPot
-from core.poker_player import PokerPlayer
 from core.utils import obj_to_dict, PokerHandPhase
 
 class PokerHand:
@@ -51,12 +50,6 @@ class PokerHand:
 
     def set_current_round(self, current_round: PokerHandPhase):
         self.current_phase = current_round
-
-    def player_bet_this_hand(self, player: PokerPlayer) -> int:
-        pot_contributions = []
-        for pot in self.pots:
-            pot_contributions.append(pot.get_player_pot_amount(player.name))
-        return sum(pot_contributions)
 
     # # TODO: <REFACTOR> bring back end_hand - maybe here or maybe the round_manager
     # def end_hand(self):
