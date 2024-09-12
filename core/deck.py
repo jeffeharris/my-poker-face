@@ -34,6 +34,12 @@ class CardSet:
         for card in cards:
             self.cards.append(card)
 
+    def copy(self):
+        """ Returns a new object that is a copy of the current object."""
+        instance = type(self)()
+        instance.cards = self.cards.copy()
+        return instance
+
 
 class Deck:
     card_deck: CardSet
