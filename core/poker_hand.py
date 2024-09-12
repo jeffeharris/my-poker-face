@@ -4,7 +4,7 @@ from core.deck import CardSet
 from core.poker_action import PokerAction
 from core.poker_hand_pot import PokerHandPot
 from core.poker_player import PokerPlayer
-from core.utils import shift_list_left, obj_to_dict, PokerHandPhase
+from core.utils import obj_to_dict, PokerHandPhase
 
 
 class PokerHand:
@@ -19,11 +19,11 @@ class PokerHand:
     def __init__(self):
         self.poker_actions = []
         self.community_cards = CardSet()
-        self.current_phase = PokerHandPhase.INITIALIZING
-        self.pots = [PokerHandPot(self.round_manager.players)]
+        self.current_phase = PokerHandPhase.PRE_FLOP
+        self.pots = [PokerHandPot()]
 
-    def to_dict(self):
-        return obj_to_dict(self.hand_state)
+    # def to_dict(self):
+    #     return obj_to_dict(self.hand_state)
 
     @staticmethod
     def list_to_dict(hands):
@@ -44,15 +44,9 @@ class PokerHand:
             "community_cards": self.community_cards.copy(),
             "current_bet": self.pots[0].current_bet,
             "current_pot": self.pots[0],
-            "players": self.round_manager.players,
-            "opponent_status": self.get_opponent_status(),
-            "table_positions": self.get_table_positions(),
             "current_situation": f"The {self.current_phase.value} cards have just been dealt",
             "current_phase": self.current_phase.value,
-            "table_messages": self.round_manager.table_messages,
-            "table_manager": self.round_manager,
             "poker_actions": self.poker_actions,
-            "remaining_players": self.remaining_players,
         }
         return hand_state
 
@@ -62,22 +56,8 @@ class PokerHand:
     def player_bet_this_hand(self, player: PokerPlayer) -> int:
         pot_contributions = []
         for pot in self.pots:
-            pot_contributions.append(pot.get_player_pot_amount(player))
+            pot_contributions.append(pot.get_player_pot_amount(player.name))
         return sum(pot_contributions)
-
-    def determine_start_player(self):
-        start_player = None
-        if self.current_phase == PokerHandPhase.PRE_FLOP:
-            # Player after big blind starts
-            start_player = self.round_manager.players[(self.dealer_position + 3) % len(self.round_manager.players)]
-        else:
-            # Find the first player after the dealer who hasn't folded
-            for j in range(1, len(self.round_manager.players) + 1):
-                index = (self.dealer_position + j) % len(self.round_manager.players)
-                if not self.round_manager.players[index].folded:
-                    start_player = self.round_manager.players[index]
-                    break
-        return start_player
 
     def summarize_actions(self, count) -> str:
         """
@@ -118,20 +98,6 @@ class PokerHand:
     #         player.folded = False
     #
     #     self.deck.reset()
-
-    def setup_hand(self):
-        self.set_remaining_players()
-        self.set_current_round(PokerHandPhase.PRE_FLOP)
-        self.post_blinds()
-        self.deal_hole_cards()
-
-        start_player = self.determine_start_player()
-
-        index = self.round_manager.players.index(start_player)  # Set index at the start_player
-        round_queue = self.round_manager.players.copy()  # Copy list of all players that started the hand, could include folded
-        shift_list_left(round_queue, index)  # Move to the start_player
-
-        return round_queue
 
     # def summarize_poker_actions(self, count=None):
     #     """

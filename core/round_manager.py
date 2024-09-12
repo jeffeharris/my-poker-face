@@ -3,8 +3,9 @@ from typing import List, Dict, Optional
 
 from core.deck import Deck
 from core.assistants import OpenAILLMAssistant
+from core.poker_hand_pot import PokerHandPot
 from core.poker_player import PokerPlayer, AIPokerPlayer
-from core.utils import shift_list_left
+from core.utils import shift_list_left, PokerHandPhase
 
 
 class SystemPrompt:
@@ -97,6 +98,7 @@ class RoundManager:
     small_blind: int
     min_bet: int
 
+    # TODO: Move these to a constraints class
     # Constraints used for initializing the AI PLayer attitude and confidence
     LESS_THAN_20_WORDS = "Use less than 20 words."
     LESS_THAN_50_WORDS = "Use less than 50 words."
@@ -113,6 +115,19 @@ class RoundManager:
         self.remaining_players = []
         self.dealer = None
         self.small_blind = 50
+
+    @property
+    def round_manager_state(self):
+        state = {
+            "table_manager": self,
+            "players": self.players,
+            "remaining_players": self.remaining_players,
+            "opponent_status": self.get_opponent_status(),
+            "table_positions": self.get_table_positions(),
+            "table_messages": self.table_messages,
+        }
+
+        return state
 
     @property
     def small_blind_player(self):
@@ -135,9 +150,9 @@ class RoundManager:
         prompt = SystemPrompt.GENERIC_PROMPT
         return prompt
 
-    def add_players(self, player_names: List[str]):
+    def add_players(self, player_names: List[str], ai=False):
         for name in player_names:
-            self.players.append(PokerPlayer(name))
+            self.players.append(AIPokerPlayer(name)) if ai else self.players.append(PokerPlayer(name))
 
     def initialize_ai_player(self, player, player_names):
         """Set initial confidence and attitude attributes for AI Poker Player."""
@@ -161,6 +176,9 @@ class RoundManager:
             if isinstance(player, AIPokerPlayer):
                 player_names = [p.name for p in self.players if p != player]
                 self.initialize_ai_player(player, player_names)
+
+        self.starting_players = self.players.copy()
+        self.remaining_players = self.players.copy()
 
     def get_table_positions(self) -> Dict[str, str]:
         table_positions = {"dealer": self.dealer.name,
@@ -204,11 +222,25 @@ class RoundManager:
     def set_remaining_players(self):
         self.remaining_players = [player for player in self.players if not player.folded]
 
-    def post_blinds(self):
+    def determine_start_player(self, poker_hand_phase: PokerHandPhase):
+        start_player = None
+        if poker_hand_phase == PokerHandPhase.PRE_FLOP:
+            # Player after big blind starts
+            start_player = self.players[(self.dealer_position + 3) % len(self.players)]
+        else:
+            # Find the first player after the dealer who hasn't folded
+            for j in range(1, len(self.players) + 1):
+                index = (self.dealer_position + j) % len(self.players)
+                if not self.players[index].folded:
+                    start_player = self.players[index]
+                    break
+        return start_player
+
+    def post_blinds(self, pot: PokerHandPot):
         small_blind = self.small_blind
         big_blind = small_blind * 2
-        self.pots[0].add_to_pot(self.small_blind_player, small_blind)
-        self.pots[0].add_to_pot(self.big_blind_player, big_blind)
+        pot.add_to_pot(self.small_blind_player.name, self.small_blind_player.get_for_pot,small_blind)
+        pot.add_to_pot(self.big_blind_player.name, self.big_blind_player.get_for_pot, big_blind)
 
     def deal_hole_cards(self):
         for player in self.players:

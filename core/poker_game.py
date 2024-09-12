@@ -31,14 +31,37 @@ class PokerGame:
     @classmethod
     def from_dict(cls, poker_game_dict: dict):
         pg = cls()
-        pg.round_manager=RoundManager.from_dict(poker_game_dict["round_manager"])
+        pg.round_manager=RoundManager.from_dict(poker_game_dict["rm"])
         pg.hands = [PokerHand.from_dict(hand_dict) for hand_dict in poker_game_dict["hands"]]
         pg.settings=PokerSettings.from_dict(poker_game_dict["settings"])
         return pg
 
+    @property
+    def game_state(self):
+        rm = self.round_manager
+        hand = self.hands[-1]
+
+        state = rm.round_manager_state + hand.hand_state
+
+        # state = {
+        #     "table_manager": rm,
+        #     "players": rm.players,
+        #     "remaining_players": rm.remaining_players,
+        #     "opponent_status": rm.get_opponent_status(),
+        #     "table_positions": rm.get_table_positions(),
+        #     "table_messages": rm.table_messages,
+        #     "community_cards": hand.community_cards.copy(),
+        #     "current_pot": hand.pots[0],
+        #     "current_bet": hand.pots[0].current_bet,
+        #     "current_situation": f"The {hand.current_phase.value} cards have just been dealt",
+        #     "current_phase": hand.current_phase.value,
+        #     "poker_actions": hand.poker_actions,
+        # }
+        return state
+
     def to_dict(self):
         poker_game_dict = {
-            "round_manager": self.round_manager.to_dict(),
+            "rm": self.round_manager.to_dict(),
             "hands": PokerHand.list_to_dict(self.hands),
             "settings": self.settings.to_dict(),
         }
@@ -60,7 +83,7 @@ class PokerGame:
 
         for player in self.round_manager.players:
             if not player.folded:
-                hands.append((player, HandEvaluator(player.cards + self.hands[-1].community_cards.cards).evaluate_hand()))
+                hands.append((player, HandEvaluator(player.cards + self.hands[-1].community_cards).evaluate_hand()))
 
 
         # TODO: remove all of the prints from determine_winner, replace with a different UX
@@ -87,6 +110,6 @@ class PokerGame:
         for player, hand_info in hands:
             print(f"{player.name}'s hand: {hand_info}")
 
-        winner_name = hands[0][0].name
+        winning_player = hands[0][0]
         winning_hand = hands[0][1]["hand_values"]
-        return winner_name, winning_hand
+        return winning_player, winning_hand
