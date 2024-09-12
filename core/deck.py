@@ -77,9 +77,9 @@ class Deck:
         self.card_deck.deal(self.discard_pile, num)
         return None
 
-    def _return_cards_to_deck(self, cards: List[Card], shuffle: bool = True) -> None:
+    def _return_cards_to_deck(self, cards: CardSet, shuffle: bool = True) -> None:
         """Return cards to the Deck and optionally shuffle."""
-        self.card_deck.add_cards(cards)
+        cards.deal(self.card_deck, len(cards))
         if shuffle:
             self.shuffle()
 
@@ -90,7 +90,7 @@ class Deck:
     def reset(self) -> None:
         """Reset the Deck by returning all cards from the discard pile."""
         if self._validate_deck():
-            self._return_cards_to_deck(self.discard_pile.cards)
+            self._return_cards_to_deck(self.discard_pile)
             self.shuffle()
         else:
             raise DeckError("Deck card count is wrong")

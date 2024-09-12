@@ -558,10 +558,11 @@ def play_hand(poker_game):
     # Reset game for next round
     ph.pots[0].resolve_pot(winning_player_name, winning_player.collect_winnings)  # TODO: implement support for side-pots (multiple pots)
     rm.rotate_dealer()
-    # Return community cards to Deck
+    # Return community cards to Deck discard pile
     rm.deck.return_cards_to_discard_pile(ph.community_cards)
     # Reset players
     for player in rm.players:
+        # Return players cards to Deck discard pile
         rm.deck.return_cards_to_discard_pile(player.cards)
         player.folded = False
 
@@ -575,7 +576,7 @@ def play_game(poker_game: PokerGame):
     poker_hand.pots[-1].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
     while len(poker_game.round_manager.remaining_players) > 1:
         poker_game.hands.append(poker_hand)
-        dealer = play_hand(poker_game)
+        play_hand(poker_game)      # TODO: why are we returning a dealer?
 
         # Check if the game should continue
         # Remove players from the hand if they are out of money
@@ -595,7 +596,6 @@ def play_game(poker_game: PokerGame):
         if play_again != "yes":
             break
         else:
-            # TODO: implement playing another round with the new class updates
             new_hand = PokerHand()
             new_hand.pots[0].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
             poker_hand = new_hand
