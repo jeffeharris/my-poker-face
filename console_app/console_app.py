@@ -16,7 +16,7 @@ from core.utils import get_ai_players, shift_list_left, PokerHandPhase
 VIEW_AI_HAND_UPDATES = True
 VIEW_AI_ACTION_INSIGHTS = True
 VIEW_AI_HAND_SUMMARY = True
-NUM_PLAYERS = 4
+NUM_AI_PLAYERS = 3
 TEST_MODE = False
 
 class CardRenderer:
@@ -143,34 +143,10 @@ class ConsoleInterface(Interface):
 CONSOLE_INTERFACE = ConsoleInterface()
 
 
-def reveal_cards(poker_hand, deck: Deck, num_cards: int, new_phase: PokerHandPhase):
-    """
-    Reveals a specified number of cards from the deck and adds them to the community cards in a poker game.
-
-    Args:
-        poker_hand: The current state of the poker hand.
-        deck (Deck): The deck from which to deal the cards.
-        num_cards (int): The number of cards to reveal.
-        new_phase (PokerHandPhase): The name of the current phase of the poker hand.
-
-    Returns:
-        A tuple containing:
-        - A text representation of the current phase and the rendered community cards.
-        - The new cards dealt.
-
-    """
-    deck.discard(1)
-    deck.card_deck.deal(poker_hand.community_cards, num_cards)
-    poker_hand.set_current_round(new_phase)
-
-    output_text = f"""
-                ---***{new_phase}***---
-"""
-    output_text += CardRenderer.render_cards(poker_hand.community_cards)
-
-    return output_text
-
-# TODO: <REFACTOR> Refactor the chat interface to it's own class
+###########################################################################################################
+#####                                    PLAYER CHAT INTERFACE                                        #####
+###########################################################################################################
+# TODO: <REFACTOR> Refactor the chat interface to it's own class [get_player_names, select_ai_player, chat_with_ai]
 def get_player_names(hand_state):
     player_names = [player.name for player in hand_state["players"]]
     ai_player_names = [player.name for player in hand_state["players"] if isinstance(player, AIPokerPlayer)]
@@ -206,6 +182,9 @@ def run_chat(hand_state):
     chat_with_ai(hand_state, human_player_name, player_to_message)
 
 
+###########################################################################################################
+#####                           PLAYER INTERACTIONS AND OPTION SETTING                                #####
+###########################################################################################################
 # TODO: <REFACTOR> change this to return the options as a PlayerAction enum
 def set_player_options(poker_hand, poker_player: PokerPlayer, settings: PokerSettings, big_blind_player_name: str, small_blind: int):
     # How much is it to call the bet for the player?
@@ -299,6 +278,7 @@ def get_player_action(player, hand_state) -> PokerAction:
     poker_action = PokerAction(player, action, add_to_pot, hand_state, action_detail, action_comment)
     return poker_action
 
+
 def get_ai_player_action(player, hand_state):
     display_hand_update_text(hand_state, player)
 
@@ -360,17 +340,18 @@ def display_hand_update_text(hand_state, player):
             # display the summary to the console
             CONSOLE_INTERFACE.display_text("\n" + action_summary + "\n")
 
-# Used to debug issues with folding and player_queue can likely be removed
-def print_queue_status(player_queue: List[PokerPlayer]):
-    for index, player in enumerate(player_queue):
-        print(f"{index}: {player.name} - {player.folded}")
 
+###########################################################################################################
+#####                                    PROCESS PLAYER ACTIONS                                       #####
+###########################################################################################################
 def process_pot_update(poker_hand, player: PokerPlayer, amount_to_add: int):
     poker_hand.pots[0].add_to_pot(player.name, player.get_for_pot, amount_to_add)
+
 
 def handle_bet_or_raise(poker_hand, round_manager, player: PokerPlayer, add_to_pot: int, next_round_queue: List[PokerPlayer]):
     process_pot_update(poker_hand, player, add_to_pot)
     return betting_round(poker_hand, next_round_queue, round_manager, is_initial_round=False)
+
 
 def handle_all_in(poker_hand, round_manager, player: PokerPlayer, add_to_pot: int, next_round_queue: List[PokerPlayer]):
     raising = add_to_pot > poker_hand.pots[0].current_bet
@@ -381,54 +362,14 @@ def handle_all_in(poker_hand, round_manager, player: PokerPlayer, add_to_pot: in
         # TODO: <FEATURE> create a side pot
         pass
 
+
 def handle_call(poker_hand, player: PokerPlayer, add_to_pot: int):
     process_pot_update(poker_hand, player, add_to_pot)
+
 
 def handle_fold(round_manager, player: PokerPlayer):
     player.folded = True
     round_manager.set_remaining_players()
-
-
-def poker_game_state(rm: RoundManager, hand: PokerHand):
-    # Assuming rm.round_manager_state and hand.hand_state are both dictionaries
-    return {**rm.round_manager_state, **hand.hand_state}
-
-
-def betting_round(poker_hand, player_queue: List[PokerPlayer], round_manager, is_initial_round: bool = True):
-    # Check to see if remaining players are all-in
-
-    active_player_queue = initialize_active_players(player_queue, is_initial_round)
-
-    if len(round_manager.remaining_players) <= 0:
-        raise ValueError("No remaining players left in the hand")
-
-    for player in active_player_queue:
-        if player.folded:
-            continue
-
-        all_in_count = 0
-        for p in round_manager.remaining_players:
-            if p.money <= 0:
-                all_in_count += 1
-        if all_in_count == len(round_manager.remaining_players):
-            return
-        elif len(round_manager.remaining_players) <= 1:
-            return
-        else:
-            # print_queue_status(player_queue)
-            set_player_options(poker_hand,player, PokerSettings(),
-                               round_manager.big_blind_player, round_manager.small_blind)
-
-            poker_action = get_player_action(player, poker_game_state(round_manager, poker_hand))
-            poker_hand.poker_actions.append(poker_action)
-
-            if process_player_action(poker_hand, round_manager, player, poker_action):
-                return
-
-
-def initialize_active_players(player_queue: List[PokerPlayer], is_initial_round: bool) -> List[
-    PokerPlayer]:
-    return player_queue.copy() if is_initial_round else player_queue[:-1]
 
 
 def process_player_action(poker_hand, round_manager, player: PokerPlayer, poker_action: PokerAction) -> bool:
@@ -454,14 +395,88 @@ def process_player_action(poker_hand, round_manager, player: PokerPlayer, poker_
         raise ValueError("Invalid action selected: " + str(player_action))
     return False
 
+
+###########################################################################################################
+#####                                    PROCESS POKER GAME FLOW                                      #####
+###########################################################################################################
+# TODO: <REFACTOR> poker_game_state is here as a band-aid while we complete the refactor 09/12/24
+def poker_game_state(rm: RoundManager, hand: PokerHand):
+    # Assuming rm.round_manager_state and hand.hand_state are both dictionaries
+    return {**rm.round_manager_state, **hand.hand_state}
+
+
+def betting_round(poker_hand, player_queue: List[PokerPlayer], round_manager, is_initial_round: bool = True):
+    # Check to see if remaining players are all-in
+    active_player_queue = initialize_active_players(player_queue, is_initial_round)
+
+    if len(round_manager.remaining_players) <= 0:
+        raise ValueError("No remaining players left in the hand")
+
+    for player in active_player_queue:
+        if player.folded:
+            continue
+
+        all_in_count = 0
+        for p in round_manager.remaining_players:
+            if p.money <= 0:
+                all_in_count += 1
+        if all_in_count == len(round_manager.remaining_players):
+            return
+        elif len(round_manager.remaining_players) <= 1:
+            return
+        else:
+            set_player_options(poker_hand,player, PokerSettings(),
+                               round_manager.big_blind_player, round_manager.small_blind)
+
+            poker_action = get_player_action(player, poker_game_state(round_manager, poker_hand))
+            poker_hand.poker_actions.append(poker_action)
+
+            if process_player_action(poker_hand, round_manager, player, poker_action):
+                return
+
+
+def initialize_active_players(player_queue: List[PokerPlayer], is_initial_round: bool) -> List[PokerPlayer]:
+    return player_queue.copy() if is_initial_round else player_queue[:-1]
+
+
+def reveal_cards(poker_hand, deck: Deck, num_cards: int, new_phase: PokerHandPhase):
+    """
+    Reveals a specified number of cards from the deck and adds them to the community cards in a poker game.
+
+    Args:
+        poker_hand: The current state of the poker hand.
+        deck (Deck): The deck from which to deal the cards.
+        num_cards (int): The number of cards to reveal.
+        new_phase (PokerHandPhase): The name of the current phase of the poker hand.
+
+    Returns:
+        A tuple containing:
+        - A text representation of the current phase and the rendered community cards.
+        - The new cards dealt.
+
+    """
+    deck.discard(1)
+    deck.card_deck.deal(poker_hand.community_cards, num_cards)
+    poker_hand.set_current_round(new_phase)
+
+    output_text = f"""
+                ---***{new_phase}***---
+"""
+    output_text += CardRenderer.render_cards(poker_hand.community_cards)
+
+    return output_text
+
+
 # TODO: <REFACTOR> update to separate the game action from the interface ouput
 def reveal_flop(poker_hand, deck):
     output_text = reveal_cards(poker_hand, deck, 3, PokerHandPhase.FLOP)
     CONSOLE_INTERFACE.display_text(output_text)
 
+
 def reveal_turn(poker_hand, deck):
     output_text = reveal_cards(poker_hand, deck, 1, PokerHandPhase.TURN)
     CONSOLE_INTERFACE.display_text(output_text)
+
 
 def reveal_river(poker_hand, deck):
     output_text = reveal_cards(poker_hand, deck, 1, PokerHandPhase.RIVER)
@@ -557,7 +572,9 @@ def play_hand(poker_game):
 
     return rm.dealer
 
+
 def play_game(poker_game: PokerGame):
+    # TODO: <REFACTOR> ensure the poker hand is being set up as expected
     # ph = PokerHand(players=poker_game.players,
     #                        dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],
     #                        deck=poker_game.deck)
@@ -588,6 +605,7 @@ def play_game(poker_game: PokerGame):
             new_hand = PokerHand()
             new_hand.pots[0].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
             poker_hand = new_hand
+            # TODO: <REFACTOR> ensure the poker hand is being set up as expected
             # poker_hand = PokerHand(players=poker_game.round_manager.remaining_players,
             #                        dealer=poker_game.round_manager.dealer,
             #                        deck=poker_game.round_manager.deck)
@@ -595,7 +613,7 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(num_ai_players: int = 1, num_human_players: Optional[int] = 1):
+def main(num_ai_players: int = NUM_AI_PLAYERS, num_human_players: Optional[int] = 1):
     human_player_names = ["Jeff"]
     ai_player_names = get_ai_players(num_players=num_ai_players)
 

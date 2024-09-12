@@ -12,11 +12,6 @@ load_dotenv()
 logging.basicConfig(level=logging.WARNING)     # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
-def summarize_hand(hand: PokerHand):
-    summary = hand.summarize_poker_actions()
-    return summary
-
-
 class PokerGame:
     # Class-level type hints
     round_manager: RoundManager
