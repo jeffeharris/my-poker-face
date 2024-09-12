@@ -125,10 +125,13 @@ def initialize_game_state():
     poker_game = PokerGame()
 
     poker_game.round_manager.add_players(poker_players)
+    poker_game.round_manager.initialize_players()
+    poker_game.round_manager.deck.shuffle()
 
-    poker_hand = PokerHand()
-    poker_game.hands.append(poker_hand)
-    poker_game.round_manager.setup_hand(poker_hand.pots[0], poker_hand.current_phase)
+    ph = PokerHand()
+    poker_game.hands.append(ph)
+    ph.pots[0].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
+    poker_game.round_manager.setup_hand(ph.pots[0], ph.current_phase)
     return jsonify(obj_to_dict(poker_game))
 
 

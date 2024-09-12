@@ -564,10 +564,10 @@ def play_game(poker_game: PokerGame):
     #                        dealer=poker_game.players[random.randint(0, len(poker_game.players) - 1)],
     #                        deck=poker_game.deck)
     poker_hand = PokerHand()
-    poker_hand.pots[-1].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
+    poker_hand.pots[0].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
     while len(poker_game.round_manager.remaining_players) > 1:
         poker_game.hands.append(poker_hand)
-        play_hand(poker_game)      # TODO: why are we returning a dealer?
+        play_hand(poker_game)
 
         # Check if the game should continue
         # Remove players from the hand if they are out of money
