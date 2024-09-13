@@ -10,6 +10,14 @@
     {% if error %}
         <p style="color: red;">{{ error }}</p>
     {% endif %}
+
+    <h2>Current Trick:</h2>
+    <ul>
+        {% for play in game_state.current_trick %}
+            <li>{{ play.player }} played {{ play.card['rank'] }} of {{ play.card['suit'] }}</li>
+        {% endfor %}
+    </ul>
+
     <h2>Your Hand:</h2>
     <form method="post">
         {% for card in game_state.hands['Player'] %}
@@ -20,13 +28,6 @@
         {% endfor %}
         <input type="submit" value="Play Selected Card">
     </form>
-
-    <h2>Current Trick:</h2>
-    <ul>
-        {% for play in game_state.current_trick %}
-            <li>{{ play.player }} played {{ play.card['rank'] }} of {{ play.card['suit'] }}</li>
-        {% endfor %}
-    </ul>
 
     <h2>Tricks Won:</h2>
     <ul>
