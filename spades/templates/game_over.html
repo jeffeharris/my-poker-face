@@ -1,0 +1,24 @@
+<!-- templates/game_over.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spades Game - Game Over</title>
+</head>
+<body>
+    <h1>Game Over</h1>
+    <h2>Final Scores:</h2>
+    <ul>
+        {% for player, score in game_state.scores.items() %}
+            <li>{{ player }}: {{ score }} points</li>
+        {% endfor %}
+    </ul>
+    <h2>Bids and Tricks Won:</h2>
+    <ul>
+        {% for player in game_state.scores.keys() %}
+            <li>{{ player }} - Bid: {{ game_state.bids[player] }}, Tricks Won: {{ game_state.tricks_won[player] }}</li>
+        {% endfor %}
+    </ul>
+    <a href="{{ url_for('index') }}">Play Again</a>
+</body>
+</html>

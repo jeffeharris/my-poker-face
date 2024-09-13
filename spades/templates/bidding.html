@@ -1,0 +1,19 @@
+<!-- templates/bidding.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spades Game - Bidding</title>
+</head>
+<body>
+    <h1>Spades Game - Bidding</h1>
+    {% if error %}
+        <p style="color: red;">{{ error }}</p>
+    {% endif %}
+    <form method="post">
+        <label for="bid">Enter your bid (0-13):</label>
+        <input type="number" id="bid" name="bid" min="0" max="13" required>
+        <input type="submit" value="Submit Bid">
+    </form>
+</body>
+</html>
