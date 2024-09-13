@@ -105,11 +105,9 @@ def cpu_play_card(player_name, game_state):
         if same_suit_cards:
             card_to_play = same_suit_cards[0]  # Play lowest card of leading suit
         else:
-            spades_cards = [card for card in hand if card['suit'] == 'Spades']
-            if spades_cards and (spades_broken or leading_suit == 'Spades'):
-                card_to_play = spades_cards[0]  # Play lowest spade
-            else:
-                card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))  # Play lowest card
+            # Cannot follow suit
+            # Can play any card
+            card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
     else:
         # First player of the trick
         if spades_broken:
@@ -119,6 +117,7 @@ def cpu_play_card(player_name, game_state):
             if non_spades:
                 card_to_play = min(non_spades, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
             else:
+                # Only spades left
                 card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
 
     hand.remove(card_to_play)
@@ -127,11 +126,6 @@ def cpu_play_card(player_name, game_state):
     if card_to_play['suit'] == 'Spades' and not spades_broken:
         game_state['spades_broken'] = True
 
-    # Check if CPU has a Nil bid and took a trick
-    if player_name in game_state['nil_bids'] and game_state['nil_bids'][player_name] in ['Nil', 'Blind Nil']:
-        # Mark that the Nil bid failed
-        if player_name not in game_state.get('failed_nil', []):
-            game_state.setdefault('failed_nil', []).append(player_name)
 
 # Determine the winner of a trick
 def determine_winner(trick):
@@ -172,8 +166,9 @@ def validate_play(player_name, selected_card, game_state):
         elif any(card['suit'] == leading_suit for card in player_hand):
             return f"You must follow suit: {leading_suit}."
         else:
-            if selected_card['suit'] == 'Spades' and not spades_broken:
-                return "Spades have not been broken yet."
+            # Player cannot follow suit; they can play any card, including spades
+            return None  # Valid play
+
     return None  # Valid play
 
 # Calculate scores at the end of the round
