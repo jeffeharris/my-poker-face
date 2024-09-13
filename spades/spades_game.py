@@ -16,7 +16,8 @@ def create_deck():
     return deck
 
 # Deal cards to players
-def deal_cards(deck):
+def deal_cards():
+    deck = create_deck()
     random.shuffle(deck)
     hands = {'Player': [], 'CPU1': [], 'CPU2': [], 'CPU3': []}
     for i, card in enumerate(deck):
@@ -29,19 +30,13 @@ def deal_cards(deck):
 
 # Initialize game state
 def initialize_game():
-    deck = create_deck()
-    hands = deal_cards(deck)
-
-    # Determine starting player (player with 2 of Clubs)
-    starting_player = find_starting_player(hands)
-
     game_state = {
-        'hands': hands,
+        'hands': {},  # Will be populated after dealing
         'bids': {},
         'nil_bids': {},  # Track Nil and Blind Nil bids
         'tricks_won': {'Team1': 0, 'Team2': 0},
         'current_trick': [],
-        'current_player': starting_player,
+        'current_player': None,  # Will be set after dealing
         'trick_number': 1,
         'spades_broken': False,
         'scores': {'Team1': 0, 'Team2': 0},
@@ -126,6 +121,11 @@ def cpu_play_card(player_name, game_state):
     if card_to_play['suit'] == 'Spades' and not spades_broken:
         game_state['spades_broken'] = True
 
+    # Check if CPU has a Nil bid and took a trick
+    if player_name in game_state['nil_bids'] and game_state['nil_bids'][player_name] in ['Nil', 'Blind Nil']:
+        # Mark that the Nil bid failed
+        if player_name not in game_state.get('failed_nil', []):
+            game_state.setdefault('failed_nil', []).append(player_name)
 
 # Determine the winner of a trick
 def determine_winner(trick):
@@ -214,24 +214,54 @@ def get_opponent_team(team, game_state):
 @app.route('/')
 def index():
     session['game_state'] = initialize_game()
-    return redirect(url_for('bidding'))
+    return redirect(url_for('start_game'))
+
+@app.route('/start_game', methods=['GET', 'POST'])
+def start_game():
+    game_state = session['game_state']
+    if request.method == 'POST':
+        blind_nil_choice = request.form.get('blind_nil_choice')
+        if blind_nil_choice == 'Yes':
+            # Check if Blind Nil is allowed (team behind by 100 points)
+            team_score = game_state['scores'][get_player_team('Player', game_state)]
+            if team_score <= -100 or team_score == 0:
+                game_state['bids']['Player'] = 0
+                game_state['nil_bids']['Player'] = 'Blind Nil'
+                # Deal cards without showing them
+                game_state['hands'] = deal_cards()
+                # CPUs make their bids
+                for cpu in ['CPU1', 'CPU2', 'CPU3']:
+                    cpu_hand = game_state['hands'][cpu]
+                    cpu_bid = get_cpu_bid(cpu, cpu_hand, game_state)
+                    game_state['bids'][cpu] = cpu_bid
+                # Determine starting player
+                game_state['current_player'] = find_starting_player(game_state['hands'])
+                session['game_state'] = game_state
+                return redirect(url_for('play_hand'))
+            else:
+                error = "Blind Nil can only be bid when your team is behind by 100 points."
+                return render_template('start_game.html', error=error)
+        else:
+            # Proceed to regular bidding
+            return redirect(url_for('bidding'))
+    return render_template('start_game.html')
 
 @app.route('/bidding', methods=['GET', 'POST'])
 def bidding():
     game_state = session['game_state']
+    if 'hands' not in game_state or not game_state['hands']:
+        # Deal cards
+        game_state['hands'] = deal_cards()
+        # Determine starting player
+        game_state['current_player'] = find_starting_player(game_state['hands'])
+        session['game_state'] = game_state
+
     if request.method == 'POST':
         # Handle player's bid
         bid_input = request.form['bid']
         if bid_input.lower() == 'nil':
             game_state['bids']['Player'] = 0
             game_state['nil_bids']['Player'] = 'Nil'
-        elif bid_input.lower() == 'blind nil':
-            if game_state['scores'][get_player_team('Player', game_state)] <= -100:
-                game_state['bids']['Player'] = 0
-                game_state['nil_bids']['Player'] = 'Blind Nil'
-            else:
-                error = "Blind Nil can only be bid when your team is behind by 100 points."
-                return render_template('bidding.html', error=error, game_state=game_state)
         else:
             try:
                 bid = int(bid_input)
@@ -241,12 +271,13 @@ def bidding():
                     error = "Bid must be between 0 and 13."
                     return render_template('bidding.html', error=error, game_state=game_state)
             except ValueError:
-                error = "Please enter a valid integer or 'Nil', 'Blind Nil'."
+                error = "Please enter a valid integer or 'Nil'."
                 return render_template('bidding.html', error=error, game_state=game_state)
 
         # CPU players make their bids
         for cpu in ['CPU1', 'CPU2', 'CPU3']:
-            cpu_bid = get_cpu_bid(cpu, game_state['hands'][cpu], game_state)
+            cpu_hand = game_state['hands'][cpu]
+            cpu_bid = get_cpu_bid(cpu, cpu_hand, game_state)
             game_state['bids'][cpu] = cpu_bid
 
         session['game_state'] = game_state

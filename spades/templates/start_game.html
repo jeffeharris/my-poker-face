@@ -1,0 +1,22 @@
+<!-- templates/start_game.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spades Game - Start Game</title>
+</head>
+<body>
+    <h1>Welcome to Spades!</h1>
+    {% if error %}
+        <p style="color: red;">{{ error }}</p>
+    {% endif %}
+    <p>Would you like to bid Blind Nil before seeing your cards?</p>
+    <form method="post">
+        <input type="radio" id="blind_nil_yes" name="blind_nil_choice" value="Yes" required>
+        <label for="blind_nil_yes">Yes</label><br>
+        <input type="radio" id="blind_nil_no" name="blind_nil_choice" value="No">
+        <label for="blind_nil_no">No</label><br><br>
+        <input type="submit" value="Continue">
+    </form>
+</body>
+</html>
