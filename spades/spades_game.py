@@ -7,7 +7,7 @@ app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with a secure random key in production
 
 # Define card ranks and suits
-suits = ['Spades', 'Hearts', 'Diamonds', 'Clubs']
+suits = ['Clubs', 'Diamonds', 'Hearts', 'Spades']
 ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 
 # Create a deck of cards
@@ -31,21 +31,45 @@ def deal_cards(deck):
 def initialize_game():
     deck = create_deck()
     hands = deal_cards(deck)
+
+    # Determine starting player (player with 2 of Clubs)
+    starting_player = find_starting_player(hands)
+
     game_state = {
         'hands': hands,
         'bids': {},
-        'tricks_won': {'Player': 0, 'CPU1': 0, 'CPU2': 0, 'CPU3': 0},
+        'tricks_won': {'Team1': 0, 'Team2': 0},
         'current_trick': [],
-        'current_player': 'Player',
+        'current_player': starting_player,
         'trick_number': 1,
-        'start_player': 'Player',
         'spades_broken': False,
-        'scores': {'Player': 0, 'CPU1': 0, 'CPU2': 0, 'CPU3': 0},
+        'scores': {'Team1': 0, 'Team2': 0},
         'round_over': False,
         'previous_trick': [],
-        'previous_trick_winner': None
+        'previous_trick_winner': None,
+        'teams': {
+            'Team1': ['Player', 'CPU2'],
+            'Team2': ['CPU1', 'CPU3']
+        }
     }
     return game_state
+
+def find_starting_player(hands):
+    for player, hand in hands.items():
+        for card in hand:
+            if card['suit'] == 'Clubs' and card['rank'] == '2':
+                return player
+    # If 2 of Clubs not found, find the lowest club
+    lowest_club = None
+    starting_player = None
+    for player, hand in hands.items():
+        for card in hand:
+            if card['suit'] == 'Clubs':
+                if (lowest_club is None) or (ranks.index(card['rank']) < ranks.index(lowest_club['rank'])):
+                    lowest_club = card
+                    starting_player = player
+    # If no clubs are dealt, default to 'Player'
+    return starting_player if starting_player else 'Player'
 
 # Simple AI bidding logic
 def get_cpu_bid(hand):
@@ -69,7 +93,7 @@ def cpu_play_card(player_name, game_state):
             card_to_play = same_suit_cards[0]  # Play lowest card of leading suit
         else:
             spades_cards = [card for card in hand if card['suit'] == 'Spades']
-            if spades_cards:
+            if spades_cards and (spades_broken or leading_suit == 'Spades'):
                 card_to_play = spades_cards[0]  # Play lowest spade
             else:
                 card_to_play = min(hand, key=lambda x: ranks.index(x['rank']))  # Play lowest card
@@ -77,7 +101,7 @@ def cpu_play_card(player_name, game_state):
         # First player of the trick
         non_spades = [card for card in hand if card['suit'] != 'Spades']
         if non_spades:
-            card_to_play = min(non_spades, key=lambda x: ranks.index(x['rank']))  # Play lowest non-spade card
+            card_to_play = min(non_spades, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))  # Play lowest non-spade card
         else:
             card_to_play = min(hand, key=lambda x: ranks.index(x['rank']))  # Only spades left, play lowest
 
@@ -104,9 +128,13 @@ def determine_winner(trick):
     return winning_play['player']
 
 # Validate player's card selection
-def validate_play(selected_card, player_hand, game_state):
+def validate_play(player_name, selected_card, game_state):
+    player_hand = game_state['hands'][player_name]
     current_trick = game_state['current_trick']
     spades_broken = game_state['spades_broken']
+
+    if player_name != game_state['current_player']:
+        return "It's not your turn."
 
     if not current_trick:
         # First play of the trick
@@ -125,13 +153,13 @@ def validate_play(selected_card, player_hand, game_state):
 
 # Calculate scores at the end of the round
 def calculate_scores(game_state):
-    for player in game_state['scores']:
-        bid = game_state['bids'][player]
-        tricks = game_state['tricks_won'][player]
+    for team, players in game_state['teams'].items():
+        bid = sum(game_state['bids'][player] for player in players)
+        tricks = sum(game_state['tricks_won'][player] for player in players)
         if tricks >= bid:
-            game_state['scores'][player] += 10 * bid + (tricks - bid)
+            game_state['scores'][team] += 10 * bid + (tricks - bid)
         else:
-            game_state['scores'][player] -= 10 * bid
+            game_state['scores'][team] -= 10 * bid
 
 @app.route('/')
 def index():
@@ -172,49 +200,76 @@ def play_hand():
     error = None
 
     if request.method == 'POST':
-        # Player's turn
-        card_index = int(request.form['card_index'])
-        player_hand = game_state['hands']['Player']
-        selected_card = player_hand[card_index]
+        # Get the current player
+        current_player = game_state['current_player']
 
-        # Validate play
-        error = validate_play(selected_card, player_hand, game_state)
-        if error:
-            return render_template('play_hand.html', game_state=game_state, error=error)
+        if current_player == 'Player':
+            # Player's turn
+            card_index = int(request.form['card_index'])
+            player_hand = game_state['hands']['Player']
+            selected_card = player_hand[card_index]
 
-        # Play the card
-        player_hand.pop(card_index)
-        game_state['current_trick'].append({'player': 'Player', 'card': selected_card})
+            # Validate play
+            error = validate_play('Player', selected_card, game_state)
+            if error:
+                return render_template('play_hand.html', game_state=game_state, error=error)
 
-        if selected_card['suit'] == 'Spades' and not game_state['spades_broken']:
-            game_state['spades_broken'] = True
+            # Play the card
+            player_hand.pop(card_index)
+            game_state['current_trick'].append({'player': 'Player', 'card': selected_card})
 
-        # CPU Players' turns
-        for cpu in ['CPU1', 'CPU2', 'CPU3']:
-            cpu_play_card(cpu, game_state)
+            if selected_card['suit'] == 'Spades' and not game_state['spades_broken']:
+                game_state['spades_broken'] = True
 
-        # Determine winner of the trick
-        winner = determine_winner(game_state['current_trick'])
-        game_state['tricks_won'][winner] += 1
-        game_state['current_player'] = winner
-        game_state['previous_trick_winner'] = winner
-        game_state['previous_trick'] = list(game_state['current_trick'])
+        else:
+            # CPU's turn
+            cpu_play_card(current_player, game_state)
 
-        # Reset current trick
-        game_state['current_trick'] = []
-        game_state['trick_number'] += 1
+        # Move to next player
+        next_player = get_next_player(current_player)
+        game_state['current_player'] = next_player
 
-        # Check if the round is over
-        if game_state['trick_number'] > 13:
-            game_state['round_over'] = True
-            calculate_scores(game_state)
-            session['game_state'] = game_state
-            return redirect(url_for('game_over'))
+        # Check if trick is complete
+        if len(game_state['current_trick']) == 4:
+            # Determine winner of the trick
+            winner = determine_winner(game_state['current_trick'])
+            team = get_player_team(winner, game_state)
+            game_state['tricks_won'][team] += 1
+            game_state['previous_trick_winner'] = winner
+            game_state['previous_trick'] = list(game_state['current_trick'])
 
-        # Save game state
+            # Reset current trick
+            game_state['current_trick'] = []
+            game_state['current_player'] = winner  # Winner starts next trick
+            game_state['trick_number'] += 1
+
+            # Check if the round is over
+            if game_state['trick_number'] > 13:
+                game_state['round_over'] = True
+                calculate_scores(game_state)
+                session['game_state'] = game_state
+                return redirect(url_for('game_over'))
+
         session['game_state'] = game_state
 
+        # If next player is not 'Player', process AI moves
+        while game_state['current_player'] != 'Player' and not game_state['round_over']:
+            return redirect(url_for('play_hand'))
+
+    # Render the play hand template
     return render_template('play_hand.html', game_state=game_state, error=error)
+
+def get_next_player(current_player):
+    player_order = ['Player', 'CPU1', 'CPU2', 'CPU3']
+    index = player_order.index(current_player)
+    next_index = (index + 1) % 4
+    return player_order[next_index]
+
+def get_player_team(player, game_state):
+    for team, players in game_state['teams'].items():
+        if player in players:
+            return team
+    return None
 
 @app.route('/game_over')
 def game_over():

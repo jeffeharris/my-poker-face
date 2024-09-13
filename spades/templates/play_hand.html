@@ -11,7 +11,7 @@
         <p style="color: red;">{{ error }}</p>
     {% endif %}
 
-    {% if game_state.trick_number > 1 %}
+    {% if game_state.previous_trick %}
         <h2>Previous Trick (Trick {{ game_state.trick_number - 1 }})</h2>
         <ul>
             {% for play in game_state.previous_trick %}
@@ -21,22 +21,38 @@
         <p><strong>{{ game_state.previous_trick_winner }} won the previous trick!</strong></p>
     {% endif %}
 
-    <h2>Bids and Tricks Won:</h2>
+    <h2>Current Trick:</h2>
     <ul>
-        {% for player in game_state.scores.keys() %}
-            <li>{{ player }} - Bid: {{ game_state.bids[player] }}, Tricks Won: {{ game_state.tricks_won[player] }}</li>
+        {% for play in game_state.current_trick %}
+            <li>{{ play.player }} played {{ play.card['rank'] }} of {{ play.card['suit'] }}</li>
         {% endfor %}
     </ul>
 
-    <h2>Your Hand:</h2>
-    <form method="post">
-        {% for card in game_state.hands['Player'] %}
-            <div>
-                <input type="radio" id="card{{ loop.index0 }}" name="card_index" value="{{ loop.index0 }}" required>
-                <label for="card{{ loop.index0 }}">{{ card['rank'] }} of {{ card['suit'] }}</label>
-            </div>
+    <h2>Bids and Tricks Won:</h2>
+    <ul>
+        {% for team, players in game_state.teams.items() %}
+            <li>
+                {{ team }} ({{ players[0] }} & {{ players[1] }}): Bid {{ game_state.bids[players[0]] + game_state.bids[players[1]] }}, Tricks Won {{ game_state.tricks_won[team] }}
+            </li>
         {% endfor %}
-        <input type="submit" value="Play Selected Card">
-    </form>
+    </ul>
+
+    {% if game_state.current_player == 'Player' %}
+        <h2>Your Hand:</h2>
+        <form method="post">
+            {% for card in game_state.hands['Player'] %}
+                <div>
+                    <input type="radio" id="card{{ loop.index0 }}" name="card_index" value="{{ loop.index0 }}" required>
+                    <label for="card{{ loop.index0 }}">{{ card['rank'] }} of {{ card['suit'] }}</label>
+                </div>
+            {% endfor %}
+            <input type="submit" value="Play Selected Card">
+        </form>
+    {% else %}
+        <p>Waiting for {{ game_state.current_player }} to play...</p>
+        <form method="post">
+            <input type="submit" value="Continue">
+        </form>
+    {% endif %}
 </body>
 </html>
