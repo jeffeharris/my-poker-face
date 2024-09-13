@@ -42,7 +42,8 @@ def initialize_game():
         'spades_broken': False,
         'scores': {'Player': 0, 'CPU1': 0, 'CPU2': 0, 'CPU3': 0},
         'round_over': False,
-        'trick_history': []
+        'previous_trick': [],
+        'previous_trick_winner': None
     }
     return game_state
 
@@ -161,11 +162,17 @@ def bidding():
 
 @app.route('/play_hand', methods=['GET', 'POST'])
 def play_hand():
-    game_state = session['game_state']
+    game_state = session.get('game_state')
+    if not game_state:
+        return redirect(url_for('index'))
+
     if game_state['round_over']:
         return redirect(url_for('game_over'))
 
+    error = None
+
     if request.method == 'POST':
+        # Player's turn
         card_index = int(request.form['card_index'])
         player_hand = game_state['hands']['Player']
         selected_card = player_hand[card_index]
@@ -182,53 +189,32 @@ def play_hand():
         if selected_card['suit'] == 'Spades' and not game_state['spades_broken']:
             game_state['spades_broken'] = True
 
-        session['game_state'] = game_state  # Save after player's turn
+        # CPU Players' turns
+        for cpu in ['CPU1', 'CPU2', 'CPU3']:
+            cpu_play_card(cpu, game_state)
 
-        # Redirect to a new route to handle CPU plays
-        return redirect(url_for('cpu_play'))
+        # Determine winner of the trick
+        winner = determine_winner(game_state['current_trick'])
+        game_state['tricks_won'][winner] += 1
+        game_state['current_player'] = winner
+        game_state['previous_trick_winner'] = winner
+        game_state['previous_trick'] = list(game_state['current_trick'])
 
-    return render_template('play_hand.html', game_state=game_state)
-
-@app.route('/cpu_play')
-def cpu_play():
-    game_state = session['game_state']
-
-    # CPU players take their turns
-    for cpu in ['CPU1', 'CPU2', 'CPU3']:
-        cpu_play_card(cpu, game_state)
-
-    # Determine winner of the trick
-    winner = determine_winner(game_state['current_trick'])
-    game_state['tricks_won'][winner] += 1
-    game_state['current_player'] = winner
-
-    # Save the trick to history
-    game_state['trick_history'].append(game_state['current_trick'])
-
-    # Check if the round is over
-    if game_state['trick_number'] >= 13:
-        game_state['round_over'] = True
-        calculate_scores(game_state)
-        session['game_state'] = game_state
-        return redirect(url_for('game_over'))
-
-    session['game_state'] = game_state
-    return redirect(url_for('show_trick'))
-
-@app.route('/show_trick', methods=['GET', 'POST'])
-def show_trick():
-    game_state = session['game_state']
-    winner = game_state['current_player']
-
-    if request.method == 'POST':
         # Reset current trick
         game_state['current_trick'] = []
         game_state['trick_number'] += 1
 
-        session['game_state'] = game_state
-        return redirect(url_for('play_hand'))
+        # Check if the round is over
+        if game_state['trick_number'] > 13:
+            game_state['round_over'] = True
+            calculate_scores(game_state)
+            session['game_state'] = game_state
+            return redirect(url_for('game_over'))
 
-    return render_template('show_trick.html', game_state=game_state, winner=winner)
+        # Save game state
+        session['game_state'] = game_state
+
+    return render_template('play_hand.html', game_state=game_state, error=error)
 
 @app.route('/game_over')
 def game_over():

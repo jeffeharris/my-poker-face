@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Spades Game - Play Hand</title>
+    <title>Spades Game - Trick {{ game_state.trick_number }}</title>
 </head>
 <body>
     <h1>Spades Game - Trick {{ game_state.trick_number }}</h1>
@@ -11,10 +11,20 @@
         <p style="color: red;">{{ error }}</p>
     {% endif %}
 
-    <h2>Current Trick:</h2>
+    {% if game_state.trick_number > 1 %}
+        <h2>Previous Trick (Trick {{ game_state.trick_number - 1 }})</h2>
+        <ul>
+            {% for play in game_state.previous_trick %}
+                <li>{{ play.player }} played {{ play.card['rank'] }} of {{ play.card['suit'] }}</li>
+            {% endfor %}
+        </ul>
+        <p><strong>{{ game_state.previous_trick_winner }} won the previous trick!</strong></p>
+    {% endif %}
+
+    <h2>Bids and Tricks Won:</h2>
     <ul>
-        {% for play in game_state.current_trick %}
-            <li>{{ play.player }} played {{ play.card['rank'] }} of {{ play.card['suit'] }}</li>
+        {% for player in game_state.scores.keys() %}
+            <li>{{ player }} - Bid: {{ game_state.bids[player] }}, Tricks Won: {{ game_state.tricks_won[player] }}</li>
         {% endfor %}
     </ul>
 
@@ -28,12 +38,5 @@
         {% endfor %}
         <input type="submit" value="Play Selected Card">
     </form>
-
-    <h2>Tricks Won:</h2>
-    <ul>
-        {% for player, tricks in game_state.tricks_won.items() %}
-            <li>{{ player }}: {{ tricks }}</li>
-        {% endfor %}
-    </ul>
 </body>
 </html>
