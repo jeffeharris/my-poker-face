@@ -275,7 +275,7 @@ def start_game():
                 return redirect(url_for('play_hand'))
             else:
                 error = "Blind Nil can only be bid when your team is behind by 100 points."
-                return render_template('start_game.html', error=error)
+                return render_template('start_game.html', game_state=game_state, error=error)
         else:
             # Proceed to regular bidding
             return redirect(url_for('bidding'))
