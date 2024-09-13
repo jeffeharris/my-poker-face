@@ -197,37 +197,38 @@ def cpu_play():
     for cpu in ['CPU1', 'CPU2', 'CPU3']:
         cpu_play_card(cpu, game_state)
 
+    # Determine winner of the trick
+    winner = determine_winner(game_state['current_trick'])
+    game_state['tricks_won'][winner] += 1
+    game_state['current_player'] = winner
+
+    # Save the trick to history
+    game_state['trick_history'].append(game_state['current_trick'])
+
+    # Check if the round is over
+    if game_state['trick_number'] >= 13:
+        game_state['round_over'] = True
+        calculate_scores(game_state)
+        session['game_state'] = game_state
+        return redirect(url_for('game_over'))
+
     session['game_state'] = game_state
     return redirect(url_for('show_trick'))
 
 @app.route('/show_trick', methods=['GET', 'POST'])
 def show_trick():
     game_state = session['game_state']
+    winner = game_state['current_player']
 
     if request.method == 'POST':
-        # Determine winner of the trick
-        winner = determine_winner(game_state['current_trick'])
-        game_state['tricks_won'][winner] += 1
-        game_state['current_player'] = winner
-        game_state['trick_number'] += 1
-
-        # Save the trick to history
-        game_state['trick_history'].append(game_state['current_trick'])
-
         # Reset current trick
         game_state['current_trick'] = []
-
-        # Check if the round is over
-        if game_state['trick_number'] > 13:
-            game_state['round_over'] = True
-            calculate_scores(game_state)
-            session['game_state'] = game_state
-            return redirect(url_for('game_over'))
+        game_state['trick_number'] += 1
 
         session['game_state'] = game_state
         return redirect(url_for('play_hand'))
 
-    return render_template('show_trick.html', game_state=game_state)
+    return render_template('show_trick.html', game_state=game_state, winner=winner)
 
 @app.route('/game_over')
 def game_over():
