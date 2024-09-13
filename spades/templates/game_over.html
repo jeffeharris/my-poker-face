@@ -17,8 +17,19 @@
     <ul>
         {% for team, players in game_state.teams.items() %}
             <li>
-                {{ team }} ({{ players[0] }} & {{ players[1] }})
-                - Bid: {{ game_state.bids[players[0]] + game_state.bids[players[1]] }}, Tricks Won: {{ game_state.tricks_won[team] }}
+                {{ team }} ({{ players[0] }} & {{ players[1] }})<br>
+                Bid: {{ game_state.bids[players[0]] + game_state.bids[players[1]] }}<br>
+                Tricks Won: {{ game_state.tricks_won[team] }}
+                {% for player in players %}
+                    {% if player in game_state.nil_bids %}
+                        <br>{{ player }} bid {{ game_state.nil_bids[player] }}
+                        {% if player in game_state.get('failed_nil', []) %}
+                            - Failed
+                        {% else %}
+                            - Succeeded
+                        {% endif %}
+                    {% endif %}
+                {% endfor %}
             </li>
         {% endfor %}
     </ul>
