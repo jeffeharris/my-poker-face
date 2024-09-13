@@ -25,7 +25,7 @@
     {% if error %}
         <p style="color: red;">{{ error }}</p>
     {% endif %}
-    {% if game_state.bidding_order[game_state.current_bidder_index] == 'Player' %}
+    {% if bidder == 'Player' %}
         <h2>Your Hand:</h2>
         <ul>
             {% for card in game_state.hands['Player'] %}
@@ -38,7 +38,7 @@
             <input type="submit" value="Submit Bid">
         </form>
     {% else %}
-        <p>Waiting for {{ game_state.bidding_order[game_state.current_bidder_index] }} to bid...</p>
+        <p>Waiting for {{ bidder }} to bid...</p>
         <form method="post">
             <input type="submit" value="Continue">
         </form>

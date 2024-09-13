@@ -33,10 +33,11 @@ def initialize_game():
     game_state = {
         'hands': {},  # Will be populated after dealing
         'bids': {},
-        'nil_bids': {},  # Track Nil and Blind Nil bids
+        'nil_bids': {},
+        'failed_nil': [],
         'tricks_won': {'Team1': 0, 'Team2': 0},
         'current_trick': [],
-        'current_player': None,  # Will be set after dealing
+        'current_player': None,
         'trick_number': 1,
         'spades_broken': False,
         'scores': {'Team1': 0, 'Team2': 0},
@@ -48,11 +49,18 @@ def initialize_game():
             'Team1': ['Player', 'CPU2'],
             'Team2': ['CPU1', 'CPU3']
         },
-        'bidding_order': ['Player', 'CPU1', 'CPU2', 'CPU3'],  # Bidding order
+        'bidding_order': ['Player', 'CPU1', 'CPU2', 'CPU3'],
         'current_bidder_index': 0,
         'current_bids': {},
         'round_number': 1
     }
+    return game_state
+
+def get_game_state():
+    game_state = session.get('game_state')
+    if not game_state:
+        game_state = initialize_game()
+        session['game_state'] = game_state
     return game_state
 
 def find_starting_player(hands):
@@ -248,7 +256,7 @@ def index():
 
 @app.route('/start_game', methods=['GET', 'POST'])
 def start_game():
-    game_state = session['game_state']
+    game_state = get_game_state()
     if request.method == 'POST':
         blind_nil_choice = request.form.get('blind_nil_choice')
         if blind_nil_choice == 'Yes':
@@ -271,7 +279,7 @@ def start_game():
         else:
             # Proceed to regular bidding
             return redirect(url_for('bidding'))
-    return render_template('start_game.html')
+    return render_template('start_game.html', game_state=game_state)
 
 def process_bids(game_state):
     # Process bidding in order
@@ -288,7 +296,7 @@ def process_bids(game_state):
 
 @app.route('/bidding', methods=['GET', 'POST'])
 def bidding():
-    game_state = session['game_state']
+    game_state = get_game_state()
     if 'hands' not in game_state or not game_state['hands']:
         # Deal cards
         game_state['hands'] = deal_cards()
@@ -321,13 +329,35 @@ def bidding():
 
     # Prepare data for bidding template
     bidder = game_state['bidding_order'][game_state['current_bidder_index']]
-    bids_so_far = {player: game_state['bids'].get(player, None) for player in game_state['bidding_order'][:game_state['current_bidder_index']]}
+    bids_so_far = {player: game_state['bids'].get(player, None) for player in
+                   game_state['bidding_order'][:game_state['current_bidder_index']]}
     game_state['current_bids'] = bids_so_far
-    return render_template('bidding.html', game_state=game_state)
+    return render_template('bidding.html', game_state=game_state, bidder=bidder)
+
+def reset_game_state_for_new_round(game_state):
+    game_state.update({
+        'hands': {},
+        'bids': {},
+        'nil_bids': {},
+        'failed_nil': [],
+        'tricks_won': {'Team1': 0, 'Team2': 0},
+        'current_trick': [],
+        'current_player': None,
+        'trick_number': 1,
+        'spades_broken': False,
+        'round_over': False,
+        'previous_trick': [],
+        'previous_trick_winner': None,
+        'current_bids': {},
+        'current_bidder_index': 0,
+        'bidding_order': ['Player', 'CPU1', 'CPU2', 'CPU3'],
+        'round_number': game_state['round_number'] + 1,
+    })
+
 
 @app.route('/play_hand', methods=['GET', 'POST'])
 def play_hand():
-    game_state = session.get('game_state')
+    game_state = get_game_state()
     if not game_state:
         return redirect(url_for('index'))
 
@@ -341,21 +371,7 @@ def play_hand():
                 session['game_state'] = game_state
                 return redirect(url_for('game_over'))
         # Reset for next round
-        game_state['hands'] = {}
-        game_state['bids'] = {}
-        game_state['nil_bids'] = {}
-        game_state['failed_nil'] = []
-        game_state['tricks_won'] = {'Team1': 0, 'Team2': 0}
-        game_state['current_trick'] = []
-        game_state['current_player'] = None
-        game_state['trick_number'] = 1
-        game_state['spades_broken'] = False
-        game_state['round_over'] = False
-        game_state['previous_trick'] = []
-        game_state['previous_trick_winner'] = None
-        game_state['current_bids'] = {}
-        game_state['current_bidder_index'] = 0
-        game_state['round_number'] += 1
+        reset_game_state_for_new_round(game_state)
         session['game_state'] = game_state
         return redirect(url_for('start_game'))
 
@@ -442,7 +458,7 @@ def get_player_team(player, game_state):
 
 @app.route('/game_over')
 def game_over():
-    game_state = session['game_state']
+    game_state = get_game_state()
     return render_template('game_over.html', game_state=game_state)
 
 if __name__ == '__main__':
