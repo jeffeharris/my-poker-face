@@ -40,13 +40,18 @@ def initialize_game():
         'trick_number': 1,
         'spades_broken': False,
         'scores': {'Team1': 0, 'Team2': 0},
-        'round_over': False,
+        'game_over': False,
+        'winning_team': None,
         'previous_trick': [],
         'previous_trick_winner': None,
         'teams': {
             'Team1': ['Player', 'CPU2'],
             'Team2': ['CPU1', 'CPU3']
-        }
+        },
+        'bidding_order': ['Player', 'CPU1', 'CPU2', 'CPU3'],  # Bidding order
+        'current_bidder_index': 0,
+        'current_bids': {},
+        'round_number': 1
     }
     return game_state
 
@@ -67,14 +72,31 @@ def find_starting_player(hands):
     # If no clubs are dealt, default to 'Player'
     return starting_player if starting_player else 'Player'
 
-# Simple AI bidding logic
+# CPU bidding logic (updated for softer bids)
 def get_cpu_bid(player_name, hand, game_state):
-    high_cards = ['A', 'K', 'Q', 'J', '10']
-    bid = sum(1 for card in hand if card['rank'] in high_cards or card['suit'] == 'Spades')
+    bid = 0
 
-    # Implementing Nil and Blind Nil for CPUs
-    if game_state['scores'][get_player_team(player_name, game_state)] <= -100:
-        # Consider Blind Nil if behind by 100 points
+    # Evaluate the hand for high cards and Spades
+    for card in hand:
+        if card['rank'] == 'A':
+            bid += 1  # Aces are likely to win
+        elif card['rank'] == 'K':
+            bid += 0.8
+        elif card['rank'] == 'Q':
+            bid += 0.5
+        elif card['rank'] == 'J' or card['rank'] == '10':
+            bid += 0.3
+        if card['suit'] == 'Spades' and card['rank'] in ['A', 'K', 'Q']:
+            bid += 0.5  # Count high Spades more aggressively
+
+    # Round down bids to make CPU less aggressive
+    bid = int(bid)
+    if bid == 0:
+        bid = 1  # Ensure CPU bids at least 1
+
+    # CPU logic for Nil or Blind Nil based on score
+    team_score = game_state['scores'][get_player_team(player_name, game_state)]
+    if team_score <= -100:
         if random.random() < 0.1:  # 10% chance to bid Blind Nil
             game_state['nil_bids'][player_name] = 'Blind Nil'
             return 0
@@ -82,12 +104,9 @@ def get_cpu_bid(player_name, hand, game_state):
         game_state['nil_bids'][player_name] = 'Nil'
         return 0
 
-    if bid == 0:
-        bid = 1  # Ensure CPU bids at least 1
-
     return bid
 
-# CPU player logic for playing a card
+# CPU player logic for playing a card (updated for spades breaking)
 def cpu_play_card(player_name, game_state):
     hand = game_state['hands'][player_name]
     current_trick = game_state['current_trick']
@@ -97,12 +116,20 @@ def cpu_play_card(player_name, game_state):
     if current_trick:
         leading_suit = current_trick[0]['card']['suit']
         same_suit_cards = [card for card in hand if card['suit'] == leading_suit]
+
         if same_suit_cards:
             card_to_play = same_suit_cards[0]  # Play lowest card of leading suit
         else:
             # Cannot follow suit
-            # Can play any card
-            card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
+            spades_cards = [card for card in hand if card['suit'] == 'Spades']
+            if spades_cards:
+                # Play a Spade to break Spades if they haven't been broken
+                card_to_play = min(spades_cards, key=lambda x: ranks.index(x['rank']))
+                if not spades_broken:
+                    game_state['spades_broken'] = True
+            else:
+                # No Spades; play lowest card
+                card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
     else:
         # First player of the trick
         if spades_broken:
@@ -112,7 +139,7 @@ def cpu_play_card(player_name, game_state):
             if non_spades:
                 card_to_play = min(non_spades, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
             else:
-                # Only spades left
+                # Only Spades left
                 card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
 
     hand.remove(card_to_play)
@@ -126,6 +153,7 @@ def cpu_play_card(player_name, game_state):
         # Mark that the Nil bid failed
         if player_name not in game_state.get('failed_nil', []):
             game_state.setdefault('failed_nil', []).append(player_name)
+
 
 # Determine the winner of a trick
 def determine_winner(trick):
@@ -213,7 +241,9 @@ def get_opponent_team(team, game_state):
 
 @app.route('/')
 def index():
-    session['game_state'] = initialize_game()
+    # Initialize game state if not already done
+    if 'game_state' not in session or session['game_state'].get('game_over', False):
+        session['game_state'] = initialize_game()
     return redirect(url_for('start_game'))
 
 @app.route('/start_game', methods=['GET', 'POST'])
@@ -229,11 +259,8 @@ def start_game():
                 game_state['nil_bids']['Player'] = 'Blind Nil'
                 # Deal cards without showing them
                 game_state['hands'] = deal_cards()
-                # CPUs make their bids
-                for cpu in ['CPU1', 'CPU2', 'CPU3']:
-                    cpu_hand = game_state['hands'][cpu]
-                    cpu_bid = get_cpu_bid(cpu, cpu_hand, game_state)
-                    game_state['bids'][cpu] = cpu_bid
+                # CPUs make their bids in order
+                process_bids(game_state)
                 # Determine starting player
                 game_state['current_player'] = find_starting_player(game_state['hands'])
                 session['game_state'] = game_state
@@ -246,6 +273,19 @@ def start_game():
             return redirect(url_for('bidding'))
     return render_template('start_game.html')
 
+def process_bids(game_state):
+    # Process bidding in order
+    bidding_order = game_state['bidding_order']
+    for bidder in bidding_order:
+        if bidder == 'Player' and 'Player' in game_state['bids']:
+            continue  # Player has already bid (in case of Blind Nil)
+        elif bidder != 'Player':
+            # CPU makes bid
+            hand = game_state['hands'][bidder]
+            bid = get_cpu_bid(bidder, hand, game_state)
+            game_state['bids'][bidder] = bid
+            game_state['current_bids'][bidder] = bid  # Record current bid for display
+
 @app.route('/bidding', methods=['GET', 'POST'])
 def bidding():
     game_state = session['game_state']
@@ -257,7 +297,6 @@ def bidding():
         session['game_state'] = game_state
 
     if request.method == 'POST':
-        # Handle player's bid
         bid_input = request.form['bid']
         if bid_input.lower() == 'nil':
             game_state['bids']['Player'] = 0
@@ -274,14 +313,16 @@ def bidding():
                 error = "Please enter a valid integer or 'Nil'."
                 return render_template('bidding.html', error=error, game_state=game_state)
 
-        # CPU players make their bids
-        for cpu in ['CPU1', 'CPU2', 'CPU3']:
-            cpu_hand = game_state['hands'][cpu]
-            cpu_bid = get_cpu_bid(cpu, cpu_hand, game_state)
-            game_state['bids'][cpu] = cpu_bid
+        # Process remaining bids
+        process_bids(game_state)
 
         session['game_state'] = game_state
         return redirect(url_for('play_hand'))
+
+    # Prepare data for bidding template
+    bidder = game_state['bidding_order'][game_state['current_bidder_index']]
+    bids_so_far = {player: game_state['bids'].get(player, None) for player in game_state['bidding_order'][:game_state['current_bidder_index']]}
+    game_state['current_bids'] = bids_so_far
     return render_template('bidding.html', game_state=game_state)
 
 @app.route('/play_hand', methods=['GET', 'POST'])
@@ -290,8 +331,33 @@ def play_hand():
     if not game_state:
         return redirect(url_for('index'))
 
-    if game_state['round_over']:
-        return redirect(url_for('game_over'))
+    if game_state.get('round_over', False):
+        # Check for game over condition
+        winning_score = 500
+        for team, score in game_state['scores'].items():
+            if score >= winning_score:
+                game_state['game_over'] = True
+                game_state['winning_team'] = team
+                session['game_state'] = game_state
+                return redirect(url_for('game_over'))
+        # Reset for next round
+        game_state['hands'] = {}
+        game_state['bids'] = {}
+        game_state['nil_bids'] = {}
+        game_state['failed_nil'] = []
+        game_state['tricks_won'] = {'Team1': 0, 'Team2': 0}
+        game_state['current_trick'] = []
+        game_state['current_player'] = None
+        game_state['trick_number'] = 1
+        game_state['spades_broken'] = False
+        game_state['round_over'] = False
+        game_state['previous_trick'] = []
+        game_state['previous_trick_winner'] = None
+        game_state['current_bids'] = {}
+        game_state['current_bidder_index'] = 0
+        game_state['round_number'] += 1
+        session['game_state'] = game_state
+        return redirect(url_for('start_game'))
 
     error = None
 
@@ -316,13 +382,6 @@ def play_hand():
             if selected_card['suit'] == 'Spades' and not game_state['spades_broken']:
                 game_state['spades_broken'] = True
 
-            # Check if player has a Nil bid and took a trick
-            if 'Player' in game_state['nil_bids'] and game_state['nil_bids']['Player'] in ['Nil', 'Blind Nil']:
-                # If player took a trick
-                if 'Player' not in game_state.get('failed_nil', []) and len(game_state['current_trick']) == 1:
-                    # Assume player hasn't failed yet; will check after trick completion
-                    pass
-
             # Move to next player
             game_state['current_player'] = get_next_player(current_player)
 
@@ -345,7 +404,7 @@ def play_hand():
             for play in game_state['current_trick']:
                 player = play['player']
                 if player in game_state['nil_bids'] and game_state['nil_bids'][player] in ['Nil', 'Blind Nil']:
-                    if player not in game_state.get('failed_nil', []):
+                    if winner == player and player not in game_state.get('failed_nil', []):
                         game_state.setdefault('failed_nil', []).append(player)
 
             # Reset current trick
@@ -358,12 +417,12 @@ def play_hand():
                 game_state['round_over'] = True
                 calculate_scores(game_state)
                 session['game_state'] = game_state
-                return redirect(url_for('game_over'))
+                return redirect(url_for('play_hand'))
 
         session['game_state'] = game_state
 
         # If next player is not 'Player', process AI moves
-        if game_state['current_player'] != 'Player' and not game_state['round_over']:
+        if game_state['current_player'] != 'Player' and not game_state.get('round_over', False):
             return redirect(url_for('play_hand'))
 
     # Render the play hand template

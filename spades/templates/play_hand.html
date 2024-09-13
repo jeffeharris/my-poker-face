@@ -7,6 +7,13 @@
 </head>
 <body>
     <h1>Spades Game - Trick {{ game_state.trick_number }}</h1>
+    <h2>Round {{ game_state.round_number }}</h2>
+    <h3>Scores:</h3>
+    <ul>
+        {% for team, score in game_state.scores.items() %}
+            <li>{{ team }}: {{ score }} points</li>
+        {% endfor %}
+    </ul>
     {% if error %}
         <p style="color: red;">{{ error }}</p>
     {% endif %}
