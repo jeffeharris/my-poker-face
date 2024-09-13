@@ -1,0 +1,25 @@
+<!-- templates/show_trick.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spades Game - Trick Result</title>
+</head>
+<body>
+    <h1>Trick {{ game_state.trick_number - 1 }} Results</h1>
+
+    <h2>Current Trick:</h2>
+    <ul>
+        {% for play in game_state.trick_history[-1] %}
+            <li>{{ play.player }} played {{ play.card['rank'] }} of {{ play.card['suit'] }}</li>
+        {% endfor %}
+    </ul>
+
+    <h2>Winner:</h2>
+    <p>{{ game_state.current_player }} won the trick!</p>
+
+    <form method="post">
+        <input type="submit" value="Continue to Next Trick">
+    </form>
+</body>
+</html>
