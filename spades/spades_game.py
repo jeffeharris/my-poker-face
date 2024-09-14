@@ -99,18 +99,19 @@ def get_cpu_bid(player_name, hand, game_state):
 
     # Round down bids to make CPU less aggressive
     bid = int(bid)
-    if bid == 0:
-        bid = 1  # Ensure CPU bids at least 1
 
     # CPU logic for Nil or Blind Nil based on score
     team_score = game_state['scores'][get_player_team(player_name, game_state)]
+    if bid == 0:
+        bid = 1  # Ensure CPU bids at least 1
+        if random.random() < 0.1 and team_score <= -100:  # 10% chance to bid Nil
+            game_state['nil_bids'][player_name] = 'Nil'
+            return 0
+
     if team_score <= -100:
-        if random.random() < 0.1:  # 10% chance to bid Blind Nil
+        if random.random() < 0.02:  # 2% chance to bid Blind Nil
             game_state['nil_bids'][player_name] = 'Blind Nil'
             return 0
-    elif random.random() < 0.1:  # 10% chance to bid Nil
-        game_state['nil_bids'][player_name] = 'Nil'
-        return 0
 
     return bid
 
