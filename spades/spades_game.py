@@ -1,14 +1,21 @@
 # spades_game.py
+import json
 
 from flask import Flask, render_template, request, redirect, url_for, session
 import random
 
+from core.assistants import OpenAILLMAssistant
+from dotenv import load_dotenv
+
+load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with a secure random key in production
 
 # Define card ranks and suits
 suits = ['Clubs', 'Diamonds', 'Hearts', 'Spades']
 ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+
+assistant = OpenAILLMAssistant(system_message="You are participating in a game of spades.")
 
 # Create a deck of cards
 def create_deck():
@@ -79,6 +86,15 @@ def find_starting_player(hands):
                     starting_player = player
     # If no clubs are dealt, default to 'Player'
     return starting_player if starting_player else 'Player'
+
+def get_ai_bid(player_name, hand, game_state):
+    message = (f"Hi {player_name} it's your turn to bid! How many tricks do you think you'll"
+               f" win based on the cards in your hand: {hand}?"
+               f"Game State: {game_state}"
+               f"PLease respond in JSON format with an integer."
+               f"EXAMPLE:  {{\n\"bid\": 3\n}}")
+    response = json.loads(assistant.chat(user_content=message, json_format=True))
+    return response["bid"]
 
 # CPU bidding logic (updated for softer bids)
 def get_cpu_bid(player_name, hand, game_state):
@@ -291,7 +307,7 @@ def process_bids(game_state):
         elif bidder != 'Player':
             # CPU makes bid
             hand = game_state['hands'][bidder]
-            bid = get_cpu_bid(bidder, hand, game_state)
+            bid = get_ai_bid(bidder, hand, game_state)
             game_state['bids'][bidder] = bid
             game_state['current_bids'][bidder] = bid  # Record current bid for display
 
