@@ -67,9 +67,10 @@
         </form>
     {% else %}
         <p>Waiting for {{ game_state.current_player }} to play...</p>
-        <form method="post">
-            <input type="submit" value="Continue">
-        </form>
+        <form id="autoForm" method="post"></form>
+        <script type="text/javascript">
+            document.getElementById("autoForm").submit();
+        </script>
     {% endif %}
 </body>
 </html>
