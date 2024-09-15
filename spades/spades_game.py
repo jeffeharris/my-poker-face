@@ -1,6 +1,7 @@
 # spades_game.py
 import json
 
+from PIL.ImageChops import difference
 from flask import Flask, render_template, request, redirect, url_for, session
 import random
 
@@ -26,7 +27,7 @@ def create_deck():
 def deal_cards():
     deck = create_deck()
     random.shuffle(deck)
-    hands = {'Player': [], 'CPU1': [], 'CPU2': [], 'CPU3': []}
+    hands = {'Player': [], 'Opponent 1': [], 'Partner': [], 'Opponent 2': []}
     for i, card in enumerate(deck):
         player = list(hands.keys())[i % 4]
         hands[player].append(card)
@@ -53,10 +54,10 @@ def initialize_game():
         'previous_trick': [],
         'previous_trick_winner': None,
         'teams': {
-            'Team1': ['Player', 'CPU2'],
-            'Team2': ['CPU1', 'CPU3']
+            'Team1': ['Player', 'Partner'],
+            'Team2': ['Opponent 1', 'Opponent 2']
         },
-        'bidding_order': ['Player', 'CPU1', 'CPU2', 'CPU3'],
+        'bidding_order': ['Player', 'Opponent 1', 'Partner', 'Opponent 2'],
         'current_bidder_index': 0,
         'current_bids': {},
         'round_number': 1
@@ -87,14 +88,61 @@ def find_starting_player(hands):
     # If no clubs are dealt, default to 'Player'
     return starting_player if starting_player else 'Player'
 
-def get_ai_bid(player_name, hand, game_state):
-    message = (f"Hi {player_name} it's your turn to bid! How many tricks do you think you'll"
-               f" win based on the cards in your hand: {hand}?"
-               f"Game State: {game_state}"
-               f"PLease respond in JSON format with an integer."
-               f"EXAMPLE:  {{\n\"bid\": 3\n}}")
+def blind_nil_allowed(player_name, game_state):
+    player_team = get_player_team(player_name, game_state)
+    opponent_team = get_opponent_team(player_team, game_state)
+    player_team_score = game_state['scores'][player_team]
+    opponent_team_score = game_state['scores'][opponent_team]
+    delta = player_team_score - opponent_team_score
+    # if the player's team is down by more than 100, return True
+    return delta <= -100
+
+
+def get_ai_blind_nil_choice(player_name, game_state):
+    message = (f"Hi {player_name} it's your turn to bid! Before you see your cards you may choose to go bid Blind Nil. "
+               f"Your team is down by more than 100 points. Going Blind Nil is a risky decision as scoring any trick "
+               f"after bidding Nil would result in a severe penalty."
+               f""
+               f"Submit your choice in a JSON response. The example below shows a response for electing to not bid Blind Nil."
+               f"EXAMPLE:  {{\n\"reasoning\": <text justification of your choice>\n\"bid_blind_nil\": False,\n}}")
+
     response = json.loads(assistant.chat(user_content=message, json_format=True))
-    return response["bid"]
+    debug_print({
+        "player_name": player_name,
+        "reasoning": response["reasoning"],
+        "bid_blind_nil": response["bid_blind_nil"]})
+    bid_blind_nil = bool(response["bid_blind_nil"])
+    return bid_blind_nil
+
+
+def debug_print(param):
+    print(json.dumps(param, indent=4))
+
+
+def get_ai_bid(player_name, hand, game_state):
+    if blind_nil_allowed(player_name, game_state):
+        ai_bids_blind_nil = get_ai_blind_nil_choice(player_name, game_state)
+        if ai_bids_blind_nil:
+            game_state['nil_bids'][player_name] = 'Blind Nil'
+            return 0
+
+    message = (f"Hi {player_name} it's your turn to bid! How many tricks do you think you'll"
+               f" win based on the cards in your hand? You may also bid : {hand}?"
+               f"Game State: {game_state}"
+               f"PLease respond in JSON format with an integer. Use 0 to bid Nil."
+               f"EXAMPLE:  {{\n\"reasoning\": <text justification of your bid>\n\"bid\": 3,\n}}")
+    response = json.loads(assistant.chat(user_content=message, json_format=True))
+    debug_print({
+        "player_name": player_name,
+        "reasoning": response["reasoning"],
+        "bid": response["bid"]})
+
+    bid = response["bid"]
+
+    if bid == 0:
+        game_state['nil_bids'][player_name] = 'Nil'
+        return 0
+    return bid
 
 # CPU bidding logic (updated for softer bids)
 def get_cpu_bid(player_name, hand, game_state):
@@ -117,19 +165,55 @@ def get_cpu_bid(player_name, hand, game_state):
     bid = int(bid)
 
     # CPU logic for Nil or Blind Nil based on score
-    team_score = game_state['scores'][get_player_team(player_name, game_state)]
     if bid == 0:
         bid = 1  # Ensure CPU bids at least 1
-        if random.random() < 0.1 and team_score <= -100:  # 10% chance to bid Nil
+        if random.random() < 0.1 and blind_nil_allowed(player_name, game_state) <= -100:  # 10% chance to bid Nil
             game_state['nil_bids'][player_name] = 'Nil'
             return 0
 
-    if team_score <= -100:
+    if blind_nil_allowed(player_name, game_state) <= -100:
         if random.random() < 0.02:  # 2% chance to bid Blind Nil
             game_state['nil_bids'][player_name] = 'Blind Nil'
             return 0
 
     return bid
+
+
+def get_ai_card_choice(player_name, hand, spades_broken, current_trick):
+    message = (f"Hello {player_name}! It's your turn to play a card for this trick."
+               f"Current Trick: {current_trick}"
+               f"Spades Broken: {spades_broken}"
+               f"Your Hand: {hand}"
+               f"Please select a card from your hand to play. Your response should be in JSON."
+               f"EXAMPLE: {{\n\"reasoning\": <text justification of your bid>\n\"card_played\": {{\"rank\": \"A\", \"suit\": \"Spades\"}}\n}}")
+
+    response = json.loads(assistant.chat(user_content=message, json_format=True))
+    debug_print({
+        "player_name": player_name,
+        "reasoning": response["reasoning"],
+        "card_played": response["card_played"]})
+
+    return response["card_played"]
+
+
+def ai_play_card(player_name, game_state):
+    hand = game_state['hands'][player_name]
+    current_trick = game_state['current_trick']
+    spades_broken = game_state['spades_broken']
+
+    card_to_play = get_ai_card_choice(player_name, hand, spades_broken, current_trick)
+
+    hand.remove(card_to_play)
+    game_state['current_trick'].append({'player': player_name, 'card': card_to_play})
+
+    if card_to_play['suit'] == 'Spades' and not spades_broken:
+        game_state['spades_broken'] = True
+
+    # Check if CPU has a Nil bid and took a trick
+    if player_name in game_state['nil_bids'] and game_state['nil_bids'][player_name] in ['Nil', 'Blind Nil']:
+        # Mark that the Nil bid failed
+        if player_name not in game_state.get('failed_nil', []):
+            game_state.setdefault('failed_nil', []).append(player_name)
 
 # CPU player logic for playing a card (updated for spades breaking)
 def cpu_play_card(player_name, game_state):
@@ -278,8 +362,7 @@ def start_game():
         blind_nil_choice = request.form.get('blind_nil_choice')
         if blind_nil_choice == 'Yes':
             # Check if Blind Nil is allowed (team behind by 100 points)
-            team_score = game_state['scores'][get_player_team('Player', game_state)]
-            if team_score <= -100 or team_score == 0:
+            if blind_nil_allowed('Player', game_state):
                 game_state['bids']['Player'] = 0
                 game_state['nil_bids']['Player'] = 'Blind Nil'
                 # Deal cards without showing them
@@ -367,7 +450,7 @@ def reset_game_state_for_new_round(game_state):
         'previous_trick_winner': None,
         'current_bids': {},
         'current_bidder_index': 0,
-        'bidding_order': ['Player', 'CPU1', 'CPU2', 'CPU3'],
+        'bidding_order': ['Player', 'Opponent 1', 'Partner', 'Opponent 2'],
         'round_number': game_state['round_number'] + 1,
     })
 
@@ -420,7 +503,7 @@ def play_hand():
 
         else:
             # CPU's turn
-            cpu_play_card(current_player, game_state)
+            ai_play_card(current_player, game_state)
             # Move to next player
             game_state['current_player'] = get_next_player(current_player)
 
