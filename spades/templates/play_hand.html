@@ -53,11 +53,11 @@
 
     <p><strong>Spades Broken:</strong> {{ 'Yes' if game_state.spades_broken else 'No' }}</p>
 
-    {% if game_state.current_player == 'Player' %}
+    {% if game_state.current_player == 'Team A Player 1' %}
         <h2>Your Turn</h2>
         <h3>Your Hand:</h3>
         <form method="post">
-            {% for card in game_state.hands['Player'] %}
+            {% for card in game_state.hands['Team A Player 1'] %}
                 <div>
                     <input type="radio" id="card{{ loop.index0 }}" name="card_index" value="{{ loop.index0 }}" required>
                     <label for="card{{ loop.index0 }}">{{ card['rank'] }} of {{ card['suit'] }}</label>

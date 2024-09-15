@@ -25,10 +25,10 @@
     {% if error %}
         <p style="color: red;">{{ error }}</p>
     {% endif %}
-    {% if bidder == 'Player' %}
+    {% if bidder == 'Team A Player 1' %}
         <h2>Your Hand:</h2>
         <ul>
-            {% for card in game_state.hands['Player'] %}
+            {% for card in game_state.hands['Team A Player 1'] %}
                 <li>{{ card['rank'] }} of {{ card['suit'] }}</li>
             {% endfor %}
         </ul>

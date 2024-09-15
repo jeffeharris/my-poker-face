@@ -1,7 +1,6 @@
 # spades_game.py
 import json
 
-from PIL.ImageChops import difference
 from flask import Flask, render_template, request, redirect, url_for, session
 import random
 
@@ -12,22 +11,40 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Replace with a secure random key in production
 
+# TODO: <REFACTOR> integrate the Deck and Card and CardSet classes here
 # Define card ranks and suits
 suits = ['Clubs', 'Diamonds', 'Hearts', 'Spades']
 ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 
-assistant = OpenAILLMAssistant(system_message="You are participating in a game of spades.")
+# TODO: <REFACTOR> integrate Player and AIPlayer classes here
+players_names = ['Team A Player 1', 'Team B Player 1', 'Team A Player 2', 'Team B Player 2']
+
+prompt = (
+    "You are participating in a game of Spades. In Spades, a trick is won when a player plays the highest card in the leading suit, "
+    "or if a Spade (the trump suit) is played. If a player cannot follow suit, they can 'cut' with a Spade, potentially winning the trick unless someone else plays a higher Spade.\n\n"
+    "Strategic play starts with careful bidding. Accurately evaluate your hand for sure tricks (cards you are confident will win) and potential tricks (cards that could win based on the situation). "
+    "Balance is key: underbidding can miss opportunities, while overbidding risks penalties, so bid based on realistic expectations.\n\n"
+    "When playing, consider your position:\n"
+    "- If you're leading the trick, play a card that either forces your opponents to waste their high cards or helps your partner win. If you're holding weaker cards, lead with those to potentially force a cut from opponents.\n"
+    "- If you're playing last (in position), analyze the cards already played. Use this to either play a high card and win the trick or intentionally play a low card to conserve stronger ones for future rounds.\n\n"
+    "Remember A is a high card. Save your high Spades for crucial late-game tricks when other suits have run out. Conversely, get rid of low cards in suits you're weak in early on to avoid being forced to lose later. "
+    "Keeping track of which cards have been played will help you predict opponents' hands and adjust your strategy.\n\n"
+    "When you can't win a trick, prioritize discarding low cards to conserve higher cards for future tricks. However, if you hold high cards that are unlikely to win later, consider discarding those strategically. "
+    "Managing your hand is essential to avoid being forced to waste strong cards on losing rounds."
+)
+
+assistant = OpenAILLMAssistant(system_message=prompt)
 
 # Create a deck of cards
 def create_deck():
     deck = [{'rank': rank, 'suit': suit} for suit in suits for rank in ranks]
     return deck
 
-# Deal cards to players
+# Deal cards to players_names
 def deal_cards():
     deck = create_deck()
     random.shuffle(deck)
-    hands = {'Player': [], 'Opponent 1': [], 'Partner': [], 'Opponent 2': []}
+    hands = {name: [] for name in players_names}
     for i, card in enumerate(deck):
         player = list(hands.keys())[i % 4]
         hands[player].append(card)
@@ -43,21 +60,21 @@ def initialize_game():
         'bids': {},
         'nil_bids': {},
         'failed_nil': [],
-        'tricks_won': {'Team1': 0, 'Team2': 0},
+        'tricks_won': {'Team A': 0, 'Team B': 0},
         'current_trick': [],
         'current_player': None,
         'trick_number': 1,
         'spades_broken': False,
-        'scores': {'Team1': 0, 'Team2': 0},
+        'scores': {'Team A': 0, 'Team B': 0},
         'game_over': False,
         'winning_team': None,
         'previous_trick': [],
         'previous_trick_winner': None,
         'teams': {
-            'Team1': ['Player', 'Partner'],
-            'Team2': ['Opponent 1', 'Opponent 2']
+            'Team A': [players_names[0], players_names[2]],
+            'Team B': [players_names[1], players_names[3]]
         },
-        'bidding_order': ['Player', 'Opponent 1', 'Partner', 'Opponent 2'],
+        'bidding_order': players_names,
         'current_bidder_index': 0,
         'current_bids': {},
         'round_number': 1
@@ -86,7 +103,7 @@ def find_starting_player(hands):
                     lowest_club = card
                     starting_player = player
     # If no clubs are dealt, default to 'Player'
-    return starting_player if starting_player else 'Player'
+    return starting_player if starting_player else players_names[0]
 
 def blind_nil_allowed(player_name, game_state):
     player_team = get_player_team(player_name, game_state)
@@ -145,38 +162,38 @@ def get_ai_bid(player_name, hand, game_state):
     return bid
 
 # CPU bidding logic (updated for softer bids)
-def get_cpu_bid(player_name, hand, game_state):
-    bid = 0
-
-    # Evaluate the hand for high cards and Spades
-    for card in hand:
-        if card['rank'] == 'A':
-            bid += 1  # Aces are likely to win
-        elif card['rank'] == 'K':
-            bid += 0.8
-        elif card['rank'] == 'Q':
-            bid += 0.5
-        elif card['rank'] == 'J' or card['rank'] == '10':
-            bid += 0.3
-        if card['suit'] == 'Spades' and card['rank'] in ['A', 'K', 'Q']:
-            bid += 0.5  # Count high Spades more aggressively
-
-    # Round down bids to make CPU less aggressive
-    bid = int(bid)
-
-    # CPU logic for Nil or Blind Nil based on score
-    if bid == 0:
-        bid = 1  # Ensure CPU bids at least 1
-        if random.random() < 0.1 and blind_nil_allowed(player_name, game_state) <= -100:  # 10% chance to bid Nil
-            game_state['nil_bids'][player_name] = 'Nil'
-            return 0
-
-    if blind_nil_allowed(player_name, game_state) <= -100:
-        if random.random() < 0.02:  # 2% chance to bid Blind Nil
-            game_state['nil_bids'][player_name] = 'Blind Nil'
-            return 0
-
-    return bid
+# def get_cpu_bid(player_name, hand, game_state):
+#     bid = 0
+#
+#     # Evaluate the hand for high cards and Spades
+#     for card in hand:
+#         if card['rank'] == 'A':
+#             bid += 1  # Aces are likely to win
+#         elif card['rank'] == 'K':
+#             bid += 0.8
+#         elif card['rank'] == 'Q':
+#             bid += 0.5
+#         elif card['rank'] == 'J' or card['rank'] == '10':
+#             bid += 0.3
+#         if card['suit'] == 'Spades' and card['rank'] in ['A', 'K', 'Q']:
+#             bid += 0.5  # Count high Spades more aggressively
+#
+#     # Round down bids to make CPU less aggressive
+#     bid = int(bid)
+#
+#     # CPU logic for Nil or Blind Nil based on score
+#     if bid == 0:
+#         bid = 1  # Ensure CPU bids at least 1
+#         if random.random() < 0.1 and blind_nil_allowed(player_name, game_state) <= -100:  # 10% chance to bid Nil
+#             game_state['nil_bids'][player_name] = 'Nil'
+#             return 0
+#
+#     if blind_nil_allowed(player_name, game_state) <= -100:
+#         if random.random() < 0.02:  # 2% chance to bid Blind Nil
+#             game_state['nil_bids'][player_name] = 'Blind Nil'
+#             return 0
+#
+#     return bid
 
 
 def get_ai_card_choice(player_name, hand, spades_broken, current_trick):
@@ -201,7 +218,19 @@ def ai_play_card(player_name, game_state):
     current_trick = game_state['current_trick']
     spades_broken = game_state['spades_broken']
 
-    card_to_play = get_ai_card_choice(player_name, hand, spades_broken, current_trick)
+    if not current_trick:
+        # if you're the first card to play, check for spades being broken
+        if spades_broken:
+            cards_you_can_play = hand
+        else:
+            cards_you_can_play = [card for card in hand if
+                                  card['suit'] != 'Spades'] or hand  # if only spades are available
+    else:
+        # if a card has been played, check to see if you have that suit
+        leading_suit = current_trick[0]['card']['suit']
+        cards_you_can_play = [card for card in hand if card['suit'] == leading_suit] or hand
+
+    card_to_play = get_ai_card_choice(player_name, cards_you_can_play, spades_broken, current_trick)
 
     hand.remove(card_to_play)
     game_state['current_trick'].append({'player': player_name, 'card': card_to_play})
@@ -216,52 +245,52 @@ def ai_play_card(player_name, game_state):
             game_state.setdefault('failed_nil', []).append(player_name)
 
 # CPU player logic for playing a card (updated for spades breaking)
-def cpu_play_card(player_name, game_state):
-    hand = game_state['hands'][player_name]
-    current_trick = game_state['current_trick']
-    spades_broken = game_state['spades_broken']
-
-    # Implementing basic AI for card selection
-    if current_trick:
-        leading_suit = current_trick[0]['card']['suit']
-        same_suit_cards = [card for card in hand if card['suit'] == leading_suit]
-
-        if same_suit_cards:
-            card_to_play = same_suit_cards[0]  # Play lowest card of leading suit
-        else:
-            # Cannot follow suit
-            spades_cards = [card for card in hand if card['suit'] == 'Spades']
-            if spades_cards:
-                # Play a Spade to break Spades if they haven't been broken
-                card_to_play = min(spades_cards, key=lambda x: ranks.index(x['rank']))
-                if not spades_broken:
-                    game_state['spades_broken'] = True
-            else:
-                # No Spades; play lowest card
-                card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
-    else:
-        # First player of the trick
-        if spades_broken:
-            card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
-        else:
-            non_spades = [card for card in hand if card['suit'] != 'Spades']
-            if non_spades:
-                card_to_play = min(non_spades, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
-            else:
-                # Only Spades left
-                card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
-
-    hand.remove(card_to_play)
-    game_state['current_trick'].append({'player': player_name, 'card': card_to_play})
-
-    if card_to_play['suit'] == 'Spades' and not spades_broken:
-        game_state['spades_broken'] = True
-
-    # Check if CPU has a Nil bid and took a trick
-    if player_name in game_state['nil_bids'] and game_state['nil_bids'][player_name] in ['Nil', 'Blind Nil']:
-        # Mark that the Nil bid failed
-        if player_name not in game_state.get('failed_nil', []):
-            game_state.setdefault('failed_nil', []).append(player_name)
+# def cpu_play_card(player_name, game_state):
+#     hand = game_state['hands'][player_name]
+#     current_trick = game_state['current_trick']
+#     spades_broken = game_state['spades_broken']
+#
+#     # Implementing basic AI for card selection
+#     if current_trick:
+#         leading_suit = current_trick[0]['card']['suit']
+#         same_suit_cards = [card for card in hand if card['suit'] == leading_suit]
+#
+#         if same_suit_cards:
+#             card_to_play = same_suit_cards[0]  # Play lowest card of leading suit
+#         else:
+#             # Cannot follow suit
+#             spades_cards = [card for card in hand if card['suit'] == 'Spades']
+#             if spades_cards:
+#                 # Play a Spade to break Spades if they haven't been broken
+#                 card_to_play = min(spades_cards, key=lambda x: ranks.index(x['rank']))
+#                 if not spades_broken:
+#                     game_state['spades_broken'] = True
+#             else:
+#                 # No Spades; play lowest card
+#                 card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
+#     else:
+#         # First player of the trick
+#         if spades_broken:
+#             card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
+#         else:
+#             non_spades = [card for card in hand if card['suit'] != 'Spades']
+#             if non_spades:
+#                 card_to_play = min(non_spades, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
+#             else:
+#                 # Only Spades left
+#                 card_to_play = min(hand, key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
+#
+#     hand.remove(card_to_play)
+#     game_state['current_trick'].append({'player': player_name, 'card': card_to_play})
+#
+#     if card_to_play['suit'] == 'Spades' and not spades_broken:
+#         game_state['spades_broken'] = True
+#
+#     # Check if CPU has a Nil bid and took a trick
+#     if player_name in game_state['nil_bids'] and game_state['nil_bids'][player_name] in ['Nil', 'Blind Nil']:
+#         # Mark that the Nil bid failed
+#         if player_name not in game_state.get('failed_nil', []):
+#             game_state.setdefault('failed_nil', []).append(player_name)
 
 
 # Determine the winner of a trick
@@ -346,7 +375,7 @@ def calculate_scores(game_state):
             game_state['scores'][team] -= 10 * bid
 
 def get_opponent_team(team, game_state):
-    return 'Team1' if team == 'Team2' else 'Team2'
+    return 'Team A' if team == 'Team B' else 'Team B'
 
 @app.route('/')
 def index():
@@ -362,9 +391,9 @@ def start_game():
         blind_nil_choice = request.form.get('blind_nil_choice')
         if blind_nil_choice == 'Yes':
             # Check if Blind Nil is allowed (team behind by 100 points)
-            if blind_nil_allowed('Player', game_state):
-                game_state['bids']['Player'] = 0
-                game_state['nil_bids']['Player'] = 'Blind Nil'
+            if blind_nil_allowed(players_names[0], game_state):
+                game_state['bids'][players_names[0]] = 0
+                game_state['nil_bids'][players_names[0]] = 'Blind Nil'
                 # Deal cards without showing them
                 game_state['hands'] = deal_cards()
                 # CPUs make their bids in order
@@ -385,9 +414,9 @@ def process_bids(game_state):
     # Process bidding in order
     bidding_order = game_state['bidding_order']
     for bidder in bidding_order:
-        if bidder == 'Player' and 'Player' in game_state['bids']:
+        if bidder == players_names[0] and players_names[0] in game_state['bids']:
             continue  # Player has already bid (in case of Blind Nil)
-        elif bidder != 'Player':
+        elif bidder != players_names[0]:
             # CPU makes bid
             hand = game_state['hands'][bidder]
             bid = get_ai_bid(bidder, hand, game_state)
@@ -407,13 +436,13 @@ def bidding():
     if request.method == 'POST':
         bid_input = request.form['bid']
         if bid_input.lower() == 'nil':
-            game_state['bids']['Player'] = 0
-            game_state['nil_bids']['Player'] = 'Nil'
+            game_state['bids'][players_names[0]] = 0
+            game_state['nil_bids'][players_names[0]] = 'Nil'
         else:
             try:
                 bid = int(bid_input)
                 if 0 <= bid <= 13:
-                    game_state['bids']['Player'] = bid
+                    game_state['bids'][players_names[0]] = bid
                 else:
                     error = "Bid must be between 0 and 13."
                     return render_template('bidding.html', error=error, game_state=game_state)
@@ -440,7 +469,7 @@ def reset_game_state_for_new_round(game_state):
         'bids': {},
         'nil_bids': {},
         'failed_nil': [],
-        'tricks_won': {'Team1': 0, 'Team2': 0},
+        'tricks_won': {'Team A': 0, 'Team B': 0},
         'current_trick': [],
         'current_player': None,
         'trick_number': 1,
@@ -450,7 +479,7 @@ def reset_game_state_for_new_round(game_state):
         'previous_trick_winner': None,
         'current_bids': {},
         'current_bidder_index': 0,
-        'bidding_order': ['Player', 'Opponent 1', 'Partner', 'Opponent 2'],
+        'bidding_order': players_names,
         'round_number': game_state['round_number'] + 1,
     })
 
@@ -480,20 +509,20 @@ def play_hand():
     if request.method == 'POST':
         current_player = game_state['current_player']
 
-        if current_player == 'Player':
+        if current_player == players_names[0]:
             # Player's turn
             card_index = int(request.form['card_index'])
-            player_hand = game_state['hands']['Player']
+            player_hand = game_state['hands'][players_names[0]]
             selected_card = player_hand[card_index]
 
             # Validate play
-            error = validate_play('Player', selected_card, game_state)
+            error = validate_play(players_names[0], selected_card, game_state)
             if error:
                 return render_template('play_hand.html', game_state=game_state, error=error)
 
             # Play the card
             player_hand.pop(card_index)
-            game_state['current_trick'].append({'player': 'Player', 'card': selected_card})
+            game_state['current_trick'].append({'player': players_names[0], 'card': selected_card})
 
             if selected_card['suit'] == 'Spades' and not game_state['spades_broken']:
                 game_state['spades_broken'] = True
@@ -538,14 +567,14 @@ def play_hand():
         session['game_state'] = game_state
 
         # If next player is not 'Player', process AI moves
-        if game_state['current_player'] != 'Player' and not game_state.get('round_over', False):
+        if game_state['current_player'] != players_names[0] and not game_state.get('round_over', False):
             return redirect(url_for('play_hand'))
 
     # Render the play hand template
     return render_template('play_hand.html', game_state=game_state, error=error)
 
 def get_next_player(current_player):
-    player_order = ['Player', 'CPU1', 'CPU2', 'CPU3']
+    player_order = players_names
     index = player_order.index(current_player)
     next_index = (index + 1) % 4
     return player_order[next_index]
