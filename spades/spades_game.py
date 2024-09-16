@@ -22,20 +22,21 @@ players_names = ['Team A Player 1', 'Team B Player 1', 'Team A Player 2', 'Team 
 prompt = (
     "You are participating in a game of team Spades. In Spades, a trick is won when a player plays the highest card in the leading suit, "
     "or if a Spade (the trump suit) is played. If a player cannot follow suit, they can 'cut' with a Spade, which automatically wins the trick unless a higher Spade is played. "
-    "Any Spade played will beat all cards in other suits, regardless of their rank. \"A\" is the highest rank and beats all other ranks.\n\n"
-    "Strategic play starts with careful bidding. Accurately evaluate your hand for sure tricks (cards you are confident will win) and potential tricks (cards that could win based on the situation). "
-    "Balance is key: underbidding can miss opportunities, while overbidding risks penalties, so bid based on realistic expectations.\n\n"
-    "When playing, consider your position:\n"
-    "- If you're leading the trick, play a card that either forces your opponents to waste their high cards or helps your partner win. If you're holding weaker cards, lead with those to potentially force a cut from opponents.\n"
+    "Any Spade played will beat all cards in other suits, regardless of their rank. 'A' is the highest rank and beats all other ranks. **You must always follow the leading suit if you have a card in that suit, even if it will not win.**\n\n"
+
+    "When deciding which card to play, always consider the following:\n"
+    "- **If your teammate is currently leading the trick with the highest card, do not play a higher card to 'steal' the win**. Instead, play the lowest card you have that still follows suit, or discard if you cannot follow suit. This conserves your higher cards for future tricks when they may be more valuable.\n"
+    "- **Play the lowest card that can still win the trick**. If a lower Spade can win the trick, use it instead of a higher Spade. This allows you to save higher-value Spades (like the Queen or King) for future rounds where they will be more impactful.\n"
     "- If you're playing last (in position), analyze the cards already played. Use this to either play a high card and win the trick or intentionally play a low card to conserve stronger ones for future rounds.\n"
-    "- Pay attention to your partner and don't steal a hand they have already won if you are the last to play.\n\n"
+
+    "You cannot pass on your turn. You must always play a card, even if it won't help you win the trick. **If a lower card will win or if your teammate is winning, play that card and save your higher cards for later.**\n\n"
+
     "Save your high Spades for crucial late-game tricks when other suits have run out. Conversely, get rid of low cards in suits you're weak in early on to avoid being forced to lose later. "
     "Keeping track of which cards have been played will help you predict opponents' hands and adjust your strategy.\n\n"
-    "When a Spade has been played in a trick, it automatically beats all non-Spade cards. Only a higher Spade can win after a Spade is played. "
-    "If a non-Spade card has been played but a Spade is in the trick, do not play a non-Spade thinking it will win, as it cannot beat any Spade. "
-    "Always consider whether a Spade has been played before deciding which card to play."
-)
 
+    "When a Spade has been played in a trick, it automatically beats all non-Spade cards. Only a higher Spade can win after a Spade is played. "
+    "If a non-Spade card has been played but a Spade is in the trick, do not play a non-Spade thinking it will win, as it cannot beat any Spade."
+)
 
 assistant = OpenAILLMAssistant(system_message=prompt)
 
@@ -201,18 +202,18 @@ def get_ai_bid(player_name, hand, game_state):
 
 
 def get_ai_card_choice(player_name, hand, spades_broken, current_trick):
-    message = (f"Hello {player_name}! It's your turn to play a card for this trick."
-               f"Current Trick: {current_trick}"
-               f"Spades Broken: {spades_broken}"
-               f"Your Hand: {hand}"
-               f"Please select a card from your hand to play. Your response should be in JSON."
-               f"EXAMPLE: {{\n\"reasoning\": <text justification of your bid>\n\"card_played\": {{\"rank\": \"A\", \"suit\": \"Spades\"}}\n}}")
+    message = (f"Hello {player_name}! It's your turn to play a card for this trick.\n"
+               f"Current Trick: {current_trick}\n"
+               f"Spades Broken: {spades_broken}\n"
+               f"Your Hand: {hand}\n"
+               f"Please select a card from your hand to play. Your response should be in JSON.\n"
+               f"EXAMPLE: {{\n\"reasoning\": <text justification of your choice>\n\"card_played\": {{\"rank\": \"A\", \"suit\": \"Spades\"}}\n}}\n")
 
     response = json.loads(assistant.chat(user_content=message, json_format=True))
-    debug_print({
+    debug_print({ "message": message, "response": {
         "player_name": player_name,
         "reasoning": response["reasoning"],
-        "card_played": response["card_played"]})
+        "card_played": response["card_played"]}})
 
     return response["card_played"]
 
@@ -239,7 +240,7 @@ def ai_play_card(player_name, game_state):
         "cards_you_can_play": cards_you_can_play,
     })
 
-    card_to_play = get_ai_card_choice(player_name, hand, spades_broken, current_trick)
+    card_to_play = get_ai_card_choice(player_name, cards_you_can_play, spades_broken, current_trick)
 
     hand.remove(card_to_play)
     game_state['current_trick'].append({'player': player_name, 'card': card_to_play})
