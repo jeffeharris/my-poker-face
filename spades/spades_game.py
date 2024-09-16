@@ -20,18 +20,22 @@ ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 players_names = ['Team A Player 1', 'Team B Player 1', 'Team A Player 2', 'Team B Player 2']
 
 prompt = (
-    "You are participating in a game of Spades. In Spades, a trick is won when a player plays the highest card in the leading suit, "
-    "or if a Spade (the trump suit) is played. If a player cannot follow suit, they can 'cut' with a Spade, potentially winning the trick unless someone else plays a higher Spade.\n\n"
+    "You are participating in a game of team Spades. In Spades, a trick is won when a player plays the highest card in the leading suit, "
+    "or if a Spade (the trump suit) is played. If a player cannot follow suit, they can 'cut' with a Spade, which automatically wins the trick unless a higher Spade is played. "
+    "Any Spade played will beat all cards in other suits, regardless of their rank. \"A\" is the highest rank and beats all other ranks.\n\n"
     "Strategic play starts with careful bidding. Accurately evaluate your hand for sure tricks (cards you are confident will win) and potential tricks (cards that could win based on the situation). "
     "Balance is key: underbidding can miss opportunities, while overbidding risks penalties, so bid based on realistic expectations.\n\n"
     "When playing, consider your position:\n"
     "- If you're leading the trick, play a card that either forces your opponents to waste their high cards or helps your partner win. If you're holding weaker cards, lead with those to potentially force a cut from opponents.\n"
-    "- If you're playing last (in position), analyze the cards already played. Use this to either play a high card and win the trick or intentionally play a low card to conserve stronger ones for future rounds.\n\n"
-    "Remember A is a high card. Save your high Spades for crucial late-game tricks when other suits have run out. Conversely, get rid of low cards in suits you're weak in early on to avoid being forced to lose later. "
+    "- If you're playing last (in position), analyze the cards already played. Use this to either play a high card and win the trick or intentionally play a low card to conserve stronger ones for future rounds.\n"
+    "- Pay attention to your partner and don't steal a hand they have already won if you are the last to play.\n\n"
+    "Save your high Spades for crucial late-game tricks when other suits have run out. Conversely, get rid of low cards in suits you're weak in early on to avoid being forced to lose later. "
     "Keeping track of which cards have been played will help you predict opponents' hands and adjust your strategy.\n\n"
-    "When you can't win a trick, prioritize discarding low cards to conserve higher cards for future tricks. However, if you hold high cards that are unlikely to win later, consider discarding those strategically. "
-    "Managing your hand is essential to avoid being forced to waste strong cards on losing rounds."
+    "When a Spade has been played in a trick, it automatically beats all non-Spade cards. Only a higher Spade can win after a Spade is played. "
+    "If a non-Spade card has been played but a Spade is in the trick, do not play a non-Spade thinking it will win, as it cannot beat any Spade. "
+    "Always consider whether a Spade has been played before deciding which card to play."
 )
+
 
 assistant = OpenAILLMAssistant(system_message=prompt)
 
@@ -229,8 +233,13 @@ def ai_play_card(player_name, game_state):
         # if a card has been played, check to see if you have that suit
         leading_suit = current_trick[0]['card']['suit']
         cards_you_can_play = [card for card in hand if card['suit'] == leading_suit] or hand
+    debug_print({
+        "player_name": player_name,
+        "hand": hand,
+        "cards_you_can_play": cards_you_can_play,
+    })
 
-    card_to_play = get_ai_card_choice(player_name, cards_you_can_play, spades_broken, current_trick)
+    card_to_play = get_ai_card_choice(player_name, hand, spades_broken, current_trick)
 
     hand.remove(card_to_play)
     game_state['current_trick'].append({'player': player_name, 'card': card_to_play})
