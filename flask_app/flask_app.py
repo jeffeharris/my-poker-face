@@ -59,8 +59,8 @@ def start_game():
     else:
         game_state = initialize_game_state()
     session['game_state'] = game_state
-    socketio.emit('update_game_state', session['game_state'])
-    return jsonify(session['game_state'])
+    socketio.emit('update_game_state', game_state)
+    return jsonify(game_state)
 
 
 @socketio.on('player_action')
