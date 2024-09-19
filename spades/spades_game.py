@@ -18,7 +18,7 @@ app.secret_key = 'your_secret_key'  # Replace with a secure random key in produc
 # ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 
 # TODO: <REFACTOR> integrate Player and AIPlayer classes here
-players_names = ['Team A Player 1', 'Team B Player 1', 'Team A Player 2', 'Team B Player 2']
+player_names = ['Team A Player 1', 'Team B Player 1', 'Team A Player 2', 'Team B Player 2']
 
 prompt = (
     "You are participating in a game of team Spades. In Spades, a trick is won when a player plays the highest card in the leading suit, "
@@ -41,12 +41,12 @@ prompt = (
 
 assistant = OpenAILLMAssistant(system_message=prompt)
 
-# Deal cards to players_names
+# Deal cards to player_names
 def deal_cards():
     deck = Deck()
     deck.shuffle()
     # TODO: <NEXT-STEP> replace "deck" with Deck()
-    hands = {name: [] for name in players_names}
+    hands = {name: [] for name in player_names}
     for i, card in enumerate(deck.card_deck.cards):     # TODO: make it easier to access the iterable cards for a Deck
         player = list(hands.keys())[i % 4]
         hands[player].append(card.to_dict())
@@ -73,10 +73,10 @@ def initialize_game():
         'previous_trick': [],
         'previous_trick_winner': None,
         'teams': {
-            'Team A': [players_names[0], players_names[2]],
-            'Team B': [players_names[1], players_names[3]]
+            'Team A': [player_names[0], player_names[2]],
+            'Team B': [player_names[1], player_names[3]]
         },
-        'bidding_order': players_names,
+        'bidding_order': player_names,
         'current_bidder_index': 0,
         'current_bids': {},
         'round_number': 1
@@ -105,7 +105,7 @@ def find_starting_player(hands):
                     lowest_club = card
                     starting_player = player
     # If no clubs are dealt, default to 'Player'
-    return starting_player if starting_player else players_names[0]
+    return starting_player if starting_player else player_names[0]
 
 def blind_nil_allowed(player_name, game_state):
     player_team = get_player_team(player_name, game_state)
@@ -398,9 +398,9 @@ def start_game():
         blind_nil_choice = request.form.get('blind_nil_choice')
         if blind_nil_choice == 'Yes':
             # Check if Blind Nil is allowed (team behind by 100 points)
-            if blind_nil_allowed(players_names[0], game_state):
-                game_state['bids'][players_names[0]] = 0
-                game_state['nil_bids'][players_names[0]] = 'Blind Nil'
+            if blind_nil_allowed(player_names[0], game_state):
+                game_state['bids'][player_names[0]] = 0
+                game_state['nil_bids'][player_names[0]] = 'Blind Nil'
                 # Deal cards without showing them
                 game_state['hands'] = deal_cards()
                 # CPUs make their bids in order
@@ -421,9 +421,9 @@ def process_bids(game_state):
     # Process bidding in order
     bidding_order = game_state['bidding_order']
     for bidder in bidding_order:
-        if bidder == players_names[0] and players_names[0] in game_state['bids']:
+        if bidder == player_names[0] and player_names[0] in game_state['bids']:
             continue  # Player has already bid (in case of Blind Nil)
-        elif bidder != players_names[0]:
+        elif bidder != player_names[0]:
             # CPU makes bid
             hand = game_state['hands'][bidder]
             bid = get_ai_bid(bidder, hand, game_state)
@@ -443,13 +443,13 @@ def bidding():
     if request.method == 'POST':
         bid_input = request.form['bid']
         if bid_input.lower() == 'nil':
-            game_state['bids'][players_names[0]] = 0
-            game_state['nil_bids'][players_names[0]] = 'Nil'
+            game_state['bids'][player_names[0]] = 0
+            game_state['nil_bids'][player_names[0]] = 'Nil'
         else:
             try:
                 bid = int(bid_input)
                 if 0 <= bid <= 13:
-                    game_state['bids'][players_names[0]] = bid
+                    game_state['bids'][player_names[0]] = bid
                 else:
                     error = "Bid must be between 0 and 13."
                     return render_template('bidding.html', error=error, game_state=game_state)
@@ -486,7 +486,7 @@ def reset_game_state_for_new_round(game_state):
         'previous_trick_winner': None,
         'current_bids': {},
         'current_bidder_index': 0,
-        'bidding_order': players_names,
+        'bidding_order': player_names,
         'round_number': game_state['round_number'] + 1,
     })
 
@@ -516,20 +516,20 @@ def play_hand():
     if request.method == 'POST':
         current_player = game_state['current_player']
 
-        if current_player == players_names[0]:
+        if current_player == player_names[0]:
             # Player's turn
             card_index = int(request.form['card_index'])
-            player_hand = game_state['hands'][players_names[0]]
+            player_hand = game_state['hands'][player_names[0]]
             selected_card = player_hand[card_index]
 
             # Validate play
-            error = validate_play(players_names[0], selected_card, game_state)
+            error = validate_play(player_names[0], selected_card, game_state)
             if error:
                 return render_template('play_hand.html', game_state=game_state, error=error)
 
             # Play the card
             player_hand.pop(card_index)
-            game_state['current_trick'].append({'player': players_names[0], 'card': selected_card})
+            game_state['current_trick'].append({'player': player_names[0], 'card': selected_card})
 
             if selected_card['suit'] == 'Spades' and not game_state['spades_broken']:
                 game_state['spades_broken'] = True
@@ -574,14 +574,14 @@ def play_hand():
         session['game_state'] = game_state
 
         # If next player is not 'Player', process AI moves
-        if game_state['current_player'] != players_names[0] and not game_state.get('round_over', False):
+        if game_state['current_player'] != player_names[0] and not game_state.get('round_over', False):
             return redirect(url_for('play_hand'))
 
     # Render the play hand template
     return render_template('play_hand.html', game_state=game_state, error=error)
 
 def get_next_player(current_player):
-    player_order = players_names
+    player_order = player_names
     index = player_order.index(current_player)
     next_index = (index + 1) % 4
     return player_order[next_index]
