@@ -1,9 +1,9 @@
 from typing import List
 
 from core.deck import CardSet
-from core.poker_action import PokerAction
-from core.poker_hand_pot import PokerHandPot
-from core.utils import obj_to_dict, PokerHandPhase
+from poker.poker_action import PokerAction
+from poker.poker_hand_pot import PokerHandPot
+from poker.utils import obj_to_dict, PokerHandPhase
 
 class PokerHand:
     """

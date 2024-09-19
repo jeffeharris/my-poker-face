@@ -3,9 +3,9 @@ from typing import List, Dict, Optional
 
 from core.deck import Deck
 from core.assistants import OpenAILLMAssistant
-from core.poker_hand_pot import PokerHandPot
-from core.poker_player import PokerPlayer, AIPokerPlayer
-from core.utils import shift_list_left, PokerHandPhase
+from poker.poker_hand_pot import PokerHandPot
+from poker.poker_player import PokerPlayer, AIPokerPlayer
+from poker.utils import shift_list_left, PokerHandPhase
 
 
 class SystemPrompt:

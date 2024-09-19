@@ -1,10 +1,10 @@
 import logging
 from typing import List
 
-from core.hand_evaluator import HandEvaluator
-from core.poker_hand import PokerHand
-from core.poker_settings import PokerSettings
-from core.round_manager import RoundManager
+from poker.hand_evaluator import HandEvaluator
+from poker.poker_hand import PokerHand
+from poker.poker_settings import PokerSettings
+from poker.round_manager import RoundManager
 
 from dotenv import load_dotenv
 

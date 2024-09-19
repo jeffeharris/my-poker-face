@@ -1,16 +1,12 @@
 # flask_app/flask_app.py
 from flask import Flask, render_template, session, request, redirect, jsonify
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO
 from flask_session import Session
 
-import random
-
-from core.poker_game import (PokerGame)
-from core.poker_hand import PokerHand
-from core.poker_action import PokerAction
-from core.utils import get_ai_players, obj_to_dict
-
-from dotenv import load_dotenv
+from poker.poker_game import (PokerGame)
+from poker.poker_hand import PokerHand
+from poker.poker_action import PokerAction
+from poker.utils import get_ai_players, obj_to_dict
 
 app = Flask(__name__,
             template_folder='./templates',

@@ -4,13 +4,13 @@ from typing import List, Optional, Any, Dict
 from core.card import Card
 from core.deck import Deck
 from core.interface import Interface
-from core.poker_action import PokerAction, PlayerAction
-from core.poker_game import PokerGame
-from core.poker_hand import PokerHand
-from core.poker_player import PokerPlayer, AIPokerPlayer
-from core.poker_settings import PokerSettings
-from core.round_manager import RoundManager
-from core.utils import get_ai_players, shift_list_left, PokerHandPhase
+from poker.poker_action import PokerAction, PlayerAction
+from poker.poker_game import PokerGame
+from poker.poker_hand import PokerHand
+from poker.poker_player import PokerPlayer, AIPokerPlayer
+from poker.poker_settings import PokerSettings
+from poker.round_manager import RoundManager
+from poker.utils import get_ai_players, shift_list_left, PokerHandPhase
 
 
 VIEW_AI_HAND_UPDATES = True
