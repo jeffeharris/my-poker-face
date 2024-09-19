@@ -2,8 +2,9 @@
 import json
 
 from flask import Flask, render_template, request, redirect, url_for, session
-import random
 
+from core.deck import Deck
+from core.card import Card
 from core.assistants import OpenAILLMAssistant
 from dotenv import load_dotenv
 
@@ -13,8 +14,8 @@ app.secret_key = 'your_secret_key'  # Replace with a secure random key in produc
 
 # TODO: <REFACTOR> integrate the Deck and Card and CardSet classes here
 # Define card ranks and suits
-suits = ['Clubs', 'Diamonds', 'Hearts', 'Spades']
-ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+# suits = ['Clubs', 'Diamonds', 'Hearts', 'Spades']
+# ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 
 # TODO: <REFACTOR> integrate Player and AIPlayer classes here
 players_names = ['Team A Player 1', 'Team B Player 1', 'Team A Player 2', 'Team B Player 2']
@@ -40,22 +41,18 @@ prompt = (
 
 assistant = OpenAILLMAssistant(system_message=prompt)
 
-# Create a deck of cards
-def create_deck():
-    deck = [{'rank': rank, 'suit': suit} for suit in suits for rank in ranks]
-    return deck
-
 # Deal cards to players_names
 def deal_cards():
-    deck = create_deck()
-    random.shuffle(deck)
+    deck = Deck()
+    deck.shuffle()
+    # TODO: <NEXT-STEP> replace "deck" with Deck()
     hands = {name: [] for name in players_names}
-    for i, card in enumerate(deck):
+    for i, card in enumerate(deck.card_deck.cards):     # TODO: make it easier to access the iterable cards for a Deck
         player = list(hands.keys())[i % 4]
-        hands[player].append(card)
+        hands[player].append(card.to_dict())
     # Sort each hand
     for hand in hands.values():
-        hand.sort(key=lambda x: (suits.index(x['suit']), ranks.index(x['rank'])))
+        hand.sort(key=lambda x: (deck.card_deck.SUITS.index(x["suit"]), deck.card_deck.RANKS.index(x["rank"])))
     return hands
 
 # Initialize game state
@@ -103,8 +100,8 @@ def find_starting_player(hands):
     starting_player = None
     for player, hand in hands.items():
         for card in hand:
-            if card['suit'] == 'Clubs':
-                if (lowest_club is None) or (ranks.index(card['rank']) < ranks.index(lowest_club['rank'])):
+            if card["suit"] == 'Clubs':
+                if (lowest_club is None) or (list(Card.RANK_VALUES.keys()).index(card.rank) < list(Card.RANK_VALUES.keys()).index(lowest_club['rank'])):
                     lowest_club = card
                     starting_player = player
     # If no clubs are dealt, default to 'Player'
@@ -162,7 +159,7 @@ def get_ai_bid(player_name, hand, game_state):
     bid = response["bid"]
 
     if bid == 0:
-        game_state['nil_bids'][player_name] = 'Nil'
+        ['nil_bids'][player_name] = 'Nil'
         return 0
     return bid
 
@@ -309,13 +306,13 @@ def determine_winner(trick):
     winning_play = trick[0]
     for play in trick[1:]:
         card = play['card']
-        if card['suit'] == winning_play['card']['suit']:
-            if ranks.index(card['rank']) > ranks.index(winning_play['card']['rank']):
+        if card["suit"] == winning_play['card']['suit']:
+            if list(Card.RANK_VALUES.keys()).index(card["rank"]) > list(Card.RANK_VALUES.keys()).index(winning_play['card']['rank']):
                 winning_play = play
         elif card['suit'] == 'Spades':
             if winning_play['card']['suit'] != 'Spades':
                 winning_play = play
-            elif ranks.index(card['rank']) > ranks.index(winning_play['card']['rank']):
+            elif list(Card.RANK_VALUES.keys()).index(card["rank"]) > list(Card.RANK_VALUES.keys()).index(winning_play['card']['rank']):
                 winning_play = play
     return winning_play['player']
 
