@@ -23,8 +23,8 @@ class Card:
     """
     SUIT_TO_ASCII = {'Hearts': '♥', 'Diamonds': '♦', 'Clubs': '♣', 'Spades': '♠'}
     ASCII_TO_SUIT = {v: k for k, v in SUIT_TO_ASCII.items()}
-    RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13,
-                   'A': 14}
+    RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,'8': 8,
+                   '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
 
     def __init__(self, rank, suit):
         self.rank = rank
@@ -34,8 +34,8 @@ class Card:
     def to_dict(self) -> Dict[str, str or int]:
         return {
             'rank': self.rank,
-            'suit': self.get_suit_symbol(),
-            'value': self.value
+            'suit': self.suit,
+            # 'value': self.value
         }
 
     @staticmethod
