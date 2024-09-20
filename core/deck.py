@@ -1,4 +1,6 @@
 import random
+from typing import Any
+
 from core.card import *
 
 
@@ -18,6 +20,10 @@ class CardSet:
 
     def __getitem__(self, index):
         return self.cards[index]
+
+    def to_dict(self) -> List[Dict[str, str]]:
+        dict_instance = [c.to_dict() for c in self.cards]
+        return dict_instance
 
     @classmethod
     def cards_from_dict(cls, deck_dict: Dict[str, List[Dict[str, str]]]) -> 'CardSet':
@@ -55,8 +61,8 @@ class Deck:
     def to_dict(self) -> Dict[str, List[Dict[str, str]]]:
         """Convert the Deck to a dictionary representation."""
         deck_dict = {
-            'card_deck': [card.to_dict() for card in self.card_deck.cards],
-            'discard_pile': [card.to_dict() for card in self.discard_pile]
+            'card_deck': self.card_deck.to_dict(),
+            'discard_pile': self.discard_pile.to_dict()
         }
         return deck_dict
 

@@ -39,9 +39,9 @@ class PokerHand:
     @property
     def hand_state(self):
         hand_state = {
-            "community_cards": self.community_cards.copy(),
+            "community_cards": self.community_cards.to_dict(),
             "current_bet": self.pots[0].current_bet,
-            "current_pot": self.pots[0],
+            "current_pot": self.pots[0].to_dict(),
             "current_situation": f"The {self.current_phase.value} cards have just been dealt",
             "current_phase": self.current_phase.value,
             "poker_actions": self.poker_actions,

@@ -135,12 +135,14 @@ class RoundManager:
     @property
     def round_manager_state(self):
         state = {
-            "table_manager": self,
-            "players": self.players,
-            "remaining_players": self.remaining_players,
+            # "table_manager": self,
+            "players": [p.to_dict() for p in self.players],
+            "remaining_players": [p.to_dict() for p in self.remaining_players],
             "opponent_status": self.get_opponent_status(),
             "table_positions": self.get_table_positions(),
             "table_messages": self.table_messages,
+            "deck": self.deck.to_dict(),
+            "small_blind": self.small_blind
         }
 
         return state

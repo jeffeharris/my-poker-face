@@ -13,7 +13,8 @@ function startGame() {
 // Function to update the UI based on the game state
 function updateGameState(gameState) {
     document.getElementById('community-cards').innerHTML = JSON.stringify(gameState.community_cards);
-    document.getElementById('pot').innerHTML = `Pot: ${gameState.current_pot}`;
+    document.getElementById('pot').innerHTML = `Pot: $${gameState.current_pot.total_pot} | Min: ${gameState.small_blind}`;
+    document.getElementById('player-options').innerHTML = `${gameState}`;
 }
 
 // Listen for game state updates from the server

@@ -61,7 +61,7 @@
         </div>
     </div>
 
-    <div class="player-options content">
+    <div id="player-options" class="player-options content">
         {% for option in player_options %}
             <button class="player-action" onclick="playerAction('{{ option }}')">{{ option }}</button>
         {% endfor %}

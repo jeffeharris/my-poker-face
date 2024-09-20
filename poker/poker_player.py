@@ -29,7 +29,7 @@ class PokerPlayer:
             "type": "PokerPlayer",
             "name": self.name,
             "money": self.money,
-            "cards": Card.list_to_dict(self.cards.cards),
+            "cards": self.cards.to_dict(),
             "options": self.options,
             "folded": self.folded
         }
