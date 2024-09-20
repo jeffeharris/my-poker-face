@@ -35,6 +35,7 @@ class Card:
         return {
             'rank': self.rank,
             'suit': self.suit,
+            'suit_symbol': self.get_suit_symbol(),
             # 'value': self.value
         }
 

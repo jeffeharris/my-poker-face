@@ -22,19 +22,18 @@
     </div>
 
     <div class="container content">
-        <div class="players">
-            {% for player in players %}
-                <div class="player-card">
-                    <img src="{{ url_for('static', filename='images/kanye.jpg') }}"
-                     class="player-headshot" alt="Player picture" >
+        <div class="players" id="players">
+            {% for player in game_state.players %}
+                <div class="player-card" id="player-{{ loop.index + 1 }}">
+                    <img src="{{ url_for('static', filename='images/kanye.jpg') }}" class="player-headshot" alt="Player picture" >
                     <h2>{{ player.name }}</h2>
                     <p>${{ player.money }}</p>
-                    <div id="{{ player.name }}-player-card" class="player-cards">
+                    <div id="cards-player-{{ loop.index + 1 }}" class="player-cards">
                         {% for card in player.cards %}
                             <span class="card
-                                {% if card.suit == '♥' %}hearts{% elif card.suit == '♦' %}diamonds
-                                {% elif card.suit == '♣' %}clubs{% elif card.suit == '♠' %}spades{% endif %}
-                            ">{{ card.rank }}{{ card.suit }}</span>
+                                {% if card.suit_symbol == '♥' %}hearts{% elif card.suit_symbol == '♦' %}diamonds
+                                {% elif card.suit_symbol == '♣' %}clubs{% elif card.suit_symbol == '♠' %}spades{% endif %}
+                            ">{{ card.rank }}{{ card.suit_symbol }}</span>
                         {% endfor %}
                     </div>
                 </div>
@@ -45,7 +44,7 @@
     <div class="table-container content">
         <div class="table">
             <div id="pot" class="pot">
-                Pot: $1250 | Min: $50
+                Pot: ${{ game_state.current_pot.total_pot }} | Min bet: $ {{ game_state.small_blind }}
             </div>
             <div id="community-cards" class="community-cards">
                 {% for card in community_cards %}

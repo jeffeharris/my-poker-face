@@ -39,13 +39,12 @@ def home():
 
 @app.route('/game', methods=['GET'])
 def game():
-    poker_players = get_ai_players(num_players=2)
-    # poker_game = PokerGame(poker_players, ConsoleInterface())
-    poker_game = PokerGame()
-    poker_game.round_manager.add_players(poker_players)
-    return render_template(
-        template_name_or_list='poker_game.html',
-    )
+    if "game_state" in session:
+        game_state = session.get('game_state')
+    else:
+        game_state = initialize_game_state()
+    session['game_state'] = game_state
+    return render_template('poker_game.html', game_state=game_state)
 
 
 @app.route('/start-game', methods=['POST'])
@@ -55,8 +54,7 @@ def start_game():
     else:
         game_state = initialize_game_state()
     session['game_state'] = game_state
-    socketio.emit('update_game_state', game_state)
-    return jsonify(game_state)
+    return render_template('poker_game.html', game_state=game_state)
 
 
 @socketio.on('player_action')
