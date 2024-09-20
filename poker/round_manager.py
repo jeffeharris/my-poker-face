@@ -117,6 +117,21 @@ class RoundManager:
         self.dealer = None
         self.small_blind = SMALL_BLIND
 
+    def to_dict(self):
+        dict_instance = {
+            "name": self.name,
+            "assistant": self.assistant.to_dict(),
+            "table_messages": self.table_messages,
+            "deck": self.deck.to_dict(),
+            "players": [p.to_dict() for p in self.players],
+            "table_positions": self.table_positions,
+            "starting_players": [p.to_dict() for p in self.starting_players],
+            "remaining_players": [p.to_dict() for p in self.remaining_players],
+            "dealer": self.dealer.to_dict(),
+            "small_blind": self.small_blind
+        }
+        return dict_instance
+
     @property
     def round_manager_state(self):
         state = {

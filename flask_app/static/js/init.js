@@ -12,8 +12,8 @@ function startGame() {
 /* TODO: update this to reference actual elements or switch to Jinja */
 // Function to update the UI based on the game state
 function updateGameState(gameState) {
-    document.getElementById('gameBoard').innerHTML = JSON.stringify(gameState.board);
-    document.getElementById('currentTurn').innerHTML = `Current Turn: ${gameState.current_turn}`;
+    document.getElementById('community-cards').innerHTML = JSON.stringify(gameState.community_cards);
+    document.getElementById('pot').innerHTML = `Pot: ${gameState.current_pot}`;
 }
 
 // Listen for game state updates from the server

@@ -117,18 +117,21 @@ def add_message():
 
 
 def initialize_game_state():
-    poker_players = get_ai_players(num_players=2)
-    poker_game = PokerGame()
+    human_player_names = ["Jeff"]
+    ai_player_names = get_ai_players(num_players=2)
 
-    poker_game.round_manager.add_players(poker_players)
+    poker_game = PokerGame()
+    poker_game.round_manager.add_players(human_player_names, ai=False)
+    poker_game.round_manager.add_players(ai_player_names, ai=True)
     poker_game.round_manager.initialize_players()
     poker_game.round_manager.deck.shuffle()
 
     ph = PokerHand()
-    poker_game.hands.append(ph)
     ph.pots[0].initialize_pot([p.name for p in poker_game.round_manager.remaining_players])
+    # Start a loop here
+    poker_game.hands.append(ph)
     poker_game.round_manager.setup_hand(ph.pots[0], ph.current_phase)
-    return obj_to_dict(poker_game)
+    return poker_game.game_state
 
 
 def process_player_action(game_state, action):

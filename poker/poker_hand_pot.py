@@ -20,6 +20,7 @@ class PokerHandPot:
     def to_dict(self) -> Dict:
         return {
             'player_pot_amounts': self.player_pot_amounts,
+            'total_pot': self.total,
             'pot_winner': self.pot_winner
         }
 

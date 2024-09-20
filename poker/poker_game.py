@@ -35,7 +35,7 @@ class PokerGame:
     def game_state(self):
         rm = self.round_manager
         hand = self.hands[-1]
-        state = rm.round_manager_state + hand.hand_state
+        state = {**rm.round_manager_state, **hand.hand_state}
         return state
 
     def to_dict(self):

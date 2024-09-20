@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>My Poker Face</title>
+
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
     <script src="/static/js/init.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -42,10 +44,10 @@
 
     <div class="table-container content">
         <div class="table">
-            <div class="pot">
+            <div id="pot" class="pot">
                 Pot: $1250 | Min: $50
             </div>
-            <div class="community-cards">
+            <div id="community-cards" class="community-cards">
                 {% for card in community_cards %}
                     <span class="card
                         {% if card.suit == '♥' %}hearts{% elif card.suit == '♦' %}diamonds
