@@ -45,11 +45,11 @@ function updatePlayerState(playerState) {
         player.cards.forEach(card => {
             let cardSpan = document.createElement('span');
             cardSpan.classList.add('card');
-            if (card.suit == '♥') cardSpan.classList.add('hearts');
-            if (card.suit == '♦') cardSpan.classList.add('diamonds');
-            if (card.suit == '♣') cardSpan.classList.add('clubs');
-            if (card.suit == '♠') cardSpan.classList.add('spades');
-            cardSpan.textContent = `${card.rank} ${card.suit}`;
+            if (card.suit_symbol == '♥') cardSpan.classList.add('hearts');
+            if (card.suit_symbol == '♦') cardSpan.classList.add('diamonds');
+            if (card.suit_symbol == '♣') cardSpan.classList.add('clubs');
+            if (card.suit_symbol == '♠') cardSpan.classList.add('spades');
+            cardSpan.textContent = `${card.rank} ${card.suit_symbol}`;
             playerCardsContainer.appendChild(cardSpan);
         });
 
