@@ -467,7 +467,7 @@ def reveal_cards(poker_hand, deck: Deck, num_cards: int, new_phase: PokerHandPha
     return output_text
 
 
-# TODO: <REFACTOR> update to separate the game action from the interface ouput
+# TODO: <REFACTOR> update to separate the game action from the interface output
 def reveal_flop(poker_hand, deck):
     output_text = reveal_cards(poker_hand, deck, 3, PokerHandPhase.FLOP)
     CONSOLE_INTERFACE.display_text(output_text)

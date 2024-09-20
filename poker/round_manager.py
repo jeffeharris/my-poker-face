@@ -82,6 +82,7 @@ class SystemPrompt:
     Please provide a brief summary of the events to share with the next player. Format your summaries as a bulleted list."""
 
 MANAGER_PERSONA = "George Carlin"
+SMALL_BLIND = 50
 
 class RoundManager:
     assistant: OpenAILLMAssistant
@@ -114,7 +115,7 @@ class RoundManager:
         self.starting_players = []
         self.remaining_players = []
         self.dealer = None
-        self.small_blind = 50
+        self.small_blind = SMALL_BLIND
 
     @property
     def round_manager_state(self):
