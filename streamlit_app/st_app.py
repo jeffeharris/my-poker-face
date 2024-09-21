@@ -1,16 +1,53 @@
+from typing import List, Optional, Any
+
 import streamlit as st
 import random
-from core.interface import StreamlitInterface
+from core.interface import Interface
 from poker.poker_game import (PokerGame)
 from poker.poker_hand import PokerHand
 from poker.poker_action import PokerAction
 from poker.poker_player import PokerPlayer, AIPokerPlayer
-from poker.utils import get_players, shift_list_left
+from poker.utils import get_ai_players, shift_list_left
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
+class StreamlitInterface(Interface):
+    def request_action(self, options: List[str], request: str, default_option: Optional[int] = None) -> Optional[str]:
+        placeholder = st.empty()
+        random_key = random.randint(0, 10000)
+        if "selected_option" not in st.session_state:
+            st.session_state.selected_option = options[0]
+        if st.session_state.selected_option in options:
+            default_option = options.index(st.session_state.selected_option)
+        else:
+            default_option = None
+        selected_option = placeholder.selectbox(key=f"selectbox_{random_key}",
+                                                label=request,
+                                                options=options,
+                                                index=default_option)
+
+        if st.button(label="Confirm", key=f"button_{random_key}"):
+            player_action = st.session_state.selected_option
+            del st.session_state["selected_option"]
+            return player_action
+        else:
+            st.session_state.selected_option = selected_option
+            st.stop()
+
+        # if st.session_state.confirmed:
+        #     player_action = st.session_state.selected_option
+        #     del st.session_state["selected_option"]
+        #     return player_action
+
+    def display_text(self, text):
+        st.text(body=text)
+
+    def display_expander(self, label: str, body: Any):
+        with st.expander(label=label):
+            st.write(body)
 
 def display_player(player: PokerPlayer, st_container=None, position=None):
     if st_container is None:
@@ -97,7 +134,7 @@ def simple_app():
             st.stop()
         else:
             st.session_state["is_game_running"] = True
-            players = get_players(test=False, num_players=4)
+            players = get_ai_players(test=False, num_players=4)
             poker_game = PokerGame(players, StreamlitInterface())
             if "poker_game" not in st.session_state:
                 st.session_state["poker_game"] = poker_game

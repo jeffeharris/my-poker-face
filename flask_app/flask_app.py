@@ -3,7 +3,8 @@ from flask import Flask, render_template, session, request, redirect, jsonify
 from flask_socketio import SocketIO
 from flask_session import Session
 
-from poker.poker_game import (PokerGame)
+from core.interface import Interface
+from poker.poker_game import PokerGame
 from poker.poker_hand import PokerHand
 from poker.poker_action import PokerAction
 from poker.utils import get_ai_players, obj_to_dict
@@ -15,6 +16,13 @@ app.config['SECRET_KEY'] = 'my_secret_key_poker_app'
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 socketio = SocketIO(app, manage_session=False)
+
+
+class WebInterface(Interface):
+    @staticmethod
+    def get_user_input(msg):
+        return session.pop("user_input", None)
+
 
 @app.route(rule='/', methods=['GET'])
 def index():

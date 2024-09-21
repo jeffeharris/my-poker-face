@@ -1,6 +1,11 @@
 import random
 from typing import List, Dict, Optional
 
+from core.interface import Interface
+from poker.poker_settings import PokerSettings
+
+from poker.poker_action import PokerAction, PlayerAction
+
 from core.deck import Deck
 from core.assistants import OpenAILLMAssistant
 from poker.poker_hand_pot import PokerHandPot
@@ -116,6 +121,7 @@ class RoundManager:
         self.remaining_players = []
         self.dealer = None
         self.small_blind = SMALL_BLIND
+        self.interface = Interface()
 
     def to_dict(self):
         dict_instance = {
@@ -332,3 +338,185 @@ class RoundManager:
 
     def initialize_assistant(self):
         return OpenAILLMAssistant(system_message=self.persona_prompt())
+
+    def betting_round(self, poker_hand, player_queue: List[PokerPlayer], is_initial_round: bool = True):
+        # Check to see if remaining players are all-in
+        active_player_queue = self.initialize_active_players(player_queue, is_initial_round)
+
+        if len(self.remaining_players) <= 0:
+            raise ValueError("No remaining players left in the hand")
+
+        for player in active_player_queue:
+            if player.folded:
+                continue
+
+            all_in_count = 0
+            for p in self.remaining_players:
+                if p.money <= 0:
+                    all_in_count += 1
+            if all_in_count == len(self.remaining_players):
+                return
+            elif len(self.remaining_players) <= 1:
+                return
+            else:
+                player_options = self.get_player_options(poker_hand, player, PokerSettings())
+
+                poker_action = self.get_player_action(player, {**self.to_dict(), **poker_hand.hand_state,}, player_options)
+                poker_hand.poker_actions.append(poker_action)
+
+                if self.process_player_action(poker_hand, player, poker_action):
+                    return
+
+    @staticmethod
+    def initialize_active_players(player_queue: List[PokerPlayer], is_initial_round: bool) -> List[PokerPlayer]:
+        return player_queue.copy() if is_initial_round else player_queue[:-1]
+
+###########################################################################################################
+#####                                    PROCESS PLAYER ACTIONS                                       #####
+###########################################################################################################
+    @staticmethod
+    def process_pot_update(poker_hand, player: PokerPlayer, amount_to_add: int):
+        poker_hand.pots[0].add_to_pot(player.name, player.get_for_pot, amount_to_add)
+
+    def handle_bet_or_raise(self, poker_hand, player: PokerPlayer, add_to_pot: int,
+                            next_round_queue: List[PokerPlayer]):
+        self.process_pot_update(poker_hand, player, add_to_pot)
+        return self.betting_round(poker_hand, next_round_queue, is_initial_round=False)
+
+    def handle_all_in(self, poker_hand, player: PokerPlayer, add_to_pot: int,
+                      next_round_queue: List[PokerPlayer]):
+        raising = add_to_pot > poker_hand.pots[0].current_bet
+        self.process_pot_update(poker_hand, player, add_to_pot)
+        if raising:
+            return self.betting_round(poker_hand, next_round_queue, is_initial_round=False)
+        else:
+            # TODO: <FEATURE> create a side pot
+            pass
+
+    def handle_call(self, poker_hand, player: PokerPlayer, add_to_pot: int):
+        self.process_pot_update(poker_hand, player, add_to_pot)
+
+    def handle_fold(self, player: PokerPlayer):
+        player.folded = True
+        self.set_remaining_players()
+
+    def process_player_action(self, poker_hand, player: PokerPlayer, poker_action: PokerAction) -> bool:
+        player_action = poker_action.player_action
+        amount = poker_action.amount
+
+        if player_action in {PlayerAction.BET, PlayerAction.RAISE}:
+            self.handle_bet_or_raise(poker_hand, player, amount,
+                                self.get_next_round_queue(self.remaining_players, player))
+            return True
+        elif player_action == PlayerAction.ALL_IN:
+            self.handle_all_in(poker_hand, player, amount,
+                          self.get_next_round_queue(self.remaining_players, player))
+            return True
+        elif player_action == PlayerAction.CALL:
+            self.handle_call(poker_hand, player, amount)
+        elif player_action == PlayerAction.FOLD:
+            self.handle_fold(player)
+        elif player_action == PlayerAction.CHECK:
+            return False
+        elif player_action == PlayerAction.CHAT:
+            # TODO: <FEATURE> implement handle_chat to open up ability for AIs to chat with each other or the player.
+            pass
+        else:
+            raise ValueError("Invalid action selected: " + str(player_action))
+        return False
+
+###########################################################################################################
+#####                           PLAYER INTERACTIONS AND OPTION SETTING                                #####
+###########################################################################################################
+    # TODO: <REFACTOR> change this to return the options as a PlayerAction enum
+    def get_player_options(self, poker_hand, poker_player: PokerPlayer, settings: PokerSettings):
+        # How much is it to call the bet for the player?
+        player_cost_to_call = poker_hand.pots[0].get_player_cost_to_call(poker_player.name)
+        # Does the player have enough to call
+        player_has_enough_to_call = poker_player.money > player_cost_to_call
+        # Is the current player also the big_blind TODO: <BUG> add "and have they played this hand yet"
+        current_player_is_big_blind = (poker_player.name == self.big_blind_player.name)
+
+        # If the current player is last to act (aka big blind), and we're still in the pre-flop round
+        if (current_player_is_big_blind
+                and poker_hand.current_phase == PokerHandPhase.PRE_FLOP
+                and poker_hand.pots[0].current_bet == self.small_blind * 2):
+            player_options = ['check', 'raise', 'all-in', 'chat']
+        else:
+            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all-in', 'chat']
+            if player_cost_to_call == 0:
+                player_options.remove('fold')
+            if player_cost_to_call > 0:
+                player_options.remove('check')
+            if not player_has_enough_to_call or player_cost_to_call == 0:
+                player_options.remove('call')
+            if poker_hand.pots[0].current_bet > 0 or player_cost_to_call > 0:
+                player_options.remove('bet')
+            if poker_player.money - poker_hand.pots[0].current_bet <= 0 or 'bet' in player_options:
+                player_options.remove('raise')
+            if not settings.all_in_allowed or poker_player.money == 0:
+                player_options.remove('all-in')
+
+        poker_player.set_options(player_options)    # TODO: <REFACTOR> remove the player.options attribute and just have 1 set of options for the current player
+        return player_options
+
+    def get_player_action(self, player, hand_state, player_options) -> PokerAction:
+        # if isinstance(player, AIPokerPlayer):
+        #     return get_ai_player_action(player, hand_state)
+
+        current_pot = hand_state["current_pot"]
+        cost_to_call = current_pot.get_player_cost_to_call(player.name)
+
+        # display_hand_update_text(hand_state, player)
+
+        action = self.interface.request_action(player.options, "Enter action: \n")
+
+        add_to_pot = 0
+        if action is None:
+            if "check" in player_options:
+                action = "check"
+            elif "call" in player_options:
+                action = "call"
+            else:
+                action = "fold"
+        if action in ["bet"]:
+            add_to_pot = int(self.interface.get_user_input("Enter amount: "))
+            action = "bet"
+        elif action in ["raise"]:
+            raise_amount = int(self.interface.get_user_input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
+            # add_to_pot = raise_amount - current_pot.current_bet
+            add_to_pot = raise_amount + cost_to_call
+            action = "raise"
+        elif action in ["all-in"]:
+            add_to_pot = player.money
+            action = "all-in"
+        elif action in ["call"]:
+            add_to_pot = cost_to_call
+            action = "call"
+        elif action in ["fold"]:
+            add_to_pot = 0
+            action = "fold"
+        elif action in ["check"]:
+            add_to_pot = 0
+            action = "check"
+        elif action in ["show"]:
+            pass
+        elif action in ["quit"]:
+            exit()
+        elif action in ["chat"]:
+            run_chat(hand_state)
+            return self.get_player_action(player, hand_state, player_options)
+        else:
+            return self.get_player_action(player, hand_state, player_options)
+
+        chat_message = self.interface.get_user_input("Enter table comment (optional): ")
+        if chat_message != "":
+            hand_state["table_messages"].append({"name": player.name, "message": chat_message})
+
+        action_detail = {"comment": chat_message}
+        table_message = f"{player.name} chooses to {action} by {add_to_pot}."
+        action_comment = (f"{player.name}:\t'{chat_message}'\n"
+                          f"\t{table_message}\n")
+
+        poker_action = PokerAction(player, action, add_to_pot, hand_state, action_detail, action_comment)
+        return poker_action

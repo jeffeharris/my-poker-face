@@ -80,6 +80,9 @@ class PokerPlayer:
     def get_index(self, players):
         return players.index(self)
 
+    def set_options(self, player_options):
+        self.options = player_options
+
 
 class AIPokerPlayer(PokerPlayer):
     name: str
