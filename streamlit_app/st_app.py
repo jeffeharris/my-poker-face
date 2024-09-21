@@ -2,7 +2,7 @@ from typing import List, Optional, Any
 
 import streamlit as st
 import random
-from core.interface import Interface
+from core.user_interface import UserInterface
 from poker.poker_game import (PokerGame)
 from poker.poker_hand import PokerHand
 from poker.poker_action import PokerAction
@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-class StreamlitInterface(Interface):
+class StreamlitUserInterface(UserInterface):
     def request_action(self, options: List[str], request: str, default_option: Optional[int] = None) -> Optional[str]:
         placeholder = st.empty()
         random_key = random.randint(0, 10000)
@@ -135,7 +135,7 @@ def simple_app():
         else:
             st.session_state["is_game_running"] = True
             players = get_ai_players(test=False, num_players=4)
-            poker_game = PokerGame(players, StreamlitInterface())
+            poker_game = PokerGame(players, StreamlitUserInterface())
             if "poker_game" not in st.session_state:
                 st.session_state["poker_game"] = poker_game
             if "dealer" not in st.session_state:
