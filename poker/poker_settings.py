@@ -20,4 +20,6 @@ class PokerSettings:
 
     @classmethod
     def from_dict(cls, data: dict):
-        return cls(**data)
+        instance = cls()
+        instance.__dict__.update(data)
+        return instance

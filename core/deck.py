@@ -26,12 +26,10 @@ class CardSet:
         return dict_instance
 
     @classmethod
-    def cards_from_dict(cls, deck_dict: Dict[str, List[Dict[str, str]]]) -> 'CardSet':
-        """Create a Deck instance from a dictionary representation."""
-        cards = cls()
-        cards.cards = Card.list_from_dict_list(deck_dict['cards'])
-        cards.discard_pile = Card.list_from_dict_list(deck_dict['discard_pile'])
-        return cards
+    def from_dict(cls, card_dict_list: List[Dict[str, str]]) -> 'CardSet':
+        instance = cls()
+        instance.cards = Card.list_from_dict_list(card_dict_list)
+        return instance
 
     def deal(self, deal_to: 'CardSet', num: int = 1) -> None:
         """Deal a number of cards from the Deck."""
@@ -65,6 +63,15 @@ class Deck:
             'discard_pile': self.discard_pile.to_dict()
         }
         return deck_dict
+
+    @classmethod
+    def from_dict(cls, deck_dict: Dict[str, List[Dict[str, str]]]) -> 'Deck':
+        """Create a Deck instance from a dictionary representation."""
+        instance = cls()
+        instance.card_deck = CardSet.from_dict(deck_dict['card_deck'])
+        instance.discard_pile = CardSet.from_dict(deck_dict['discard_pile'])
+        return instance
+
 
     @staticmethod
     def _init_deck() -> CardSet:

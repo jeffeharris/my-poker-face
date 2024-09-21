@@ -27,7 +27,6 @@ class PokerHandPot:
     @classmethod
     def from_dict(cls, d: Dict):
         return cls(
-            player_names=list(d['player_pot_amounts'].keys()),
             player_pot_amounts=d['player_pot_amounts'],
             pot_winner=d['pot_winner']
         )

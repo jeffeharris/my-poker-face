@@ -2,20 +2,16 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 
 
-class Interface(ABC):
-    @abstractmethod
+class UserInterface(ABC):
     def request_action(self, options: List, request: str, default_option: Optional[int] = None) -> Optional[str]:
         pass
 
-    @abstractmethod
     def display_text(self, text):
         pass
 
-    @abstractmethod
     def display_expander(self, label, body):
         pass
 
-    @abstractmethod
     def get_user_input(self):
         pass
 
@@ -23,8 +19,8 @@ class Interface(ABC):
         return type(self).__name__
 
     @classmethod
-    def from_dict(cls, d: dict):
-        name = d.get("__name__")
+    def from_dict(cls, name: str):
+        # name = d.get("__name__")
         if not name:
             raise TypeError("Dictionary does not contain the required '__name__' key.")
 

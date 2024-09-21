@@ -1,7 +1,9 @@
 import random
 from typing import List, Dict, Optional
 
-from core.interface import Interface
+from spades.spades_game import assistant
+
+from core.user_interface import UserInterface
 from poker.poker_settings import PokerSettings
 
 from poker.poker_action import PokerAction, PlayerAction
@@ -121,7 +123,7 @@ class RoundManager:
         self.remaining_players = []
         self.dealer = None
         self.small_blind = SMALL_BLIND
-        self.interface = Interface()
+        self.interface = UserInterface()
 
     def to_dict(self):
         dict_instance = {
@@ -134,9 +136,27 @@ class RoundManager:
             "starting_players": [p.to_dict() for p in self.starting_players],
             "remaining_players": [p.to_dict() for p in self.remaining_players],
             "dealer": self.dealer.to_dict(),
-            "small_blind": self.small_blind
+            "small_blind": self.small_blind,
+            "user_interface": self.interface.to_dict(),
+            "opponent_status": self.get_opponent_status()
         }
         return dict_instance
+
+    @classmethod
+    def from_dict(cls, dict_instance):
+        instance = cls()
+        instance.name = dict_instance["name"]
+        instance.assistant = OpenAILLMAssistant(system_message=dict_instance["assistant"]["system_message"],
+                                                memory=dict_instance["assistant"]["memory"])
+        instance.table_messages = dict_instance["table_messages"]
+        instance.deck = Deck().from_dict(dict_instance["deck"])
+        instance.players = PokerPlayer.list_from_dict_list(dict_instance["players"])
+        instance.table_positions = dict_instance["table_positions"]
+        instance.starting_players = PokerPlayer.list_from_dict_list(dict_instance["starting_players"])
+        instance.remaining_players = PokerPlayer.list_from_dict_list(dict_instance["remaining_players"])
+        instance.dealer = PokerPlayer().from_dict(dict_instance["dealer"])
+        instance.small_blind = dict_instance["small_blind"]
+        instance.interface = UserInterface().from_dict(dict_instance["user_interface"])
 
     @property
     def round_manager_state(self):
@@ -361,7 +381,7 @@ class RoundManager:
             else:
                 player_options = self.get_player_options(poker_hand, player, PokerSettings())
 
-                poker_action = self.get_player_action(player, {**self.to_dict(), **poker_hand.hand_state,}, player_options)
+                poker_action = self.get_player_action(player, {**self.to_dict(), **poker_hand.to_dict(),}, player_options)
                 poker_hand.poker_actions.append(poker_action)
 
                 if self.process_player_action(poker_hand, player, poker_action):

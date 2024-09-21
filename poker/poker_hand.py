@@ -21,7 +21,7 @@ class PokerHand:
         self.pots = [PokerHandPot()]
 
     def to_dict(self):
-        return obj_to_dict(self.hand_state)
+        return obj_to_dict(self)
 
     @staticmethod
     def list_to_dict(hands: List['PokerHand']):
@@ -33,8 +33,14 @@ class PokerHand:
 
     @classmethod
     def from_dict(cls, data: dict):
-        hand = cls(**data) # TODO: <BUG> implement a from_dict function to deserialize a PokerHand
-        return hand
+        # hand = cls(**data) # TODO: <BUG> implement a from_dict function to deserialize a PokerHand
+        instance = cls()
+        instance.poker_actions = PokerAction.list_from_dict_list(data["poker_actions"])
+        instance.community_cards = CardSet.from_dict(data["community_cards"])
+        phase_str = data["current_phase"].replace('PokerHandPhase.', '')
+        instance.current_phase = PokerHandPhase[phase_str]
+        instance.pots = [PokerHandPot.from_dict(data["pots"][0])]
+        return instance
 
     @property
     def hand_state(self):

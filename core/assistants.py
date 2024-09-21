@@ -19,7 +19,7 @@ class LLMAssistant:
         self.max_memory_length = 15
         self.memory = memory
         self.ai_temp = ai_temp
-        self.model = ai_model
+        self.ai_model = ai_model
         self.system_message = system_message
 
     @property
@@ -66,7 +66,7 @@ class OpenAILLMAssistant(LLMAssistant):
 
     def get_response(self, messages: List[Dict[str, str]]):
         response = self.client.chat.completions.create(
-            model=self.model,
+            model=self.ai_model,
             messages=messages,
             temperature=self.ai_temp,
             max_tokens=1500,
@@ -78,7 +78,7 @@ class OpenAILLMAssistant(LLMAssistant):
 
     def get_json_response(self, messages: List[Dict[str, str]]):
         json_response = self.client.chat.completions.create(
-            model=self.model,
+            model=self.ai_model,
             messages=messages,
             temperature=self.ai_temp,
             max_tokens=1500,

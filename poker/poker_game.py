@@ -23,28 +23,28 @@ class PokerGame:
         self.hands = []
         self.settings = PokerSettings()
 
+    def to_dict(self):
+        poker_game_dict = {
+            "round_manager": self.round_manager.to_dict(),
+            "hands": PokerHand.list_to_dict(self.hands),
+            "settings": self.settings.to_dict(),
+        }
+        return poker_game_dict
+
     @classmethod
     def from_dict(cls, poker_game_dict: dict):
         pg = cls()
-        pg.round_manager=RoundManager.from_dict(poker_game_dict["rm"])
-        pg.hands = [PokerHand.from_dict(hand_dict) for hand_dict in poker_game_dict["hands"]]
+        pg.round_manager = RoundManager.from_dict(poker_game_dict["round_manager"])
+        pg.hands = poker_game_dict["hands"]
+        # pg.hands = [PokerHand.from_dict(hand_dict) for hand_dict in poker_game_dict["hands"]]
         pg.settings=PokerSettings.from_dict(poker_game_dict["settings"])
         return pg
 
     @property
     def game_state(self):
-        rm = self.round_manager
-        hand = self.hands[-1] if self.hands else None
-        state = {**rm.round_manager_state, **hand.hand_state}
+        round_manager = self.round_manager
+        state = {"round_manager": round_manager.to_dict(), "hands": PokerHand.list_to_dict(self.hands), "settings": self.settings.to_dict()}
         return state
-
-    def to_dict(self):
-        poker_game_dict = {
-            "rm": self.round_manager.to_dict(),
-            "hands": PokerHand.list_to_dict(self.hands),
-            "settings": self.settings.to_dict(),
-        }
-        return poker_game_dict
 
     def summarize_hands(self, count=1):
         hand_summaries = []

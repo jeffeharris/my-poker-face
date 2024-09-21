@@ -3,13 +3,11 @@ from typing import List, Optional, Any, Dict
 
 from core.card import Card
 from core.deck import Deck
-from core.interface import Interface
-from poker.poker_action import PokerAction, PlayerAction
+from core.user_interface import UserInterface
+from poker.poker_action import PokerAction
 from poker.poker_game import PokerGame
 from poker.poker_hand import PokerHand
-from poker.poker_player import PokerPlayer, AIPokerPlayer
-from poker.poker_settings import PokerSettings
-from poker.round_manager import RoundManager
+from poker.poker_player import AIPokerPlayer
 from poker.utils import get_ai_players, shift_list_left, PokerHandPhase
 
 
@@ -101,7 +99,7 @@ class TextFormat:
         return ''.join(styles) + text + TextFormat.COLOR_CODES["RESET"]
 
 
-class ConsoleInterface(Interface):
+class ConsoleUserInterface(UserInterface):
     @staticmethod
     def get_user_input(request):
         return input(request)
@@ -140,7 +138,7 @@ class ConsoleInterface(Interface):
             # If parsing fails or input is invalid, print the original value
             print(input_value)
 
-CONSOLE_INTERFACE = ConsoleInterface()
+CONSOLE_INTERFACE = ConsoleUserInterface()
 
 
 ###########################################################################################################
@@ -195,7 +193,7 @@ def get_player_action(player, hand_state, player_options) -> PokerAction:
     CONSOLE_INTERFACE.display_text(CardRenderer.render_hole_cards(cards=player.cards))
     # display_hand_update_text(hand_state, player)
 
-    action = CONSOLE_INTERFACE.request_action(player.options, "Enter action: \n")
+    action = CONSOLE_INTERFACE.request_action(player_options, "Enter action: \n")
 
     add_to_pot = 0
     if action is None:
@@ -207,31 +205,19 @@ def get_player_action(player, hand_state, player_options) -> PokerAction:
             action = "fold"
     if action in ["bet"]:
         add_to_pot = int(CONSOLE_INTERFACE.get_user_input("Enter amount: "))
-        action = "bet"
     elif action in ["raise"]:
         raise_amount = int(CONSOLE_INTERFACE.get_user_input(f"Calling {cost_to_call}.\nEnter amount to raise: "))
-        # add_to_pot = raise_amount - current_pot.current_bet
         add_to_pot = raise_amount + cost_to_call
-        action = "raise"
     elif action in ["all-in"]:
         add_to_pot = player.money
-        action = "all-in"
     elif action in ["call"]:
         add_to_pot = cost_to_call
-        action = "call"
     elif action in ["fold"]:
         add_to_pot = 0
-        action = "fold"
     elif action in ["check"]:
         add_to_pot = 0
-        action = "check"
-    elif action in ["show"]:
-        pass
     elif action in ["quit"]:
         exit()
-    elif action in ["chat"]:
-        run_chat(hand_state)
-        return get_player_action(player, hand_state, player_options)
     else:
         return get_player_action(player, hand_state, player_options)
 

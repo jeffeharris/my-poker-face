@@ -116,7 +116,7 @@ class AIPokerPlayer(PokerPlayer):
                 "ai_temp": self.assistant.ai_temp,
                 "system_message": self.assistant.system_message,
                 "messages": self.assistant.messages,
-                "model": self.assistant.model,
+                "model": self.assistant.ai_model,
             } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"}
         }
 

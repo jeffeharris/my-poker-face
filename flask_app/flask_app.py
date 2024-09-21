@@ -3,7 +3,7 @@ from flask import Flask, render_template, session, request, redirect, jsonify
 from flask_socketio import SocketIO
 from flask_session import Session
 
-from core.interface import Interface
+from core.user_interface import UserInterface
 from poker.poker_game import PokerGame
 from poker.poker_hand import PokerHand
 from poker.poker_action import PokerAction
@@ -18,9 +18,8 @@ Session(app)
 socketio = SocketIO(app, manage_session=False)
 
 
-class WebInterface(Interface):
-    @staticmethod
-    def get_user_input(msg):
+class WebUserInterface(UserInterface):
+    def get_user_input(self):
         return session.pop("user_input", None)
 
 
@@ -61,7 +60,12 @@ def start_game():
         game_state = session.get('game_state')
     else:
         game_state = initialize_game_state()
-    session['game_state'] = game_state
+        session['game_state'] = game_state
+
+    pg = PokerGame.from_dict(game_state)
+    ph = pg.hands[-1]
+    pg.round_manager.betting_round(ph, pg.round_manager.remaining_players, True)
+    game_state = pg.game_state
     return render_template('poker_game.html', game_state=game_state)
 
 

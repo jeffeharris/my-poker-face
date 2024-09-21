@@ -54,3 +54,10 @@ class PokerAction:
             dict_data['hand_state'],
             dict_data['action_detail']
         )
+
+    @classmethod
+    def list_from_dict_list(cls, dict_list):
+        instance_list = []
+        for instance_dict in dict_list:
+            instance_list.append(cls.from_dict(instance_dict))
+        return instance_list
