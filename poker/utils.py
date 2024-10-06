@@ -2,7 +2,6 @@ import random
 from enum import Enum
 
 # Constants for configuration
-DEFAULT_NUM_PLAYERS = 2
 ATTRIBUTE_CONSTRAINT = "Use less than 20 words"
 CELEBRITIES_LIST = [
     "Ace Ventura", "Khloe and Kim Khardashian", "Fred Durst", "Tom Cruise",
@@ -30,32 +29,6 @@ def get_celebrities():
 def initialize_test_players():
     """Set up test players for simplified testing scenario."""
     return ["Player1", "Player2"]
-
-
-def get_ai_players(num_players=DEFAULT_NUM_PLAYERS, celebrities=None, random_seed=None):
-    """
-    Retrieve a list of players, either for testing or actual gameplay.
-
-    Parameters:
-        test (bool): Flag to indicate if test players should be used.
-        num_players (int): Total number of players required.
-        humans (list): List of definite players.
-        celebrities (list): List of celebrity names.
-        random_seed (int): Seed for random number generator (optional).
-
-    Returns:
-        Dict: 2 lists of player names.
-    """
-    celebrities = celebrities if celebrities else get_celebrities()
-
-    if random_seed is not None:
-        random.seed(random_seed)
-
-    random.shuffle(celebrities)
-    randos = celebrities[:num_players]
-    player_names = randos
-
-    return player_names
 
 
 def shift_list_left(my_list: list, count: int = 1):

@@ -153,25 +153,27 @@ class RoundManager:
         instance.players = PokerPlayer.list_from_dict_list(dict_instance["players"])
         instance.table_positions = dict_instance["table_positions"]
         instance.starting_players = PokerPlayer.list_from_dict_list(dict_instance["starting_players"])
-        instance.remaining_players = PokerPlayer.list_from_dict_list(dict_instance["remaining_players"])
+        instance.remaining_players = [player.name for player in instance.players if player.name in [player_dict["name"] for player_dict in dict_instance["remaining_players"]]]
         instance.dealer = PokerPlayer().from_dict(dict_instance["dealer"])
         instance.small_blind = dict_instance["small_blind"]
         instance.interface = UserInterface().from_dict(dict_instance["user_interface"])
 
+        return instance
+
     @property
     def round_manager_state(self):
-        state = {
-            # "table_manager": self,
-            "players": [p.to_dict() for p in self.players],
-            "remaining_players": [p.to_dict() for p in self.remaining_players],
-            "opponent_status": self.get_opponent_status(),
-            "table_positions": self.get_table_positions(),
-            "table_messages": self.table_messages,
-            "deck": self.deck.to_dict(),
-            "small_blind": self.small_blind
-        }
-
-        return state
+        # state = {
+        #     # "table_manager": self,
+        #     "players": [p.to_dict() for p in self.players],
+        #     "remaining_players": [p.to_dict() for p in self.remaining_players],
+        #     "opponent_status": self.get_opponent_status(),
+        #     "table_positions": self.get_table_positions(),
+        #     "table_messages": self.table_messages,
+        #     "deck": self.deck.to_dict(),
+        #     "small_blind": self.small_blind
+        # }
+        # return state
+        return self.to_dict()
 
     @property
     def small_blind_player(self):
@@ -361,7 +363,7 @@ class RoundManager:
 
     def betting_round(self, poker_hand, player_queue: List[PokerPlayer], is_initial_round: bool = True):
         # Check to see if remaining players are all-in
-        active_player_queue = self.initialize_active_players(player_queue, is_initial_round)
+        active_player_queue = player_queue.copy() if is_initial_round else player_queue[:-1]
 
         if len(self.remaining_players) <= 0:
             raise ValueError("No remaining players left in the hand")
@@ -386,10 +388,6 @@ class RoundManager:
 
                 if self.process_player_action(poker_hand, player, poker_action):
                     return
-
-    @staticmethod
-    def initialize_active_players(player_queue: List[PokerPlayer], is_initial_round: bool) -> List[PokerPlayer]:
-        return player_queue.copy() if is_initial_round else player_queue[:-1]
 
 ###########################################################################################################
 #####                                    PROCESS PLAYER ACTIONS                                       #####

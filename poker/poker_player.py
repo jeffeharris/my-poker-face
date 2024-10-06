@@ -47,7 +47,10 @@ class PokerPlayer:
 
     @classmethod
     def list_from_dict_list(cls, player_dict_list: List[Dict]):
-        pass
+        player_list = []
+        for player_dict in player_dict_list:
+            player_list.append(cls.from_dict(player_dict))
+        return player_list
 
     @staticmethod
     def players_to_dict(players: List['PokerPlayer']) -> List[Dict]:
@@ -107,7 +110,7 @@ class AIPokerPlayer(PokerPlayer):
             "type": "AIPokerPlayer",
             "name": self.name,
             "money": self.money,
-            "cards": [card.to_dict() for card in self.cards] if self.cards else [],
+            "cards": [card.to_dict() for card in self.cards.cards] if self.cards else [],
             "options": self.options if self.options is not None else [],
             "folded": self.folded if self.folded is not None else False,
             "confidence": self.confidence if self.confidence is not None else "Unsure",

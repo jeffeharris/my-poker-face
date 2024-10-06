@@ -65,6 +65,7 @@ def start_game():
     pg = PokerGame.from_dict(game_state)
     ph = pg.hands[-1]
     pg.round_manager.betting_round(ph, pg.round_manager.remaining_players, True)
+    # poker_hand, player_queue: List[PokerPlayer], is_initial_round: bool = True
     game_state = pg.game_state
     return render_template('poker_game.html', game_state=game_state)
 

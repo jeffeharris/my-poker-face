@@ -351,89 +351,6 @@ def build_hand_complete_update_message(player_name, winning_player_name, total_p
         message += f"You lost ${amount_lost} this hand, better luck next time!\n"
     return message
 
-
-def play_hand(poker_game):
-    ph = poker_game.hands[-1]
-    rm = poker_game.round_manager
-
-    round_queue = rm.setup_hand(ph.pots[0], ph.current_phase)
-    CONSOLE_INTERFACE.display_text(f"{rm.dealer.name}'s deal.\n")
-    CONSOLE_INTERFACE.display_text(
-        f"Small blind: {rm.small_blind_player.name}\n Big blind: {rm.big_blind_player.name}\n")
-
-    CONSOLE_INTERFACE.display_text(CardRenderer.render_hole_cards(cards=rm.players[0].cards))
-    rm.betting_round(ph, round_queue, rm, True)
-
-    reveal_flop(ph, rm.deck)
-    start_player = rm.determine_start_player(ph.current_phase)
-    index = rm.players.index(start_player)
-    round_queue = rm.players.copy()  # Copy list of all players that started the hand, could include folded
-    shift_list_left(round_queue, index)  # Move to the start_player
-    rm.betting_round(ph, round_queue, rm)
-
-    reveal_turn(ph, rm.deck)
-    rm.betting_round(ph, round_queue, rm)
-
-    reveal_river(ph, rm.deck)
-    rm.betting_round(ph, round_queue, rm)
-
-    # Evaluate and announce the winner
-    winning_player, winning_hand = poker_game.determine_winner(ph)
-    winning_player_name = winning_player.name
-    CONSOLE_INTERFACE.display_text(f"The winner is {winning_player_name}! They win the pot of {ph.pots[0].total}")
-
-    # Get end of hand reactions from AI players
-    player_reactions = []
-    winner_shows_cards = True  # TODO: <FEATURE> let the winner decide if they want to show their cards in cases where they don't need to
-    winners_cards_string = f"{winning_player_name} didn't show their cards!"  # Initialize the message in the case that the winner did not show their cards
-
-    winning_hand_string = ""
-    if winner_shows_cards:
-        winning_hand_string = [str(card) for card in winning_hand]
-        winners_cards_string = "|".join(winners_cards_string)
-
-    for player in rm.players:
-        if isinstance(player, AIPokerPlayer):
-            message = build_hand_complete_update_message(player_name=player.name,
-                                                         winning_player_name=winning_player_name,
-                                                         total_pot=ph.pots[0].total,
-                                                         amount_lost=ph.pots[0].player_pot_amounts[player.name],
-                                                         winning_hand=winning_hand_string,
-                                                         shown_cards=winners_cards_string
-                                                         )
-            response_json = player.get_player_response(message)
-
-            reaction = {
-                "name": player.name,
-                "response_json": response_json
-                }
-            player_reactions.append(reaction)
-
-    if VIEW_AI_ACTION_INSIGHTS:
-        for r in player_reactions:
-            if r is not None:
-                name = r["name"]
-                message = r["response_json"]
-                CONSOLE_INTERFACE.display_text(name)
-                CONSOLE_INTERFACE.display_text(message)
-
-    game_summary = poker_game.round_manager.summarize_actions([action.action_comment for action in ph.poker_actions])
-    CONSOLE_INTERFACE.display_text(game_summary)
-
-    # Reset game for next round
-    ph.pots[0].resolve_pot(winning_player_name, winning_player.collect_winnings)  # TODO: <FEATURE> implement support for side-pots (multiple pots)
-    rm.rotate_dealer()
-    # Return community cards to Deck discard pile
-    rm.deck.return_cards_to_discard_pile(ph.community_cards)
-    # Reset players
-    for player in rm.players:
-        # Return players cards to Deck discard pile
-        rm.deck.return_cards_to_discard_pile(player.cards)
-        player.folded = False
-
-    return rm.dealer
-
-
 def play_game(poker_game: PokerGame):
     # TODO: <REFACTOR> ensure the poker hand is being set up as expected
     # ph = PokerHand(players=poker_game.players,
@@ -474,16 +391,12 @@ def play_game(poker_game: PokerGame):
     CONSOLE_INTERFACE.display_text("Game over!")
 
 
-def main(num_ai_players: int = NUM_AI_PLAYERS, num_human_players: Optional[int] = 1):
-    human_player_names = ["Jeff"]
-    ai_player_names = get_ai_players(num_players=num_ai_players)
-
+def main(num_ai_players: int = NUM_AI_PLAYERS):
     poker_game = PokerGame()
-    poker_game.round_manager.add_players(human_player_names, ai=False)
-    poker_game.round_manager.add_players(ai_player_names, ai=True)
-    poker_game.round_manager.initialize_players()
-    poker_game.round_manager.deck.shuffle()
-    play_game(poker_game)
+    poker_game.initialize_game(num_ai_players=num_ai_players)
+    while poker_game.play_continues():
+        poker_game.play_hand()
+    # play_game(poker_game)
 
 
 if __name__ == "__main__":
