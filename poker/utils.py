@@ -21,9 +21,11 @@ CELEBRITIES_LIST = [
 ]
 
 
-def get_celebrities():
+def get_celebrities(shuffled: bool = False):
     """Retrieve the list of celebrities."""
-    return CELEBRITIES_LIST
+    celebrities_list = CELEBRITIES_LIST
+    random.shuffle(celebrities_list) if shuffled else None
+    return celebrities_list
 
 
 def initialize_test_players():
