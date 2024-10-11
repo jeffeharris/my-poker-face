@@ -1,4 +1,5 @@
 import json
+from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
 from random import shuffle
 from typing import Tuple, Mapping, List, Any
@@ -209,6 +210,17 @@ def draw_cards(deck, num_cards: int = 1, pos: int = 0) -> Tuple[Tuple[Mapping, .
     return cards, new_deck
 
 
+def update_player(game_state, player, **kwargs):
+    """
+    Update a specific player's state with the provided kwargs within the game state.
+    """
+    player_idx = game_state.players.index(player)
+    updated_player = {**player, **kwargs}
+    new_players = (game_state.players[:player_idx] +
+                   (updated_player,) + game_state.players[player_idx + 1:])
+    return create_new_game_state(game_state, players=new_players)
+
+
 def deal_hole_cards(game_state: PokerGameState):
     """
     Generate a new game state by removing cards from the deck and dealing to the current player.
@@ -217,31 +229,40 @@ def deal_hole_cards(game_state: PokerGameState):
         if player_is_active(player):
             cards, new_deck = draw_cards(deck=game_state.deck, num_cards=2)
             new_hand = player['hand'] + cards
-            # Update the current player's state
-            updated_player = {**player, 'hand': new_hand}
-
-            # Create a new list of players with the updated player. Cast the updated player into a tuple
-            # for concatenation with the rest of the players tuple
-            new_players = (game_state.players[:game_state.current_player_idx] +
-                           (updated_player,) + game_state.players[game_state.current_player_idx + 1:])
-
-            game_state = create_new_game_state(game_state, players=new_players, deck=new_deck)
+            game_state = update_player(game_state, player=player, hand=new_hand)
+            game_state = create_new_game_state(game_state, deck=new_deck)
 
     # Return a new game state with the updated deck and players
     return game_state
 
 
 def play_turn(game_state):
-    current_player = game_state.players[game_state.current_player_idx]
-    player_action = get_player_action(game_state)
+    action, amount = get_player_action(game_state)
+    function_name = "player_" + action.strip().lower()
+    player_action_function = getattr(sys_modules[__name__], function_name)
+
+    if action == 'raise':
+        game_state = player_action_function(game_state, amount)
+    else:
+        game_state = player_action_function(game_state)
+
+    return game_state
 
 
+def get_player_action(game_state) -> Tuple[str, int]:
+    """
+    Retrieve play decision from an external source, either the human or the AI.
+    If the player chooses to raise, the amount of the raise also needs to be captured.
+    If a player calls a bet or raises and can't cover the amount they added, it's currently
+    handled in the 'place_bet' function.
+    TODO: this will need to be reviewed when we want to add support for multiple pots
+    """
+    bet_amount = 0
+    player_input = input(f"{game_state.current_player['name']}, what's your move?")
+    if player_input == "raise":
+        bet_amount = input("how much would you like to bet?")
 
-    return create_new_game_state(game_state)
-
-
-def get_player_action(game_state) -> str:
-    return "call"
+    return player_input, bet_amount
 
 
 def player_call(game_state):
@@ -250,22 +271,36 @@ def player_call(game_state):
     """
     call_amount = game_state.highest_bet - game_state.current_player['bet']
     game_state = place_bet(game_state=game_state, amount=call_amount)
-    return create_new_game_state(game_state, current_player_idx=game_state.next_player_idx)
+    return next_active_player(game_state)
 
 def player_check(game_state):
     return next_active_player(game_state)
 
 
 def player_fold(game_state):
-    pass
+    """
+    Player folds their hand.
+    """
+    new_discard_pile = game_state.discard_pile + game_state.current_player['hand']
+    game_state = update_player(game_state, player=game_state.current_player, is_folded=True, hand=[])
+    game_state = create_new_game_state(game_state, discard_pile=new_discard_pile)
+    return next_active_player(game_state)
 
 
-def player_raise(game_state):
-    pass
+def player_raise(game_state, amount: int):
+    """
+    Player raises the current bet by the provided amount.
+    """
+    game_state = place_bet(game_state=game_state, amount=amount)
+    return next_active_player(game_state)
 
 
 def player_all_in(game_state):
-    pass
+    """
+    Player bets all of their remaining chips.
+    """
+    game_state = place_bet(game_state=game_state, amount=game_state.current_player['stack'])
+    return next_active_player(game_state)
 
 
 def deal_community_cards(game_state: PokerGameState, num_cards: int = 1):
