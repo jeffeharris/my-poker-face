@@ -58,7 +58,6 @@ def big_blind_can_raise_or_check(game_state):
             no_community_cards_dealt and
             game_state.highest_bet == ANTE * 2  # TODO: replace ANTE with a property of the game_state
     )
-    print(f"can_raise_or_check: {can_raise_or_check}")
     return can_raise_or_check
 
 def is_round_complete(game_state):
@@ -332,6 +331,7 @@ def play_betting_round(game_state):
     else:
         first_action_player_idx = game_state.current_dealer_idx + 3
     game_state = update_poker_game_state(game_state, current_player_idx=first_action_player_idx)
+
     while not is_round_complete(game_state):
         game_state = play_turn(game_state)
         game_state = advance_to_next_active_player(game_state)
@@ -369,14 +369,16 @@ def get_next_active_player_idx(game_state: PokerGameState) -> int:
     player_count = len(game_state.players)
     # Start with the next player in the queue, save the starting index for later so we can end the loop
     # if we come all the way around
-    starting_idx = (game_state.current_player_idx + 1) % player_count
-    next_player_idx = starting_idx
+    starting_idx = game_state.current_player_idx
+    next_player_idx = (starting_idx + 1) % player_count
 
+    players_checked = []    # TODO: remove this test variable
     while True:
+        players_checked.append(next_player_idx)
         if is_player_active(game_state.players[next_player_idx]):
             return next_player_idx
         if next_player_idx == starting_idx:  # If we looped back to the starting player
-            print("\nwhat should we do now?\n")
+            print(f"\nwhat should we do now? {players_checked}\n")
             break
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
@@ -400,10 +402,10 @@ def start_game(player_names: List[str]) -> PokerGameState:
     new_players = (create_player(HUMAN_NAME, is_human=True),) + create_ai_players(player_names)
     game_state = PokerGameState(players=new_players, deck=create_deck())
 
-    return game_flow(game_state)
+    return play_hand(game_state)
 
 
-def game_flow(game_state: PokerGameState):
+def play_hand(game_state: PokerGameState):
     phases = [
         lambda state: advance_to_next_active_player(state),
         lambda state: place_bet(state, ANTE),
