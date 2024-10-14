@@ -329,9 +329,11 @@ def play_betting_round(game_state):
     Cycle through all players until the pot is good.
     """
     if len(game_state.community_cards) > 0:
-        first_action_player_idx = game_state.current_dealer_idx + 1
+        first_action_player_idx = get_next_active_player_idx(game_state,
+                                                             relative_player_idx=game_state.current_dealer_idx)
     else:
-        first_action_player_idx = game_state.current_dealer_idx + 3
+        first_action_player_idx = get_next_active_player_idx(game_state,
+                                                             relative_player_idx=game_state.current_dealer_idx + 2)
     game_state = update_poker_game_state(game_state, current_player_idx=first_action_player_idx)
 
     while not is_round_complete(game_state):
@@ -364,14 +366,14 @@ def play_turn(game_state):
     return game_state
 
 
-def get_next_active_player_idx(game_state: PokerGameState) -> int:
+def get_next_active_player_idx(game_state: PokerGameState, relative_player_idx: int or None = None) -> int:
     """
     Find the index for the next active player in the game.
     """
     player_count = len(game_state.players)
     # Start with the next player in the queue, save the starting index for later so we can end the loop
     # if we come all the way around
-    starting_idx = game_state.current_player_idx
+    starting_idx = relative_player_idx or game_state.current_player_idx
     next_player_idx = (starting_idx + 1) % player_count
 
     players_checked = []    # TODO: remove this test variable
