@@ -12,7 +12,7 @@ from utils import get_celebrities
 # DEFAULTS
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
-NUM_AI_PLAYERS = 3
+NUM_AI_PLAYERS = 1
 ANTE = 25
 
 @dataclass(frozen=True)
@@ -336,7 +336,7 @@ def player_players(game_state):
 ##################################################################
 def play_betting_round(game_state):
     """
-    Cycle through all players until the pot is good.
+    Cycle through all players until the pot is good. Start from the small blind player unless it is the pre-flop round.
     """
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
@@ -393,7 +393,7 @@ def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx
         if is_player_active(players[next_player_idx]):
             return next_player_idx
         if next_player_idx == starting_idx:  # If we looped back to the starting player
-            print(f"\nwhat should we do now? {players_checked}\n")
+            print(f"\nno active players found: {players_checked}\n")
             break
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
