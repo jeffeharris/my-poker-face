@@ -290,7 +290,8 @@ def player_fold(game_state):
     new_discard_pile = game_state.discard_pile + game_state.current_player['hand']
     new_players = update_player_state(players=game_state.players,
                                       player_idx=game_state.current_player_idx,
-                                      is_folded=True, hand=[])
+                                      is_folded=True,
+                                      hand=())
     return update_poker_game_state(game_state, players=new_players, discard_pile=new_discard_pile)
 
 
