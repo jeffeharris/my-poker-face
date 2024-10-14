@@ -4,11 +4,11 @@ from typing import List, Optional, Any, Dict
 from core.card import Card
 from core.deck import Deck
 from core.user_interface import UserInterface
-from poker.poker_action import PokerAction
-from poker.poker_game import PokerGame
-from poker.poker_hand import PokerHand
-from poker.poker_player import AIPokerPlayer
-from poker.utils import get_ai_players, shift_list_left, PokerHandPhase
+from old_files.poker_action import PokerAction
+from old_files.poker_game import PokerGame
+from old_files.poker_hand import PokerHand
+from old_files.poker_player import AIPokerPlayer
+from poker.utils import PokerHandPhase
 
 
 VIEW_AI_HAND_UPDATES = True

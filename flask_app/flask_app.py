@@ -4,10 +4,10 @@ from flask_socketio import SocketIO
 from flask_session import Session
 
 from core.user_interface import UserInterface
-from poker.poker_game import PokerGame
-from poker.poker_hand import PokerHand
-from poker.poker_action import PokerAction
-from poker.utils import get_ai_players, obj_to_dict
+from old_files.poker_game import PokerGame
+from old_files.poker_hand import PokerHand
+from old_files.poker_action import PokerAction
+from poker.utils import get_ai_players
 
 app = Flask(__name__,
             template_folder='./templates',

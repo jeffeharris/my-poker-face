@@ -3,10 +3,10 @@ from typing import List, Optional, Any
 import streamlit as st
 import random
 from core.user_interface import UserInterface
-from poker.poker_game import (PokerGame)
-from poker.poker_hand import PokerHand
-from poker.poker_action import PokerAction
-from poker.poker_player import PokerPlayer, AIPokerPlayer
+from old_files.poker_game import (PokerGame)
+from old_files.poker_hand import PokerHand
+from old_files.poker_action import PokerAction
+from old_files.poker_player import PokerPlayer, AIPokerPlayer
 from poker.utils import get_ai_players, shift_list_left
 
 from dotenv import load_dotenv
