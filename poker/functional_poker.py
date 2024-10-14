@@ -12,7 +12,7 @@ from utils import get_celebrities
 # DEFAULTS
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
-NUM_AI_PLAYERS = 1
+NUM_AI_PLAYERS = 3
 ANTE = 25
 
 
@@ -372,7 +372,7 @@ def player_players(game_state):
 ##################################################################
 def play_betting_round(game_state):
     """
-    Cycle through all players until the pot is good. Start from the small blind player unless it is the pre-flop round.
+    Cycle through all players until the pot is good.
     """
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
@@ -428,8 +428,7 @@ def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx
     while True:
         if is_player_active(players[next_player_idx]):
             return next_player_idx
-        if next_player_idx == starting_idx:  # If we looped back to the starting player
-            print(f"\nno active players found: {players_checked}\n")
+        if next_player_idx == starting_idx:
             break
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
@@ -585,22 +584,34 @@ def get_player_action(game_state) -> Tuple[str, int]:
     handled in the 'place_bet' function.
     TODO: this will need to be reviewed when we want to add support for multiple pots
     """
+    player_options = game_state.current_player_options
     cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
 
+    # Display some text to the user so they know what's happening in the game
     print(f"community cards: {game_state.community_cards}\n"
           f"cards:  {game_state.current_player['hand']}\n"
           f"pot:    {game_state.pot['total']}\n"
           f"stack:  {game_state.current_player['stack']}\n"
-          f"cost to call:   {cost_to_call_bet}\n")
+          f"cost to call:   {cost_to_call_bet}\n"
+          f"options: {player_options}")
 
-    bet_amount = 0
-    player_input = input(f"{game_state.current_player['name']}, what's your move?   ")
-    if player_input == "raise":
+    # Validate the players input against the options in the
+    player_choice = None
+    while player_choice not in player_options:
+        player_choice = input(f"{game_state.current_player['name']}, what would you like to do?   ")
+        if player_choice in ["all-in", "allin", "all in"]:
+            player_choice = "all_in"
+
+    # Set the bet amount
+    if player_choice == "raise":
         bet_amount = int(input("how much would you like to bet? "))
+    elif player_choice == "call":
+        bet_amount = cost_to_call_bet
+    else:
+        bet_amount = 0
 
-    print(f"{game_state.current_player['name']} has chosen {player_input} ({bet_amount})")
-    print()
-    return player_input, bet_amount
+    print(f"{game_state.current_player['name']} has chosen {player_choice} ({bet_amount})")
+    return player_choice, bet_amount
 
 
 if __name__ == '__main__':
