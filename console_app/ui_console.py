@@ -146,30 +146,30 @@ def ui_play_hand(game_state):
 
     return game_state
 
-def play_hand(game_state: PokerGameState):
-    """
-    Progress the game through the phases to play a hand and determine the winner.
-    """
-    phases = [
-        lambda state: advance_to_next_active_player(state),
-        lambda state: place_bet(state, ANTE),
-        lambda state: advance_to_next_active_player(state),
-        lambda state: place_bet(state, ANTE*2),
-        lambda state: advance_to_next_active_player(state),
-        lambda state: deal_hole_cards(state),
-        lambda state: play_betting_round(state, get_player_action),
-        lambda state: deal_community_cards(state, num_cards=3),
-        lambda state: play_betting_round(state, get_player_action),
-        lambda state: deal_community_cards(state, num_cards=1),
-        lambda state: play_betting_round(state, get_player_action),
-        lambda state: deal_community_cards(state, num_cards=1),
-        lambda state: play_betting_round(state, get_player_action),
-        lambda state: determine_winner(state)
-    ]
-
-    for phase in phases:
-        game_state = phase(game_state)
-    return game_state
+# def play_hand(game_state: PokerGameState):
+#     """
+#     Progress the game through the phases to play a hand and determine the winner.
+#     """
+#     phases = [
+#         lambda state: advance_to_next_active_player(state),
+#         lambda state: place_bet(state, ANTE),
+#         lambda state: advance_to_next_active_player(state),
+#         lambda state: place_bet(state, ANTE*2),
+#         lambda state: advance_to_next_active_player(state),
+#         lambda state: deal_hole_cards(state),
+#         lambda state: play_betting_round(state, get_player_action),
+#         lambda state: deal_community_cards(state, num_cards=3),
+#         lambda state: play_betting_round(state, get_player_action),
+#         lambda state: deal_community_cards(state, num_cards=1),
+#         lambda state: play_betting_round(state, get_player_action),
+#         lambda state: deal_community_cards(state, num_cards=1),
+#         lambda state: play_betting_round(state, get_player_action),
+#         lambda state: determine_winner(state)
+#     ]
+#
+#     for phase in phases:
+#         game_state = phase(game_state)
+#     return game_state
 
 
 if __name__ == '__main__':
