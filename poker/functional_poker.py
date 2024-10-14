@@ -525,22 +525,34 @@ def get_player_action(game_state) -> Tuple[str, int]:
     handled in the 'place_bet' function.
     TODO: this will need to be reviewed when we want to add support for multiple pots
     """
+    player_options = game_state.current_player_options
     cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
 
+    # Display some text to the user so they know what's happening in the game
     print(f"community cards: {game_state.community_cards}\n"
           f"cards:  {game_state.current_player['hand']}\n"
           f"pot:    {game_state.pot['total']}\n"
           f"stack:  {game_state.current_player['stack']}\n"
-          f"cost to call:   {cost_to_call_bet}\n")
+          f"cost to call:   {cost_to_call_bet}\n"
+          f"options: {player_options}")
 
-    bet_amount = 0
-    player_input = input(f"{game_state.current_player['name']}, what's your move?   ")
-    if player_input == "raise":
+    # Validate the players input against the options in the
+    player_choice = None
+    while player_choice not in player_options:
+        player_choice = input(f"{game_state.current_player['name']}, what would you like to do?   ")
+        if player_choice in ["all-in", "allin", "all in"]:
+            player_choice = "all_in"
+
+    # Set the bet amount
+    if player_choice == "raise":
         bet_amount = int(input("how much would you like to bet? "))
+    elif player_choice == "call":
+        bet_amount = cost_to_call_bet
+    else:
+        bet_amount = 0
 
-    print(f"{game_state.current_player['name']} has chosen {player_input} ({bet_amount})")
-    print()
-    return player_input, bet_amount
+    print(f"{game_state.current_player['name']} has chosen {player_choice} ({bet_amount})")
+    return player_choice, bet_amount
 
 
 if __name__ == '__main__':
