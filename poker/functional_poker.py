@@ -5,14 +5,12 @@ from random import shuffle
 from typing import Tuple, Mapping, List, Any
 
 from core.card import Card
-from poker.hand_evaluator import HandEvaluator
-
-from utils import get_celebrities
+from old_files.hand_evaluator import HandEvaluator
 
 # DEFAULTS
+NUM_AI_PLAYERS = 3
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
-NUM_AI_PLAYERS = 3
 ANTE = 25
 
 
@@ -83,25 +81,25 @@ class PokerGameState:
         # How much is it to call the bet for the player?
         player_cost_to_call = self.highest_bet - player['bet']
         # Does the player have enough to call
-        player_has_enough_to_call = player.money > player_cost_to_call
+        player_has_enough_to_call = player['stack'] > player_cost_to_call
 
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if self.can_big_blind_take_pre_flop_action:
             player_options = ['check', 'raise', 'all-in', 'chat']
         else:
-            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all_in', 'chat']
+            player_options = ['fold', 'check', 'call', 'raise', 'all_in', 'chat']
             if player_cost_to_call == 0:
                 player_options.remove('fold')
             if player_cost_to_call > 0:
                 player_options.remove('check')
             if not player_has_enough_to_call or player_cost_to_call == 0:
                 player_options.remove('call')
-            if self.highest_bet > 0 or player_cost_to_call > 0:
-                player_options.remove('bet')
-            if player['stack'] - self.highest_bet <= 0 or 'bet' in player_options:
+            if player['stack'] - self.highest_bet <= 0:
                 player_options.remove('raise')
             if player['stack'] == 0:
                 player_options.remove('all-in')
+            if True:                                    # TODO: implement ai chat and then fix this check
+                player_options.remove('chat')
         return player_options
 
     def get_player_by_name(self, search_name: str):
@@ -370,7 +368,7 @@ def player_players(game_state):
 ##################################################################
 ######################      GAME FLOW       ######################
 ##################################################################
-def play_betting_round(game_state):
+def play_betting_round(game_state, get_player_action_function):
     """
     Cycle through all players until the pot is good.
     """
@@ -386,18 +384,22 @@ def play_betting_round(game_state):
     while (not are_pot_contributions_valid(game_state)
            # number of players still able to bet is greater than 1
            and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
-        game_state = play_turn(game_state)
+        # Use the callback to get the player's action
+        player_choice, amount = get_player_action_function(game_state)
+
+        # Play the turn with the provided decision
+        game_state = play_turn(game_state, player_choice, amount)
         game_state = advance_to_next_active_player(game_state)
     game_state = reset_player_action_flags(game_state, exclude_current_player=False)
     return game_state
 
 
-def play_turn(game_state):
+def play_turn(game_state, action, amount):
     """
-    Process the current player's turn by retrieving an action from some other input and calling the appropriate
-    function. The player's 'has_acted' flag will be set to True here and is reset
+    Process the current player's turn given the action and amount provided.
+    The player's 'has_acted' flag will be set to True here and is reset when
+    the bet is raised or the betting round ends.
     """
-    action, amount = get_player_action(game_state)
     function_name = "player_" + action.strip().lower()
     player_action_function = getattr(sys_modules[__name__], function_name)
 
@@ -510,10 +512,6 @@ def determine_winner(game_state):
                 new_cards.append(Card(rank=card['rank'], suit=card['suit']))
             hands.append((player['name'], HandEvaluator(new_cards + new_community_cards).evaluate_hand()))
 
-    print(f"players_in_pot: {players_eligible_for_pot}\n"
-          f"new_community_cards: {new_community_cards}\n"
-          f"hands: {hands}\n")
-
     hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
     hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
     hands.sort(key=lambda x: x[1]["hand_rank"])
@@ -527,35 +525,12 @@ def determine_winner(game_state):
     new_players = update_player_state(game_state.players, player_idx=winning_player_idx, stack=new_stack_total)
     game_state = update_poker_game_state(game_state, players=new_players)
 
-    print(winning_player_name, winning_hand, game_state.pot['total'])        # TODO: log the win and the game_states for this hand
-    return game_state
-
-
-
-def play_hand(game_state: PokerGameState):
-    """
-    Progress the game through the phases to play a hand and determine the winner.
-    """
-    phases = [
-        lambda state: advance_to_next_active_player(state),
-        lambda state: place_bet(state, ANTE),
-        lambda state: advance_to_next_active_player(state),
-        lambda state: place_bet(state, ANTE*2),
-        lambda state: advance_to_next_active_player(state),
-        lambda state: deal_hole_cards(state),
-        lambda state: play_betting_round(state),
-        lambda state: deal_community_cards(state, num_cards=3),
-        lambda state: play_betting_round(state),
-        lambda state: deal_community_cards(state, num_cards=1),
-        lambda state: play_betting_round(state),
-        lambda state: deal_community_cards(state, num_cards=1),
-        lambda state: play_betting_round(state),
-        lambda state: determine_winner(state)
-    ]
-
-    for phase in phases:
-        game_state = phase(game_state)
-    return game_state
+    winner_info = {
+        'winning_player_name': winning_player_name,
+        'winning_hand': winning_hand,
+        'pot_total': game_state.pot['total']
+    }
+    return game_state, winner_info
 
 
 def end_game(game_state: PokerGameState):
@@ -568,62 +543,36 @@ def end_game(game_state: PokerGameState):
             winner = player['name']
             break
 
-    print(f"\n{winner} won!\n"
-          f"Thanks for playing!\n")
+    end_game_info = {
+        'winner': winner,
+        'message': f"{winner} won! Thanks for playing!"
+    }
 
-    return game_state
+    return end_game_info
 
 ##################################################################
 ##################      EXTERNAL INTERFACE      ##################
 ##################################################################
-def get_player_action(game_state) -> Tuple[str, int]:
-    """
-    Retrieve play decision from an external source, either the human or the AI.
-    If the player chooses to raise, the amount of the raise also needs to be captured.
-    If a player calls a bet or raises and can't cover the amount they added, it's currently
-    handled in the 'place_bet' function.
-    TODO: this will need to be reviewed when we want to add support for multiple pots
-    """
-    player_options = game_state.current_player_options
-    cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
-
-    # Display some text to the user so they know what's happening in the game
-    print(f"community cards: {game_state.community_cards}\n"
-          f"cards:  {game_state.current_player['hand']}\n"
-          f"pot:    {game_state.pot['total']}\n"
-          f"stack:  {game_state.current_player['stack']}\n"
-          f"cost to call:   {cost_to_call_bet}\n"
-          f"options: {player_options}")
-
-    # Validate the players input against the options in the
-    player_choice = None
-    while player_choice not in player_options:
-        player_choice = input(f"{game_state.current_player['name']}, what would you like to do?   ")
-        if player_choice in ["all-in", "allin", "all in"]:
-            player_choice = "all_in"
-
-    # Set the bet amount
-    if player_choice == "raise":
-        bet_amount = int(input("how much would you like to bet? "))
-    elif player_choice == "call":
-        bet_amount = cost_to_call_bet
-    else:
-        bet_amount = 0
-
-    print(f"{game_state.current_player['name']} has chosen {player_choice} ({bet_amount})")
-    return player_choice, bet_amount
-
-
-if __name__ == '__main__':
-    ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
-    game_instance = initialize_game_state(player_names=ai_player_names)
-
-    while len(game_instance.players) > 1:
-        game_instance = play_hand(game_state=game_instance)
-        game_instance = reset_game_state_for_new_hand(game_state=game_instance)
-
-        # Convert game_state to JSON and pretty print to console
-        game_state_json = json.loads(json.dumps(game_instance, default=lambda o: o.__dict__))
-        print(json.dumps(game_state_json, indent=4))
-
-    end_game(game_state=game_instance)
+# def get_player_action(game_state) -> Tuple[dict, List[str]]:
+#     """
+#     Retrieve play decision from an external source, either the human or the AI.
+#     If the player chooses to raise, the amount of the raise also needs to be captured.
+#     If a player calls a bet or raises and can't cover the amount they added, it's currently
+#     handled in the 'place_bet' function.
+#     TODO: this will need to be reviewed when we want to add support for multiple pots
+#     """
+#     player_options = game_state.current_player_options
+#     cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
+#     current_player = game_state.current_player
+#
+#     # Prepare data for the UI
+#     ui_data = {
+#         'community_cards': game_state.community_cards,
+#         'player_hand': current_player['hand'],
+#         'pot_total': game_state.pot['total'],
+#         'player_stack': current_player['stack'],
+#         'cost_to_call': cost_to_call_bet,
+#         'player_name': current_player['name']
+#     }
+#
+#     return ui_data, player_options
