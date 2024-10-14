@@ -1,6 +1,49 @@
 from collections import Counter
 
 class HandEvaluator:
+    """
+        Class HandEvaluator:
+            This class is responsible for evaluating a hand of cards in poker.
+
+        Attributes:
+            cards (list): A list of Card objects representing the current hand.
+            ranks (list): A list of integer values representing the ranks of the cards in the hand.
+            suits (list): A list of suits for the cards in the hand.
+            rank_counts (Counter): A counter object to keep track of the frequency of each card rank in the hand.
+            suit_counts (Counter): A counter object to keep track of the frequency of each card suit in the hand.
+
+        Methods:
+            evaluate_hand:
+                Evaluates the hand and returns a dictionary containing the rank of the hand, the values contributing to
+                the hand rank, and kicker values if applicable. Returns the evaluated hands.
+
+            check_royal_flush:
+                Checks if the hand is a royal flush.
+
+            check_straight_flush:
+                Checks if the hand is a straight flush.
+
+            check_four_of_a_kind:
+                Checks if the hand contains four cards of the same rank (four of a kind).
+
+            check_full_house:
+                Checks if the hand contains a three of a kind and a pair (full house).
+
+            check_flush:
+                Checks if the hand contains five cards of the same suit (flush).
+
+            check_straight:
+                Checks if the hand contains five consecutive cards (straight).
+
+            check_three_of_a_kind:
+                Checks if the hand contains three cards of the same rank (three of a kind).
+
+            check_two_pair:
+                Checks if the hand contains two pairs of different ranks (two pair).
+
+            check_one_pair:
+                Checks if the hand contains one pair of cards with the same rank (one pair).
+    """
     def __init__(self, cards):
         self.cards = cards
         self.ranks = [card.value for card in cards]
