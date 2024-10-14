@@ -356,6 +356,7 @@ def play_turn(game_state):
     """
     Process the current player's turn by retrieving an action from some other input and calling the appropriate
     function. The player's 'has_acted' flag will be set to True here and is reset
+    TODO: add a check to see if the hand end conditions have been met (all players folded or all-in)
     """
     action, amount = get_player_action(game_state)
     function_name = "player_" + action.strip().lower()
@@ -480,11 +481,11 @@ def determine_winner(game_state):
 
     # Reward winning player
     _, winning_player_idx = game_state.get_player_by_name(winning_player_name)
-    new_stack_total = game_state.pot['total']
+    new_stack_total = game_state.pot['total'] + game_state.players[winning_player_idx]['stack']
     new_players = update_player_state(game_state.players, player_idx=winning_player_idx, stack=new_stack_total)
     game_state = update_poker_game_state(game_state, players=new_players)
 
-    print(winning_player_name, winning_hand)
+    print(winning_player_name, winning_hand)        # TODO: log the win and the game_states for this hand
     return game_state
 
 
@@ -546,7 +547,7 @@ if __name__ == '__main__':
     game_instance = start_game(player_names=ai_player_names)
     # game_instance = start_game(player_names=["Small Blind", "Big Blind", "Player 4"])
 
-    players_remain_in_game = True
+    players_remain_in_game = True       # TODO: define players_remain_in_game
     while players_remain_in_game:
         game_instance = play_hand(game_state=game_instance)
         game_instance = reset_game_state_for_new_hand(game_state=game_instance)
