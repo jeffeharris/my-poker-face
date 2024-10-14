@@ -12,19 +12,32 @@ from utils import get_celebrities
 # DEFAULTS
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
-NUM_AI_PLAYERS = 1
+NUM_AI_PLAYERS = 3
 ANTE = 25
+
+
+def create_deck(shuffled: bool = True):
+    """
+    Deck created as a tuple to be used immediately in a new game. Set shuffled = False to return an ordered deck.
+    """
+    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+    suits = ['Spades', 'Diamonds', 'Clubs', 'Hearts']
+    deck = [{'rank': rank, 'suit': suit} for rank in ranks for suit in suits]
+    shuffle(deck) if shuffled else None
+    return tuple(deck)
+
 
 @dataclass(frozen=True)
 class PokerGameState:
     players: Tuple[Mapping, ...]
-    deck: Tuple[Mapping, ...] = field(default_factory=tuple)
+    deck: Tuple[Mapping, ...] = create_deck()
     discard_pile: Tuple[Mapping, ...] = field(default_factory=tuple)
     pot: Mapping = field(default_factory=lambda: {'total': 0})
     current_player_idx: int = 0
     current_dealer_idx: int = 0
-    is_big_blind_option_taken: bool = False
     community_cards: Tuple[Mapping, ...] = field(default_factory=tuple)
+    ### FLAGS ###
+    pre_flop_action_taken: bool = False
 
     @property
     def current_player(self):
@@ -38,6 +51,59 @@ class PokerGameState:
             highest_bet = player['bet'] if player['bet'] > highest_bet else highest_bet
         return highest_bet
 
+    @property
+    def can_big_blind_take_pre_flop_action(self):
+        """
+        Determines if it is the pre-flop round of betting in the hand and no one has raised above the big blind ante.
+
+        Parameters:
+        game_state (GameState): The current state of the game.
+
+        Returns:
+        bool: True if the big blind player can raise or check, False otherwise.
+        """
+        # Check if no community cards are dealt, which would indicate that we are in the pre-flop round of betting
+        no_community_cards_dealt = len(self.community_cards) == 0
+        big_blind_player_name = self.players[(self.current_dealer_idx + 2) % len(self.players)]['name']
+
+        can_raise_or_check = (
+                self.current_player['name'] == big_blind_player_name
+                and no_community_cards_dealt
+                and self.highest_bet == ANTE * 2  # TODO: replace ANTE with a property of the game_state
+                and not self.pre_flop_action_taken
+        )
+        return can_raise_or_check
+
+    @property
+    def current_player_options(self) -> List[str]:
+        """
+        Used when the player's turn comes up to display the available actions.
+        """
+        player = self.current_player
+        # How much is it to call the bet for the player?
+        player_cost_to_call = self.highest_bet - player['bet']
+        # Does the player have enough to call
+        player_has_enough_to_call = player.money > player_cost_to_call
+
+        # If the current player is last to act (aka big blind), and we're still in the pre-flop round
+        if self.can_big_blind_take_pre_flop_action:
+            player_options = ['check', 'raise', 'all-in', 'chat']
+        else:
+            player_options = ['fold', 'check', 'call', 'bet', 'raise', 'all_in', 'chat']
+            if player_cost_to_call == 0:
+                player_options.remove('fold')
+            if player_cost_to_call > 0:
+                player_options.remove('check')
+            if not player_has_enough_to_call or player_cost_to_call == 0:
+                player_options.remove('call')
+            if self.highest_bet > 0 or player_cost_to_call > 0:
+                player_options.remove('bet')
+            if player['stack'] - self.highest_bet <= 0 or 'bet' in player_options:
+                player_options.remove('raise')
+            if player['stack'] == 0:
+                player_options.remove('all-in')
+        return player_options
+
     def get_player_by_name(self, search_name: str):
         for idx, player in enumerate(self.players):
             if player['name'] == search_name:
@@ -48,33 +114,13 @@ class PokerGameState:
 ##################################################################
 ##################            CHECKS            ##################
 ##################################################################
-def big_blind_can_raise_or_check(game_state):
-    """
-    Determines if it is the pre-flop round of betting in the hand and no one has raised above the big blind ante.
-
-    Parameters:
-    game_state (GameState): The current state of the game.
-
-    Returns:
-    bool: True if the big blind player can raise or check, False otherwise.
-    """
-    # Check if no community cards are dealt, which would indicate that we are in the pre-flop round of betting
-    no_community_cards_dealt = len(game_state.community_cards) == 0
-    big_blind_player_name = game_state.players[(game_state.current_dealer_idx + 2) % len(game_state.players)]['name']
-
-    can_raise_or_check = (
-            game_state.current_player['name'] == big_blind_player_name and
-            no_community_cards_dealt and
-            game_state.highest_bet == ANTE * 2  # TODO: replace ANTE with a property of the game_state
-    )
-    return can_raise_or_check
-
-def is_round_complete(game_state):
+def are_pot_contributions_valid(game_state):
     """
     Validates that all players have contributed an even amount to the pot or have folded or gone all-in.
     Special case: In the first betting round, the big blind should get a chance to check or raise.
     """
-    if big_blind_can_raise_or_check(game_state) and not game_state.is_big_blind_option_taken:
+    # Check that big blind has not taken their option to check/raise and that they are
+    if game_state.can_big_blind_take_pre_flop_action:
         return False
     # Check if all players have checked, folded, or gone all-in
     for player in game_state.players:
@@ -101,6 +147,7 @@ def is_player_active(player: Mapping[str, Any]) -> bool:
 ##################################################################
 #################           GENERATORS           #################
 ##################################################################
+# TODO: Refactor player to a dataclass
 def create_player(name: str, stack: int = STACK_SIZE, is_human: bool = False) -> Mapping[str, any]:
     """
     Returns a new player as a map ready to be added to a game.
@@ -115,17 +162,6 @@ def create_player(name: str, stack: int = STACK_SIZE, is_human: bool = False) ->
         'has_acted': False,
         'is_human': is_human
     }
-
-
-def create_deck(shuffled: bool = True):
-    """
-    Deck created as a tuple to be used immediately in a new game. Set shuffled = False to return an ordered deck.
-    """
-    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-    suits = ['Spades', 'Diamonds', 'Clubs', 'Hearts']
-    deck = [{'rank': rank, 'suit': suit} for rank in ranks for suit in suits]
-    shuffle(deck) if shuffled else None
-    return tuple(deck)
 
 
 def create_ai_players(player_names: List[str]):
@@ -146,7 +182,7 @@ def update_poker_game_state(
         pot: Mapping[str, any] = None,
         current_player_idx: int = None,
         current_dealer_idx: int = None,
-        is_big_blind_option_taken: bool = None,
+        pre_flop_action_taken: bool = None,
         community_cards: Tuple[Mapping[str, any], ...] = None
 ) -> PokerGameState:
     """
@@ -160,7 +196,7 @@ def update_poker_game_state(
         pot=pot or game_state.pot,
         current_player_idx=current_player_idx if current_player_idx is not None else game_state.current_player_idx,
         current_dealer_idx=current_dealer_idx if current_dealer_idx is not None else game_state.current_dealer_idx,
-        is_big_blind_option_taken=is_big_blind_option_taken or game_state.is_big_blind_option_taken,
+        pre_flop_action_taken=pre_flop_action_taken or game_state.pre_flop_action_taken,
         community_cards=community_cards or game_state.community_cards,
     )
 
@@ -336,7 +372,7 @@ def player_players(game_state):
 ##################################################################
 def play_betting_round(game_state):
     """
-    Cycle through all players until the pot is good. Start from the small blind player unless it is the pre-flop round.
+    Cycle through all players until the pot is good.
     """
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
@@ -344,9 +380,12 @@ def play_betting_round(game_state):
     else:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx + 2)
+
     game_state = update_poker_game_state(game_state, current_player_idx=first_action_player_idx)
 
-    while not is_round_complete(game_state):
+    while (not are_pot_contributions_valid(game_state)
+           # number of players still able to bet is greater than 1
+           and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
         game_state = play_turn(game_state)
         game_state = advance_to_next_active_player(game_state)
     game_state = reset_player_action_flags(game_state, exclude_current_player=False)
@@ -357,7 +396,6 @@ def play_turn(game_state):
     """
     Process the current player's turn by retrieving an action from some other input and calling the appropriate
     function. The player's 'has_acted' flag will be set to True here and is reset
-    TODO: add a check to see if the hand end conditions have been met (all players folded or all-in)
     """
     action, amount = get_player_action(game_state)
     function_name = "player_" + action.strip().lower()
@@ -371,29 +409,26 @@ def play_turn(game_state):
     new_players = update_player_state(players=game_state.players, player_idx=game_state.current_player_idx, has_acted=True)
     game_state = update_poker_game_state(game_state, players=new_players)
 
-    if big_blind_can_raise_or_check(game_state) and not game_state.is_big_blind_option_taken:
-        game_state = update_poker_game_state(game_state, is_big_blind_option_taken=True)
+    if game_state.can_big_blind_take_pre_flop_action:
+        game_state = update_poker_game_state(game_state, pre_flop_action_taken=True)
 
     return game_state
 
 
-def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx: int) -> int:
+def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx: int) -> int or None:
     """
     Find the index for the next active player in the game.
     """
     player_count = len(players)
-    # Start with the next player in the queue, save the starting index for later so we can end the loop
-    # if we come all the way around
+    # Start with the next player in the queue, save the starting index for later so we can take action
+    # if we come all the way around without finding an active player
     starting_idx = relative_player_idx
     next_player_idx = (starting_idx + 1) % player_count
 
-    players_checked = []    # TODO: remove this test variable
     while True:
-        players_checked.append(next_player_idx)
         if is_player_active(players[next_player_idx]):
             return next_player_idx
-        if next_player_idx == starting_idx:  # If we looped back to the starting player
-            print(f"\nno active players found: {players_checked}\n")
+        if next_player_idx == starting_idx:
             break
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
@@ -406,7 +441,7 @@ def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
     return update_poker_game_state(game_state=game_state, current_player_idx=next_active_player_idx)
 
 
-def start_game(player_names: List[str]) -> PokerGameState:
+def initialize_game_state(player_names: List[str]) -> PokerGameState:
     """
     Generate a new game state and prepare the game for the initial round of betting.
         - get a new deck of shuffled cards
@@ -415,7 +450,7 @@ def start_game(player_names: List[str]) -> PokerGameState:
     """
     # Create a tuple of Human and AI players to be added to the game state. Using a hard-coded human name
     new_players = (create_player(HUMAN_NAME, is_human=True),) + create_ai_players(player_names)
-    game_state = PokerGameState(players=new_players, deck=create_deck())
+    game_state = PokerGameState(players=new_players)
 
     return game_state
 
@@ -432,15 +467,21 @@ def reset_game_state_for_new_hand(game_state):
     for player in game_state.players:
         new_player = create_player(name=player['name'], stack=player['stack'], is_human=player['is_human'])
         new_players.append(new_player)
-    new_players = tuple(new_players)
 
-    # Rotate the dealer position to the next active player in the game.
-    new_dealer_idx = get_next_active_player_idx(players=new_players,
+    # Rotate the dealer position to the next active player in the game. This needs to come after the players are
+    # reset so that get_next_active_player isn't based on the prior hands actions.
+    new_dealer_idx = get_next_active_player_idx(players=tuple(new_players),
                                                 relative_player_idx=game_state.current_dealer_idx)
     new_players = new_players[new_dealer_idx:] + new_players[:new_dealer_idx]
 
+    # Remove players who have no chips left. This needs to come after the players are reset and the dealer is rotated
+    # because we reference the game state's current dealer index in order to rotate.
+    for player in new_players:
+        if player['stack'] == 0:
+            new_players.remove(player)
+
     # Create a new game state with just the properties we want to carry over (just the new players queue)
-    return PokerGameState(players=new_players, deck=create_deck())
+    return PokerGameState(players=tuple(new_players))
 
 
 def determine_winner(game_state):
@@ -486,12 +527,15 @@ def determine_winner(game_state):
     new_players = update_player_state(game_state.players, player_idx=winning_player_idx, stack=new_stack_total)
     game_state = update_poker_game_state(game_state, players=new_players)
 
-    print(winning_player_name, winning_hand)        # TODO: log the win and the game_states for this hand
+    print(winning_player_name, winning_hand, game_state.pot['total'])        # TODO: log the win and the game_states for this hand
     return game_state
 
 
 
 def play_hand(game_state: PokerGameState):
+    """
+    Progress the game through the phases to play a hand and determine the winner.
+    """
     phases = [
         lambda state: advance_to_next_active_player(state),
         lambda state: place_bet(state, ANTE),
@@ -513,6 +557,21 @@ def play_hand(game_state: PokerGameState):
         game_state = phase(game_state)
     return game_state
 
+
+def end_game(game_state: PokerGameState):
+    """
+    Placeholder for wrapping the game up when a user quits or the game has ended due to only 1 player remaining.
+    """
+    winner = 'Nobody'
+    for player in game_state.players:
+        if player['stack'] > 0:
+            winner = player['name']
+            break
+
+    print(f"\n{winner} won!\n"
+          f"Thanks for playing!\n")
+
+    return game_state
 
 ##################################################################
 ##################      EXTERNAL INTERFACE      ##################
@@ -557,14 +616,14 @@ def get_player_action(game_state) -> Tuple[str, int]:
 
 if __name__ == '__main__':
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
-    game_instance = start_game(player_names=ai_player_names)
-    # game_instance = start_game(player_names=["Small Blind", "Big Blind", "Player 4"])
+    game_instance = initialize_game_state(player_names=ai_player_names)
 
-    players_remain_in_game = True       # TODO: define players_remain_in_game
-    while players_remain_in_game:
+    while len(game_instance.players) > 1:
         game_instance = play_hand(game_state=game_instance)
         game_instance = reset_game_state_for_new_hand(game_state=game_instance)
 
         # Convert game_state to JSON and pretty print to console
         game_state_json = json.loads(json.dumps(game_instance, default=lambda o: o.__dict__))
         print(json.dumps(game_state_json, indent=4))
+
+    end_game(game_state=game_instance)
