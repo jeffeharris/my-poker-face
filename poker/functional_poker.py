@@ -85,7 +85,8 @@ def is_round_complete(game_state):
 
 def is_player_active(player: Mapping[str, Any]) -> bool:
     """
-    Checks if a player is active in the betting round.
+    Checks if a player is active in the betting round. Active in this case means that the player is still
+    active in the hand to bet or active in the Game to be a dealer for the next hand.
 
     Args:
         player (Mapping[str, Any]): A dictionary representing the player's status
