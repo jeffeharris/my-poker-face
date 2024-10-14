@@ -84,7 +84,8 @@ def is_player_active(player: Mapping[str, Any]) -> bool:
     Returns:
         bool: True if the player is active, False otherwise
     """
-    return not player['is_all_in'] and not player['is_folded'] and not player['has_acted']
+    player_has_no_chips = player['stack'] == 0
+    return not (player['is_all_in'] or player['is_folded'] or player['has_acted'] or player_has_no_chips)
 
 
 ##################################################################
