@@ -4,6 +4,9 @@ from dataclasses import dataclass, field, replace
 from random import shuffle
 from typing import Tuple, Mapping, List, Any
 
+from core.card import Card
+from poker.hand_evaluator import HandEvaluator
+
 from utils import get_celebrities
 
 # DEFAULTS
@@ -34,6 +37,12 @@ class PokerGameState:
         for player in self.players:
             highest_bet = player['bet'] if player['bet'] > highest_bet else highest_bet
         return highest_bet
+
+    def get_player_by_name(self, search_name: str):
+        for idx, player in enumerate(self.players):
+            if player['name'] == search_name:
+                return player, idx
+        return None
 
 
 ##################################################################
@@ -329,10 +338,10 @@ def play_betting_round(game_state):
     Cycle through all players until the pot is good.
     """
     if len(game_state.community_cards) > 0:
-        first_action_player_idx = get_next_active_player_idx(game_state,
+        first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx)
     else:
-        first_action_player_idx = get_next_active_player_idx(game_state,
+        first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx + 2)
     game_state = update_poker_game_state(game_state, current_player_idx=first_action_player_idx)
 
@@ -366,20 +375,20 @@ def play_turn(game_state):
     return game_state
 
 
-def get_next_active_player_idx(game_state: PokerGameState, relative_player_idx: int or None = None) -> int:
+def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx: int) -> int:
     """
     Find the index for the next active player in the game.
     """
-    player_count = len(game_state.players)
+    player_count = len(players)
     # Start with the next player in the queue, save the starting index for later so we can end the loop
     # if we come all the way around
-    starting_idx = relative_player_idx or game_state.current_player_idx
+    starting_idx = relative_player_idx
     next_player_idx = (starting_idx + 1) % player_count
 
     players_checked = []    # TODO: remove this test variable
     while True:
         players_checked.append(next_player_idx)
-        if is_player_active(game_state.players[next_player_idx]):
+        if is_player_active(players[next_player_idx]):
             return next_player_idx
         if next_player_idx == starting_idx:  # If we looped back to the starting player
             print(f"\nwhat should we do now? {players_checked}\n")
@@ -391,7 +400,7 @@ def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
     """
     Move to the next active player in the game.
     """
-    next_active_player_idx = get_next_active_player_idx(game_state)
+    next_active_player_idx = get_next_active_player_idx(players=game_state.players, relative_player_idx=game_state.current_player_idx)
     return update_poker_game_state(game_state=game_state, current_player_idx=next_active_player_idx)
 
 
@@ -406,7 +415,78 @@ def start_game(player_names: List[str]) -> PokerGameState:
     new_players = (create_player(HUMAN_NAME, is_human=True),) + create_ai_players(player_names)
     game_state = PokerGameState(players=new_players, deck=create_deck())
 
-    return play_hand(game_state)
+    return game_state
+
+
+def reset_game_state_for_new_hand(game_state):
+    """
+    Sets all game_state flags to new hand state.
+    Creates a new deck and resets the player's hand.
+    Rotates the dealer position.
+    Deals the hole cards.
+    """
+    # Create new players with reset flags to prepare for the next round
+    new_players = []
+    for player in game_state.players:
+        new_player = create_player(name=player['name'], stack=player['stack'], is_human=player['is_human'])
+        new_players.append(new_player)
+    new_players = tuple(new_players)
+
+    # Rotate the dealer position to the next active player in the game.
+    new_dealer_idx = get_next_active_player_idx(players=new_players,
+                                                relative_player_idx=game_state.current_dealer_idx)
+    new_players = new_players[new_dealer_idx:] + new_players[:new_dealer_idx]
+
+    # Create a new game state with just the properties we want to carry over (just the new players queue)
+    return PokerGameState(players=new_players, deck=create_deck())
+
+
+def determine_winner(game_state):
+    """
+    Resolves the pot by determining the winner based on their hand and the community cards.
+    """
+    # Get list of player names that contributed to the pot
+    players_eligible_for_pot = []
+    for player_name in game_state.pot:
+        if not player_name == 'total':
+            has_player_folded = game_state.get_player_by_name(player_name)[0]['is_folded']
+            if not has_player_folded:
+                players_eligible_for_pot.append(player_name)
+    # Create Tuple with each player's hand using the Card class
+    # Create a list which will hold a Tuple of (PokerPlayer, HandEvaluator)
+    hands = []
+    # Convert the community cards to Cards
+    new_community_cards = []
+    for card in game_state.community_cards:
+        new_community_cards.append(Card(card['rank'], card['suit']))
+
+    for player in game_state.players:
+        if player['name'] in players_eligible_for_pot:
+            new_cards = []
+            for card in player['hand']:
+                new_cards.append(Card(rank=card['rank'], suit=card['suit']))
+            hands.append((player['name'], HandEvaluator(new_cards + new_community_cards).evaluate_hand()))
+
+    print(f"players_in_pot: {players_eligible_for_pot}\n"
+          f"new_community_cards: {new_community_cards}\n"
+          f"hands: {hands}\n")
+
+    hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
+    hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
+    hands.sort(key=lambda x: x[1]["hand_rank"])
+
+    winning_player_name = hands[0][0]
+    winning_hand = hands[0][1]["hand_values"] + hands[0][1]["kicker_values"]
+
+    # Reward winning player
+    _, winning_player_idx = game_state.get_player_by_name(winning_player_name)
+    new_stack_total = game_state.pot['total']
+    new_players = update_player_state(game_state.players, player_idx=winning_player_idx, stack=new_stack_total)
+    game_state = update_poker_game_state(game_state, players=new_players)
+
+    print(winning_player_name, winning_hand)
+    return game_state
+
 
 
 def play_hand(game_state: PokerGameState):
@@ -424,7 +504,7 @@ def play_hand(game_state: PokerGameState):
         lambda state: play_betting_round(state),
         lambda state: deal_community_cards(state, num_cards=1),
         lambda state: play_betting_round(state),
-        # lambda state: determine_winner(state)
+        lambda state: determine_winner(state)
     ]
 
     for phase in phases:
@@ -463,9 +543,14 @@ def get_player_action(game_state) -> Tuple[str, int]:
 
 if __name__ == '__main__':
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
-    # game_instance = start_game(player_names=ai_player_names)
-    game_instance = start_game(player_names=["Small Blind", "Big Blind", "Player 4"])
+    game_instance = start_game(player_names=ai_player_names)
+    # game_instance = start_game(player_names=["Small Blind", "Big Blind", "Player 4"])
 
-    # Convert game_state to JSON and pretty print to console
-    game_state_json = json.loads(json.dumps(game_instance, default=lambda o: o.__dict__))
-    print(json.dumps(game_state_json, indent=4))
+    players_remain_in_game = True
+    while players_remain_in_game:
+        game_instance = play_hand(game_state=game_instance)
+        game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+
+        # Convert game_state to JSON and pretty print to console
+        game_state_json = json.loads(json.dumps(game_instance, default=lambda o: o.__dict__))
+        print(json.dumps(game_state_json, indent=4))
