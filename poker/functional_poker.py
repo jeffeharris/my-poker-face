@@ -28,7 +28,7 @@ def create_deck(shuffled: bool = True):
 @dataclass(frozen=True)
 class PokerGameState:
     players: Tuple[Mapping, ...]
-    deck: Tuple[Mapping, ...] = create_deck()
+    deck: Tuple[Mapping, ...] = field(default_factory=lambda: create_deck(shuffled=True))
     discard_pile: Tuple[Mapping, ...] = field(default_factory=tuple)
     pot: Mapping = field(default_factory=lambda: {'total': 0})
     current_player_idx: int = 0
@@ -478,9 +478,7 @@ def reset_game_state_for_new_hand(game_state):
 
     # Remove players who have no chips left. This needs to come after the players are reset and the dealer is rotated
     # because we reference the game state's current dealer index in order to rotate.
-    for player in new_players:
-        if player['stack'] == 0:
-            new_players.remove(player)
+    new_players = [player for player in new_players if player['stack'] > 0]
 
     # Create a new game state with just the properties we want to carry over (just the new players queue)
     return PokerGameState(players=tuple(new_players))
@@ -497,14 +495,16 @@ def determine_winner(game_state):
             has_player_folded = game_state.get_player_by_name(player_name)[0]['is_folded']
             if not has_player_folded:
                 players_eligible_for_pot.append(player_name)
-    # Create Tuple with each player's hand using the Card class
+
     # Create a list which will hold a Tuple of (PokerPlayer, HandEvaluator)
     hands = []
+
     # Convert the community cards to Cards
     new_community_cards = []
     for card in game_state.community_cards:
         new_community_cards.append(Card(card['rank'], card['suit']))
 
+    # Create a List with each player's hand using the Card class and Evaluate them
     for player in game_state.players:
         if player['name'] in players_eligible_for_pot:
             new_cards = []
@@ -512,21 +512,29 @@ def determine_winner(game_state):
                 new_cards.append(Card(rank=card['rank'], suit=card['suit']))
             hands.append((player['name'], HandEvaluator(new_cards + new_community_cards).evaluate_hand()))
 
+    # Sort the hands from best to worst
     hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
     hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
     hands.sort(key=lambda x: x[1]["hand_rank"])
 
-    winning_player_name = hands[0][0]
+    # Check a tie amongst the hands
+    winning_hand = hands[0][1]
+    winning_hands = [hand for hand in hands if hand[1] == winning_hand]
+
+    winning_player_names = [hand[0] for hand in winning_hands]
     winning_hand = hands[0][1]["hand_values"] + hands[0][1]["kicker_values"]
 
-    # Reward winning player
-    _, winning_player_idx = game_state.get_player_by_name(winning_player_name)
-    new_stack_total = game_state.pot['total'] + game_state.players[winning_player_idx]['stack']
-    new_players = update_player_state(game_state.players, player_idx=winning_player_idx, stack=new_stack_total)
-    game_state = update_poker_game_state(game_state, players=new_players)
+    # Reward winning players
+    for hand in winning_hands:
+        # Retrieve the player index for the player of the winning hand
+        _ , player_idx = game_state.get_player_by_name(hand[0])
+
+        new_stack_total = game_state.pot['total']/len(winning_hands) + game_state.players[player_idx]['stack']
+        new_players = update_player_state(game_state.players, player_idx=player_idx, stack=new_stack_total)
+        game_state = update_poker_game_state(game_state, players=new_players)
 
     winner_info = {
-        'winning_player_name': winning_player_name,
+        'winning_player_names': winning_player_names,
         'winning_hand': winning_hand,
         'pot_total': game_state.pot['total']
     }
@@ -537,42 +545,10 @@ def end_game(game_state: PokerGameState):
     """
     Placeholder for wrapping the game up when a user quits or the game has ended due to only 1 player remaining.
     """
-    winner = 'Nobody'
-    for player in game_state.players:
-        if player['stack'] > 0:
-            winner = player['name']
-            break
-
+    winner, _ = determine_winner(game_state)
     end_game_info = {
-        'winner': winner,
+        'winner': game_state.players[0]['name'],
         'message': f"{winner} won! Thanks for playing!"
     }
 
     return end_game_info
-
-##################################################################
-##################      EXTERNAL INTERFACE      ##################
-##################################################################
-# def get_player_action(game_state) -> Tuple[dict, List[str]]:
-#     """
-#     Retrieve play decision from an external source, either the human or the AI.
-#     If the player chooses to raise, the amount of the raise also needs to be captured.
-#     If a player calls a bet or raises and can't cover the amount they added, it's currently
-#     handled in the 'place_bet' function.
-#     TODO: this will need to be reviewed when we want to add support for multiple pots
-#     """
-#     player_options = game_state.current_player_options
-#     cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
-#     current_player = game_state.current_player
-#
-#     # Prepare data for the UI
-#     ui_data = {
-#         'community_cards': game_state.community_cards,
-#         'player_hand': current_player['hand'],
-#         'pot_total': game_state.pot['total'],
-#         'player_stack': current_player['stack'],
-#         'cost_to_call': cost_to_call_bet,
-#         'player_name': current_player['name']
-#     }
-#
-#     return ui_data, player_options

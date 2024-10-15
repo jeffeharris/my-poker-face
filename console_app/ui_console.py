@@ -1,40 +1,73 @@
 # ui_console.py
+from typing import Optional
 
 from functional_poker import *
 from utils import get_celebrities
 
 
-def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, int]:
-    # Display information to the user
-    print(f"Community Cards: {ui_data['community_cards']}")
-    print(f"Your Hand: {ui_data['player_hand']}")
-    print(f"Pot: {ui_data['pot_total']}")
-    print(f"Your Stack: {ui_data['player_stack']}")
-    print(f"Cost to Call: {ui_data['cost_to_call']}")
-    print(f"Options: {player_options}")
+class CardRenderer:
+    _CARD_TEMPLATE = '''
+.---------.
+|{}       |
+| {}       |
+|         |
+|         |
+|      {}  |
+|       {}|
+`---------'
+'''
+    _TWO_CARD_TEMPLATE = '''
+.---.---------.
+|{}  |{}        |
+|  {}|  {}      |
+|   |         |
+|   |         |
+|   |       {} |
+|   |        {}|
+`---`---------'
+'''
 
-    # Get user choice
-    player_choice = None
-    while player_choice not in player_options:
-        player_choice = input(f"{ui_data['player_name']}, what would you like to do? ").lower().replace("-","_")
-        if player_choice in ["all-in", "allin", "all in"]:
-            player_choice = "all_in"
-        if player_choice not in player_options:
-            print("Invalid choice. Please select from the available options.\n\t")
+    @staticmethod
+    def render_card(card):
+        # Renders a Card for output to the console
+        rank_left = card.rank.ljust(2)
+        rank_right = card.rank.rjust(2)
+        card = CardRenderer._CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
+        return card
 
-    # Get bet amount if necessary
-    bet_amount = 0
-    if player_choice == "raise":
-        while True:
-            try:
-                bet_amount = int(input("How much would you like to raise? "))
-                break
-            except ValueError:
-                print("Please enter a valid number.")
-    elif player_choice == "call":
-        bet_amount = ui_data['cost_to_call']
+    @staticmethod
+    def render_cards(cards: List[Card]) -> Optional[str]:
+        # Renders a list of Cards for output to the console
+        card_lines = [CardRenderer.render_card(card).strip().split('\n') for card in cards]
+        if not card_lines:
+            return None
+        ascii_card_lines = []
+        for lines in zip(*card_lines):
+            ascii_card_lines.append('  '.join(lines))
+        card_ascii_string = '\n'.join(ascii_card_lines)
+        return card_ascii_string
 
-    return player_choice, bet_amount
+    @staticmethod
+    def render_two_cards(card_1, card_2):
+        # Renders two cards for output to the console. Meant to represent the cards as the players hole cards
+        two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(card_1.rank,
+                                                         card_2.rank,
+                                                         Card.SUIT_TO_ASCII[card_1.suit],
+                                                         Card.SUIT_TO_ASCII[card_2.suit],
+                                                         Card.SUIT_TO_ASCII[card_2.suit],
+                                                         card_2.rank)
+        return two_card_ascii_string
+
+    @staticmethod
+    def render_hole_cards(cards: List[Card]):
+        sorted_cards = sorted(cards, key=lambda card: card.value)
+        card_1 = sorted_cards[0]
+        card_2 = sorted_cards[1]
+
+        # Generate console output for the Cards
+        hole_card_art = CardRenderer.render_two_cards(card_1, card_2)
+        return hole_card_art
+
 
 def prepare_ui_data(game_state):
     player_options = game_state.current_player_options
@@ -51,6 +84,21 @@ def prepare_ui_data(game_state):
     }
 
     return ui_data, player_options
+
+def get_player_action(game_state):
+    current_player = game_state.current_player
+
+    # Prepare data for the UI
+    ui_data, player_options = prepare_ui_data(game_state)
+
+    if current_player['is_human']:
+        # Get decision from human player
+        player_choice, amount = human_player_action(ui_data, player_options)
+    else:
+        # Get decision from AI player
+        player_choice, amount = ai_player_action(game_state)
+
+    return player_choice, amount
 
 
 # def ai_player_action(ui_data, player_options):
@@ -83,37 +131,72 @@ def ai_player_action(game_state):
     return action, amount
 
 
-def get_player_action(game_state):
-    current_player = game_state.current_player
+def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, int]:
+    # Render the player's cards using the CardRenderer.
+    players_rendered_cards = CardRenderer().render_hole_cards(
+        [Card(c['rank'], c['suit']) for c in ui_data['player_hand']])
 
-    # Prepare data for the UI
-    ui_data, player_options = prepare_ui_data(game_state)
+    # Display information to the user
+    # print(f"\nCommunity Cards: {ui_data['community_cards']}")
+    print(f"Your Hand:\n{players_rendered_cards}")
+    print(f"Pot: {ui_data['pot_total']}")
+    print(f"Your Stack: {ui_data['player_stack']}")
+    print(f"Cost to Call: {ui_data['cost_to_call']}")
+    print(f"Options: {player_options}\n")
 
-    if current_player['is_human']:
-        # Get decision from human player
-        player_choice, amount = human_player_action(ui_data, player_options)
-    else:
-        # Get decision from AI player
-        player_choice, amount = ai_player_action(game_state)
+    # Get user choice
+    player_choice = None
+    while player_choice not in player_options:
+        player_choice = input(f"{ui_data['player_name']}, what would you like to do? ").lower().replace("-","_")
+        if player_choice in ["all-in", "allin", "all in"]:
+            player_choice = "all_in"
+        if player_choice not in player_options:
+            print("Invalid choice. Please select from the available options.")
+            print(f"{player_options}\n")
 
-    return player_choice, amount
+    # Set or get bet amount if necessary
+    bet_amount = 0
+    if player_choice == "raise":
+        while True:
+            try:
+                bet_amount = int(input("How much would you like to raise? "))
+                break
+            except ValueError:
+                print("Please enter a valid number.")
+    elif player_choice == "call":
+        bet_amount = ui_data['cost_to_call']
+
+    return player_choice, bet_amount
 
 
-def display_winner(info):
-    print(f"{info['winning_player_name']} wins the pot of {info['pot_total']} with {info['winning_hand']}!")
+def display_game_state(game_state):
+    # Convert game_state to JSON and pretty print to console
+    game_state_json = json.loads(json.dumps(game_state, default=lambda o: o.__dict__))
+    del game_state_json['deck']
+    print(json.dumps(game_state_json, indent=4))
+
+
+def display_hand_winner(info):
+    print(f"{info['winning_player_name']} wins the pot of {info['pot_total']} with {info['winning_hand']}!\n")
 
 
 def display_end_game(info):
     print(f"\n{info['message']}\n")
 
 
-def display_game_state(game_state):
-    # Convert game_state to JSON and pretty print to console
-    game_state_json = json.loads(json.dumps(game_state, default=lambda o: o.__dict__))
-    print(json.dumps(game_state_json, indent=4))
+def display_cards(cards, display_text: Optional[str] = None):
+    """
+    Prints the rendered cards to the console. Accepts a tuple of cards from the game_state.
+    Converts the card tuple to Card class objects and prints to the console
+    """
+    rendered_cards = CardRenderer().render_cards([Card(c['rank'], c['suit']) for c in cards])
+
+    if display_text is not None:
+        print(f"\n{display_text}:")
+    print(f"\n{rendered_cards}\n")
 
 
-def ui_play_hand(game_state):
+def play_hand(game_state):
     # Pre-flop actions
     game_state = advance_to_next_active_player(game_state)
     game_state = place_bet(game_state, ANTE)
@@ -134,42 +217,17 @@ def ui_play_hand(game_state):
         game_state = play_betting_round(game_state, get_player_action)
         # Deal community cards
         game_state = deal_community_cards(game_state, num_cards=num_cards)
-        # Optionally, display the game state after each round
-        # display_game_state(game_state)
+        # Display the cards after they've been dealt
+        display_cards(game_state.community_cards, round_name)
 
     # Final betting round without dealing new cards
     game_state = play_betting_round(game_state, get_player_action)
 
     # Determine the winner
     game_state, winner_info = determine_winner(game_state)
-    display_winner(winner_info)
+    display_hand_winner(winner_info)
 
     return game_state
-
-# def play_hand(game_state: PokerGameState):
-#     """
-#     Progress the game through the phases to play a hand and determine the winner.
-#     """
-#     phases = [
-#         lambda state: advance_to_next_active_player(state),
-#         lambda state: place_bet(state, ANTE),
-#         lambda state: advance_to_next_active_player(state),
-#         lambda state: place_bet(state, ANTE*2),
-#         lambda state: advance_to_next_active_player(state),
-#         lambda state: deal_hole_cards(state),
-#         lambda state: play_betting_round(state, get_player_action),
-#         lambda state: deal_community_cards(state, num_cards=3),
-#         lambda state: play_betting_round(state, get_player_action),
-#         lambda state: deal_community_cards(state, num_cards=1),
-#         lambda state: play_betting_round(state, get_player_action),
-#         lambda state: deal_community_cards(state, num_cards=1),
-#         lambda state: play_betting_round(state, get_player_action),
-#         lambda state: determine_winner(state)
-#     ]
-#
-#     for phase in phases:
-#         game_state = phase(game_state)
-#     return game_state
 
 
 if __name__ == '__main__':
@@ -177,7 +235,7 @@ if __name__ == '__main__':
     game_instance = initialize_game_state(player_names=ai_player_names)
 
     while len(game_instance.players) > 1:
-        game_instance = ui_play_hand(game_state=game_instance)
+        game_instance = play_hand(game_state=game_instance)
         game_instance = reset_game_state_for_new_hand(game_state=game_instance)
 
         # display_game_state(game_instance)
