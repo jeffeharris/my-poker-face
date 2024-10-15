@@ -24,7 +24,7 @@ def index():
     return render_template('home.html')
 
 
-@app.route('/new_game', methods=['POST'])
+@app.route('/new_game', methods=['GET'])
 def new_game():
     # Initialize the game state
     ai_player_names = get_celebrities(shuffled=True)[:3]  # Using three AI players as default
@@ -41,7 +41,7 @@ def game():
         return redirect(url_for('index'))  # Redirect to index if there's no game state
 
     # Render the current game state
-    return render_template('poker_game.html', game_state=game_state)
+    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
 
 @app.route('/action', methods=['POST'])
