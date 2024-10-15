@@ -4,10 +4,10 @@ from typing import List
 
 from poker.utils import get_celebrities
 
-from poker.hand_evaluator import HandEvaluator
-from poker.poker_hand import PokerHand
-from poker.poker_settings import PokerSettings
-from poker.round_manager import RoundManager
+from old_files.hand_evaluator import HandEvaluator
+from old_files.poker_hand import PokerHand
+from old_files.poker_settings import PokerSettings
+from old_files.round_manager import RoundManager
 
 from dotenv import load_dotenv
 

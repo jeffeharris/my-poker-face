@@ -23,11 +23,11 @@
 
     <div class="container content">
         <div class="players" id="players">
-            {% for player in game_state.round_manager.players %}
+            {% for player in game_state.players %}
                 <div class="player-card" id="player-{{ loop.index + 1 }}">
                     <img src="{{ url_for('static', filename='images/kanye.jpg') }}" class="player-headshot" alt="Player picture" >
                     <h2>{{ player.name }}</h2>
-                    <p>${{ player.money }}</p>
+                    <p>${{ player.stack }}</p>
                     <div id="cards-player-{{ loop.index + 1 }}" class="player-cards">
                         {% for card in player.cards %}
                             <span class="card
@@ -44,7 +44,7 @@
     <div class="table-container content">
         <div class="table">
             <div id="pot" class="pot">
-                Pot: ${{ game_state.hands[0].pots[0].total_pot }} | Min bet: $ {{ game_state.round_manager.small_blind }}
+                Pot: ${{ game_state.pot.total }} | Current bet: $ {{ game_state.highest_bet }}
             </div>
             <div id="community-cards" class="community-cards">
                 {% for card in community_cards %}

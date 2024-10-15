@@ -1,17 +1,15 @@
 import random
 from typing import List, Dict, Optional
 
-from spades.spades_game import assistant
-
 from core.user_interface import UserInterface
-from poker.poker_settings import PokerSettings
+from old_files.poker_settings import PokerSettings
 
-from poker.poker_action import PokerAction, PlayerAction
+from old_files.poker_action import PokerAction, PlayerAction
 
 from core.deck import Deck
 from core.assistants import OpenAILLMAssistant
-from poker.poker_hand_pot import PokerHandPot
-from poker.poker_player import PokerPlayer, AIPokerPlayer
+from old_files.poker_hand_pot import PokerHandPot
+from old_files.poker_player import PokerPlayer, AIPokerPlayer
 from poker.utils import shift_list_left, PokerHandPhase
 
 
