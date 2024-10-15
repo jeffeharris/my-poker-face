@@ -368,9 +368,18 @@ def player_players(game_state):
 ##################################################################
 ######################      GAME FLOW       ######################
 ##################################################################
-def play_betting_round(game_state, get_player_action_function):
+def play_betting_round(game_state, get_player_action_function) -> PokerGameState:
     """
     Cycle through all players until the pot is good.
+
+    Side Effects: accepts input from a player that is used for play_turn.
+
+    Parameters:
+        game_state: The current game state
+        get_player_action_function: Callback function used to retrieve player action from a UI
+
+    Returns:
+        game_state: The updated game state with all player actions taken for the round
     """
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
@@ -399,6 +408,11 @@ def play_turn(game_state, action, amount):
     Process the current player's turn given the action and amount provided.
     The player's 'has_acted' flag will be set to True here and is reset when
     the bet is raised or the betting round ends.
+
+    Parameters:
+        game_state: The current game state
+        action: The player action selected. Assumes this is validated before the function call.
+        amount: Amount that the player wants to contribute to the pot
     """
     function_name = "player_" + action.strip().lower()
     player_action_function = getattr(sys_modules[__name__], function_name)

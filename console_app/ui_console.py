@@ -177,7 +177,7 @@ def display_game_state(game_state):
 
 
 def display_hand_winner(info):
-    print(f"{info['winning_player_name']} wins the pot of {info['pot_total']} with {info['winning_hand']}!\n")
+    print(f"{info['winning_player_names']} wins the pot of {info['pot_total']} with {info['winning_hand']}!\n")
 
 
 def display_end_game(info):
@@ -207,21 +207,20 @@ def play_hand(game_state):
 
     # Betting rounds
     betting_rounds = [
+        ('Pre-flop', None),
         ('Flop', 3),
         ('Turn', 1),
         ('River', 1)
     ]
 
     for round_name, num_cards in betting_rounds:
+        # Deal community cards if the round calls for it
+        if num_cards:
+            game_state = deal_community_cards(game_state, num_cards=num_cards)
+            # Display the cards after they've been dealt
+            display_cards(game_state.community_cards, round_name)
         # Play the betting round
         game_state = play_betting_round(game_state, get_player_action)
-        # Deal community cards
-        game_state = deal_community_cards(game_state, num_cards=num_cards)
-        # Display the cards after they've been dealt
-        display_cards(game_state.community_cards, round_name)
-
-    # Final betting round without dealing new cards
-    game_state = play_betting_round(game_state, get_player_action)
 
     # Determine the winner
     game_state, winner_info = determine_winner(game_state)
