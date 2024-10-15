@@ -7,7 +7,7 @@ from core.user_interface import UserInterface
 from old_files.poker_game import PokerGame
 from old_files.poker_hand import PokerHand
 from old_files.poker_action import PokerAction
-from poker.utils import get_ai_players
+from poker.utils import get_celebrities
 
 app = Flask(__name__,
             template_folder='./templates',
@@ -129,7 +129,7 @@ def add_message():
 
 def initialize_game_state():
     human_player_names = ["Jeff"]
-    ai_player_names = get_ai_players(num_players=2)
+    ai_player_names = get_celebrities(shuffled=True)[:3]
 
     poker_game = PokerGame()
     poker_game.round_manager.add_players(human_player_names, ai=False)
