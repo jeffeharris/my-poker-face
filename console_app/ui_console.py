@@ -169,10 +169,11 @@ def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, 
     return player_choice, bet_amount
 
 
-def display_game_state(game_state):
+def display_game_state(game_state, include_deck: bool = False):
     # Convert game_state to JSON and pretty print to console
     game_state_json = json.loads(json.dumps(game_state, default=lambda o: o.__dict__))
-    del game_state_json['deck']
+    if not include_deck:
+        del game_state_json['deck']
     print(json.dumps(game_state_json, indent=4))
 
 
@@ -233,11 +234,14 @@ if __name__ == '__main__':
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
     game_instance = initialize_game_state(player_names=ai_player_names)
 
-    while len(game_instance.players) > 1:
-        game_instance = play_hand(game_state=game_instance)
-        game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+    try:
+        while len(game_instance.players) > 1:
+            game_instance = play_hand(game_state=game_instance)
+            game_instance = reset_game_state_for_new_hand(game_state=game_instance)
 
-        # display_game_state(game_instance)
+        end_game_info = end_game(game_state=game_instance)
+        display_end_game(end_game_info)
 
-    end_game_info = end_game(game_state=game_instance)
-    display_end_game(end_game_info)
+    except KeyboardInterrupt:
+        display_game_state(game_instance, include_deck=True)
+        print("\nGame interrupted. Thanks for playing!")
