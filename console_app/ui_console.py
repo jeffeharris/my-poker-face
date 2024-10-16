@@ -161,7 +161,7 @@ def get_player_action(game_state):
 def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
     # Currently used values
     persona = player.name
-    attitude = player.attitude
+    attitude = player.attitude                                              # TODO: add attitude and confidence
     confidence = player.confidence
     table_positions = hand_state["table_positions"]                         # TODO: create table positions
     opponent_status = hand_state["opponent_status"]                         # TODO: create opponent status
@@ -172,19 +172,20 @@ def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
     player_money = player.money
     # TODO: <FEATURE> decide what to do with this position idea
     # position = hand_state["positions"][self]
-    current_situation = hand_state["current_situation"]
+    current_situation = hand_state["current_situation"]                     # TODO: add current situation
     hole_cards = [str(card) for card in player.cards]
-    current_pot = hand_state["current_pot"]
+    current_pot = game_state['pot']
     # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
     cost_to_call = game_state.highest_bet - game_state.current_player['bet']
     player_options = game_state.current_player_options
 
+    # TODO: add support for action history and summary for ai players
     # create a list of the action comments and then send them to the table manager to summarize
-    action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-    action_summary = "We're just getting started! You're first to go."
-    if len(action_comment_list) > 0:
-        action_summary = hand_state["table_manager"].summarize_actions_for_player(
-            action_comment_list[-number_of_opponents:], self.name)
+    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+    # action_summary = "We're just getting started! You're first to go."
+    # if len(action_comment_list) > 0:
+    #     action_summary = hand_state["table_manager"].summarize_actions_for_player(
+    #         action_comment_list[-number_of_opponents:], self.name)
 
     persona_state = (
         f"Persona: {persona}\n"
@@ -200,12 +201,12 @@ def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
         f"Community Cards: {community_cards}\n"
         f"Table Positions: {table_positions}\n"
         f"Opponent Status:\n{opponent_status}\n"
-        f"Actions since your last turn: {action_summary}\n"
+        # f"Actions since your last turn: {action_summary}\n"             # TODO: see above for info on addind support for action_summary
     )
 
     pot_state = (
-        f"Pot Total: ${current_pot.total}\n"
-        f"How much you've bet: ${current_pot.get_player_pot_amount(self.name)}\n"
+        f"Pot Total: ${current_pot['total']}\n"
+        f"How much you've bet: ${game_state.current_player['bet']}\n"
         f"Your cost to call: ${cost_to_call}\n"
     )
 

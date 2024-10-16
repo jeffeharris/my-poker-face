@@ -2,8 +2,8 @@ import json
 from typing import List, Optional, Any, Dict
 
 from core.card import Card
-from core.deck import Deck
-from core.user_interface import UserInterface
+from old_files.deck import Deck
+from old_files.user_interface import UserInterface
 from old_files.poker_action import PokerAction
 from old_files.poker_game import PokerGame
 from old_files.poker_hand import PokerHand
