@@ -243,12 +243,6 @@ def deal_hole_cards(game_state: PokerGameState):
     return game_state
 
 
-def deal_community_cards(game_state: PokerGameState, num_cards: int = 1):
-    cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards)
-    new_community_cards = game_state.community_cards + cards
-    return update_poker_game_state(game_state, community_cards=new_community_cards, deck=new_deck)
-
-
 ##################################################################
 ##################      PLAYER_ACTIONS      ######################
 ##################################################################
@@ -368,15 +362,10 @@ def player_players(game_state):
 ##################################################################
 ######################      GAME FLOW       ######################
 ##################################################################
-def play_betting_round_until_action(game_state) -> PokerGameState:
+def set_betting_round_starting_player(game_state) -> PokerGameState:
     """
-    Cycle through all players until the pot is good.
-
-    Side Effects: accepts input from a player that is used for play_turn.
-
     Parameters:
         game_state: The current game state
-        get_player_action_function: Callback function used to retrieve player action from a UI
 
     Returns:
         game_state: The updated game state with all player actions taken for the round
@@ -392,8 +381,7 @@ def play_betting_round_until_action(game_state) -> PokerGameState:
 
     return game_state
 
-def play_betting_round_post_action(game_state):
-    # TODO: Move the following line somewhere it makes more sense to reset the betting round
+def deal_community_cards(game_state):
     # Reset the betting round action flags
     game_state = reset_player_action_flags(game_state, exclude_current_player=False)
 
@@ -412,7 +400,10 @@ def play_betting_round_post_action(game_state):
     round_name = community_card_count_to_round_name_map[num_community_cards][0]         # TODO: make the round name a property of the game state
     cards_to_deal = community_card_count_to_round_name_map[num_community_cards][1]
 
-    game_state = deal_community_cards(game_state, cards_to_deal)
+    # Deal the community cards
+    cards, new_deck = draw_cards(game_state.deck, num_cards=cards_to_deal)
+    new_community_cards = game_state.community_cards + cards
+    game_state = update_poker_game_state(game_state, community_cards=new_community_cards, deck=new_deck)
 
     return game_state
 

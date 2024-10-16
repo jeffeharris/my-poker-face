@@ -77,4 +77,4 @@ function sendMessage() {
 }
 
 // Initial message fetch
-fetchMessages();
+// fetchMessages();     # TODO: enable this when we start working on the messaging feature again

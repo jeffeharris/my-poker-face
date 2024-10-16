@@ -63,6 +63,7 @@
         </div>
     </div>
 
+    {% if game_state.current_player.is_human %}
     <div id="player-options" class="player-options content">
         {% for option in player_options %}
             {% if option == "raise" %}
@@ -72,19 +73,27 @@
                     <input type="range" id="bet-slider" min="0" max="1000" step="50">
                     <label for="bet-amount">Enter Amount:</label>
                     <input type="number" id="bet-amount" min="0" max="1000" step="50">
-                    <button id="submit-button">Submit</button>
+                    <button id="bet-submit-button" onclick="playerAction('{{ option }}')">Submit</button>
                 </div>
             {% else %}
                 <button class="player-action" id="{{ option }}-button" onclick="playerAction('{{ option }}')">{{ option }}</button>
             {% endif %}
         {% endfor %}
     </div>
+{#    {% else %}#}
+{#    <!-- Pop-up Container to display AI actions -->#}
+{#    <div id="popup-container" class="popup">#}
+{#        <div id="popup-content" class="popup-content">#}
+{#            <span id="popup-message"></span>#}
+{#        </div>#}
+{#    </div>#}
+    {% endif %}
 
-{#    <!-- Advantages Window -->#}
-{#    {% include 'advantages.html' %}#}
-{##}
-{#    <!-- Messages Window -->#}
-{#    {% include 'messages.html' %}#}
+    <!-- Advantages Window -->
+    {% include 'advantages.html' %}
+
+    <!-- Messages Window -->
+    {% include 'messages.html' %}
 
     <!-- Background Image for the Bottom Portion -->
     <div class="background-bottom"></div>

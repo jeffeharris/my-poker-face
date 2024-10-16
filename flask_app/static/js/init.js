@@ -1,4 +1,5 @@
 let socket = io();
+let isHumanTurn = false;    // A flag to track if the game should stop looping
 
 // Function to initialize the game
 function startGame() {
@@ -14,7 +15,18 @@ function updateGameState(gameState) {
     document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
     document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
     document.getElementById('player-options').innerHTML = `${gameState['current_player_options']}`;
-    updatePlayerState(gameState.get('players'))
+    updatePlayerState(gameState['players']);
+
+    // Check if it’s the human player's turn and set the flag accordingly
+    isHumanTurn = gameState['current_player']['is_human'];
+    if (!isHumanTurn) {
+        // If it’s AI’s turn, automatically proceed with the AI action
+        fetch('/ai_player_action', { method: 'GET' })
+            .then(response => response.json())
+            .then(data => {
+                updateGameState(data);
+            });
+    }
 }
 
 function playerAction(action) {
@@ -98,7 +110,9 @@ function sendUserMove(move) {
 
 // Initialize game when the page loads
 window.onload = function() {
-   startGame();
+    document.getElementById('bet-amount').value = 100;
+    document.getElementById('bet-slider').value = 100
+    startGame();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -106,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const betSliderContainer = document.getElementById('bet-slider-container');
     const betSlider = document.getElementById('bet-slider');
     const betAmount = document.getElementById('bet-amount');
-    const submitButton = document.getElementById('submit-button');
+    const submitButton = document.getElementById('bet-submit-button');
 
     raiseButton.addEventListener('click', () => {
         console.log('Raise button clicked');
@@ -132,6 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     submitButton.addEventListener('click', async () => {
+        console.log('Bet submit button clicked');
         const amount = betAmount.value;
 
         try {

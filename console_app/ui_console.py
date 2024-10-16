@@ -308,9 +308,9 @@ if __name__ == '__main__':
         while len(game_instance.players) > 1:
             game_instance = setup_hand(game_state=game_instance)
             while len(game_instance.community_cards) < 5:
-                game_instance = play_betting_round_until_action(game_state=game_instance)
+                game_instance = set_betting_round_starting_player(game_state=game_instance)
                 game_instance = play_betting_round(game_state=game_instance)
-                game_instance = play_betting_round_post_action(game_state=game_instance)
+                game_instance = deal_community_cards(game_state=game_instance)
                 display_cards(
                     cards=game_instance.community_cards,
                     display_text="Community Cards")
