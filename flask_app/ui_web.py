@@ -1,7 +1,12 @@
+import json
+
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from old_files.poker_player import AIPokerPlayer
+
 from functional_poker import initialize_game_state, reset_game_state_for_new_hand, end_game, \
     play_turn, determine_winner, advance_to_next_active_player, \
-    setup_hand, play_betting_round_until_action, play_betting_round_post_action, are_pot_contributions_valid
+    setup_hand, play_betting_round_until_action, play_betting_round_post_action, are_pot_contributions_valid, \
+    prepare_ui_data
 from ui_console import display_game_state
 from utils import get_celebrities
 import pickle
@@ -13,6 +18,7 @@ app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessio
 # Helper function to save game state to session
 def save_game_state(game_state):
     session['game_state'] = pickle.dumps(game_state)
+    app.logger.debug("Game state updated successfully")
     display_game_state(game_state, include_deck=False)
 
 
@@ -62,10 +68,6 @@ def game():
     return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
 
-def get_player_action(game_state):
-    return game_state
-
-
 @app.route('/action', methods=['POST'])
 def player_action():
     try:
@@ -87,18 +89,31 @@ def player_action():
         return jsonify({'redirect': url_for('index')}), 400
 
     current_player = game_state.current_player
-    # if current_player['is_human']:
-    app.logger.debug("Current player is human")
-    game_state = play_turn(game_state, action, amount)
-    save_game_state(game_state)
-    game_state = advance_to_next_active_player(game_state)
-    save_game_state(game_state)
-    app.logger.debug("Game state updated successfully")
+    if current_player['is_human']:
+        app.logger.debug("Current player is human")
+        game_state = play_turn(game_state, action, amount)
+        save_game_state(game_state)
+        game_state = advance_to_next_active_player(game_state)
+        save_game_state(game_state)
 
     response = jsonify({'redirect': url_for('game')})
     app.logger.debug(f"Response: {response.get_data(as_text=True)}")
     return response
 
+
+def ai_player_action(game_state):
+    current_player = game_state.current_player
+    poker_player = AIPokerPlayer(current_player['name'],starting_money=current_player['stack'],ai_temp=0.9)
+    ai = poker_player.assistant
+    # for message in player_messages:
+    #     ai_assistant.assistant.add_to_memory(message)
+    message = json.dumps(prepare_ui_data(game_state))
+    # print(message)
+    response_dict = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
+    try:
+        response_dict = json.loads(response_dict)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Error decoding JSON response: {e}")
 
 
 @app.route('/next_round', methods=['POST'])

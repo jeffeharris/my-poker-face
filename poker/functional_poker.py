@@ -599,3 +599,33 @@ def end_game(game_state: PokerGameState):
     }
 
     return end_game_info
+
+
+##################################################################
+###################         INTERFACE         ####################
+##################################################################
+def prepare_ui_data(game_state):
+    """
+    Prepare the data needed for the UI to display the current game state and actions available to the player.
+
+    :param game_state: (GameState)
+        The current state of the game containing all relevant information.
+    :return: (tuple)
+        A tuple containing two elements:
+        - A dictionary with UI data including community cards, player's hand, pot total, player's stack, cost to call, and player's name.
+        - A list of player options available for the current player.
+    """
+    player_options = game_state.current_player_options
+    cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
+    current_player = game_state.current_player
+
+    ui_data = {
+        'community_cards': game_state.community_cards,
+        'player_hand': current_player['hand'],
+        'pot_total': game_state.pot['total'],
+        'player_stack': current_player['stack'],
+        'cost_to_call': cost_to_call_bet,
+        'player_name': current_player['name']
+    }
+
+    return ui_data, player_options
