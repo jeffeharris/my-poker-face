@@ -1,4 +1,3 @@
-<!-- flask_app/templates/homehome.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,7 +8,6 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/OLD_style.css') }}">
 </head>
-
 <body>
     <div class="menu">
         <a href="/">Home</a>
@@ -19,8 +17,10 @@
     </div>
     <div class="container">
         <h1>Welcome to My Poker Face!</h1>
-        <p>Let's play some poker.</p>
-        <a href="/new_game" class="start-button">Start Game</a>
+    </div>
+    <div class="container">
+        <h2>Game Settings</h2>
+        <p>{{ game_state }}</p>
     </div>
 </body>
 </html>

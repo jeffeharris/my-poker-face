@@ -100,3 +100,56 @@ function sendUserMove(move) {
 window.onload = function() {
    startGame();
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const raiseButton = document.getElementById('raise-button');
+    const betSliderContainer = document.getElementById('bet-slider-container');
+    const betSlider = document.getElementById('bet-slider');
+    const betAmount = document.getElementById('bet-amount');
+    const submitButton = document.getElementById('submit-button');
+
+    raiseButton.addEventListener('click', () => {
+        betSliderContainer.classList.toggle('collapsed');
+    });
+
+    betSlider.addEventListener('input', () => {
+        betAmount.value = betSlider.value;
+    });
+
+    betAmount.addEventListener('input', () => {
+        if (betAmount.value >= betSlider.min && betAmount.value <= betSlider.max) {
+            betSlider.value = betAmount.value;
+        } else if (betAmount.value < betSlider.min) {
+            betAmount.value = betSlider.min;
+        } else {
+            betAmount.value = betSlider.max;
+        }
+    });
+
+    submitButton.addEventListener('click', async () => {
+        const amount = betAmount.value;
+
+        try {
+            const response = await fetch('/action', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ action: 'raise', amount: amount })
+            });
+
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+
+            const result = await response.json();
+            console.log('Success:', result);
+            // Handle the successful response here.
+        } catch (error) {
+            console.error('Error:', error);
+            // Handle the error here.
+        }
+    });
+});
+
+

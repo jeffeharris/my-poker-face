@@ -115,6 +115,13 @@ def ai_player_action(game_state):
     except json.JSONDecodeError as e:
         raise ValueError(f"Error decoding JSON response: {e}")
 
+    player_choice = response_dict['action']
+    amount = response_dict['adding_to_pot']
+    player_message = response_dict['persona_response']
+    player_physical_description = response_dict['physical']
+
+
+
 
 @app.route('/next_round', methods=['POST'])
 def next_round():
@@ -143,6 +150,14 @@ def end_game_route():
     end_game_info = end_game(game_state)
     session.clear()  # Clear the session after the game ends
     return render_template('winner.html', end_game_info=end_game_info)
+
+
+@app.route('/settings')
+def settings():
+    game_state = load_game_state()
+    if not game_state:
+        return redirect(url_for('index'))
+    return render_template('settings.html')
 
 
 if __name__ == '__main__':

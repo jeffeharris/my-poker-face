@@ -65,7 +65,16 @@
 
     <div id="player-options" class="player-options content">
         {% for option in player_options %}
-            <button class="player-action" onclick="playerAction('{{ option }}')">{{ option }}</button>
+            {% if option == "raise" %}
+                <button class="player-action" id="{{ option }}-button">{{ option }}</button>
+                <div id="bet-slider-container" class="bet-slider-container-collapsed">
+                    <label for="bet-slider"></label><input type="range" id="bet-slider" min="0" max="1000" step="50">
+                    <label for="bet-amount"></label><input type="number" id="bet-amount" min="0" max="1000" step="50">
+                    <button id="submit-button">Submit</button>
+                </div>
+            {% else %}
+                <button class="player-action" id="{{ option }}-button" onclick="playerAction('{{ option }}')">{{ option }}</button>
+            {% endif %}
         {% endfor %}
     </div>
 

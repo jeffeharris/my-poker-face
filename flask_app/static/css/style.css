@@ -209,6 +209,36 @@ body {
     background-color: #104E8B;
 }
 
+.raise-container {
+    position: relative;
+    width: 200px;
+    margin: 50px auto;
+    text-align: center;
+}
+
+.bet-slider-container.collapsed {
+    transform: translateY(calc(100% - 40px));
+}
+
+.bet-slider-container {
+    margin-top: 10px;
+    transition: all 0.5s ease-in-out;
+}
+
+input[type="range"],
+input[type="number"] {
+    display: block;
+    margin: 10px auto;
+    width: 150px;
+}
+
+.submit-button {
+    display: block;
+    margin: 10px auto;
+    padding: 10px 20px;
+    cursor: pointer;
+}
+
 .advantages {
     width: 30%;
     margin-top: 20px;
