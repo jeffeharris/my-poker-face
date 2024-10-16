@@ -197,36 +197,14 @@ def display_cards(cards, display_text: Optional[str] = None):
     print(f"\n{rendered_cards}\n")
 
 
-def play_hand(game_state):
-    # Pre-flop actions
-    game_state = advance_to_next_active_player(game_state)
-    game_state = place_bet(game_state, ANTE)
-    game_state = advance_to_next_active_player(game_state)
-    game_state = place_bet(game_state, ANTE * 2)
-    game_state = advance_to_next_active_player(game_state)
-    game_state = deal_hole_cards(game_state)
-
-    # Betting rounds
-    betting_rounds = [
-        ('Pre-flop', None),
-        ('Flop', 3),
-        ('Turn', 1),
-        ('River', 1)
-    ]
-
-    for round_name, num_cards in betting_rounds:
-        # Deal community cards if the round calls for it
-        if num_cards:
-            game_state = deal_community_cards(game_state, num_cards=num_cards)
-            # Display the cards after they've been dealt
-            display_cards(game_state.community_cards, round_name)
-        # Play the betting round
-        game_state = play_betting_round(game_state, get_player_action)
-
-    # Determine the winner
-    game_state, winner_info = determine_winner(game_state)
-    display_hand_winner(winner_info)
-
+def play_betting_round(game_state):
+    while (not are_pot_contributions_valid(game_state)
+           # number of players still able to bet is greater than 1
+           and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
+        player_choice, amount = get_player_action(game_state)
+        # Play the turn with the provided decision
+        game_state = play_turn(game_state, player_choice, amount)
+        game_state = advance_to_next_active_player(game_state)
     return game_state
 
 
@@ -236,7 +214,19 @@ if __name__ == '__main__':
 
     try:
         while len(game_instance.players) > 1:
-            game_instance = play_hand(game_state=game_instance)
+            game_instance = setup_hand(game_state=game_instance)
+            while len(game_instance.community_cards) < 5:
+                game_instance = play_betting_round_until_action(game_state=game_instance)
+                game_instance = play_betting_round(game_state=game_instance)
+                game_instance = play_betting_round_post_action(game_state=game_instance)
+                display_cards(
+                    cards=game_instance.community_cards,
+                    display_text="Community Cards")
+            game_instance = play_betting_round(game_state=game_instance)
+            # Determine the winner
+            game_instance, winner_info = determine_winner(game_instance)
+            display_hand_winner(winner_info)
+            # Reset the game for a new hand
             game_instance = reset_game_state_for_new_hand(game_state=game_instance)
 
         end_game_info = end_game(game_state=game_instance)

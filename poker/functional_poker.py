@@ -368,7 +368,7 @@ def player_players(game_state):
 ##################################################################
 ######################      GAME FLOW       ######################
 ##################################################################
-def play_betting_round(game_state, get_player_action_function) -> PokerGameState:
+def play_betting_round_until_action(game_state) -> PokerGameState:
     """
     Cycle through all players until the pot is good.
 
@@ -390,16 +390,30 @@ def play_betting_round(game_state, get_player_action_function) -> PokerGameState
 
     game_state = update_poker_game_state(game_state, current_player_idx=first_action_player_idx)
 
-    while (not are_pot_contributions_valid(game_state)
-           # number of players still able to bet is greater than 1
-           and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
-        # Use the callback to get the player's action
-        player_choice, amount = get_player_action_function(game_state)
+    return game_state
 
-        # Play the turn with the provided decision
-        game_state = play_turn(game_state, player_choice, amount)
-        game_state = advance_to_next_active_player(game_state)
+def play_betting_round_post_action(game_state):
+    # TODO: Move the following line somewhere it makes more sense to reset the betting round
+    # Reset the betting round action flags
     game_state = reset_player_action_flags(game_state, exclude_current_player=False)
+
+    # Deal the community cards
+    # Define a map of count of community cards in the game state to the round info to be used for dealing cards (or not)
+    community_card_count_to_round_name_map = {
+        0: ("Pre-flop", 3),
+        3: ("Flop", 1),
+        4: ("Turn", 1),
+        5: ("River", 0)
+    }
+
+    # Using this as a proxy to tell us what round of betting we are in
+    num_community_cards = len(game_state.community_cards)
+
+    round_name = community_card_count_to_round_name_map[num_community_cards][0]         # TODO: make the round name a property of the game state
+    cards_to_deal = community_card_count_to_round_name_map[num_community_cards][1]
+
+    game_state = deal_community_cards(game_state, cards_to_deal)
+
     return game_state
 
 
@@ -422,7 +436,9 @@ def play_turn(game_state, action, amount):
     else:
         game_state = player_action_function(game_state)
 
-    new_players = update_player_state(players=game_state.players, player_idx=game_state.current_player_idx, has_acted=True)
+    new_players = update_player_state(players=game_state.players,
+                                      player_idx=game_state.current_player_idx,
+                                      has_acted=True)
     game_state = update_poker_game_state(game_state, players=new_players)
 
     if game_state.can_big_blind_take_pre_flop_action:
@@ -467,6 +483,22 @@ def initialize_game_state(player_names: List[str]) -> PokerGameState:
     # Create a tuple of Human and AI players to be added to the game state. Using a hard-coded human name
     new_players = (create_player(HUMAN_NAME, is_human=True),) + create_ai_players(player_names)
     game_state = PokerGameState(players=new_players)
+
+    return game_state
+
+
+def setup_hand(game_state):
+    """
+    Sets the hand up to the point before any player's need to take action.
+    This should be followed by a call to play_hand.
+    """
+    # Pre-flop actions
+    game_state = advance_to_next_active_player(game_state)
+    game_state = place_bet(game_state, ANTE)
+    game_state = advance_to_next_active_player(game_state)
+    game_state = place_bet(game_state, ANTE * 2)
+    game_state = advance_to_next_active_player(game_state)
+    game_state = deal_hole_cards(game_state)
 
     return game_state
 
