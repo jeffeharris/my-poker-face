@@ -3,7 +3,7 @@ import json
 
 from flask import Flask, render_template, request, redirect, url_for, session
 
-from core.deck import Deck
+from old_files.deck import Deck
 from core.card import Card
 from core.assistants import OpenAILLMAssistant
 from dotenv import load_dotenv

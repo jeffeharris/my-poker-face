@@ -2,7 +2,7 @@ from typing import List, Optional, Any
 
 import streamlit as st
 import random
-from core.user_interface import UserInterface
+from old_files.user_interface import UserInterface
 from old_files.poker_game import (PokerGame)
 from old_files.poker_hand import PokerHand
 from old_files.poker_action import PokerAction

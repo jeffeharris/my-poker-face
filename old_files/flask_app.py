@@ -3,7 +3,7 @@ from flask import Flask, render_template, session, request, redirect, jsonify
 from flask_socketio import SocketIO
 from flask_session import Session
 
-from core.user_interface import UserInterface
+from old_files.user_interface import UserInterface
 from old_files.poker_game import PokerGame
 from old_files.poker_hand import PokerHand
 from old_files.poker_action import PokerAction

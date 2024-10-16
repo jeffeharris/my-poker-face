@@ -1,5 +1,5 @@
 import unittest
-from core.deck import Deck
+from old_files.deck import Deck
 
 
 class DeckTestCase(unittest.TestCase):

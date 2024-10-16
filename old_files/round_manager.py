@@ -1,12 +1,12 @@
 import random
 from typing import List, Dict, Optional
 
-from core.user_interface import UserInterface
+from old_files.user_interface import UserInterface
 from old_files.poker_settings import PokerSettings
 
 from old_files.poker_action import PokerAction, PlayerAction
 
-from core.deck import Deck
+from old_files.deck import Deck
 from core.assistants import OpenAILLMAssistant
 from old_files.poker_hand_pot import PokerHandPot
 from old_files.poker_player import PokerPlayer, AIPokerPlayer
