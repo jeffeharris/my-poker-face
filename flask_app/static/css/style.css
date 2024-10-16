@@ -209,22 +209,30 @@ body {
     background-color: #104E8B;
 }
 
-.raise-container {
-    position: relative;
-    width: 200px;
-    margin: 50px auto;
-    text-align: center;
-}
-
-.bet-slider-container.collapsed {
-    transform: translateY(calc(100% - 40px));
-}
-
+/* Slider Container Styles */
 .bet-slider-container {
-    margin-top: 10px;
-    transition: all 0.5s ease-in-out;
+    position: absolute;
+    top: 100%; /* Moves the drawer below the options bar */
+    left: 0;
+    right: 0;
+    background-color: #f9f9f9;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 1;
+    transform: scaleY(1);
+    transform-origin: top;
+    transition: transform 0.5s ease-in-out;
 }
 
+.bet-slider-container-collapsed {
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform 0.5s ease-in-out;
+}
+
+/* Input Styles */
 input[type="range"],
 input[type="number"] {
     display: block;

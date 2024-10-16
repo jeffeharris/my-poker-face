@@ -1,4 +1,4 @@
-// let socket = io();
+let socket = io();
 
 // Function to initialize the game
 function startGame() {
@@ -109,7 +109,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const submitButton = document.getElementById('submit-button');
 
     raiseButton.addEventListener('click', () => {
-        betSliderContainer.classList.toggle('collapsed');
+        console.log('Raise button clicked');
+        if (betSliderContainer.classList.contains('bet-slider-container-collapsed')) {
+            betSliderContainer.classList.remove('bet-slider-container-collapsed');
+        } else {
+            betSliderContainer.classList.add('bet-slider-container-collapsed');
+        }
     });
 
     betSlider.addEventListener('input', () => {
@@ -149,7 +154,12 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error:', error);
             // Handle the error here.
         }
+
+        // Collapse the slider container after submission
+        betSliderContainer.classList.add('bet-slider-container-collapsed');
+        setTimeout(() => {
+            betSliderContainer.style.display = 'none';
+        }, 500); // Match the timeframe to the transition duration
     });
 });
-
 
