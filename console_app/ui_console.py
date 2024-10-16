@@ -1,7 +1,11 @@
 # ui_console.py
 from typing import Optional
 
+from old_files.poker_player import AIPokerPlayer
+
+from assistants import OpenAILLMAssistant
 from functional_poker import *
+from spades_game import assistant
 from utils import get_celebrities
 
 
@@ -29,7 +33,16 @@ class CardRenderer:
 
     @staticmethod
     def render_card(card):
-        # Renders a Card for output to the console
+        """
+            Render a card object for output to the console.
+
+            :param card: (Card)
+                The card object to render.
+            :return: (str)
+                A string representation of the card formatted for console output.
+            :raises KeyError:
+                If the card's suit is not found in the suit-to-ASCII map.
+        """
         rank_left = card.rank.ljust(2)
         rank_right = card.rank.rjust(2)
         card = CardRenderer._CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
@@ -37,7 +50,15 @@ class CardRenderer:
 
     @staticmethod
     def render_cards(cards: List[Card]) -> Optional[str]:
-        # Renders a list of Cards for output to the console
+        """
+        Renders a list of Cards for output to the console.
+
+        :param cards: (List[Card])
+            A list of Card objects to be rendered.
+        :return: (Optional[str])
+            A string containing the rendered ASCII representation of the cards,
+            or None if the card list is empty.
+        """
         card_lines = [CardRenderer.render_card(card).strip().split('\n') for card in cards]
         if not card_lines:
             return None
@@ -49,7 +70,18 @@ class CardRenderer:
 
     @staticmethod
     def render_two_cards(card_1, card_2):
-        # Renders two cards for output to the console. Meant to represent the cards as the players hole cards
+        """
+        Renders two cards for output to the console. Meant to represent the cards as the players' hole cards.
+
+        :param card_1: (Card)
+            The first card to render.
+        :param card_2: (Card)
+            The second card to render.
+        :return: (str)
+            ASCII representation of the two cards.
+        :raises KeyError:
+            If the suit of either card is not found in the SUIT_TO_ASCII mapping.
+        """
         two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(card_1.rank,
                                                          card_2.rank,
                                                          Card.SUIT_TO_ASCII[card_1.suit],
@@ -70,6 +102,16 @@ class CardRenderer:
 
 
 def prepare_ui_data(game_state):
+    """
+    Prepare the data needed for the UI to display the current game state and actions available to the player.
+
+    :param game_state: (GameState)
+        The current state of the game containing all relevant information.
+    :return: (tuple)
+        A tuple containing two elements:
+        - A dictionary with UI data including community cards, player's hand, pot total, player's stack, cost to call, and player's name.
+        - A list of player options available for the current player.
+    """
     player_options = game_state.current_player_options
     cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
     current_player = game_state.current_player
@@ -86,6 +128,14 @@ def prepare_ui_data(game_state):
     return ui_data, player_options
 
 def get_player_action(game_state):
+    """
+    Determine the action of the current player based on the game state.
+
+    :param game_state: (object)
+        The current state of the game used to determine the player's action.
+    :return: (tuple)
+         A tuple containing the player's choice of action and the corresponding amount.
+    """
     current_player = game_state.current_player
 
     # Prepare data for the UI
@@ -108,27 +158,96 @@ def get_player_action(game_state):
 #     return human_player_action(ui_data, player_options)
 
 
-def ai_player_action(game_state):
+def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
+    # Currently used values
+    persona = player.name
+    attitude = player.attitude
+    confidence = player.confidence
+    table_positions = hand_state["table_positions"]                         # TODO: create table positions
+    opponent_status = hand_state["opponent_status"]                         # TODO: create opponent status
+    current_round = hand_state["current_phase"]                             # TODO: assign current round here
+    community_cards = [str(card) for card in hand_state["community_cards"]] # TODO: create community cards as Card objects
+    opponents = game_state.players
+    number_of_opponents = len(opponents) - 1
+    player_money = player.money
+    # TODO: <FEATURE> decide what to do with this position idea
+    # position = hand_state["positions"][self]
+    current_situation = hand_state["current_situation"]
+    hole_cards = [str(card) for card in player.cards]
+    current_pot = hand_state["current_pot"]
+    # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
+    cost_to_call = game_state.highest_bet - game_state.current_player['bet']
     player_options = game_state.current_player_options
-    cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
-    player = game_state.current_player
 
-    # Simple AI logic (can be enhanced)
-    if 'call' in player_options and cost_to_call_bet <= (player['stack'] * 0.2):
-        action = 'call'
-        amount = cost_to_call_bet
-    elif 'check' in player_options:
-        action = 'check'
-        amount = 0
-    elif 'fold' in player_options:
-        action = 'fold'
-        amount = 0
-    else:
-        action = 'all_in'
-        amount = player['stack']
+    # create a list of the action comments and then send them to the table manager to summarize
+    action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+    action_summary = "We're just getting started! You're first to go."
+    if len(action_comment_list) > 0:
+        action_summary = hand_state["table_manager"].summarize_actions_for_player(
+            action_comment_list[-number_of_opponents:], self.name)
 
-    print(f"{player['name']} has chosen {action} ({amount})")
-    return action, amount
+    persona_state = (
+        f"Persona: {persona}\n"
+        f"Attitude: {attitude}\n"
+        f"Confidence: {confidence}\n"
+        f"Your Cards: {hole_cards}\n"
+        f"Your Money: {player_money}\n"
+    )
+
+    hand_state = (
+        f"{current_situation}\n"
+        f"Current Round: {current_round}\n"
+        f"Community Cards: {community_cards}\n"
+        f"Table Positions: {table_positions}\n"
+        f"Opponent Status:\n{opponent_status}\n"
+        f"Actions since your last turn: {action_summary}\n"
+    )
+
+    pot_state = (
+        f"Pot Total: ${current_pot.total}\n"
+        f"How much you've bet: ${current_pot.get_player_pot_amount(self.name)}\n"
+        f"Your cost to call: ${cost_to_call}\n"
+    )
+
+    hand_update_message = persona_state + hand_state + pot_state + (
+        # f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
+        # f"Remember, you're feeling {attitude} and {confidence}.\n"
+        f"Consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
+        f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
+        f"You cannot bet more than you have, ${player_money}.\n"
+        f"You must select from these options: {player_options}\n"
+        f"What is your move, {persona}?\n\n"
+    )
+
+    return hand_update_message
+
+
+def ai_player_action(game_state):
+    current_player = game_state.current_player
+    poker_player = AIPokerPlayer(current_player['name'],starting_money=current_player['stack'],ai_temp=0.9)
+    ai = poker_player.assistant
+    # for message in player_messages:
+    #     ai_assistant.assistant.add_to_memory(message)
+    message = json.dumps(prepare_ui_data(game_state))
+    # print(message)
+    response_json = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
+    try:
+        response_dict = json.loads(response_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Error decoding JSON response: {e}")
+
+    # print(response_json)
+    player_choice = response_dict['action']
+    amount = response_dict['adding_to_pot']
+    player_message = response_dict['persona_response']
+    player_physical_description = response_dict['physical']
+    print(f"\n{'-'*20}\n")
+    print(f"{current_player['name']} chose to {player_choice} by {amount}")
+    print(f"\"{player_message}\"")
+    print(f"{player_physical_description}")
+    print(f"\n{'-'*20}\n")
+
+    return player_choice, amount
 
 
 def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, int]:
