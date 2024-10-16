@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-from functional_poker import initialize_game_state, reset_game_state_for_new_hand, end_game, deal_hole_cards, \
-    play_turn, play_betting_round, deal_community_cards, determine_winner, advance_to_next_active_player, place_bet, \
-    setup_hand
+from functional_poker import initialize_game_state, reset_game_state_for_new_hand, end_game, \
+    play_turn, determine_winner, advance_to_next_active_player, \
+    setup_hand, play_betting_round_until_action, play_betting_round_post_action, are_pot_contributions_valid
 from ui_console import display_game_state
 from utils import get_celebrities
 import pickle
@@ -32,6 +32,8 @@ def new_game():
     # Initialize the game state
     ai_player_names = get_celebrities(shuffled=True)[:3]  # Using three AI players as default
     game_state = initialize_game_state(player_names=ai_player_names)
+    game_state = setup_hand(game_state)
+    game_state = play_betting_round_until_action(game_state)
     save_game_state(game_state)
     return redirect(url_for('game'))
     # TODO: route to a new hand
@@ -50,8 +52,10 @@ def game():
     if not game_state:
         return redirect(url_for('index'))  # Redirect to index if there's no game state
 
-    game_state = setup_hand(game_state)
-    game_state = play_betting_round(game_state, get_player_action)
+    if not (not are_pot_contributions_valid(game_state)
+            and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
+        print("here we are")
+        game_state = play_betting_round_post_action(game_state)
 
     save_game_state(game_state)
     # Render the current game state
@@ -83,13 +87,13 @@ def player_action():
         return jsonify({'redirect': url_for('index')}), 400
 
     current_player = game_state.current_player
-    if current_player['is_human']:
-        app.logger.debug("Current player is human")
-        game_state = play_turn(game_state, action, amount)
-        save_game_state(game_state)
-        game_state = advance_to_next_active_player(game_state)
-        save_game_state(game_state)
-        app.logger.debug("Game state updated successfully")
+    # if current_player['is_human']:
+    app.logger.debug("Current player is human")
+    game_state = play_turn(game_state, action, amount)
+    save_game_state(game_state)
+    game_state = advance_to_next_active_player(game_state)
+    save_game_state(game_state)
+    app.logger.debug("Game state updated successfully")
 
     response = jsonify({'redirect': url_for('game')})
     app.logger.debug(f"Response: {response.get_data(as_text=True)}")

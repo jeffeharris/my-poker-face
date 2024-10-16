@@ -24,7 +24,8 @@
     <div class="container content">
         <div class="players" id="players">
             {% for player in game_state.players %}
-                <div class="player-card" id="player-{{ loop.index + 1 }}">
+                <div class="{% if game_state.current_player.name == player.name %}player-card--current-player{% elif player.is_folded %}player-card--inactive{% else %}player-card{% endif %}"
+                     id="player-{{ loop.index + 1 }}">
                     <img src="{{ url_for('static', filename='images/kanye.jpg') }}" class="player-headshot" alt="Player picture" >
                     <h2>{{ player.name }}</h2>
                     <p>${{ player.stack }}</p>
@@ -48,11 +49,12 @@
                 Pot: ${{ game_state.pot.total }} | Current bet: $ {{ game_state.highest_bet }}
             </div>
             <div id="community-cards" class="community-cards">
-                {% for card in community_cards %}
+                {% for card in game_state.community_cards %}
                     <span class="card
-                        {% if card.suit == '♥' %}hearts{% elif card.suit == '♦' %}diamonds
-                        {% elif card.suit == '♣' %}clubs{% elif card.suit == '♠' %}spades{% endif %}
-                    ">{{ card.rank }}{{ card.suit }}</span>
+                        {% if card.suit == 'Hearts' %}hearts{% elif card.suit_symbol == 'Diamonds' %}diamonds
+                        {% elif card.suit_symbol == 'Clubs' %}clubs{% elif card.suit_symbol == 'Spades' %}spades{% endif %}
+                    ">{{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦
+                        {% elif card.suit == 'Clubs' %}♣{% elif card.suit == 'Spades' %}♠{% endif %}</span>
                 {% endfor %}
             </div>
             <div class="deck">

@@ -58,6 +58,24 @@ body {
     position: relative;
 }
 
+.player-card--current-player {
+    background-color: darkslategrey;
+    padding: 10px;
+    border-radius: 10px;
+    width: 22%;
+    text-align: center;
+    position: relative;
+}
+
+.player-card--inactive {
+    background-color: darkred;
+    padding: 10px;
+    border-radius: 10px;
+    width: 22%;
+    text-align: center;
+    position: relative;
+}
+
 .player-card h3 {
     margin: 5px 0;
     font-size: 18px;
