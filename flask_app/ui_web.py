@@ -33,7 +33,6 @@ def new_game():
     ai_player_names = get_celebrities(shuffled=True)[:3]  # Using three AI players as default
     game_state = initialize_game_state(player_names=ai_player_names)
     game_state = setup_hand(game_state)
-    game_state = play_betting_round_until_action(game_state)
     save_game_state(game_state)
     return redirect(url_for('game'))
     # TODO: route to a new hand
@@ -55,6 +54,7 @@ def game():
     if not (not are_pot_contributions_valid(game_state)
             and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
         print("here we are")
+        game_state = play_betting_round_until_action(game_state)
         game_state = play_betting_round_post_action(game_state)
 
     save_game_state(game_state)
