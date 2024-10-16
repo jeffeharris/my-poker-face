@@ -2,6 +2,7 @@ import json
 from typing import List, Optional, Any, Dict
 
 from core.card import Card
+from ui_console import CardRenderer
 from old_files.deck import Deck
 from old_files.user_interface import UserInterface
 from old_files.poker_action import PokerAction
@@ -16,69 +17,6 @@ VIEW_AI_ACTION_INSIGHTS = True
 VIEW_AI_HAND_SUMMARY = True
 NUM_AI_PLAYERS = 3
 TEST_MODE = False
-
-class CardRenderer:
-    _CARD_TEMPLATE = '''
-.---------.
-|{}       |
-| {}       |
-|         |
-|         |
-|    {}    |
-|       {}|
-`---------'
-'''
-    _TWO_CARD_TEMPLATE = '''
-.---.---------.
-|{}  |{}        |
-|  {}|  {}      |
-|   |         |
-|   |         |
-|   |       {} |
-|   |        {}|
-`---`---------'
-'''
-
-    @staticmethod
-    def render_card(card):
-        # Renders a Card for output to the console
-        rank_left = card.rank.ljust(2)
-        rank_right = card.rank.rjust(2)
-        card = CardRenderer._CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
-        return card
-
-    @staticmethod
-    def render_cards(cards: List[Card]) -> Optional[str]:
-        # Renders a list of Cards for output to the console
-        card_lines = [CardRenderer.render_card(card).strip().split('\n') for card in cards]
-        if not card_lines:
-            return None
-        ascii_card_lines = []
-        for lines in zip(*card_lines):
-            ascii_card_lines.append('  '.join(lines))
-        card_ascii_string = '\n'.join(ascii_card_lines)
-        return card_ascii_string
-
-    @staticmethod
-    def render_two_cards(card_1, card_2):
-        # Renders two cards for output to the console. Meant to represent the cards as the players hole cards
-        two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(card_1.rank,
-                                                         card_2.rank,
-                                                         Card.SUIT_TO_ASCII[card_1.suit],
-                                                         Card.SUIT_TO_ASCII[card_2.suit],
-                                                         Card.SUIT_TO_ASCII[card_2.suit],
-                                                         card_2.rank)
-        return two_card_ascii_string
-
-    @staticmethod
-    def render_hole_cards(cards: List[Card]):
-        sorted_cards = sorted(cards, key=lambda card: card.value)
-        card_1 = sorted_cards[0]
-        card_2 = sorted_cards[1]
-
-        # Generate console output for the Cards
-        hole_card_art = CardRenderer.render_two_cards(card_1, card_2)
-        return hole_card_art
 
 
 class TextFormat:
