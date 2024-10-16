@@ -8,7 +8,7 @@ from core.card import Card
 from old_files.hand_evaluator import HandEvaluator
 
 # DEFAULTS
-NUM_AI_PLAYERS = 3
+NUM_AI_PLAYERS = 1
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
 ANTE = 25
@@ -531,6 +531,7 @@ def determine_winner(game_state):
     hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
     hands.sort(key=lambda x: x[1]["hand_rank"])
 
+    print(hands)
     # Check a tie amongst the hands
     winning_hand = hands[0][1]
     winning_hands = [hand for hand in hands if hand[1] == winning_hand]
