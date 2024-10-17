@@ -8,7 +8,7 @@ from core.card import Card
 from old_files.hand_evaluator import HandEvaluator
 
 # DEFAULTS
-NUM_AI_PLAYERS = 1
+NUM_AI_PLAYERS = 2
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
 ANTE = 25
@@ -34,6 +34,7 @@ class PokerGameState:
     current_player_idx: int = 0
     current_dealer_idx: int = 0
     community_cards: Tuple[Mapping, ...] = field(default_factory=tuple)
+    current_phase: str = 'initializing-game'
     ### FLAGS ###
     pre_flop_action_taken: bool = False
 
@@ -181,7 +182,8 @@ def update_poker_game_state(
         current_player_idx: int = None,
         current_dealer_idx: int = None,
         pre_flop_action_taken: bool = None,
-        community_cards: Tuple[Mapping[str, any], ...] = None
+        community_cards: Tuple[Mapping[str, any], ...] = None,
+        current_phase: str = None
 ) -> PokerGameState:
     """
     Simplify updates to the PokerGameState
@@ -196,6 +198,7 @@ def update_poker_game_state(
         current_dealer_idx=current_dealer_idx if current_dealer_idx is not None else game_state.current_dealer_idx,
         pre_flop_action_taken=pre_flop_action_taken or game_state.pre_flop_action_taken,
         community_cards=community_cards or game_state.community_cards,
+        current_phase=current_phase or game_state.current_phase
     )
 
 
@@ -241,12 +244,6 @@ def deal_hole_cards(game_state: PokerGameState):
 
     # Return a new game state with the updated deck and players
     return game_state
-
-
-def deal_community_cards(game_state: PokerGameState, num_cards: int = 1):
-    cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards)
-    new_community_cards = game_state.community_cards + cards
-    return update_poker_game_state(game_state, community_cards=new_community_cards, deck=new_deck)
 
 
 ##################################################################
@@ -335,7 +332,8 @@ def player_fold(game_state):
     new_players = update_player_state(players=game_state.players,
                                       player_idx=game_state.current_player_idx,
                                       is_folded=True,
-                                      hand=())
+                                      # hand=()         # TODO: decide whether or not to reset the hand
+                                    )
     return update_poker_game_state(game_state, players=new_players, discard_pile=new_discard_pile)
 
 
@@ -368,7 +366,7 @@ def player_players(game_state):
 ##################################################################
 ######################      GAME FLOW       ######################
 ##################################################################
-def play_betting_round_until_action(game_state) -> PokerGameState:
+def set_betting_round_start_player(game_state) -> PokerGameState:
     """
     Cycle through all players until the pot is good.
 
@@ -376,7 +374,6 @@ def play_betting_round_until_action(game_state) -> PokerGameState:
 
     Parameters:
         game_state: The current game state
-        get_player_action_function: Callback function used to retrieve player action from a UI
 
     Returns:
         game_state: The updated game state with all player actions taken for the round
@@ -392,27 +389,27 @@ def play_betting_round_until_action(game_state) -> PokerGameState:
 
     return game_state
 
-def play_betting_round_post_action(game_state):
-    # TODO: Move the following line somewhere it makes more sense to reset the betting round
-    # Reset the betting round action flags
-    game_state = reset_player_action_flags(game_state, exclude_current_player=False)
-
+def deal_community_cards(game_state):
     # Deal the community cards
     # Define a map of count of community cards in the game state to the round info to be used for dealing cards (or not)
-    community_card_count_to_round_name_map = {
-        0: ("Pre-flop", 3),
-        3: ("Flop", 1),
-        4: ("Turn", 1),
-        5: ("River", 0)
+    phase_transition_map = {
+        "hand-initialized": ("Pre-flop", 0),
+        "Pre-flop": ("Flop", 3),
+        "Flop": ("Turn", 1),
+        "Turn": ("River", 1)
     }
 
-    # Using this as a proxy to tell us what round of betting we are in
-    num_community_cards = len(game_state.community_cards)
+    next_phase_config = phase_transition_map[game_state.current_phase]
 
-    round_name = community_card_count_to_round_name_map[num_community_cards][0]         # TODO: make the round name a property of the game state
-    cards_to_deal = community_card_count_to_round_name_map[num_community_cards][1]
+    phase_name = next_phase_config[0]
+    num_cards_to_draw = next_phase_config[1]
 
-    game_state = deal_community_cards(game_state, cards_to_deal)
+    cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards_to_draw)
+    new_community_cards = game_state.community_cards + cards
+    game_state = update_poker_game_state(game_state,
+                                         current_phase=phase_name,
+                                         community_cards=new_community_cards,
+                                         deck=new_deck)
 
     return game_state
 
@@ -592,9 +589,10 @@ def end_game(game_state: PokerGameState):
     """
     Placeholder for wrapping the game up when a user quits or the game has ended due to only 1 player remaining.
     """
-    winner, _ = determine_winner(game_state)
+    winner, hand = determine_winner(game_state)
     end_game_info = {
-        'winner': game_state.players[0]['name'],
+        'winner': winner['name'],
+        'winning_hand': hand,
         'message': f"{winner} won! Thanks for playing!"
     }
 

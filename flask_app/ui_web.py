@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from functional_poker import initialize_game_state, reset_game_state_for_new_hand, end_game, \
     play_turn, determine_winner, advance_to_next_active_player, \
-    setup_hand, play_betting_round_until_action, play_betting_round_post_action, are_pot_contributions_valid
+    setup_hand, set_betting_round_start_player, deal_community_cards, are_pot_contributions_valid
 from ui_console import display_game_state
 from utils import get_celebrities
 import pickle
@@ -54,8 +54,8 @@ def game():
     if not (not are_pot_contributions_valid(game_state)
             and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
         print("here we are")
-        game_state = play_betting_round_until_action(game_state)
-        game_state = play_betting_round_post_action(game_state)
+        game_state = set_betting_round_start_player(game_state)
+        game_state = deal_community_cards(game_state)
 
     save_game_state(game_state)
     # Render the current game state

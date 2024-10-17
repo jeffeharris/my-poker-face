@@ -127,29 +127,6 @@ def prepare_ui_data(game_state):
 
     return ui_data, player_options
 
-def get_player_action(game_state):
-    """
-    Determine the action of the current player based on the game state.
-
-    :param game_state: (object)
-        The current state of the game used to determine the player's action.
-    :return: (tuple)
-         A tuple containing the player's choice of action and the corresponding amount.
-    """
-    current_player = game_state.current_player
-
-    # Prepare data for the UI
-    ui_data, player_options = prepare_ui_data(game_state)
-
-    if current_player['is_human']:
-        # Get decision from human player
-        player_choice, amount = human_player_action(ui_data, player_options)
-    else:
-        # Get decision from AI player
-        player_choice, amount = ai_player_action(game_state)
-
-    return player_choice, amount
-
 
 # def ai_player_action(ui_data, player_options):
 #     """
@@ -251,13 +228,21 @@ def ai_player_action(game_state):
 
 
 def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, int]:
+    """
+    Console UI is used to update the player with the relevant game state info and receives input.
+    This will return a tuple as ( action, amount ) for the players bet.
+    """
     # Render the player's cards using the CardRenderer.
-    players_rendered_cards = CardRenderer().render_hole_cards(
+    rendered_hole_cards = CardRenderer().render_hole_cards(
         [Card(c['rank'], c['suit']) for c in ui_data['player_hand']])
 
     # Display information to the user
-    # print(f"\nCommunity Cards: {ui_data['community_cards']}")
-    print(f"Your Hand:\n{players_rendered_cards}")
+    if len(ui_data['community_cards']) > 0:
+        rendered_community_cards = CardRenderer().render_cards(
+            [Card(c['rank'], c['suit']) for c in ui_data['community_cards']])
+        print(f"\nCommunity Cards:\n{rendered_community_cards}")
+
+    print(f"Your Hand:\n{rendered_hole_cards}")
     print(f"Pot: {ui_data['pot_total']}")
     print(f"Your Stack: {ui_data['player_stack']}")
     print(f"Cost to Call: {ui_data['cost_to_call']}")
@@ -316,14 +301,72 @@ def display_cards(cards, display_text: Optional[str] = None):
     print(f"\n{rendered_cards}\n")
 
 
-def play_betting_round(game_state):
-    while (not are_pot_contributions_valid(game_state)
-           # number of players still able to bet is greater than 1
-           and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
-        player_choice, amount = get_player_action(game_state)
-        # Play the turn with the provided decision
-        game_state = play_turn(game_state, player_choice, amount)
-        game_state = advance_to_next_active_player(game_state)
+# def play_betting_round(game_state):
+#     while (not are_pot_contributions_valid(game_state)
+#            # number of players still able to bet is greater than 1
+#            and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
+#         player_choice, amount = get_player_action(game_state)
+#         # Play the turn with the provided decision
+#         game_state = play_turn(game_state, player_choice, amount)
+#         game_state = advance_to_next_active_player(game_state)
+#     return game_state
+
+
+def run_hand_until_player_turn(game_state):
+    """
+    Takes an initialized game state and runs the hand until it is the player's turn at which point it returns the game state.
+    """
+    print(1, game_state.current_phase)
+    # Set up the hand to played if it hasn't already been set up
+    if game_state.current_phase == 'initializing-game':
+        print("setting up the game")
+        game_state = setup_hand(game_state)
+        game_state = update_poker_game_state(game_state, current_phase='game-initialized')
+    print(2, game_state.current_phase)
+
+##### PLAY HAND #####
+    # Loop through the hand phases until the player is human.
+    while len(game_state.community_cards) < 5:
+        print(3, game_state.current_phase)
+        # Set up the betting round if the betting round hasn't started yet
+        if game_state.current_phase == 'game-initialized':
+            game_state = set_betting_round_start_player(game_state=game_state)
+            game_state = update_poker_game_state(game_state, current_phase='hand-initialized')
+        print(4, game_state.current_phase)
+##### DEAL COMMUNITY CARDS #####
+        # Once the betting round has ended, we deal the next set of community cards. Which cards are dealt depends
+        # on the current game state and is detailed in the deal_community_cards function.
+        game_state = deal_community_cards(game_state=game_state)
+        print(5, game_state.current_phase)
+##### PLAY BETTING ROUND #####
+        # Loop through the betting round until the pot is valid, or it's the human player's turn
+        while (not are_pot_contributions_valid(game_state)
+               # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
+               and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
+            print(6, game_state.current_phase)
+            # Stop the play and await input from the human player
+            if game_state.current_player['is_human']:
+                return game_state
+
+            # Get decision from AI player
+            action, amount = ai_player_action(game_state)
+            # Play the turn with the AIs provided choice
+            game_state = play_turn(game_state, action, amount)
+            # Advance to the next active player
+            game_state = advance_to_next_active_player(game_state)
+        print(7, game_state.current_phase)
+        # TODO: check for game end conditions and advance to the next state if it's over
+        # Wrap up the betting round by resetting the betting round action flags
+        game_state = reset_player_action_flags(game_state, exclude_current_player=False)
+
+#### DETERMINE HAND WINNER #####
+    game_state = update_poker_game_state(game_state, current_phase='determining-winner')
+    # Determine the winner
+    game_state, winner_info = determine_winner(game_state)
+    game_state = update_poker_game_state(game_state, current_phase='hand-over')
+    # Reset the game for a new hand
+    game_state = reset_game_state_for_new_hand(game_state=game_state)
+
     return game_state
 
 
@@ -331,26 +374,41 @@ if __name__ == '__main__':
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
     game_instance = initialize_game_state(player_names=ai_player_names)
 
-    try:
-        while len(game_instance.players) > 1:
-            game_instance = setup_hand(game_state=game_instance)
-            while len(game_instance.community_cards) < 5:
-                game_instance = play_betting_round_until_action(game_state=game_instance)
-                game_instance = play_betting_round(game_state=game_instance)
-                game_instance = play_betting_round_post_action(game_state=game_instance)
-                display_cards(
-                    cards=game_instance.community_cards,
-                    display_text="Community Cards")
-            game_instance = play_betting_round(game_state=game_instance)
-            # Determine the winner
-            game_instance, winner_info = determine_winner(game_instance)
-            display_hand_winner(winner_info)
-            # Reset the game for a new hand
-            game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+    # Loop playing a hand until there is 1 player remaining
+    while len(game_instance.players) > 1:
+        game_instance = run_hand_until_player_turn(game_state=game_instance)
+        if game_instance.current_phase == 'hand-over':
+            # The hand will reset when it loops back
+            end_game_info = end_game(game_state=game_instance)
+            display_end_game(end_game_info)
+            break
+        # Get action from player and update the game state
+        elif game_instance.current_player['is_human']:
+            ui_data, player_options = prepare_ui_data(game_state=game_instance)
+            player_action, bet_amount = human_player_action(ui_data=ui_data,player_options=player_options)
+            game_instance = play_turn(game_instance, player_action, bet_amount)
+            game_instance = advance_to_next_active_player(game_instance)
 
-        end_game_info = end_game(game_state=game_instance)
-        display_end_game(end_game_info)
-
-    except KeyboardInterrupt:
-        display_game_state(game_instance, include_deck=True)
-        print("\nGame interrupted. Thanks for playing!")
+    # try:
+    #     while len(game_instance.players) > 1:
+    #         game_instance = setup_hand(game_state=game_instance)
+    #         while len(game_instance.community_cards) < 5:
+    #             game_instance = set_betting_round_start_player(game_state=game_instance)
+    #             game_instance = play_betting_round(game_state=game_instance)
+    #             game_instance = deal_community_cards(game_state=game_instance)
+    #             display_cards(
+    #                 cards=game_instance.community_cards,
+    #                 display_text="Community Cards")
+    #         game_instance = play_betting_round(game_state=game_instance)
+    #         # Determine the winner
+    #         game_instance, winner_info = determine_winner(game_instance)
+    #         display_hand_winner(winner_info)
+    #         # Reset the game for a new hand
+    #         game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+    #
+    #     end_game_info = end_game(game_state=game_instance)
+    #     display_end_game(end_game_info)
+    #
+    # except KeyboardInterrupt:
+    #     display_game_state(game_instance, include_deck=True)
+    #     print("\nGame interrupted. Thanks for playing!")
