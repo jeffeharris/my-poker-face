@@ -337,13 +337,14 @@ if __name__ == '__main__':
         # Loop playing a hand until there is 1 player remaining
         while len(game_instance.players) > 1:
             game_instance = run_hand_until_player_turn(game_state=game_instance)
-            if game_instance.current_phase == 'hand-over':
+            if game_instance.current_phase == 'determining-winner':
                 # The hand will reset when it loops back
-                end_game_info = end_game(game_state=game_instance)
-                display_end_game(end_game_info)
+                # Determine the winner
+                game_instance, winner_info = determine_winner(game_instance)
+                game_instance = update_poker_game_state(game_instance, current_phase='hand-over')
+                print(10, game_instance.current_phase, "hand has ended!")
                 # Reset the game for a new hand
                 game_instance = reset_game_state_for_new_hand(game_state=game_instance)
-                break
             # Get action from player and update the game state
             elif game_instance.awaiting_action:
                 game_instance = handle_player_action(game_state=game_instance)
