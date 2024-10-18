@@ -373,15 +373,15 @@ def player_players(game_state):
 ##################################################################
 def set_betting_round_start_player(game_state) -> PokerGameState:
     """
-    Cycle through all players until the pot is good.
+    Set the starting player for the betting round based on the current state of the game.
 
-    Side Effects: accepts input from a player that is used for play_turn.
+    If there are community cards dealt, the next active player after the dealer will start the betting round.
+    Otherwise, the player after the two seats from the dealer starts the betting round.
 
-    Parameters:
-        game_state: The current game state
-
-    Returns:
-        game_state: The updated game state with all player actions taken for the round
+    :param game_state: (PokerGameState)
+        The current state of the poker game, including players, dealer index, and community cards.
+    :return: (PokerGameState)
+        Updated state of the poker game with the current player index set for the betting round start.
     """
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
@@ -536,56 +536,60 @@ def run_hand_until_player_turn(game_state):
     """
     Takes an initialized game state and runs the hand until it is the player's turn at which point it returns the game state.
     """
-    print(1, game_state.current_phase, 'start of the function')
+    pot_is_settled = not (not are_pot_contributions_valid(game_state)
+                      # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
+                      and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1)
+    print(1, game_state.current_phase, f'start of the function, {"pot is settled" if pot_is_settled else "pot is not settled"}')
     # Set up the hand to played if it hasn't already been set up
     if game_state.current_phase == 'initializing-game':
         game_state = setup_hand(game_state)
         game_state = update_poker_game_state(game_state, current_phase='game-initialized')
         print(2, game_state.current_phase, 'game is ready')
+        return game_state
 
     ##### PLAY HAND #####
-    # Loop through the hand phases until the player is human.
-    if len(game_state.community_cards) < 5:
-        print(3, game_state.current_phase, "less than 5 community cards")
+    # Determine if the pot is settled, if not .
+    if game_state.current_phase != 'River' or (game_state.current_phase == 'River' and not pot_is_settled):
+        print(3, game_state.current_phase, f"there are {len(game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
         # Set up the betting round if the betting round hasn't started yet
         if game_state.current_phase == 'game-initialized':
-            game_state = set_betting_round_start_player(game_state=game_state)
             game_state = update_poker_game_state(game_state, current_phase='hand-initialized')
             print(4, game_state.current_phase, "hand is ready")
 
         if game_state.current_phase == 'hand-initialized':
+            game_state = set_betting_round_start_player(game_state=game_state)
             game_state = update_poker_game_state(game_state, current_phase='Pre-flop')
-            print(5, game_state.current_phase, "first round of betting ready to start")
+            print(5, game_state.current_phase, "betting round players set ready to start")
 
         ##### PLAY BETTING ROUND #####
-        # Loop through the betting round until the pot is valid, or it's the human player's turn
-        if (not are_pot_contributions_valid(game_state)
-               # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
-               and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
-            print(6, game_state.current_phase, "pot is not good yet")
-            game_state = update_poker_game_state(game_state, awaiting_action=True)
-            return game_state
-        else:
-            print(7, game_state.current_phase, "pot is good *** setting up next betting round and dealing cards")
-            # TODO: check for game end conditions and advance to the next state if it's over
-            # Wrap up the betting round by resetting the betting round action flags
-            # game_state = reset_player_action_flags(game_state, exclude_current_player=False)
-            game_state = reset_player_action_flags(game_state, exclude_current_player=False)
+        # Loop through the betting round until the pot is valid, or it's time for a player to take a turn
 
+        if pot_is_settled:
+            print(7, game_state.current_phase, "pot is settled, dealing cards and resetting betting round")
+            # TODO: check for game end conditions and advance to the next state if it's over
             ##### DEAL COMMUNITY CARDS #####
             # Once the betting round has ended, we deal the next set of community cards. Which cards are dealt depends
             # on the current game state and is detailed in the deal_community_cards function.
             game_state = deal_community_cards(game_state=game_state)
             print(8, game_state.current_phase, f"{len(game_state.community_cards)} community cards have been dealt")
-    else:
+            # Wrap up the betting round by resetting the betting round action flags
+            game_state = reset_player_action_flags(game_state, exclude_current_player=False)
+            game_state = set_betting_round_start_player(game_state=game_state)
+            return game_state
+        else:
+            print(6, game_state.current_phase, f"pot is not settled, {game_state.current_player['name']} is up next")
+            game_state = update_poker_game_state(game_state, awaiting_action=True)
+            return game_state
+
+    if game_state.current_phase == 'River' and pot_is_settled:
         ##### DETERMINE HAND WINNER #####
         # Once the betting rounds have completed, it's time to evaluate the players cards and find the winner(s)
-        print(9, game_state.current_phase, "there are 5 community cards")
+        print(9, game_state.current_phase, "there are 5 community cards, determining winner next")
         game_state = update_poker_game_state(game_state, current_phase='determining-winner')
 
     return game_state
 
-
+# TODO: refactor to only return PokerGameState, add winner info to the state
 def determine_winner(game_state):
     """
     Resolves the pot by determining the winner based on their hand and the community cards.
