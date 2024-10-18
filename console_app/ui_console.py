@@ -341,6 +341,7 @@ if __name__ == '__main__':
                 # The hand will reset when it loops back
                 # Determine the winner
                 game_instance, winner_info = determine_winner(game_instance)
+                display_hand_winner(winner_info)
                 game_instance = update_poker_game_state(game_instance, current_phase='hand-over')
                 print(10, game_instance.current_phase, "hand has ended!")
                 # Reset the game for a new hand
