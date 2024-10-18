@@ -115,6 +115,7 @@ def prepare_ui_data(game_state):
     player_options = game_state.current_player_options
     cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
     current_player = game_state.current_player
+    opponents = [p['name'] for p in game_state.players if p != current_player]
 
     ui_data = {
         'community_cards': game_state.community_cards,
@@ -122,7 +123,8 @@ def prepare_ui_data(game_state):
         'pot_total': game_state.pot['total'],
         'player_stack': current_player['stack'],
         'cost_to_call': cost_to_call_bet,
-        'player_name': current_player['name']
+        'player_name': current_player['name'],
+        'opponents': opponents,
     }
 
     return ui_data, player_options
@@ -312,103 +314,44 @@ def display_cards(cards, display_text: Optional[str] = None):
 #     return game_state
 
 
-def run_hand_until_player_turn(game_state):
-    """
-    Takes an initialized game state and runs the hand until it is the player's turn at which point it returns the game state.
-    """
-    print(1, game_state.current_phase)
-    # Set up the hand to played if it hasn't already been set up
-    if game_state.current_phase == 'initializing-game':
-        print("setting up the game")
-        game_state = setup_hand(game_state)
-        game_state = update_poker_game_state(game_state, current_phase='game-initialized')
-    print(2, game_state.current_phase)
+def handle_player_action(game_state):
+    ui_data, player_options = prepare_ui_data(game_state)
 
-##### PLAY HAND #####
-    # Loop through the hand phases until the player is human.
-    while len(game_state.community_cards) < 5:
-        print(3, game_state.current_phase)
-        # Set up the betting round if the betting round hasn't started yet
-        if game_state.current_phase == 'game-initialized':
-            game_state = set_betting_round_start_player(game_state=game_state)
-            game_state = update_poker_game_state(game_state, current_phase='hand-initialized')
-        print(4, game_state.current_phase)
-##### DEAL COMMUNITY CARDS #####
-        # Once the betting round has ended, we deal the next set of community cards. Which cards are dealt depends
-        # on the current game state and is detailed in the deal_community_cards function.
-        game_state = deal_community_cards(game_state=game_state)
-        print(5, game_state.current_phase)
-##### PLAY BETTING ROUND #####
-        # Loop through the betting round until the pot is valid, or it's the human player's turn
-        while (not are_pot_contributions_valid(game_state)
-               # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
-               and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
-            print(6, game_state.current_phase)
-            # Stop the play and await input from the human player
-            if game_state.current_player['is_human']:
-                return game_state
+    if game_state.current_player['is_human']:
+        action, amount = human_player_action(ui_data, player_options)
+    else:
+        action, amount = ai_player_action(game_state)
 
-            # Get decision from AI player
-            action, amount = ai_player_action(game_state)
-            # Play the turn with the AIs provided choice
-            game_state = play_turn(game_state, action, amount)
-            # Advance to the next active player
-            game_state = advance_to_next_active_player(game_state)
-        print(7, game_state.current_phase)
-        # TODO: check for game end conditions and advance to the next state if it's over
-        # Wrap up the betting round by resetting the betting round action flags
-        game_state = reset_player_action_flags(game_state, exclude_current_player=False)
-
-#### DETERMINE HAND WINNER #####
-    game_state = update_poker_game_state(game_state, current_phase='determining-winner')
-    # Determine the winner
-    game_state, winner_info = determine_winner(game_state)
-    game_state = update_poker_game_state(game_state, current_phase='hand-over')
-    # Reset the game for a new hand
-    game_state = reset_game_state_for_new_hand(game_state=game_state)
+    game_state = play_turn(game_state, action, amount)
+    game_state = advance_to_next_active_player(game_state)
 
     return game_state
 
 
 if __name__ == '__main__':
+    # Get AI player names and initialize the game instance
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
     game_instance = initialize_game_state(player_names=ai_player_names)
 
-    # Loop playing a hand until there is 1 player remaining
-    while len(game_instance.players) > 1:
-        game_instance = run_hand_until_player_turn(game_state=game_instance)
-        if game_instance.current_phase == 'hand-over':
-            # The hand will reset when it loops back
-            end_game_info = end_game(game_state=game_instance)
-            display_end_game(end_game_info)
-            break
-        # Get action from player and update the game state
-        elif game_instance.current_player['is_human']:
-            ui_data, player_options = prepare_ui_data(game_state=game_instance)
-            player_action, bet_amount = human_player_action(ui_data=ui_data,player_options=player_options)
-            game_instance = play_turn(game_instance, player_action, bet_amount)
-            game_instance = advance_to_next_active_player(game_instance)
+    try:
+        # Loop playing a hand until there is 1 player remaining
+        while len(game_instance.players) > 1:
+            game_instance = run_hand_until_player_turn(game_state=game_instance)
+            if game_instance.current_phase == 'hand-over':
+                # The hand will reset when it loops back
+                end_game_info = end_game(game_state=game_instance)
+                display_end_game(end_game_info)
+                # Reset the game for a new hand
+                game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+                break
+            # Get action from player and update the game state
+            elif game_instance.awaiting_action:
+                game_instance = handle_player_action(game_state=game_instance)
+                game_instance = update_poker_game_state(game_instance, awaiting_action=False)
 
-    # try:
-    #     while len(game_instance.players) > 1:
-    #         game_instance = setup_hand(game_state=game_instance)
-    #         while len(game_instance.community_cards) < 5:
-    #             game_instance = set_betting_round_start_player(game_state=game_instance)
-    #             game_instance = play_betting_round(game_state=game_instance)
-    #             game_instance = deal_community_cards(game_state=game_instance)
-    #             display_cards(
-    #                 cards=game_instance.community_cards,
-    #                 display_text="Community Cards")
-    #         game_instance = play_betting_round(game_state=game_instance)
-    #         # Determine the winner
-    #         game_instance, winner_info = determine_winner(game_instance)
-    #         display_hand_winner(winner_info)
-    #         # Reset the game for a new hand
-    #         game_instance = reset_game_state_for_new_hand(game_state=game_instance)
-    #
-    #     end_game_info = end_game(game_state=game_instance)
-    #     display_end_game(end_game_info)
-    #
-    # except KeyboardInterrupt:
-    #     display_game_state(game_instance, include_deck=True)
-    #     print("\nGame interrupted. Thanks for playing!")
+        display_game_state(game_instance, include_deck=True)
+        print(f"\n{game_instance.players[0]['name']} Won! Thanks for playing!")
+
+    except KeyboardInterrupt:
+        display_game_state(game_instance, include_deck=True)
+        print("\nGame interrupted. Thanks for playing!")

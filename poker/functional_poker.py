@@ -37,6 +37,7 @@ class PokerGameState:
     current_phase: str = 'initializing-game'
     ### FLAGS ###
     pre_flop_action_taken: bool = False
+    awaiting_action: bool = False
 
     @property
     def current_player(self):
@@ -183,7 +184,8 @@ def update_poker_game_state(
         current_dealer_idx: int = None,
         pre_flop_action_taken: bool = None,
         community_cards: Tuple[Mapping[str, any], ...] = None,
-        current_phase: str = None
+        current_phase: str = None,
+        awaiting_action: bool = None,
 ) -> PokerGameState:
     """
     Simplify updates to the PokerGameState
@@ -198,7 +200,8 @@ def update_poker_game_state(
         current_dealer_idx=current_dealer_idx if current_dealer_idx is not None else game_state.current_dealer_idx,
         pre_flop_action_taken=pre_flop_action_taken or game_state.pre_flop_action_taken,
         community_cards=community_cards or game_state.community_cards,
-        current_phase=current_phase or game_state.current_phase
+        current_phase=current_phase or game_state.current_phase,
+        awaiting_action = awaiting_action or game_state.awaiting_action
     )
 
 
@@ -527,9 +530,64 @@ def reset_game_state_for_new_hand(game_state):
     return PokerGameState(players=tuple(new_players))
 
 
+def run_hand_until_player_turn(game_state):
+    """
+    Takes an initialized game state and runs the hand until it is the player's turn at which point it returns the game state.
+    """
+    print(1, game_state.current_phase)
+    # Set up the hand to played if it hasn't already been set up
+    if game_state.current_phase == 'initializing-game':
+        print("setting up the game")
+        game_state = setup_hand(game_state)
+        game_state = update_poker_game_state(game_state, current_phase='game-initialized')
+        print(2, game_state.current_phase)
+
+    ##### PLAY HAND #####
+    # Loop through the hand phases until the player is human.
+    while len(game_state.community_cards) < 5:
+        print(3, game_state.current_phase)
+        # Set up the betting round if the betting round hasn't started yet
+        if game_state.current_phase == 'game-initialized':
+            game_state = set_betting_round_start_player(game_state=game_state)
+            game_state = update_poker_game_state(game_state, current_phase='hand-initialized')
+            print(4, game_state.current_phase)
+
+        ##### PLAY BETTING ROUND #####
+        # Loop through the betting round until the pot is valid, or it's the human player's turn
+        if (not are_pot_contributions_valid(game_state)
+               # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
+               and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
+            print(5, game_state.current_phase)
+            game_state = update_poker_game_state(game_state, awaiting_action=True)
+            print(6, game_state.current_phase)
+            return game_state
+        # TODO: check for game end conditions and advance to the next state if it's over
+        # Wrap up the betting round by resetting the betting round action flags
+        # game_state = reset_player_action_flags(game_state, exclude_current_player=False)
+        game_state = reset_player_action_flags(game_state, exclude_current_player=False)
+        print(7, game_state.current_phase)
+
+        ##### DEAL COMMUNITY CARDS #####
+        # Once the betting round has ended, we deal the next set of community cards. Which cards are dealt depends
+        # on the current game state and is detailed in the deal_community_cards function.
+        game_state = deal_community_cards(game_state=game_state)
+
+    ##### DETERMINE HAND WINNER #####
+    # Once the betting rounds have completed, it's time to evaluate the players cards and find the winner(s)
+    print(8, game_state.current_phase)
+    game_state = update_poker_game_state(game_state, current_phase='determining-winner')
+    # Determine the winner
+    game_state, winner_info = determine_winner(game_state)
+    game_state = update_poker_game_state(game_state, current_phase='hand-over')
+    print(9, game_state.current_phase)
+
+    return game_state
+
+
 def determine_winner(game_state):
     """
     Resolves the pot by determining the winner based on their hand and the community cards.
+    Returns game_state and winner_info
     """
     # Get list of player names that contributed to the pot
     players_eligible_for_pot = []
@@ -543,9 +601,9 @@ def determine_winner(game_state):
     hands = []
 
     # Convert the community cards to Cards
-    new_community_cards = []
+    cards_prepped_for_evaluation = []
     for card in game_state.community_cards:
-        new_community_cards.append(Card(card['rank'], card['suit']))
+        cards_prepped_for_evaluation.append(Card(card['rank'], card['suit']))
 
     # Create a List with each player's hand using the Card class and Evaluate them
     for player in game_state.players:
@@ -553,17 +611,16 @@ def determine_winner(game_state):
             new_cards = []
             for card in player['hand']:
                 new_cards.append(Card(rank=card['rank'], suit=card['suit']))
-            hands.append((player['name'], HandEvaluator(new_cards + new_community_cards).evaluate_hand()))
+            hands.append((player['name'], HandEvaluator(new_cards + cards_prepped_for_evaluation).evaluate_hand()))
 
     # Sort the hands from best to worst
     hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
     hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
     hands.sort(key=lambda x: x[1]["hand_rank"])
 
-    print(hands)
     # Check a tie amongst the hands
-    winning_hand = hands[0][1]
-    winning_hands = [hand for hand in hands if hand[1] == winning_hand]
+    a_winning_hand = hands[0][1]
+    winning_hands = [hand for hand in hands if hand[1] == a_winning_hand]
 
     winning_player_names = [hand[0] for hand in winning_hands]
     winning_hand = hands[0][1]["hand_values"] + hands[0][1]["kicker_values"]
@@ -589,11 +646,11 @@ def end_game(game_state: PokerGameState):
     """
     Placeholder for wrapping the game up when a user quits or the game has ended due to only 1 player remaining.
     """
-    winner, hand = determine_winner(game_state)
+    _, winners = determine_winner(game_state)
     end_game_info = {
-        'winner': winner['name'],
-        'winning_hand': hand,
-        'message': f"{winner} won! Thanks for playing!"
+        'winner': winners['winning_player_names'],
+        'winning_hand': winners['winning_hand'],
+        'message': f"{winners} won! Thanks for playing!"
     }
 
     return end_game_info
