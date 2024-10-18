@@ -89,7 +89,7 @@ class PokerGameState:
 
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if self.can_big_blind_take_pre_flop_action:
-            player_options = ['check', 'raise', 'all-in', 'chat']
+            player_options = ['check', 'raise', 'all_in', 'chat']
         else:
             player_options = ['fold', 'check', 'call', 'raise', 'all_in', 'chat']
             if player_cost_to_call == 0:
@@ -100,8 +100,8 @@ class PokerGameState:
                 player_options.remove('call')
             if player['stack'] - self.highest_bet <= 0:
                 player_options.remove('raise')
-            if player['stack'] == 0:
-                player_options.remove('all-in')
+            # if player['stack'] == 0:
+            #     player_options.remove('all_in')
             if True:                                    # TODO: implement ai chat and then fix this check
                 player_options.remove('chat')
         return player_options
@@ -646,17 +646,3 @@ def determine_winner(game_state):
         'pot_total': game_state.pot['total']
     }
     return game_state, winner_info
-
-
-def end_game(game_state: PokerGameState):
-    """
-    Placeholder for wrapping the game up when a user quits or the game has ended due to only 1 player remaining.
-    """
-    _, winners = determine_winner(game_state)
-    end_game_info = {
-        'winner': winners['winning_player_names'],
-        'winning_hand': winners['winning_hand'],
-        'message': f"{winners} won! Thanks for playing!"
-    }
-
-    return end_game_info
