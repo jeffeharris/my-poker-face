@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from old_files.poker_player import AIPokerPlayer
 
 from functional_poker import *
+from ui_console import prepare_ui_data
 from utils import get_celebrities
 import pickle
 
@@ -70,6 +71,8 @@ def game() -> str or Response:
             return redirect(url_for('game'))
         # Get action from player and update the game state
         elif game_state.awaiting_action:
+            if not game_state.current_player['is_human']:
+                return redirect(url_for('ai_player_action'))
             return render_template(
                 'poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
