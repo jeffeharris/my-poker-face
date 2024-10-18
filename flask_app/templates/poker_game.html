@@ -29,11 +29,11 @@
                     <img src="{{ url_for('static', filename='images/kanye.jpg') }}" class="player-headshot" alt="Player picture" >
                     <h2>{{ player.name }}</h2>
                     <p>${{ player.stack }}</p>
-                    <div id="cards-player-{{ loop.index + 1 }}" class="player-cards">
+                    <div id="cards-player-{{ loop.index + 1 }}" class="{% if player.is_folded %}player-cards--is-folded{% else %}player-cards{% endif %}">
                         {% for card in player.hand %}
                             <span class="card
-                                {% if card.suit == 'Hearts' %}hearts{% elif card.suit_symbol == 'Diamonds' %}diamonds
-                                {% elif card.suit_symbol == 'Clubs' %}clubs{% elif card.suit_symbol == 'Spades' %}spades{% endif %}
+                                {% if card.suit == 'Hearts' %}hearts{% elif card.suit == 'Diamonds' %}diamonds
+                                {% elif card.suit == 'Clubs' %}clubs{% elif card.suit == 'Spades' %}spades{% endif %}
                             ">{{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦
                                 {% elif card.suit == 'Clubs' %}♣{% elif card.suit == 'Spades' %}♠{% endif %}</span>
                         {% endfor %}

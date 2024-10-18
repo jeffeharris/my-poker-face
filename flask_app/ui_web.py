@@ -54,7 +54,7 @@ def game() -> str or Response:
     num_players_remaining = len(game_state.players)
 
     if num_players_remaining == 1:
-        return redirect(url_for('end_game_route'))
+        return redirect(url_for('end_game'))
     else:
         game_state = run_hand_until_player_turn(game_state)
         save_game_state(game_state)
@@ -73,13 +73,13 @@ def game() -> str or Response:
         elif game_state.awaiting_action:
             if not game_state.current_player['is_human']:
                 return redirect(url_for('ai_player_action'))
-            return render_template(
-                'poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
+            else:
+                return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
     save_game_state(game_state)
     # Render the current game state
-    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
-
+    # return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
+    return redirect(url_for('game'))
 
 @app.route('/action', methods=['POST'])
 def player_action() -> tuple[str, int] or Response:
@@ -150,8 +150,8 @@ def ai_player_action():
     #
     # response = jsonify({'redirect': url_for('game')})
     # app.logger.debug(f"Response: {response.get_data(as_text=True)}")
-    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
-
+    # return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
+    return redirect(url_for('game'))
 
 
 @app.route('/next_round', methods=['POST'])
@@ -170,8 +170,8 @@ def next_round():
     return redirect(url_for('game'))
 
 
-@app.route('/end_game')
-def end_game_route():
+@app.route('/end_game', methods=['GET'])
+def end_game():
     # Load the current game state
     game_state = load_game_state()
     if not game_state:

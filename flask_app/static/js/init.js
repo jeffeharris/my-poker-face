@@ -1,5 +1,4 @@
 let socket = io();
-let isHumanTurn = false;    // A flag to track if the game should stop looping
 
 // Function to initialize the game
 function startGame() {
@@ -10,27 +9,24 @@ function startGame() {
         });
 }
 
+// Listen for game state updates from the server
+socket.on('update_game_state', function(gameState) {
+    updateGameState(gameState);
+});
+
 // Function to update the UI based on the game state
 function updateGameState(gameState) {
     document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
     document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
     document.getElementById('player-options').innerHTML = `${gameState['current_player_options']}`;
     updatePlayerState(gameState['players']);
-
-    // Check if it’s the human player's turn and set the flag accordingly
-    isHumanTurn = gameState['current_player']['is_human'];
-    if (!isHumanTurn) {
-        // If it’s AI’s turn, automatically proceed with the AI action
-        fetch('/ai_player_action', { method: 'GET' })
-            .then(response => response.json())
-            .then(data => {
-                updateGameState(data);
-            });
-    }
 }
 
 function playerAction(action) {
-   fetch('/action', {
+    const playerOptionsContainer = document.getElementById('player-options');
+    playerOptionsContainer.hidden = true;
+
+    fetch('/action', {
        method: 'POST',
        headers: {
            'Content-Type': 'application/json'
@@ -98,11 +94,6 @@ function updatePlayerState(playerState) {
     });
 }
 
-// Listen for game state updates from the server
-socket.on('update_game_state', function(gameState) {
-    updateGameState(gameState);
-});
-
 // Function to send user move to the server
 function sendUserMove(move) {
    socket.emit('user_move', { move: move });
@@ -124,11 +115,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     raiseButton.addEventListener('click', () => {
         console.log('Raise button clicked');
-        if (betSliderContainer.classList.contains('bet-slider-container-collapsed')) {
-            betSliderContainer.classList.remove('bet-slider-container-collapsed');
-        } else {
-            betSliderContainer.classList.add('bet-slider-container-collapsed');
-        }
+
+        // Toggle the expanded state
+        betSliderContainer.classList.toggle('bet-slider-container-expanded');
+
+        // Get the button's position and dimensions
+        const buttonRect = raiseButton.getBoundingClientRect();
+        console.log('Button Rect:', buttonRect);
+
+        // Calculate the center position
+        const centerX = buttonRect.left + (buttonRect.width / 2);
+        console.log('Center X:', centerX);
+
+        // Get the width of the bet slider container
+        const containerWidth = betSliderContainer.offsetWidth;
+        console.log('Container Width:', containerWidth);
+
+        // Set the position of the bet slider container to be centered over the raise button
+        betSliderContainer.style.left = `${centerX - (containerWidth * 2)}px`;
+        console.log('New Left Position:', betSliderContainer.style.left);
     });
 
     betSlider.addEventListener('input', () => {
