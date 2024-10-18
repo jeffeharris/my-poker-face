@@ -3,7 +3,9 @@ from typing import Optional
 
 from old_files.poker_player import AIPokerPlayer
 
+from assistants import OpenAILLMAssistant
 from functional_poker import *
+from spades_game import assistant
 from utils import get_celebrities
 
 
@@ -99,28 +101,33 @@ class CardRenderer:
         return hole_card_art
 
 
-def get_player_action(game_state):
+def prepare_ui_data(game_state):
     """
-    Determine the action of the current player based on the game state.
+    Prepare the data needed for the UI to display the current game state and actions available to the player.
 
-    :param game_state: (object)
-        The current state of the game used to determine the player's action.
+    :param game_state: (GameState)
+        The current state of the game containing all relevant information.
     :return: (tuple)
-         A tuple containing the player's choice of action and the corresponding amount.
+        A tuple containing two elements:
+        - A dictionary with UI data including community cards, player's hand, pot total, player's stack, cost to call, and player's name.
+        - A list of player options available for the current player.
     """
+    player_options = game_state.current_player_options
+    cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
     current_player = game_state.current_player
+    opponents = [p['name'] for p in game_state.players if p != current_player]
 
-    # Prepare data for the UI
-    ui_data, player_options = prepare_ui_data(game_state)
+    ui_data = {
+        'community_cards': game_state.community_cards,
+        'player_hand': current_player['hand'],
+        'pot_total': game_state.pot['total'],
+        'player_stack': current_player['stack'],
+        'cost_to_call': cost_to_call_bet,
+        'player_name': current_player['name'],
+        'opponents': opponents,
+    }
 
-    if current_player['is_human']:
-        # Get decision from human player
-        player_choice, amount = human_player_action(ui_data, player_options)
-    else:
-        # Get decision from AI player
-        player_choice, amount = ai_player_action(game_state)
-
-    return player_choice, amount
+    return ui_data, player_options
 
 
 # def ai_player_action(ui_data, player_options):
@@ -133,7 +140,7 @@ def get_player_action(game_state):
 def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
     # Currently used values
     persona = player.name
-    attitude = player.attitude                                              # TODO: add attitude and confidence
+    attitude = player.attitude
     confidence = player.confidence
     table_positions = hand_state["table_positions"]                         # TODO: create table positions
     opponent_status = hand_state["opponent_status"]                         # TODO: create opponent status
@@ -144,20 +151,19 @@ def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
     player_money = player.money
     # TODO: <FEATURE> decide what to do with this position idea
     # position = hand_state["positions"][self]
-    current_situation = hand_state["current_situation"]                     # TODO: add current situation
+    current_situation = hand_state["current_situation"]
     hole_cards = [str(card) for card in player.cards]
-    current_pot = game_state['pot']
+    current_pot = hand_state["current_pot"]
     # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
     cost_to_call = game_state.highest_bet - game_state.current_player['bet']
     player_options = game_state.current_player_options
 
-    # TODO: add support for action history and summary for ai players
     # create a list of the action comments and then send them to the table manager to summarize
-    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-    # action_summary = "We're just getting started! You're first to go."
-    # if len(action_comment_list) > 0:
-    #     action_summary = hand_state["table_manager"].summarize_actions_for_player(
-    #         action_comment_list[-number_of_opponents:], self.name)
+    action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+    action_summary = "We're just getting started! You're first to go."
+    if len(action_comment_list) > 0:
+        action_summary = hand_state["table_manager"].summarize_actions_for_player(
+            action_comment_list[-number_of_opponents:], self.name)
 
     persona_state = (
         f"Persona: {persona}\n"
@@ -173,12 +179,12 @@ def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
         f"Community Cards: {community_cards}\n"
         f"Table Positions: {table_positions}\n"
         f"Opponent Status:\n{opponent_status}\n"
-        # f"Actions since your last turn: {action_summary}\n"             # TODO: see above for info on addind support for action_summary
+        f"Actions since your last turn: {action_summary}\n"
     )
 
     pot_state = (
-        f"Pot Total: ${current_pot['total']}\n"
-        f"How much you've bet: ${game_state.current_player['bet']}\n"
+        f"Pot Total: ${current_pot.total}\n"
+        f"How much you've bet: ${current_pot.get_player_pot_amount(self.name)}\n"
         f"Your cost to call: ${cost_to_call}\n"
     )
 
@@ -224,13 +230,21 @@ def ai_player_action(game_state):
 
 
 def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, int]:
+    """
+    Console UI is used to update the player with the relevant game state info and receives input.
+    This will return a tuple as ( action, amount ) for the players bet.
+    """
     # Render the player's cards using the CardRenderer.
-    players_rendered_cards = CardRenderer().render_hole_cards(
+    rendered_hole_cards = CardRenderer().render_hole_cards(
         [Card(c['rank'], c['suit']) for c in ui_data['player_hand']])
 
     # Display information to the user
-    # print(f"\nCommunity Cards: {ui_data['community_cards']}")
-    print(f"Your Hand:\n{players_rendered_cards}")
+    if len(ui_data['community_cards']) > 0:
+        rendered_community_cards = CardRenderer().render_cards(
+            [Card(c['rank'], c['suit']) for c in ui_data['community_cards']])
+        print(f"\nCommunity Cards:\n{rendered_community_cards}")
+
+    print(f"Your Hand:\n{rendered_hole_cards}")
     print(f"Pot: {ui_data['pot_total']}")
     print(f"Your Stack: {ui_data['player_stack']}")
     print(f"Cost to Call: {ui_data['cost_to_call']}")
@@ -289,40 +303,56 @@ def display_cards(cards, display_text: Optional[str] = None):
     print(f"\n{rendered_cards}\n")
 
 
-def play_betting_round(game_state):
-    while (not are_pot_contributions_valid(game_state)
-           # number of players still able to bet is greater than 1
-           and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
-        player_choice, amount = get_player_action(game_state)
-        # Play the turn with the provided decision
-        game_state = play_turn(game_state, player_choice, amount)
-        game_state = advance_to_next_active_player(game_state)
+# def play_betting_round(game_state):
+#     while (not are_pot_contributions_valid(game_state)
+#            # number of players still able to bet is greater than 1
+#            and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1):
+#         player_choice, amount = get_player_action(game_state)
+#         # Play the turn with the provided decision
+#         game_state = play_turn(game_state, player_choice, amount)
+#         game_state = advance_to_next_active_player(game_state)
+#     return game_state
+
+
+def handle_player_action(game_state):
+    ui_data, player_options = prepare_ui_data(game_state)
+
+    if game_state.current_player['is_human']:
+        action, amount = human_player_action(ui_data, player_options)
+    else:
+        action, amount = ai_player_action(game_state)
+
+    game_state = play_turn(game_state, action, amount)
+    game_state = advance_to_next_active_player(game_state)
+
     return game_state
 
 
 if __name__ == '__main__':
+    # Get AI player names and initialize the game instance
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
     game_instance = initialize_game_state(player_names=ai_player_names)
 
     try:
+        # Loop playing a hand until there is 1 player remaining
         while len(game_instance.players) > 1:
-            game_instance = setup_hand(game_state=game_instance)
-            while len(game_instance.community_cards) < 5:
-                game_instance = set_betting_round_starting_player(game_state=game_instance)
-                game_instance = play_betting_round(game_state=game_instance)
-                game_instance = deal_community_cards(game_state=game_instance)
-                display_cards(
-                    cards=game_instance.community_cards,
-                    display_text="Community Cards")
-            game_instance = play_betting_round(game_state=game_instance)
-            # Determine the winner
-            game_instance, winner_info = determine_winner(game_instance)
-            display_hand_winner(winner_info)
-            # Reset the game for a new hand
-            game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+            game_instance = run_hand_until_player_turn(game_state=game_instance)
+            if game_instance.current_phase == 'determining-winner':
+                # The hand will reset when it loops back
+                # Determine the winner
+                game_instance, winner_info = determine_winner(game_instance)
+                display_hand_winner(winner_info)
+                game_instance = update_poker_game_state(game_instance, current_phase='hand-over')
+                print(10, game_instance.current_phase, "hand has ended!")
+                # Reset the game for a new hand
+                game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+            # Get action from player and update the game state
+            elif game_instance.awaiting_action:
+                game_instance = handle_player_action(game_state=game_instance)
+                game_instance = update_poker_game_state(game_instance, awaiting_action=False)
 
-        end_game_info = end_game(game_state=game_instance)
-        display_end_game(end_game_info)
+        display_game_state(game_instance, include_deck=True)
+        print(f"\n{game_instance.players[0]['name']} Won! Thanks for playing!")
 
     except KeyboardInterrupt:
         display_game_state(game_instance, include_deck=True)
