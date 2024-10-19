@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', (event) => {
-    const socket = io.connect('http://localhost:5000'); // Change the URL to match your server
+    //const socket = io.connect('http://localhost:5000'); // Change the URL to match your server
 
     socket.on('connect', function() {
         console.log('Connected to websocket server');
@@ -9,7 +9,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
         console.log('Disconnected from the server');
     });
 
-    socket.on('new_messages', function(messages) {
+    socket.on('new_messages', function(data) {
+        console.log("New messages received")
+        let messages = data['game_messages'];
         displayMessages(messages);
     });
 
@@ -35,7 +37,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
 function fetchMessages() {
     fetch('/messages')
         .then(response => response.json())
-        .then(data => displayMessages(data));
+        .then(data => displayMessages(data))
 }
 
 function displayMessages(messages) {

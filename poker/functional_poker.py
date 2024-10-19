@@ -8,6 +8,7 @@ from numpy.ma.core import count
 
 from core.card import Card
 from old_files.hand_evaluator import HandEvaluator
+from utils import obj_to_dict
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
@@ -40,6 +41,10 @@ class PokerGameState:
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
+
+    @property
+    def to_dict(self):
+        return obj_to_dict(PokerGameState)
 
     @property
     def current_player(self):

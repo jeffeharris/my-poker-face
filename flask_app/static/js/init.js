@@ -1,4 +1,7 @@
-let socket = io();
+var socket = io('http://localhost:5000', {
+    transports: ['websocket'],
+    debug: true
+});
 
 // // Function to initialize the game
 // function loadGamePage() {
@@ -10,7 +13,8 @@ let socket = io();
 // }
 
 // Listen for game state updates from the server
-socket.on('update_game_state', function(gameState) {
+socket.on('update_game_state', function(data) {
+    let gameState = data['game_state']
     updateGameState(gameState);
 });
 

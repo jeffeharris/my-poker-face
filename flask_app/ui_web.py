@@ -67,6 +67,7 @@ def new_game():
     ai_player_names = get_celebrities(shuffled=True)[:3]  # Using three AI players as default
     game_state = initialize_game_state(player_names=ai_player_names)
     save_game_state(game_state)
+    socketio.start_background_task(ai_player_action, game_state)
     return redirect(url_for('game'))
     # TODO: route to a new hand
 
@@ -89,7 +90,7 @@ def game() -> str or Response:
         return redirect(url_for('end_game'))
     else:
         game_state = run_hand_until_player_turn(game_state)
-        socketio.emit('update_game_state', game_state)
+        socketio.emit('update_game_state', {'game_state': game_state.to_dict})
         save_game_state(game_state)
         if game_state.current_phase == 'determining-winner':
             # The hand will reset when it loops back
@@ -105,7 +106,8 @@ def game() -> str or Response:
                 "message_type": "table"
             }
             game_messages.append(new_message)
-            socketio.emit('new_messages', game_messages)
+            socketio.emit('new_messages', { 'game_messages': game_messages })
+            socketio.sleep(1)
 
             game_state = update_poker_game_state(game_state, current_phase='hand-over')
             print(10, game_state.current_phase, "hand has ended!")
@@ -116,7 +118,7 @@ def game() -> str or Response:
         # Get action from player and update the game state
         elif game_state.awaiting_action:
             if not game_state.current_player['is_human']:
-                socketio.emit('update_game_state', game_state)
+                socketio.emit('update_game_state', { 'game_state': game_state.to_dict })
                 game_state = ai_player_action(game_state)
                 save_game_state(game_state)
                 return redirect(url_for('game'))
@@ -161,7 +163,7 @@ def player_action() -> tuple[str, int] or Response:
         "message_type": "table"
     }
     game_messages.append(new_message)
-    socketio.emit('new_messages', game_messages)
+    socketio.emit('new_messages', { 'game_messages': game_messages })
 
     game_state = advance_to_next_active_player(game_state)
     save_game_state(game_state)
@@ -197,7 +199,7 @@ def ai_player_action(game_state):
         "message_type": "table"
     }
     game_messages.append(new_table_message)
-    socketio.emit('new_messages', game_messages)
+    socketio.emit('new_messages', {'game_messages': game_messages})
 
     print(player_message)
     print(player_physical_description)
@@ -210,7 +212,8 @@ def ai_player_action(game_state):
         "message_type": "ai"
     }
     game_messages.append(new_ai_message)
-    socketio.emit('new_messages', game_messages)
+    socketio.emit('new_messages', {'game_messages': game_messages})
+    socketio.sleep(1)
 
     app.logger.debug("Current player is AI")
     game_state = play_turn(game_state, action, amount)
@@ -273,7 +276,7 @@ def handle_send_message(data):
         'message_type': message_type
     }
     game_messages.append(message)
-    socketio.emit('new_messages', game_messages)
+    socketio.emit('new_messages', {'game_messages': game_messages})
 
 
 if __name__ == '__main__':
