@@ -72,14 +72,15 @@ def game() -> str or Response:
         # Get action from player and update the game state
         elif game_state.awaiting_action:
             if not game_state.current_player['is_human']:
-                return redirect(url_for('ai_player_action'))
+                game_state = ai_player_action(game_state)
+                save_game_state(game_state)
+                return redirect(url_for('game'))
             else:
                 return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
     save_game_state(game_state)
     # Render the current game state
-    # return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
-    return redirect(url_for('game'))
+    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
 
 @app.route('/action', methods=['POST'])
 def player_action() -> tuple[str, int] or Response:
@@ -102,6 +103,7 @@ def player_action() -> tuple[str, int] or Response:
         return jsonify({'redirect': url_for('index')}), 400
 
     current_player = game_state.current_player
+    print(current_player)
     if current_player['is_human']:
         app.logger.debug("Current player is human")
     else:
@@ -115,12 +117,7 @@ def player_action() -> tuple[str, int] or Response:
     app.logger.debug(f"Response: {response.get_data(as_text=True)}")
     return response
 
-@app.route('/ai_action', methods=['GET'])
-def ai_player_action():
-    game_state = load_game_state()
-    if not game_state:
-        return jsonify({'redirect': url_for('index')}), 400
-
+def ai_player_action(game_state):
     current_player = game_state.current_player
     poker_player = AIPokerPlayer(current_player['name'],starting_money=current_player['stack'],ai_temp=0.9)
     ai = poker_player.assistant
@@ -144,14 +141,8 @@ def ai_player_action():
 
     app.logger.debug("Current player is AI")
     game_state = play_turn(game_state, action, amount)
-    save_game_state(game_state)
     game_state = advance_to_next_active_player(game_state)
-    save_game_state(game_state)
-    #
-    # response = jsonify({'redirect': url_for('game')})
-    # app.logger.debug(f"Response: {response.get_data(as_text=True)}")
-    # return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
-    return redirect(url_for('game'))
+    return game_state
 
 
 @app.route('/next_round', methods=['POST'])

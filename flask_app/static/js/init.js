@@ -1,7 +1,7 @@
 let socket = io();
 
 // Function to initialize the game
-function startGame() {
+function loadGamePage() {
     fetch('/game', { method: 'GET' })
         .then(response => response.json())
         .then(data => {
@@ -103,7 +103,7 @@ function sendUserMove(move) {
 window.onload = function() {
     document.getElementById('bet-amount').value = 100;
     document.getElementById('bet-slider').value = 100
-    startGame();
+    loadGamePage();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
