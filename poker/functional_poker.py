@@ -592,8 +592,17 @@ def run_hand_until_player_turn(game_state):
 # TODO: refactor to only return PokerGameState, add winner info to the state
 def determine_winner(game_state):
     """
-    Resolves the pot by determining the winner based on their hand and the community cards.
-    Returns game_state and winner_info
+    Determine the winner(s) of a poker game, update their stacks, and return the updated game state.
+
+    :param game_state: (PokerGameState)
+        The current state of the poker game, including players, community cards, and the pot.
+    :return: (Tuple[PokerGameState, Dict])
+        A tuple containing the updated game state and a dictionary with information on the winners and winning hand.
+            - 'winning_player_names': winning_player_names,
+            - 'winning_hand': winning_hand,
+            - 'pot_total': game_state.pot['total']
+    :raises ValueError:
+        If the game state is invalid or players' states can't be determined.
     """
     # Get list of player names that contributed to the pot
     players_eligible_for_pot = []

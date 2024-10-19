@@ -9,18 +9,18 @@ let socket = io();
 //         });
 // }
 
-// // Listen for game state updates from the server
-// socket.on('update_game_state', function(gameState) {
-//     updateGameState(gameState);
-// });
+// Listen for game state updates from the server
+socket.on('update_game_state', function(gameState) {
+    updateGameState(gameState);
+});
 
-// // Function to update the UI based on the game state
-// function updateGameState(gameState) {
-//     document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
-//     document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
-//     document.getElementById('player-options').innerHTML = `${gameState['current_player_options']}`;
-//     updatePlayerState(gameState['players']);
-// }
+// Function to update the UI based on the game state
+function updateGameState(gameState) {
+    document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
+    document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
+    // document.getElementById('player-options').innerHTML = `${gameState['current_player_options']}`;
+    updatePlayerState(gameState['players']);
+}
 
 function playerAction(action) {
     const playerOptionsContainer = document.getElementById('player-options');

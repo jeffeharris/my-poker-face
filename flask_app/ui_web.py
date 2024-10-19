@@ -12,7 +12,7 @@ import pickle
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global game messages, this is meant to test and should be moved to a more thoughtful implementation later
 # Example messages:
@@ -89,6 +89,7 @@ def game() -> str or Response:
         return redirect(url_for('end_game'))
     else:
         game_state = run_hand_until_player_turn(game_state)
+        socketio.emit('update_game_state', game_state)
         save_game_state(game_state)
         if game_state.current_phase == 'determining-winner':
             # The hand will reset when it loops back
@@ -97,11 +98,14 @@ def game() -> str or Response:
             print(winner_info)
             new_message = {
                 "sender": "table",
-                "content": winner_info,
+                "content": f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
+                           f"${winner_info['pot_total']}.\n\n"
+                           f"winning hand: {winner_info['winning_hand']}",
                 "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
                 "message_type": "table"
             }
             game_messages.append(new_message)
+            socketio.emit('new_messages', game_messages)
 
             game_state = update_poker_game_state(game_state, current_phase='hand-over')
             print(10, game_state.current_phase, "hand has ended!")
@@ -112,6 +116,7 @@ def game() -> str or Response:
         # Get action from player and update the game state
         elif game_state.awaiting_action:
             if not game_state.current_player['is_human']:
+                socketio.emit('update_game_state', game_state)
                 game_state = ai_player_action(game_state)
                 save_game_state(game_state)
                 return redirect(url_for('game'))
@@ -148,6 +153,16 @@ def player_action() -> tuple[str, int] or Response:
     else:
         app.logger.debug("Current player is AI")
     game_state = play_turn(game_state, action, amount)
+
+    new_message = {
+        "sender": "table",
+        "content": f"{current_player['name']} chose to {action} {('by ', amount) if amount else ''}.",
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "message_type": "table"
+    }
+    game_messages.append(new_message)
+    socketio.emit('new_messages', game_messages)
+
     game_state = advance_to_next_active_player(game_state)
     save_game_state(game_state)
     app.logger.debug("Game state updated successfully")
@@ -175,18 +190,27 @@ def ai_player_action(game_state):
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
 
+    new_table_message = {
+        "sender": "table",
+        "content": f"{current_player['name']} chose to {action} by {amount}.",
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "message_type": "table"
+    }
+    game_messages.append(new_table_message)
+    socketio.emit('new_messages', game_messages)
+
     print(player_message)
     print(player_physical_description)
 
     # Create a new message from the players response
-    new_message = {
+    new_ai_message = {
         "sender": current_player['name'],
-        "content": player_message,
+        "content": f"{player_message} {player_physical_description}",
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
         "message_type": "ai"
     }
-
-    game_messages.append(new_message)
+    game_messages.append(new_ai_message)
+    socketio.emit('new_messages', game_messages)
 
     app.logger.debug("Current player is AI")
     game_state = play_turn(game_state, action, amount)
@@ -236,26 +260,12 @@ def get_messages():
     return jsonify(game_messages)
 
 
-@app.route('/messages', methods=['POST'])
-def post_message():
-    message_content = request.json.get('message')
-    new_message = {
-        "sender": "Jeff",           # TODO: make this dynamic
-        "content": message_content,
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
-        "message_type": "user"
-
-    }
-    if new_message:
-        game_messages.append(new_message)
-        return jsonify({"status": "success"}), 201
-    return jsonify({"status": "error"}), 400
-
 @socketio.on('send_message')
 def handle_send_message(data):
-    content = data.get('content')
+    content = data.get('message')
     sender = data.get('sender', 'Jeff')
     message_type = data.get('message_type', 'user')
+    print(f"content received: {content}")
     message = {
         'sender': sender,
         'content': content,
@@ -263,8 +273,7 @@ def handle_send_message(data):
         'message_type': message_type
     }
     game_messages.append(message)
-    emit('new_message', game_messages)
-
+    socketio.emit('new_messages', game_messages)
 
 
 if __name__ == '__main__':
