@@ -1,80 +1,74 @@
-document.getElementById('messages-toggle-bar').addEventListener('click', function() {
-    let messages = document.getElementById('messages');
-    messages.classList.toggle('collapsed');
+document.addEventListener('DOMContentLoaded', (event) => {
+    var socket = io.connect('http://localhost:5000'); // Change the URL to match your server
+    socket.on('connect', function() {
+        console.log('Connected to websocket server');
+    });
+
+    socket.on('new_messages', function(messages) {
+        displayMessages(messages);
+    });
+
+    document.getElementById('message-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendUserMessage(socket);
+        }
+    });
+
+    document.getElementById('messages-toggle-bar').addEventListener('click', function() {
+        let messages = document.getElementById('messages');
+        messages.classList.toggle('collapsed');
+    });
+
+    // Initial fetch of messages to display
+    fetchMessages();
 });
 
-// Fetch and display messages
 function fetchMessages() {
     fetch('/messages')
         .then(response => response.json())
-        .then(data => {
-            let messagesDiv = document.getElementById('messages-display');
-            // Uncomment the following line if you want to clear previous messages
-            // messagesDiv.innerHTML = '';
-            data.forEach(msg => {
-                // Create a container for each message
-                let messageContainer = document.createElement('div');
-                messageContainer.classList.add('message-container');
-
-                // Add classes based on message_type
-                if (msg.message_type === 'user') {
-                    messageContainer.classList.add('user-message');
-                } else if (msg.message_type === 'ai') {
-                    messageContainer.classList.add('ai-message');
-                } else if (msg.message_type === 'table') {
-                    messageContainer.classList.add('table-message');
-                }
-
-                // Create and append the header containing sender and timestamp
-                let headerDiv = document.createElement('div');
-                headerDiv.classList.add('message-header');
-
-                let senderSpan = document.createElement('span');
-                senderSpan.textContent = msg.sender;
-                senderSpan.classList.add('message-sender');
-                headerDiv.appendChild(senderSpan);
-
-                let timestampSpan = document.createElement('span');
-                timestampSpan.textContent = msg.timestamp;
-                timestampSpan.classList.add('message-timestamp');
-                headerDiv.appendChild(timestampSpan);
-
-                messageContainer.appendChild(headerDiv);
-
-                // Create and append the content paragraph
-                let contentP = document.createElement('p');
-                contentP.textContent = msg.content;
-                contentP.classList.add('message-content');
-                messageContainer.appendChild(contentP);
-
-                // Append the message container to the messages display div
-                messagesDiv.appendChild(messageContainer);
-            });
-        });
+        .then(data => displayMessages(data));
 }
 
-// Send a new message
-function sendMessage() {
+function displayMessages(messages) {
+    let messagesDiv = document.getElementById('messages-display');
+    messagesDiv.innerHTML = '';  // Clear the existing messages
+
+    messages.forEach(msg => {
+        let messageContainer = document.createElement('div');
+        messageContainer.classList.add('message-container');
+        if (msg.message_type === 'user') {
+            messageContainer.classList.add('user-message');
+        } else if (msg.message_type === 'ai') {
+            messageContainer.classList.add('ai-message');
+        } else if (msg.message_type === 'table') {
+            messageContainer.classList.add('table-message');
+        }
+        let headerDiv = document.createElement('div');
+        headerDiv.classList.add('message-header');
+        let senderSpan = document.createElement('span');
+        senderSpan.textContent = msg.sender;
+        senderSpan.classList.add('message-sender');
+        headerDiv.appendChild(senderSpan);
+        let timestampSpan = document.createElement('span');
+        timestampSpan.textContent = msg.timestamp;
+        timestampSpan.classList.add('message-timestamp');
+        headerDiv.appendChild(timestampSpan);
+        messageContainer.appendChild(headerDiv);
+        let contentP = document.createElement('p');
+        contentP.textContent = msg.content;
+        contentP.classList.add('message-content');
+        messageContainer.appendChild(contentP);
+        messagesDiv.appendChild(messageContainer);
+    });
+
+    // Scroll to the bottom when there is a new message
+    let messagesDisplay = document.getElementById('messages-display');
+    messagesDisplay.scrollTop = messagesDisplay.scrollHeight;
+}
+
+function sendUserMessage(socket) {
     let messageInput = document.getElementById('message-input');
     let message = messageInput.value;
-
-    fetch('/messages', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ message: message })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            messageInput.value = '';
-            fetchMessages();
-        } else {
-            alert('Error sending message');
-        }
-    });
+    socket.emit('send_message', { message: message });
+    messageInput.value = '';
 }
-
-// Initial message fetch
-// fetchMessages();     # TODO: enable this when we start working on the messaging feature again

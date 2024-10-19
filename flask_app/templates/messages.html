@@ -1,5 +1,6 @@
 <!-- messages.html -->
-<div id="messages" class="messages collapsed">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/messages.css') }}">
+<div id="messages" class="messages">
     <div id="messages-toggle-bar" class="messages-header">
         <h3>MESSAGES</h3>
     </div>
@@ -7,8 +8,8 @@
         <!-- Messages will be filled here when fetched... -->
     </div>
     <div class="messages-input-container">
-        <input type="text" id="message-input" placeholder="Send a message..." class="message-input">
-        <button onclick="sendMessage()" title="send-button">
+        <label for="message-input"></label><input type="text" id="message-input" placeholder="Send a message..." class="message-input">
+        <button onclick="sendUserMessage()" title="send-button">
             <i class="fas fa-paper-plane"></i>
         </button>
     </div>

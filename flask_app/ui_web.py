@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+from flask_socketio import SocketIO, emit
 
 from old_files.poker_player import AIPokerPlayer
 
@@ -11,34 +12,35 @@ import pickle
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
+socketio = SocketIO(app)
 
 # Global game messages, this is meant to test and should be moved to a more thoughtful implementation later
-game_messages = [
-            {
-                "sender": "Jeff",
-                "content": "hello!",
-                "timestamp": "11:23 Aug 25 2024",
-                "message_type": "user"
-            },
-            {
-                "sender": "Kanye West",
-                "content": "the way to the truth is through my hands",
-                "timestamp": "11:25 Aug 25 2024",
-                "message_type": "ai"
-            },
-            {
-                "sender": "table",
-                "content": "The flop has been dealt",
-                "timestamp": "11:26 Aug 25 2024",
-                "message_type": "table"
-            },
-            {
-                "sender": "Jeff",
-                "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
-                "timestamp": "11:27 Aug 25 2024",
-                "message_type": "user"
-            }
-        ]
+# Example messages:
+# {
+#     "sender": "Jeff",
+#     "content": "hello!",
+#     "timestamp": "11:23 Aug 25 2024",
+#     "message_type": "user"
+# },
+# {
+#     "sender": "Kanye West",
+#     "content": "the way to the truth is through my hands",
+#     "timestamp": "11:25 Aug 25 2024",
+#     "message_type": "ai"
+# },
+# {
+#     "sender": "table",
+#     "content": "The flop has been dealt",
+#     "timestamp": "11:26 Aug 25 2024",
+#     "message_type": "table"
+# },
+# {
+#     "sender": "Jeff",
+#     "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
+#     "timestamp": "11:27 Aug 25 2024",
+#     "message_type": "user"
+# }
+game_messages = []
 
 
 # Helper function to save game state to session
@@ -50,7 +52,7 @@ def save_game_state(game_state):
 
 # Helper function to load game state from session
 def load_game_state():
-    return pickle.loads(session['game_state']) if 'game_state' in session else None
+    return pickle.loads(session['game_state']) if 'game_state' in session else app.logger.error("Game state not found in session.")
 
 
 @app.route('/')
@@ -93,6 +95,14 @@ def game() -> str or Response:
             # Determine the winner
             game_state, winner_info = determine_winner(game_state)
             print(winner_info)
+            new_message = {
+                "sender": "table",
+                "content": winner_info,
+                "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+                "message_type": "table"
+            }
+            game_messages.append(new_message)
+
             game_state = update_poker_game_state(game_state, current_phase='hand-over')
             print(10, game_state.current_phase, "hand has ended!")
             # Reset the game for a new hand
@@ -133,7 +143,6 @@ def player_action() -> tuple[str, int] or Response:
         return jsonify({'redirect': url_for('index')}), 400
 
     current_player = game_state.current_player
-    print(current_player)
     if current_player['is_human']:
         app.logger.debug("Current player is human")
     else:
@@ -165,7 +174,6 @@ def ai_player_action(game_state):
     amount = response_dict['adding_to_pot']
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
-
 
     print(player_message)
     print(player_physical_description)
@@ -229,13 +237,35 @@ def get_messages():
 
 
 @app.route('/messages', methods=['POST'])
-def add_message():
-    new_message = request.json.get('message')
+def post_message():
+    message_content = request.json.get('message')
+    new_message = {
+        "sender": "Jeff",           # TODO: make this dynamic
+        "content": message_content,
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "message_type": "user"
+
+    }
     if new_message:
         game_messages.append(new_message)
         return jsonify({"status": "success"}), 201
     return jsonify({"status": "error"}), 400
 
+@socketio.on('send_message')
+def handle_send_message(data):
+    content = data.get('content')
+    sender = data.get('sender', 'Jeff')
+    message_type = data.get('message_type', 'user')
+    message = {
+        'sender': sender,
+        'content': content,
+        'timestamp': datetime.now().strftime("%H:%M %b %d %Y"),
+        'message_type': message_type
+    }
+    game_messages.append(message)
+    emit('new_message', game_messages)
+
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    socketio.run(app, debug=True)
