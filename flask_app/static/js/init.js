@@ -24,7 +24,7 @@ function updateGameState(gameState) {
 
 function playerAction(action) {
     const playerOptionsContainer = document.getElementById('player-options');
-    playerOptionsContainer.hidden = true;
+    playerOptionsContainer.hidden = true;       // TODO: does this do anything?
 
     fetch('/action', {
        method: 'POST',
@@ -103,7 +103,7 @@ function sendUserMove(move) {
 window.onload = function() {
     document.getElementById('bet-amount').value = 100;
     document.getElementById('bet-slider').value = 100
-    loadGamePage();
+    // loadGamePage();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

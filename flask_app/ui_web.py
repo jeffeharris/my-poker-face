@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
 
 from old_files.poker_player import AIPokerPlayer
@@ -9,6 +11,34 @@ import pickle
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
+
+# Global game messages, this is meant to test and should be moved to a more thoughtful implementation later
+game_messages = [
+            {
+                "sender": "Jeff",
+                "content": "hello!",
+                "timestamp": "11:23 Aug 25 2024",
+                "message_type": "user"
+            },
+            {
+                "sender": "Kanye West",
+                "content": "the way to the truth is through my hands",
+                "timestamp": "11:25 Aug 25 2024",
+                "message_type": "ai"
+            },
+            {
+                "sender": "table",
+                "content": "The flop has been dealt",
+                "timestamp": "11:26 Aug 25 2024",
+                "message_type": "table"
+            },
+            {
+                "sender": "Jeff",
+                "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
+                "timestamp": "11:27 Aug 25 2024",
+                "message_type": "user"
+            }
+        ]
 
 
 # Helper function to save game state to session
@@ -136,8 +166,19 @@ def ai_player_action(game_state):
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
 
+
     print(player_message)
     print(player_physical_description)
+
+    # Create a new message from the players response
+    new_message = {
+        "sender": current_player['name'],
+        "content": player_message,
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "message_type": "ai"
+    }
+
+    game_messages.append(new_message)
 
     app.logger.debug("Current player is AI")
     game_state = play_turn(game_state, action, amount)
@@ -184,42 +225,14 @@ def settings():
 # TODO: <FEATURE> update these messages interactions to use socketio for real time back/forth
 @app.route('/messages', methods=['GET'])
 def get_messages():
-    return jsonify(
-        [
-            {
-                "sender": "Jeff",
-                "content": "hello!",
-                "timestamp": "11:23 Aug 25 2024",
-                "message_type": "user"
-            },
-            {
-                "sender": "Kanye West",
-                "content": "the way to the truth is through my hands",
-                "timestamp": "11:25 Aug 25 2024",
-                "message_type": "ai"
-            },
-            {
-                "sender": "table",
-                "content": "The flop has been dealt",
-                "timestamp": "11:26 Aug 25 2024",
-                "message_type": "table"
-            },
-            {
-                "sender": "Jeff",
-                "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
-                "timestamp": "11:27 Aug 25 2024",
-                "message_type": "user"
-            }
-        ]
-    )
-    # return jsonify(game['messages'])
+    return jsonify(game_messages)
 
 
 @app.route('/messages', methods=['POST'])
 def add_message():
     new_message = request.json.get('message')
     if new_message:
-        game['messages'].append(new_message)
+        game_messages.append(new_message)
         return jsonify({"status": "success"}), 201
     return jsonify({"status": "error"}), 400
 
