@@ -1,136 +1,85 @@
-from datetime import datetime
+# Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
 from flask_socketio import SocketIO, emit
+from datetime import datetime
+import time
+import pickle
 
 from old_files.poker_player import AIPokerPlayer
-
 from functional_poker import *
 from ui_console import prepare_ui_data
 from utils import get_celebrities
-import pickle
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# Global game messages, this is meant to test and should be moved to a more thoughtful implementation later
-# Example messages:
-# {
-#     "sender": "Jeff",
-#     "content": "hello!",
-#     "timestamp": "11:23 Aug 25 2024",
-#     "message_type": "user"
-# },
-# {
-#     "sender": "Kanye West",
-#     "content": "the way to the truth is through my hands",
-#     "timestamp": "11:25 Aug 25 2024",
-#     "message_type": "ai"
-# },
-# {
-#     "sender": "table",
-#     "content": "The flop has been dealt",
-#     "timestamp": "11:26 Aug 25 2024",
-#     "message_type": "table"
-# },
-# {
-#     "sender": "Jeff",
-#     "content": "I'm not sure how to respond to that Kanye, but can you share your dealers number with me?",
-#     "timestamp": "11:27 Aug 25 2024",
-#     "message_type": "user"
-# }
-game_messages = []
+# Dictionary to hold game states and messages for each game ID
+games = {}
+messages = {}
 
-
-# Helper function to save game state to session
-def save_game_state(game_state):
-    session['game_state'] = pickle.dumps(game_state)
-    app.logger.debug("Game state updated successfully")
-    # display_game_state(game_state, include_deck=False)
-
-
-# Helper function to load game state from session
-def load_game_state():
-    return pickle.loads(session['game_state']) if 'game_state' in session else app.logger.error("Game state not found in session.")
-
+# Helper function to generate unique game ID
+def generate_game_id():
+    return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
 
 @app.route('/')
 def index():
-    # Main page for initializing a new game
     return render_template('home.html')
-
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    # Initialize the game state
-    ai_player_names = get_celebrities(shuffled=True)[:3]  # Using three AI players as default
+    ai_player_names = get_celebrities(shuffled=True)[:3]
     game_state = initialize_game_state(player_names=ai_player_names)
-    save_game_state(game_state)
-    socketio.start_background_task(ai_player_action, game_state)
-    return redirect(url_for('game'))
-    # TODO: route to a new hand
+    game_id = generate_game_id()
+    games[game_id] = game_state
+    messages[game_id] = []
+    return redirect(url_for('game', game_id=game_id))
 
-
-@app.route('/game', methods=['GET'])
-def game() -> str or Response:
-    """
-    Loads and renders the current game state. Identifies what phase of the game it is in and directs the user to the
-    right next state.
-
-    :return: the rendered game template
-    """
-    game_state = load_game_state()
+@app.route('/game/<game_id>', methods=['GET'])
+def game(game_id) -> str or Response:
+    game_state = games.get(game_id)
+    game_messages = messages.get(game_id, [])
     if not game_state:
-        return redirect(url_for('index'))  # Redirect to index if there's no game state
+        return redirect(url_for('index'))
 
     num_players_remaining = len(game_state.players)
-
     if num_players_remaining == 1:
-        return redirect(url_for('end_game'))
+        return redirect(url_for('end_game', game_id=game_id))
     else:
         game_state = run_hand_until_player_turn(game_state)
-        socketio.emit('update_game_state', {'game_state': game_state.to_dict})
-        save_game_state(game_state)
+        games[game_id] = game_state
         if game_state.current_phase == 'determining-winner':
-            # The hand will reset when it loops back
-            # Determine the winner
             game_state, winner_info = determine_winner(game_state)
-            print(winner_info)
             new_message = {
                 "sender": "table",
-                "content": f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
-                           f"${winner_info['pot_total']}.\n\n"
+                "content": f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of ${winner_info['pot_total']}.\n"
                            f"winning hand: {winner_info['winning_hand']}",
-                "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+                "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
                 "message_type": "table"
             }
             game_messages.append(new_message)
-            socketio.emit('new_messages', { 'game_messages': game_messages })
+            socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
             socketio.sleep(1)
-
             game_state = update_poker_game_state(game_state, current_phase='hand-over')
-            print(10, game_state.current_phase, "hand has ended!")
-            # Reset the game for a new hand
             game_state = reset_game_state_for_new_hand(game_state=game_state)
-            save_game_state(game_state)
-            return redirect(url_for('game'))
-        # Get action from player and update the game state
+            games[game_id] = game_state
+            messages[game_id] = game_messages
+            return redirect(url_for('game', game_id=game_id))
         elif game_state.awaiting_action:
             if not game_state.current_player['is_human']:
-                socketio.emit('update_game_state', { 'game_state': game_state.to_dict })
-                game_state = ai_player_action(game_state)
-                save_game_state(game_state)
-                return redirect(url_for('game'))
+                socketio.emit('ai_action_in_progress', {'game_id': game_id})
+                socketio.start_background_task(ai_player_action, game_id)
+                messages[game_id] = game_messages
+                return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
             else:
-                return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
+                messages[game_id] = game_messages
+                return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
+    messages[game_id] = game_messages
+    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
 
-    save_game_state(game_state)
-    # Render the current game state
-    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options)
-
-@app.route('/action', methods=['POST'])
-def player_action() -> tuple[str, int] or Response:
+@app.route('/action/<game_id>', methods=['POST'])
+def player_action(game_id) -> tuple[str, int] or Response:
     try:
         data = request.get_json()
         app.logger.debug(f"Received data: {data}")
@@ -145,42 +94,36 @@ def player_action() -> tuple[str, int] or Response:
         app.logger.error(f"Error parsing request: {e}")
         return jsonify({'error': str(e)}), 400
 
-    game_state = load_game_state()
+    game_state = games.get(game_id)
+    game_messages = messages.get(game_id, [])
     if not game_state:
         return jsonify({'redirect': url_for('index')}), 400
 
     current_player = game_state.current_player
-    if current_player['is_human']:
-        app.logger.debug("Current player is human")
-    else:
-        app.logger.debug("Current player is AI")
     game_state = play_turn(game_state, action, amount)
-
     new_message = {
         "sender": "table",
-        "content": f"{current_player['name']} chose to {action} {('by ', amount) if amount else ''}.",
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "content": f"{current_player['name']} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}.",
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
         "message_type": "table"
     }
     game_messages.append(new_message)
-    socketio.emit('new_messages', { 'game_messages': game_messages })
-
+    socketio.emit('new_messages', {'game_messages': game_messages})
     game_state = advance_to_next_active_player(game_state)
-    save_game_state(game_state)
-    app.logger.debug("Game state updated successfully")
+    games[game_id] = game_state
+    messages[game_id] = game_messages
+    return jsonify({'redirect': url_for('game', game_id=game_id)})
 
-    response = jsonify({'redirect': url_for('game')})
-    app.logger.debug(f"Response: {response.get_data(as_text=True)}")
-    return response
+def ai_player_action(game_id):
+    game_state = games.get(game_id)
+    game_messages = messages.get(game_id, [])
+    if not game_state:
+        return
 
-def ai_player_action(game_state):
     current_player = game_state.current_player
-    poker_player = AIPokerPlayer(current_player['name'],starting_money=current_player['stack'],ai_temp=0.9)
+    poker_player = AIPokerPlayer(current_player['name'], starting_money=current_player['stack'], ai_temp=0.9)
     ai = poker_player.assistant
-    # for message in player_messages:
-    #     ai_assistant.assistant.add_to_memory(message)
     message = json.dumps(prepare_ui_data(game_state))
-    # print(message)
     response_dict = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
     try:
         response_dict = json.loads(response_dict)
@@ -195,80 +138,67 @@ def ai_player_action(game_state):
     new_table_message = {
         "sender": "table",
         "content": f"{current_player['name']} chose to {action} by {amount}.",
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
         "message_type": "table"
     }
     game_messages.append(new_table_message)
-    socketio.emit('new_messages', {'game_messages': game_messages})
+    socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
+    socketio.sleep(1)
 
-    print(player_message)
-    print(player_physical_description)
-
-    # Create a new message from the players response
     new_ai_message = {
         "sender": current_player['name'],
         "content": f"{player_message} {player_physical_description}",
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),  # Current time stamp in format of hh:mm Mmm dd yyyy
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
         "message_type": "ai"
     }
     game_messages.append(new_ai_message)
-    socketio.emit('new_messages', {'game_messages': game_messages})
-    socketio.sleep(1)
-
-    app.logger.debug("Current player is AI")
+    socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
     game_state = play_turn(game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)
-    return game_state
+    games[game_id] = game_state
+    messages[game_id] = game_messages
+    socketio.emit('ai_action_complete')
 
-
-@app.route('/next_round', methods=['POST'])
-def next_round():
-    # Load the current game state
-    game_state = load_game_state()
+@app.route('/next_round/<game_id>', methods=['POST'])
+def next_round(game_id):
+    game_state = games.get(game_id)
+    game_messages = messages.get(game_id, [])
     if not game_state:
         return redirect(url_for('index'))
+    games[game_id] = game_state
+    messages[game_id] = game_messages
+    return redirect(url_for('game', game_id=game_id))
 
-    # Handle end of a betting round and proceed to the next phase
-    # (e.g., deal community cards if applicable, then start next betting round)
-    # Play betting round, deal community cards etc.
-    # ...
-
-    save_game_state(game_state)
-    return redirect(url_for('game'))
-
-
-@app.route('/end_game', methods=['GET'])
-def end_game():
-    # Load the current game state
-    game_state = load_game_state()
-    if not game_state:
+@app.route('/end_game/<game_id>', methods=['GET'])
+def end_game(game_id):
+    if game_id not in games:
         return redirect(url_for('index'))
+    games.pop(game_id, None)
+    messages.pop(game_id, None)
+    return render_template('winner.html')
 
-    # Determine the winner of the game
-    session.clear()  # Clear the session after the game ends
-    return render_template('winner.html', end_game_info=end_game_info)
-
-
-@app.route('/settings')
-def settings():
-    game_state = load_game_state()
+@app.route('/settings/<game_id>')
+def settings(game_id):
+    game_state = games.get(game_id)
     if not game_state:
         return redirect(url_for('index'))
     return render_template('settings.html')
 
-
-# TODO: <FEATURE> update these messages interactions to use socketio for real time back/forth
-@app.route('/messages', methods=['GET'])
-def get_messages():
+@app.route('/messages/<game_id>', methods=['GET'])
+def get_messages(game_id):
+    game_messages = messages.get(game_id, [])
     return jsonify(game_messages)
-
 
 @socketio.on('send_message')
 def handle_send_message(data):
+    game_id = data.get('game_id')
     content = data.get('message')
-    sender = data.get('sender', 'Jeff')
+    sender = data.get('sender', 'User')
     message_type = data.get('message_type', 'user')
-    print(f"content received: {content}")
+    game_state = games.get(game_id)
+    game_messages = messages.get(game_id, [])
+    if game_state is None:
+        return
     message = {
         'sender': sender,
         'content': content,
@@ -276,8 +206,8 @@ def handle_send_message(data):
         'message_type': message_type
     }
     game_messages.append(message)
-    socketio.emit('new_messages', {'game_messages': game_messages})
-
+    messages[game_id] = game_messages
+    socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)

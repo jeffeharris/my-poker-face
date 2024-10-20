@@ -18,6 +18,13 @@ socket.on('update_game_state', function(data) {
     updateGameState(gameState);
 });
 
+// Listen for ai action complete and reload game page
+// Listen for ai action complete and reload game page
+socket.on('ai_action_complete', function(action) {
+    console.log('AI action complete:', action);
+    window.location.reload(); // Reload the current page
+});
+
 // Function to update the UI based on the game state
 function updateGameState(gameState) {
     document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
@@ -30,7 +37,7 @@ function playerAction(action) {
     const playerOptionsContainer = document.getElementById('player-options');
     playerOptionsContainer.hidden = true;       // TODO: does this do anything?
 
-    fetch('/action', {
+    fetch(`/action/${gameId}`, {
        method: 'POST',
        headers: {
            'Content-Type': 'application/json'
@@ -155,12 +162,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const amount = betAmount.value;
 
         try {
-            const response = await fetch('/action', {
+            const response = await fetch(`/action/${gameId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ action: 'raise', amount: amount })
+            })
+            .then(response => response.json())
+            .then(data => {
+               if (data.redirect) {
+                   window.location.href = data.redirect; // Navigate to updated game view
+               } else {
+                   console.error('Server error:', data.error);
+               }
+            })
+            .catch(error => {
+               console.error('Network error:', error);
             });
 
             if (!response.ok) {

@@ -6,6 +6,9 @@
 
     <title>My Poker Face</title>
 
+    <script type="text/javascript">
+        const gameId = "{{ game_id }}";     // Assign game_id from the server
+    </script>
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
     <script src="/static/js/init.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -14,7 +17,7 @@
 </head>
 <body>
     <div class="menu">
-        <a href="/">Home</a> | <a href="/game">Game</a> | <a href="/settings">Settings</a> | <a href="/about">About</a>
+        <a href="/">Home</a> | <a href="/game/{{ game_id }}">Game</a> | <a href="/settings">Settings</a> | <a href="/about">About</a>
     </div>
 
     <div class="title">
@@ -73,7 +76,7 @@
                     <input type="range" id="bet-slider" min="0" max="{{ game_state.current_player.stack }}" step="50">
                     <label for="bet-amount">Enter Amount:</label>
                     <input type="number" id="bet-amount" min="0" max="{{ game_state.current_player.stack }}" step="50">
-                    <button id="bet-submit-button" onclick="playerAction('{{ option }}')">Submit</button>
+                    <button id="bet-submit-button">Submit</button>
                 </div>
             {% else %}
                 <button class="player-action" id="{{ option }}-button" onclick="playerAction('{{ option }}')">{{ option }}</button>

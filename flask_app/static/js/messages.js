@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
 });
 
 function fetchMessages() {
-    fetch('/messages')
+    fetch(`/messages/${gameId}`)
         .then(response => response.json())
         .then(data => displayMessages(data))
 }
