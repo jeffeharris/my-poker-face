@@ -16,6 +16,18 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
 <body>
+    <!-- Game Modal -->
+    {% if game_state.current_phase == "game-initialized" %}
+    <div id="game-initialized-modal" class="popup hidden">
+        <div class="popup-content">
+            <h2>Game Initialized</h2>
+            <p>Ready to start the game? You can choose to begin the round or quit and return to the home page.</p>
+            <button type="button" id="begin-round-button">Begin Round</button>
+            <button type="button" id="quit-button">Quit</button>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="menu">
         <a href="/">Home</a> | <a href="/game/{{ game_id }}">Game</a> | <a href="/settings">Settings</a> | <a href="/about">About</a>
     </div>

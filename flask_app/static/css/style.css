@@ -321,6 +321,12 @@ input[type="number"] {
     z-index: 0; /* Ensure it's behind other content */
 }
 
+/* Dim the background when modal is active */
+.dimmed {
+    filter: brightness(0.5);
+    pointer-events: none;
+}
+
 /* Pop-up Styles */
 .hidden {
     display: none;

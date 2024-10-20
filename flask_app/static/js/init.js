@@ -1,203 +1,216 @@
+// Initialize socket connection
 var socket = io('http://localhost:5000', {
     transports: ['websocket'],
     debug: true
 });
 
-// // Function to initialize the game
-// function loadGamePage() {
-//     fetch('/game', { method: 'GET' })
-//         .then(response => response.json())
-//         .then(data => {
-//             updateGameState(data);
-//         });
-// }
-
 // Listen for game state updates from the server
 socket.on('update_game_state', function(data) {
-    let gameState = data['game_state']
+    let gameState = data['game_state'];
     updateGameState(gameState);
+
+    // If the game state is 'game_initialized', show the modal
+    if (gameState === 'game_initialized') {
+        showGameInitializedModal();
+    }
 });
 
-// Listen for ai action complete and reload game page
-// Listen for ai action complete and reload game page
+// Listen for AI action completion and reload the game page
 socket.on('ai_action_complete', function(action) {
     console.log('AI action complete:', action);
     window.location.reload(); // Reload the current page
 });
+//
+// // Function to hide the game initialized modal
+// function hideGameInitializedModal() {
+//     console.log("Hiding the game initialization modal.");
+//
+//     // Ensure both the display property and hidden class are correctly applied
+//     modal.style.display = 'none'; // Ensure the modal is visually hidden
+//     modal.classList.add('hidden');
+//     body.classList.remove('dimmed');
+// }
 
-// Function to update the UI based on the game state
+// Function to update the game state on the UI
 function updateGameState(gameState) {
     document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
     document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
-    // document.getElementById('player-options').innerHTML = `${gameState['current_player_options']}`;
     updatePlayerState(gameState['players']);
 }
 
+// Function to handle player actions
 function playerAction(action) {
-    const playerOptionsContainer = document.getElementById('player-options');
-    playerOptionsContainer.hidden = true;       // TODO: does this do anything?
+    console.log(`Player action selected: ${action}`);
 
     fetch(`/action/${gameId}`, {
-       method: 'POST',
-       headers: {
-           'Content-Type': 'application/json'
-       },
-       body: JSON.stringify({ action: action })
-   })
-   .then(response => response.json())
-   .then(data => {
-       if (data.redirect) {
-           window.location.href = data.redirect; // Navigate to updated game view
-       } else {
-           console.error('Server error:', data.error);
-       }
-   })
-   .catch(error => {
-       console.error('Network error:', error);
-   });
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: action })
+    })
+    .then(response => {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return response.json();
+        } else {
+            throw new Error("Expected JSON response but got HTML or other content type");
+        }
+    })
+    .then(data => {
+        if (data.redirect) {
+            window.location.href = data.redirect; // Navigate to updated game view
+        } else {
+            console.error('Server error:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Network error:', error);
+    });
 }
 
-// function updatePlayerState(playerState) {
-//     let playersContainer = document.getElementById('players');
-//     playersContainer.innerHTML = ''; // Clear existing content
-//
-//     playerState.forEach((player, index) => {
-//         let playerCard = document.createElement('div');
-//         playerCard.classList.add('player-card');
-//         playerCard.id = `player-${index + 1}`;
-//
-//         let playerHeadshot = document.createElement('img');
-//         playerHeadshot.src = '/static/images/kanye.jpg';
-//         playerHeadshot.classList.add('player-headshot');
-//         playerHeadshot.alt = 'Player picture';
-//
-//         let playerName = document.createElement('h2');
-//         playerName.textContent = player.name;
-//
-//         let playerMoney = document.createElement('p');
-//         playerMoney.textContent = `$${player.stack}`;
-//
-//         let playerCardsContainer = document.createElement('div');
-//         playerCardsContainer.id = `cards-player-${index + 1}`;
-//         playerCardsContainer.classList.add('player-cards');
-//
-//         player.hand.forEach(card => {
-//             let cardSpan = document.createElement('span');
-//             cardSpan.classList.add('card');
-//             // if (card.suit_symbol == '♥') cardSpan.classList.add('hearts');
-//             // if (card.suit_symbol == '♦') cardSpan.classList.add('diamonds');
-//             // if (card.suit_symbol == '♣') cardSpan.classList.add('clubs');
-//             // if (card.suit_symbol == '♠') cardSpan.classList.add('spades');
-//             if (card.suit == 'Hearts') cardSpan.classList.add('hearts');
-//             if (card.suit == 'Diamonds') cardSpan.classList.add('diamonds');
-//             if (card.suit == 'Clubs') cardSpan.classList.add('clubs');
-//             if (card.suit == 'Spades') cardSpan.classList.add('spades');
-//             cardSpan.textContent = `${card.rank} ${card.suit}`;
-//             playerCardsContainer.appendChild(cardSpan);
-//         });
-//
-//         playerCard.appendChild(playerHeadshot);
-//         playerCard.appendChild(playerName);
-//         playerCard.appendChild(playerMoney);
-//         playerCard.appendChild(playerCardsContainer);
-//
-//         playersContainer.appendChild(playerCard);
-//     });
-// }
+// Function to update the player state on the UI
+function updatePlayerState(playerState) {
+    let playersContainer = document.getElementById('players');
+    playersContainer.innerHTML = ''; // Clear existing content
 
-// // Function to send user move to the server
-// function sendUserMove(move) {
-//    socket.emit('user_move', { move: move });
-// }
+    playerState.forEach((player, index) => {
+        let playerCard = document.createElement('div');
+        playerCard.classList.add('player-card');
+        playerCard.id = `player-${index + 1}`;
 
-// Initialize game when the page loads
-window.onload = function() {
-    document.getElementById('bet-amount').value = 100;
-    document.getElementById('bet-slider').value = 100
-    // loadGamePage();
+        let playerHeadshot = document.createElement('img');
+        playerHeadshot.src = '/static/images/kanye.jpg';
+        playerHeadshot.classList.add('player-headshot');
+        playerHeadshot.alt = 'Player picture';
+
+        let playerName = document.createElement('h2');
+        playerName.textContent = player.name;
+
+        let playerMoney = document.createElement('p');
+        playerMoney.textContent = `$${player.stack}`;
+
+        let playerCardsContainer = document.createElement('div');
+        playerCardsContainer.id = `cards-player-${index + 1}`;
+        playerCardsContainer.classList.add('player-cards');
+
+        player.hand.forEach(card => {
+            let cardSpan = document.createElement('span');
+            cardSpan.classList.add('card');
+            if (card.suit === 'Hearts') cardSpan.classList.add('hearts');
+            if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
+            if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
+            if (card.suit === 'Spades') cardSpan.classList.add('spades');
+            cardSpan.textContent = `${card.rank} ${card.suit}`;
+            playerCardsContainer.appendChild(cardSpan);
+        });
+
+        playerCard.appendChild(playerHeadshot);
+        playerCard.appendChild(playerName);
+        playerCard.appendChild(playerMoney);
+        playerCard.appendChild(playerCardsContainer);
+
+        playersContainer.appendChild(playerCard);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const raiseButton = document.getElementById('raise-button');
-    const betSliderContainer = document.getElementById('bet-slider-container');
-    const betSlider = document.getElementById('bet-slider');
-    const betAmount = document.getElementById('bet-amount');
-    const submitRaiseButton = document.getElementById('bet-submit-button');
+    console.log('DOM fully loaded and parsed');
+    // ELEMENTS THAT MAY NOT EXIST ON THE PAGE YET //
+    document.body.addEventListener('click', (event) => {
+        if (event.target && event.target.id === 'begin-round-button') {
+            console.log("Begin Round button clicked.");
+            const modal = document.getElementById('game-initialized-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            fetch(`/game/${gameId}`, { method: 'GET' })
+                .then(response => {
+                    const contentType = response.headers.get("content-type");
+                    if (contentType && contentType.indexOf("application/json") !== -1) {
+                        return response.json();
+                    } else {
+                        throw new Error("Expected JSON response but got HTML or other content type");
+                    }
+                })
+                .then(data => {
+                    updateGameState(data);
+                })
+                .catch(error => {
+                    console.error('Network error:', error);
+                });
+        } else if (event.target && event.target.id === 'quit-button') {
+            console.log("Quit button clicked.");
+            const modal = document.getElementById('game-initialized-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            window.location.href = '/';
+        } else if (event.target && event.target.id === 'raise-button') {
+            console.log("Raise button clicked");
+            // Betting Elements
+            const raiseButton = document.getElementById('raise-button');
+            const betSliderContainer = document.getElementById('bet-slider-container');
+            const betSlider = document.getElementById('bet-slider');
+            const betAmount = document.getElementById('bet-amount');
+            const submitRaiseButton = document.getElementById('bet-submit-button');
 
-    raiseButton.addEventListener('click', () => {
-        console.log('Raise button clicked');
+            // Event listener for Raise
+            console.log('Raise button clicked');
+            betSliderContainer.classList.toggle('bet-slider-container-expanded');
 
-        // Toggle the expanded state
-        betSliderContainer.classList.toggle('bet-slider-container-expanded');
+            const buttonRect = raiseButton.getBoundingClientRect();
+            const centerX = buttonRect.left + (buttonRect.width / 2);
+            const containerWidth = betSliderContainer.offsetWidth;
 
-        // Get the button's position and dimensions
-        const buttonRect = raiseButton.getBoundingClientRect();
+            betSliderContainer.style.left = `${centerX - (containerWidth * 2)}px`;
 
-        // Calculate the center position
-        const centerX = buttonRect.left + (buttonRect.width / 2);
-
-        // Get the width of the bet slider container
-        const containerWidth = betSliderContainer.offsetWidth;
-
-        // Set the position of the bet slider container to be centered over the raise button
-        betSliderContainer.style.left = `${centerX - (containerWidth * 2)}px`;
-    });
-
-    betSlider.addEventListener('input', () => {
-        betAmount.value = betSlider.value;
-    });
-
-    betAmount.addEventListener('input', () => {
-        if (betAmount.value >= betSlider.min && betAmount.value <= betSlider.max) {
-            betSlider.value = betAmount.value;
-        } else if (betAmount.value < betSlider.min) {
-            betAmount.value = betSlider.min;
-        } else {
-            betAmount.value = betSlider.max;
-        }
-    });
-
-    submitRaiseButton.addEventListener('click', async () => {
-        console.log('Bet submit button clicked');
-        const amount = betAmount.value;
-
-        try {
-            const response = await fetch(`/action/${gameId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ action: 'raise', amount: amount })
-            })
-            .then(response => response.json())
-            .then(data => {
-               if (data.redirect) {
-                   window.location.href = data.redirect; // Navigate to updated game view
-               } else {
-                   console.error('Server error:', data.error);
-               }
-            })
-            .catch(error => {
-               console.error('Network error:', error);
+            // Event listener for slider and input synchronization
+            betSlider.addEventListener('input', () => {
+                betAmount.value = betSlider.value;
             });
 
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
+            betAmount.addEventListener('input', () => {
+                if (betAmount.value >= betSlider.min && betAmount.value <= betSlider.max) {
+                    betSlider.value = betAmount.value;
+                } else if (betAmount.value < betSlider.min) {
+                    betAmount.value = betSlider.min;
+                } else {
+                    betAmount.value = betSlider.max;
+                }
+            });
 
-            const result = await response.json();
-            console.log('Success:', result);
-            // Handle the successful response here.
-        } catch (error) {
-            console.error('Error:', error);
-            // Handle the error here.
+            // Event listener for submitting a raise
+            submitRaiseButton.addEventListener('click', async () => {
+                console.log('Bet submit button clicked');
+                const amount = betAmount.value;
+
+                try {
+                    const response = await fetch(`/action/${gameId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ action: 'raise', amount: amount })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+
+                    const result = await response.json();
+                    console.log('Success:', result);
+
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+
+                // Collapse the slider container after submission
+                betSliderContainer.classList.add('bet-slider-container-collapsed');
+                setTimeout(() => {
+                    betSliderContainer.style.display = 'none';
+                }, 500);
+            });
         }
-
-        // Collapse the slider container after submission
-        betSliderContainer.classList.add('bet-slider-container-collapsed');
-        setTimeout(() => {
-            betSliderContainer.style.display = 'none';
-        }, 500); // Match the timeframe to the transition duration
-    });
+    })
 });
-
