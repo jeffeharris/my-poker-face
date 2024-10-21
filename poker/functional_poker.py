@@ -4,8 +4,6 @@ from dataclasses import dataclass, field, replace
 from random import shuffle
 from typing import Tuple, Mapping, List, Any
 
-from numpy.ma.core import count
-
 from core.card import Card
 from old_files.hand_evaluator import HandEvaluator
 from utils import obj_to_dict
@@ -57,6 +55,14 @@ class PokerGameState:
     @property
     def big_blind_idx(self):
         return (self.current_dealer_idx + 2) % len(self.players)
+
+    @property
+    def no_action_taken(self):
+        """
+        Checks if no player has taken an action.
+        """
+        result = all(p.get('has_acted') is False for p in self.players)
+        return result
 
     @property
     def highest_bet(self):
@@ -598,7 +604,7 @@ def run_hand_until_player_turn(game_state):
         ##### PLAY BETTING ROUND #####
         # Loop through the betting round until the pot is valid, or it's time for a player to take a turn
 
-        if pot_is_settled:
+        if pot_is_settled and not game_state == 'determining-winner':
             print(7, game_state.current_phase, "pot is settled, dealing cards and resetting betting round")
             # TODO: check for game end conditions and advance to the next state if it's over
             ##### DEAL COMMUNITY CARDS #####
@@ -615,7 +621,7 @@ def run_hand_until_player_turn(game_state):
             game_state = update_poker_game_state(game_state, awaiting_action=True)
             return game_state
 
-    if game_state.current_phase == 'River' and pot_is_settled:
+    if (game_state.current_phase == 'River' and pot_is_settled) or game_state.current_phase == 'determining-winner':
         ##### DETERMINE HAND WINNER #####
         # Once the betting rounds have completed, it's time to evaluate the players cards and find the winner(s)
         print(9, game_state.current_phase, "there are 5 community cards, determining winner next")

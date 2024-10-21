@@ -49,7 +49,27 @@ def game(game_id) -> str or Response:
     else:
         game_state = run_hand_until_player_turn(game_state)
         games[game_id] = game_state
-        if game_state.current_phase == 'determining-winner':
+        if game_state.awaiting_action:
+            if game_state.current_phase in ['Flop', 'Turn', 'River'] and game_state.no_action_taken:
+                # Send a table messages with the cards that were dealt
+                num_cards_dealt = 3 if game_state.current_phase == 'Flop' else 1
+                message_content = (f"{game_state.current_phase} cards dealt: "
+                                   f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
+                send_message(game_id, "table", message_content, "table")
+
+            if not game_state.current_player['is_human']:
+                socketio.start_background_task(ai_player_action, game_id)
+                return render_template('poker_game.html',
+                                       game_state=game_state,
+                                       player_options=game_state.current_player_options,
+                                       game_id=game_id)
+            else:
+                return render_template('poker_game.html',
+                                       game_state=game_state,
+                                       player_options=game_state.current_player_options,
+                                       game_id=game_id)
+
+        elif game_state.current_phase == 'determining-winner':
             game_state, winner_info = determine_winner(game_state)
 
             message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
@@ -60,16 +80,7 @@ def game(game_id) -> str or Response:
             game_state = reset_game_state_for_new_hand(game_state=game_state)
             games[game_id] = game_state
             return redirect(url_for('game', game_id=game_id))
-        elif game_state.awaiting_action:
-            if not game_state.current_player['is_human']:
-                socketio.emit('ai_action_in_progress', {'game_id': game_id})
-                socketio.start_background_task(ai_player_action, game_id)
-                messages[game_id] = game_messages
-                return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
-            else:
-                messages[game_id] = game_messages
-                return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
-    messages[game_id] = game_messages
+
     return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
 
 @app.route('/action/<game_id>', methods=['POST'])
