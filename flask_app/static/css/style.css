@@ -82,8 +82,8 @@ body {
 }
 
 .player-headshot {
-    width: 100%;  /* Set desired width */
-    height: auto; /* Set desired height */
+    width: 100%;
+    height: auto;
     object-fit: cover; /* Maintain aspect ratio, crop if necessary */
 }
 
