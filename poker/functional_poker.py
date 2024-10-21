@@ -14,7 +14,7 @@ from utils import obj_to_dict
 NUM_AI_PLAYERS = 2
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000
-ANTE = 25
+ANTE = 50
 
 
 def create_deck(shuffled: bool = True):
@@ -49,6 +49,14 @@ class PokerGameState:
     @property
     def current_player(self):
         return self.players[self.current_player_idx]
+
+    @property
+    def small_blind_idx(self):
+        return (self.current_dealer_idx + 1) % len(self.players)
+
+    @property
+    def big_blind_idx(self):
+        return (self.current_dealer_idx + 2) % len(self.players)
 
     @property
     def highest_bet(self):
@@ -240,9 +248,20 @@ def draw_cards(deck, num_cards: int = 1, pos: int = 0) -> Tuple[Tuple[Mapping, .
     return cards, new_deck
 
 
-def deal_hole_cards(game_state: PokerGameState):
+def deal_hole_cards(game_state: PokerGameState) -> PokerGameState:
     """
-    Generate a new game state by removing cards from the deck and dealing to the current player.
+    Deal hole cards to active poker players in the game state starting from the first player in the list of players.
+    If there are active players, the 'deck' and player's 'hand' are updated in the returned game state. If there are
+    no active players, the game state is returned unchanged.
+
+    Notes:
+        See 'is_player_active()' for evaluation of active players.
+        Dealing starts from the 1st player in the list, does not take in to consideration dealer position.
+
+    :param game_state: (PokerGameState)
+        The current state of the poker game, which includes player information and the deck of cards.
+    :return: (PokerGameState)
+        The updated game state with new hands for active players and an updated deck.
     """
     for player in game_state.players:
         if is_player_active(player):
@@ -259,18 +278,25 @@ def deal_hole_cards(game_state: PokerGameState):
 ##################################################################
 ##################      PLAYER_ACTIONS      ######################
 ##################################################################
-def place_bet(game_state: PokerGameState, amount: int):
+def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -> PokerGameState:
     """
-    Updates the current_player and pot based on the amount bet.
-    Resets all players 'has_acted' if a raise is made.
-    Assumes:
-        - amount is an int
+    Handle the logic for a player placing a bet in a poker game, updating the game state accordingly.
 
-    Returns:
-        - updated game_state
+    :param game_state: (PokerGameState)
+        The current state of the poker game, including player information, pot details, and bet amounts.
+    :param amount: (int)
+        The amount the player wishes to bet.
+    :param player_idx: (int, optional)
+        The index of the player making the bet. If not provided, the default is the current player.
+
+    :return: (PokerGameState)
+        The updated state of the poker game after the bet has been placed.
+
+    :raises ValueError:
+        If the bet amount is less than or equal to zero or if the player does not have enough chips to cover the bet.
     """
-    # Get the current player and update their total bet amount
-    current_player = game_state.current_player
+    # Get the betting player, default to current player if betting player is not set and update their total bet amount
+    betting_player = game_state.players[player_idx] if player_idx else game_state.current_player
 
     # If the player has raised the bet we will want to reset all other players 'has_acted' flags.
     previous_high_bet = game_state.highest_bet   # Note the current high bet to compare later.
@@ -278,14 +304,14 @@ def place_bet(game_state: PokerGameState, amount: int):
     # Check to see if player has enough to bet, adjust the amount to the player stack to prevent
     # them from betting more than they have and set them to all-in if they have bet everything
     # TODO: create a new pot when a player goes all in
-    is_player_all_in = current_player['is_all_in']
-    if current_player['stack'] <= amount:
-        amount = current_player['stack']
+    is_player_all_in = betting_player['is_all_in']
+    if betting_player['stack'] <= amount:
+        amount = betting_player['stack']
         is_player_all_in = True
 
     # Update the players chip stack by removing the bet amount from the stack
-    new_stack = current_player['stack'] - amount
-    new_bet = current_player['bet'] + amount
+    new_stack = betting_player['stack'] - amount
+    new_bet = betting_player['bet'] + amount
     new_players = update_player_state(players=game_state.players,
                                      player_idx=game_state.current_player_idx,
                                      stack=new_stack,
@@ -496,17 +522,20 @@ def initialize_game_state(player_names: List[str]) -> PokerGameState:
 
 def setup_hand(game_state):
     """
-    Sets the hand up to the point before any player's need to take action.
-    This should be followed by a call to play_hand.
-    """
-    # Pre-flop actions
-    game_state = advance_to_next_active_player(game_state)
-    game_state = place_bet(game_state, ANTE)
-    game_state = advance_to_next_active_player(game_state)
-    game_state = place_bet(game_state, ANTE * 2)
-    game_state = advance_to_next_active_player(game_state)
-    game_state = deal_hole_cards(game_state)
+    Set up the initial hand by dealing hole cards and placing small and big blind bets.
 
+    :param game_state: (dict)
+        The current state of the game including players, deck, pot, etc.
+    :return: (dict)
+        Updated game state after dealing hole cards and placing initial blinds.
+    :raises KeyError:
+        If required keys are missing in the game state.
+    :raises ValueError:
+        If invalid player index or bet value is encountered.
+    """
+    game_state = deal_hole_cards(game_state)
+    game_state = place_bet(game_state, int(ANTE / 2), player_idx=game_state.small_blind_idx)
+    game_state = place_bet(game_state, ANTE, player_idx=game_state.big_blind_idx)
     return game_state
 
 
