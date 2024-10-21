@@ -1,4 +1,5 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
+from typing import Optional
 
 from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
 from flask_socketio import SocketIO, emit
@@ -39,7 +40,6 @@ def new_game():
 @app.route('/game/<game_id>', methods=['GET'])
 def game(game_id) -> str or Response:
     game_state = games.get(game_id)
-    game_messages = messages.get(game_id, [])
     if not game_state:
         return redirect(url_for('index'))
 
@@ -51,20 +51,14 @@ def game(game_id) -> str or Response:
         games[game_id] = game_state
         if game_state.current_phase == 'determining-winner':
             game_state, winner_info = determine_winner(game_state)
-            new_message = {
-                "sender": "table",
-                "content": f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of ${winner_info['pot_total']}.\n"
-                           f"winning hand: {winner_info['winning_hand']}",
-                "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-                "message_type": "table"
-            }
-            game_messages.append(new_message)
-            socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
-            socketio.sleep(1)
+
+            message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
+                               f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
+            send_message(game_id,"table", message_content, "table", 1)
+
             game_state = update_poker_game_state(game_state, current_phase='hand-over')
             game_state = reset_game_state_for_new_hand(game_state=game_state)
             games[game_id] = game_state
-            messages[game_id] = game_messages
             return redirect(url_for('game', game_id=game_id))
         elif game_state.awaiting_action:
             if not game_state.current_player['is_human']:
@@ -95,24 +89,56 @@ def player_action(game_id) -> tuple[str, int] or Response:
         return jsonify({'error': str(e)}), 400
 
     game_state = games.get(game_id)
-    game_messages = messages.get(game_id, [])
     if not game_state:
         return jsonify({'redirect': url_for('index')}), 400
 
+    # Play the current player's turn
     current_player = game_state.current_player
     game_state = play_turn(game_state, action, amount)
+
+    # Generate a message to be added to the game table
+    message_content = f"{current_player['name']} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    send_message(game_id,"table", message_content, "table")
+    game_state = advance_to_next_active_player(game_state)
+
+    # Update the game session states (global variables right now)
+    games[game_id] = game_state
+    return jsonify({'redirect': url_for('game', game_id=game_id)})
+
+
+def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
+    """
+    Send a message to the specified game chat.
+
+    :param game_id: (str)
+        The unique identifier for the game.
+    :param sender: (str)
+        The sender's username or identifier.
+    :param content: (str)
+        The message content.
+    :param message_type: (str)
+        The type of the message ['ai', 'table', 'user'].
+    :param sleep: (Optional[int])
+        Optional time to sleep after sending the message, in seconds.
+    :return: (None)
+        None
+    """
+    # Load the messages from the session and append the new message then emit the full list of messages.
+    # Not the most efficient but it works for now.
+    game_messages = messages.get(game_id, [])
     new_message = {
-        "sender": "table",
-        "content": f"{current_player['name']} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}.",
+        "sender": sender,
+        "content": content,
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-        "message_type": "table"
+        "message_type": message_type
     }
     game_messages.append(new_message)
-    socketio.emit('new_messages', {'game_messages': game_messages})
-    game_state = advance_to_next_active_player(game_state)
-    games[game_id] = game_state
+
+    # Update the messages session state
     messages[game_id] = game_messages
-    return jsonify({'redirect': url_for('game', game_id=game_id)})
+    socketio.emit('new_messages', {'game_messages': messages})
+    socketio.sleep(sleep) if sleep else None
+
 
 def ai_player_action(game_id):
     game_state = games.get(game_id)
@@ -130,29 +156,15 @@ def ai_player_action(game_id):
     except json.JSONDecodeError as e:
         raise ValueError(f"Error decoding JSON response: {e}")
 
+    # Prepare variables needed for new messages
     action = response_dict['action']
     amount = response_dict['adding_to_pot']
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
 
-    new_table_message = {
-        "sender": "table",
-        "content": f"{current_player['name']} chose to {action} by {amount}.",
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-        "message_type": "table"
-    }
-    game_messages.append(new_table_message)
-    socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
-    socketio.sleep(1)
+    send_message(game_id, "table", f"{current_player['name']} chose to {action} by {amount}.", "table", 1)
+    send_message(game_id, current_player['name'], f"{player_message} {player_physical_description}", "ai")
 
-    new_ai_message = {
-        "sender": current_player['name'],
-        "content": f"{player_message} {player_physical_description}",
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-        "message_type": "ai"
-    }
-    game_messages.append(new_ai_message)
-    socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
     game_state = play_turn(game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)
     games[game_id] = game_state
