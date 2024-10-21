@@ -206,6 +206,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     const result = await response.json();
                     console.log('Success:', result);
 
+                    // Reload the game page to force the next action. Not ideal implementation.
+                    fetch(`/game/${gameId}`, { method: 'GET' })
+                    .then(response => {
+                        const contentType = response.headers.get("content-type");
+                        if (contentType && contentType.indexOf("application/json") !== -1) {
+                            return response.json();
+                        } else {
+                            throw new Error("Expected JSON response but got HTML or other content type");
+                        }
+                    })
+                    .then(data => {
+                        updateGameState(data);
+                    })
+                    .catch(error => {
+                        console.error('Network error:', error);
+                    });
+
                 } catch (error) {
                     console.error('Error:', error);
                 }
