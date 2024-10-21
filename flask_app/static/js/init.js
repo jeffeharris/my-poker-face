@@ -154,6 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const betSlider = document.getElementById('bet-slider');
             const betAmount = document.getElementById('bet-amount');
             const submitRaiseButton = document.getElementById('bet-submit-button');
+            const doubleBetButton = document.getElementById('double-bet-amount-button')
 
             // Event listener for Raise
             console.log('Raise button clicked');
@@ -179,6 +180,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     betAmount.value = betSlider.max;
                 }
             });
+
+            doubleBetButton.addEventListener('click', () => {
+                betAmount.value = betAmount.value * 2;
+            })
 
             // Event listener for submitting a raise
             submitRaiseButton.addEventListener('click', async () => {

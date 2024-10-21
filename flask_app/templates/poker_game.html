@@ -85,10 +85,10 @@
                 <button class="player-action" id="raise-button">raise</button>
                 <div id="bet-slider-container" class="bet-slider-container bet-slider-container-collapsed">
                     <label for="bet-slider">Bet Amount:</label>
-                    <input type="range" id="bet-slider" min="0" max="{{ game_state.current_player.stack }}" step="50">
+                    <input type="range" id="bet-slider" min="0" max="{{ game_state.current_player.stack }}" step="50" value="100">
                     <label for="bet-amount">Enter Amount:</label>
-                    <input type="number" id="bet-amount" min="0" max="{{ game_state.current_player.stack }}" step="50">
-                    <button id="bet-submit-button">Submit</button>
+                    <input type="number" id="bet-amount" min="0" max="{{ game_state.current_player.stack }}" step="50" value="100">
+                    <button id="bet-submit-button">Submit</button><button id="double-bet-amount-button">X2</button>
                 </div>
             {% else %}
                 <button class="player-action" id="{{ option }}-button" onclick="playerAction('{{ option }}')">{{ option }}</button>
