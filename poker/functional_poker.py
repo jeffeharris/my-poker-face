@@ -103,7 +103,7 @@ class PokerGameState:
                 player_options.remove('check')
             if not player_has_enough_to_call or player_cost_to_call == 0:
                 player_options.remove('call')
-            if player['stack'] - self.highest_bet <= 0:
+            if player['stack'] - player_cost_to_call <= 0:
                 player_options.remove('raise')
             # if player['stack'] == 0:
             #     player_options.remove('all_in')
