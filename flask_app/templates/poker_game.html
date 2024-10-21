@@ -20,10 +20,11 @@
     {% if game_state.current_phase == "game-initialized" %}
     <div id="game-initialized-modal" class="popup hidden">
         <div class="popup-content">
-            <h2>Game Initialized</h2>
-            <p>Ready to start the game? You can choose to begin the round or quit and return to the home page.</p>
-            <button type="button" id="begin-round-button">Begin Round</button>
-            <button type="button" id="quit-button">Quit</button>
+            <p class="title">Ready to deal the cards?</p>
+            <div class="player-options content">
+                <button id="begin-round-button">Deal 'Em!</button>
+                <button id="quit-button">Quit</button>
+            </div>
         </div>
     </div>
     {% endif %}
