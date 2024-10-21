@@ -30,7 +30,7 @@ def index():
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:3]
+    ai_player_names = get_celebrities(shuffled=True)[:2]
     game_state = initialize_game_state(player_names=ai_player_names)
     game_id = generate_game_id()
     games[game_id] = game_state
