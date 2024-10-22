@@ -147,7 +147,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
 
     # Update the messages session state
     messages[game_id] = game_messages
-    socketio.emit('new_messages', {'game_messages': messages})
+    socketio.emit('new_messages', {'game_messages': game_messages})
     socketio.sleep(sleep) if sleep else None
 
 
@@ -218,19 +218,7 @@ def handle_send_message(data):
     content = data.get('message')
     sender = data.get('sender', 'User')
     message_type = data.get('message_type', 'user')
-    game_state = games.get(game_id)
-    game_messages = messages.get(game_id, [])
-    if game_state is None:
-        return
-    message = {
-        'sender': sender,
-        'content': content,
-        'timestamp': datetime.now().strftime("%H:%M %b %d %Y"),
-        'message_type': message_type
-    }
-    game_messages.append(message)
-    messages[game_id] = game_messages
-    socketio.emit('new_messages', {'game_messages': game_messages, 'game_id': game_id})
+    send_message(game_id, sender, content, message_type)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
