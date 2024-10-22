@@ -11,9 +11,9 @@ from utils import obj_to_dict
 # DEFAULTS
 NUM_AI_PLAYERS = 2
 HUMAN_NAME = "Jeff"
-STACK_SIZE = 10000
-ANTE = 50
-
+STACK_SIZE = 10000      # player starting stack
+ANTE = 50               # starting big blind
+TEST_MODE = True
 
 def create_deck(shuffled: bool = True):
     """
@@ -183,13 +183,6 @@ def create_player(name: str, stack: int = STACK_SIZE, is_human: bool = False) ->
         'has_acted': False,
         'is_human': is_human
     }
-
-
-def create_ai_players(player_names: List[str]):
-    """
-    Create the dict for each AI player name in the list of player names.
-    """
-    return tuple(create_player(name=name, is_human=False) for name in player_names)
 
 
 ##################################################################
@@ -520,7 +513,9 @@ def initialize_game_state(player_names: List[str]) -> PokerGameState:
         - set dealer, current_player
     """
     # Create a tuple of Human and AI players to be added to the game state. Using a hard-coded human name
-    new_players = (create_player(HUMAN_NAME, is_human=True),) + create_ai_players(player_names)
+    ai_players = tuple(create_player(name=n, is_human=False) for n in player_names)
+    test_players = tuple(create_player(name=n, is_human=True) for n in player_names)
+    new_players = (create_player(HUMAN_NAME, is_human=True),) + (ai_players if not TEST_MODE else test_players)
     game_state = PokerGameState(players=new_players)
 
     return game_state
