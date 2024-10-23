@@ -221,6 +221,79 @@ class PokerGameState:
         return None
 
 
+class PokerStateMachine:
+    def __init__(self, game_state: PokerGameState, controllers):
+        self.game_state = game_state
+        self.controllers = controllers
+        self.phase = GamePhase.INITIALIZING_GAME
+
+    def run(self):
+        while len(self.game_state.players) > 1:
+            if self.phase == GamePhase.INITIALIZING_GAME:
+                self.initialize_game()
+            elif self.phase == GamePhase.HAND_INITIALIZED:
+                self.setup_hand()
+            elif self.phase == GamePhase.PRE_FLOP:
+                self.pre_flop()
+            elif self.phase == GamePhase.FLOP:
+                self.flop()
+            elif self.phase == GamePhase.TURN:
+                self.turn()
+            elif self.phase == GamePhase.RIVER:
+                self.river()
+            elif self.phase == GamePhase.SHOWDOWN:
+                self.showdown()
+            elif self.phase == GamePhase.HAND_OVER:
+                self.hand_over()
+            else:
+                raise Exception(f"Invalid game phase: {self.phase}")
+
+    def initialize_game(self):
+        # Any initialization logic goes here
+        print("Initializing game...")
+        self.phase = GamePhase.HAND_INITIALIZED
+
+    def setup_hand(self):
+        self.game_state = setup_hand(self.game_state)
+        self.phase = GamePhase.PRE_FLOP
+
+    def pre_flop(self):
+        self.game_state = self.run_betting_round(GamePhase.FLOP)
+
+    def flop(self):
+        self.game_state = deal_community_cards(self.game_state)
+        self.phase = GamePhase.TURN
+        self.game_state = self.run_betting_round(GamePhase.TURN)
+
+    def turn(self):
+        self.game_state = deal_community_cards(self.game_state)
+        self.phase = GamePhase.RIVER
+        self.game_state = self.run_betting_round(GamePhase.RIVER)
+
+    def river(self):
+        self.game_state = deal_community_cards(self.game_state)
+        self.phase = GamePhase.SHOWDOWN
+        self.game_state = self.run_betting_round(GamePhase.SHOWDOWN)
+
+    def showdown(self):
+        pass
+
+    def hand_over(self):
+        self.game_state = reset_game_state_for_new_hand(self.game_state)
+        self.phase = GamePhase.HAND_INITIALIZED
+
+    def run_betting_round(self, next_phase):
+        self.game_state = reset_player_action_flags(self.game_state)
+        self.game_state = set_betting_round_start_player(self.game_state)
+        while not are_pot_contributions_valid(self.game_state):
+            current_player_idx = self.game_state.current_player_idx
+            controller = self.controllers[current_player_idx]
+            action, amount = controller.decide_action(self.game_state)
+            self.game_state = play_turn(self.game_state, action, amount)
+            self.game_state = advance_to_next_active_player(self.game_state)
+        self.phase = next_phase
+        return self.game_state
+
 ##################################################################
 ##################            CHECKS            ##################
 ##################################################################
