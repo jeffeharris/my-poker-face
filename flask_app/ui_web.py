@@ -50,14 +50,14 @@ def game(game_id) -> str or Response:
         game_state = run_hand_until_player_turn(game_state)
         games[game_id] = game_state
         if game_state.awaiting_action:
-            if game_state.current_phase in ['Flop', 'Turn', 'River'] and game_state.no_action_taken:
+            if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
-                num_cards_dealt = 3 if game_state.current_phase == 'Flop' else 1
+                num_cards_dealt = 3 if game_state.current_phase == GamePhase.FLOP else 1
                 message_content = (f"{game_state.current_phase} cards dealt: "
                                    f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
                 send_message(game_id, "table", message_content, "table")
 
-            if not game_state.current_player['is_human']:
+            if not game_state.current_player.is_human:
                 socketio.start_background_task(ai_player_action, game_id)
                 return render_template('poker_game.html',
                                        game_state=game_state,
@@ -69,14 +69,14 @@ def game(game_id) -> str or Response:
                                        player_options=game_state.current_player_options,
                                        game_id=game_id)
 
-        elif game_state.current_phase == 'determining-winner':
+        elif game_state.current_phase == GamePhase.DETERMINING_WINNER:
             game_state, winner_info = determine_winner(game_state)
 
             message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
                                f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
             send_message(game_id,"table", message_content, "table", 1)
 
-            game_state = update_poker_game_state(game_state, current_phase='hand-over')
+            game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
             game_state = reset_game_state_for_new_hand(game_state=game_state)
             games[game_id] = game_state
             return redirect(url_for('game', game_id=game_id))
@@ -108,7 +108,7 @@ def player_action(game_id) -> tuple[str, int] or Response:
     game_state = play_turn(game_state, action, amount)
 
     # Generate a message to be added to the game table
-    message_content = f"{current_player['name']} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
     send_message(game_id,"table", message_content, "table")
     game_state = advance_to_next_active_player(game_state)
 
@@ -173,7 +173,8 @@ def ai_player_action(game_id):
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
 
-    send_message(game_id, "table", f"{current_player['name']} chose to {action} by {amount}.", "table", 1)
+    table_message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    send_message(game_id, "table", table_message_content, "table", 1)
     send_message(game_id, current_player['name'], f"{player_message} {player_physical_description}", "ai")
 
     game_state = play_turn(game_state, action, amount)

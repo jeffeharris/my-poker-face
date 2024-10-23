@@ -455,6 +455,7 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
     Process the current player's turn given the action and amount provided.
     The player's 'has_acted' flag will be set to True here and is reset when
     the bet is raised or the betting round ends.
+    The game's 'awaiting_action' flag is also set to False here.
 
     Parameters:
         game_state: The current game state
@@ -473,7 +474,7 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
                                           has_acted=True)
 
     if game_state.can_big_blind_take_pre_flop_action:
-        game_state = game_state.update(pre_flop_action_taken=True)
+        game_state = game_state.update(pre_flop_action_taken=True, awaiting_action=False)
 
     return game_state
 
@@ -609,7 +610,7 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
 
         ##### PLAY BETTING ROUND #####
         # Loop through the betting round until the pot is valid, or it's time for a player to take a turn
-
+        # If the pot is settled and the game state is not in Determining Winner phase
         if pot_is_settled and game_state.current_phase != GamePhase.DETERMINING_WINNER:
             print(7, game_state.current_phase, "pot is settled, dealing cards and resetting betting round")
             # TODO: check for game end conditions and advance to the next state if it's over
@@ -627,8 +628,8 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
             game_state = game_state.update(awaiting_action=True)
             return game_state
 
+    ##### DETERMINE HAND WINNER #####
     if (game_state.current_phase == GamePhase.RIVER and pot_is_settled) or game_state.current_phase == GamePhase.DETERMINING_WINNER:
-        ##### DETERMINE HAND WINNER #####
         # Once the betting rounds have completed, it's time to evaluate the players cards and find the winner(s)
         print(9, game_state.current_phase, "there are 5 community cards, determining winner next")
         game_state = game_state.update(current_phase=GamePhase.DETERMINING_WINNER)

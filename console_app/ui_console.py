@@ -364,7 +364,6 @@ if __name__ == '__main__':
             # Get action from player and update the game state
             elif game_instance.awaiting_action:
                 game_instance = handle_player_action(game_state=game_instance)
-                game_instance = game_instance.update(awaiting_action=False)
 
         display_game_state(game_instance, include_deck=True)
         print(f"\n{game_instance.players[0].name} Won! Thanks for playing!")
