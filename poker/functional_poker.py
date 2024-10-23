@@ -3,7 +3,7 @@ from enum import Enum, auto
 from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
 from random import shuffle
-from typing import Tuple, Mapping, List, Any, Optional
+from typing import Tuple, Mapping, List, Optional
 
 from core.card import Card
 from old_files.hand_evaluator import HandEvaluator
@@ -14,7 +14,7 @@ NUM_AI_PLAYERS = 2
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000      # player starting stack
 ANTE = 50               # starting big blind
-TEST_MODE = False
+TEST_MODE = True
 
 def create_deck(shuffled: bool = True):
     """
@@ -63,8 +63,39 @@ class GamePhase(Enum):
 
 
 @dataclass(frozen=True)
+class Player:
+    name: str
+    stack: int
+    is_human: bool
+    bet: int = 0
+    hand: Tuple[Mapping, ...] = field(default_factory=tuple)
+    ### FLAGS ###
+    is_all_in: bool = False
+    is_folded: bool = False
+    has_acted: bool = False
+
+    def update(self, **kwargs):
+        return replace(self, **kwargs)
+
+    @property
+    def is_active(self) -> bool:
+        """
+        Checks if a player is active in the betting round. Active in this case means that the player is still
+        active in the hand to bet or active in the Game to be a dealer for the next hand.
+
+        Args:
+            self (Player): A dictionary representing the player's status
+
+        Returns:
+            bool: True if the player is active, False otherwise
+        """
+        player_has_no_chips = self.stack == 0
+        return not (self.is_all_in or self.is_folded or self.has_acted or player_has_no_chips)
+
+
+@dataclass(frozen=True)
 class PokerGameState:
-    players: Tuple[Mapping, ...]
+    players: Tuple[Player, ...]
     deck: Tuple[Mapping, ...] = field(default_factory=lambda: create_deck(shuffled=True))
     discard_pile: Tuple[Mapping, ...] = field(default_factory=tuple)
     pot: Mapping = field(default_factory=lambda: {'total': 0})
@@ -72,6 +103,7 @@ class PokerGameState:
     current_dealer_idx: int = 0
     community_cards: Tuple[Mapping, ...] = field(default_factory=tuple)
     current_phase: GamePhase = GamePhase.INITIALIZING_GAME
+    current_ante: int = ANTE
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
@@ -89,35 +121,35 @@ class PokerGameState:
         return json.dumps(game_state_json, indent=4)
 
     @property
-    def current_player(self):
+    def current_player(self) -> Player:
         return self.players[self.current_player_idx]
 
     @property
-    def small_blind_idx(self):
+    def small_blind_idx(self) -> int:
         return (self.current_dealer_idx + 1) % len(self.players)
 
     @property
-    def big_blind_idx(self):
+    def big_blind_idx(self) -> int:
         return (self.current_dealer_idx + 2) % len(self.players)
 
     @property
-    def no_action_taken(self):
+    def no_action_taken(self) -> bool:
         """
         Checks if no player has taken an action.
         """
-        result = all(p.get('has_acted') is False for p in self.players)
+        result = all(p.has_acted is False for p in self.players)
         return result
 
     @property
-    def highest_bet(self):
+    def highest_bet(self) -> int:
         # Determine the highest bet made to the pot by an active player in the hand
         highest_bet = 0
         for player in self.players:
-            highest_bet = player['bet'] if player['bet'] > highest_bet else highest_bet
+            highest_bet = player.bet if player.bet > highest_bet else highest_bet
         return highest_bet
 
     @property
-    def can_big_blind_take_pre_flop_action(self):
+    def can_big_blind_take_pre_flop_action(self) -> bool:
         """
         Determines if it is the pre-flop round of betting in the hand and no one has raised above the big blind ante.
 
@@ -129,12 +161,12 @@ class PokerGameState:
         """
         # Check if no community cards are dealt, which would indicate that we are in the pre-flop round of betting
         no_community_cards_dealt = len(self.community_cards) == 0
-        big_blind_player_name = self.players[(self.current_dealer_idx + 2) % len(self.players)]['name']
+        big_blind_player = self.players[self.big_blind_idx]
 
         can_raise_or_check = (
-                self.current_player['name'] == big_blind_player_name
+                self.current_player.name == big_blind_player.name
                 and no_community_cards_dealt
-                and self.highest_bet == ANTE * 2  # TODO: replace ANTE with a property of the game_state
+                and self.highest_bet == self.current_ante
                 and not self.pre_flop_action_taken
         )
         return can_raise_or_check
@@ -146,9 +178,9 @@ class PokerGameState:
         """
         player = self.current_player
         # How much is it to call the bet for the player?
-        player_cost_to_call = self.highest_bet - player['bet']
+        player_cost_to_call = self.highest_bet - player.bet
         # Does the player have enough to call
-        player_has_enough_to_call = player['stack'] > player_cost_to_call
+        player_has_enough_to_call = player.stack > player_cost_to_call
 
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if self.can_big_blind_take_pre_flop_action:
@@ -161,7 +193,7 @@ class PokerGameState:
                 player_options.remove('check')
             if not player_has_enough_to_call or player_cost_to_call == 0:
                 player_options.remove('call')
-            if player['stack'] - player_cost_to_call <= 0:
+            if player.stack - player_cost_to_call <= 0:
                 player_options.remove('raise')
             # if player['stack'] == 0:
             #     player_options.remove('all_in')
@@ -176,15 +208,15 @@ class PokerGameState:
         """
         Update a specific player's state with the provided kwargs within a player tuple
         """
-        players = list(self.players)
+        players: List[Player] = list(self.players)
         player = players[player_idx]
-        updated_player = {**player, **kwargs}
+        updated_player = player.update(**kwargs)
         players[player_idx] = updated_player
         return self.update(players=tuple(players))
 
-    def get_player_by_name(self, search_name: str) -> Optional[Tuple[Mapping, int]]:
+    def get_player_by_name(self, search_name: str) -> Optional[Tuple[Player, int]]:
         for idx, player in enumerate(self.players):
-            if player['name'] == search_name:
+            if player.name == search_name:
                 return player, idx
         return None
 
@@ -202,78 +234,10 @@ def are_pot_contributions_valid(game_state):
         return False
     # Check if all players have checked, folded, or gone all-in
     for player in game_state.players:
-        if is_player_active(player):
+        if player.is_active:
             return False
     return True
 
-
-def is_player_active(player: Mapping[str, Any]) -> bool:
-    """
-    Checks if a player is active in the betting round. Active in this case means that the player is still
-    active in the hand to bet or active in the Game to be a dealer for the next hand.
-
-    Args:
-        player (Mapping[str, Any]): A dictionary representing the player's status
-
-    Returns:
-        bool: True if the player is active, False otherwise
-    """
-    player_has_no_chips = player['stack'] == 0
-    return not (player['is_all_in'] or player['is_folded'] or player['has_acted'] or player_has_no_chips)
-
-
-##################################################################
-#################           GENERATORS           #################
-##################################################################
-# TODO: Refactor player to a dataclass
-def create_player(name: str, stack: int = STACK_SIZE, is_human: bool = False) -> Mapping[str, any]:
-    """
-    Returns a new player as a map ready to be added to a game.
-    """
-    return {
-        'name': name,
-        'stack': stack,
-        'bet': 0,
-        'hand': (),
-        'is_all_in': False,
-        'is_folded': False,
-        'has_acted': False,
-        'is_human': is_human
-    }
-
-
-##################################################################
-##################         UPDATERS         ######################
-##################################################################
-# def update_poker_game_state(
-#         game_state: PokerGameState,
-#         players: Tuple[Mapping[str, any], ...] = None,
-#         deck: Tuple[Mapping[str, any], ...] = None,
-#         discard_pile: Tuple[Mapping[str, any], ...] = None,
-#         pot: Mapping[str, any] = None,
-#         current_player_idx: int = None,
-#         current_dealer_idx: int = None,
-#         pre_flop_action_taken: bool = None,
-#         community_cards: Tuple[Mapping[str, any], ...] = None,
-#         current_phase: str = None,
-#         awaiting_action: bool = None,
-# ) -> PokerGameState:
-#     """
-#     Simplify updates to the PokerGameState
-#     """
-#     return replace(
-#         game_state,
-#         players=players or game_state.players,
-#         deck=deck or game_state.deck,
-#         discard_pile=discard_pile or game_state.discard_pile,
-#         pot=pot or game_state.pot,
-#         current_player_idx=current_player_idx if current_player_idx is not None else game_state.current_player_idx,
-#         current_dealer_idx=current_dealer_idx if current_dealer_idx is not None else game_state.current_dealer_idx,
-#         pre_flop_action_taken=pre_flop_action_taken or game_state.pre_flop_action_taken,
-#         community_cards=community_cards or game_state.community_cards,
-#         current_phase=current_phase or game_state.current_phase,
-#         awaiting_action = awaiting_action or game_state.awaiting_action
-#     )
 
 ##################################################################
 ##################      DEALER ACTIONS      ######################
@@ -308,10 +272,10 @@ def deal_hole_cards(game_state: PokerGameState) -> PokerGameState:
         The updated game state with new hands for active players and an updated deck.
     """
     for player in game_state.players:
-        if is_player_active(player):
+        if player.is_active:
             player_idx = game_state.players.index(player)
             cards, new_deck = draw_cards(deck=game_state.deck, num_cards=2)
-            new_hand = player['hand'] + cards
+            new_hand = player.hand + cards
             game_state = game_state.update_player(player_idx=player_idx, hand=new_hand)
             game_state = game_state.update(deck=new_deck)
 
@@ -340,7 +304,9 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
         If the bet amount is less than or equal to zero or if the player does not have enough chips to cover the bet.
     """
     # Get the betting player, default to current player if betting player is not set and update their total bet amount
-    betting_player = game_state.players[player_idx] if player_idx else game_state.current_player
+    player_idx = player_idx or game_state.current_player_idx
+    betting_player = game_state.players[player_idx]
+
 
     # If the player has raised the bet we will want to reset all other players 'has_acted' flags.
     previous_high_bet = game_state.highest_bet   # Note the current high bet to compare later.
@@ -348,21 +314,21 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
     # Check to see if player has enough to bet, adjust the amount to the player stack to prevent
     # them from betting more than they have and set them to all-in if they have bet everything
     # TODO: create a new pot when a player goes all in
-    is_player_all_in = betting_player['is_all_in']
-    if betting_player['stack'] <= amount:
-        amount = betting_player['stack']
+    is_player_all_in = betting_player.is_all_in
+    if betting_player.stack <= amount:
+        amount = betting_player.stack
         is_player_all_in = True
 
     # Update the players chip stack by removing the bet amount from the stack
-    new_stack = betting_player['stack'] - amount
-    new_bet = betting_player['bet'] + amount
-    game_state = game_state.update_player(player_idx=game_state.current_player_idx,
+    new_stack = betting_player.stack - amount
+    new_bet = betting_player.bet + amount
+    game_state = game_state.update_player(player_idx=player_idx,
                                           stack=new_stack,
                                           is_all_in=is_player_all_in,
                                           bet=new_bet)
 
-    # Create a new pot with updated totals for the pot and the amount contributed by the player.
-    new_pot = {**game_state.pot, 'total': game_state.pot['total'] + amount, game_state.current_player['name']: new_bet}
+    # Create a new pot with updated totals for the pot and the amount contributed by the betting player.
+    new_pot = {**game_state.pot, 'total': game_state.pot['total'] + amount, betting_player.name: new_bet}
     game_state = game_state.update(pot=new_pot)
 
     # If the players bet has raised the high bet, reset the player action flags so that they become active in the round
@@ -379,7 +345,7 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     just other players should be reset.
     """
     for player in game_state.players:
-        if player['name'] != game_state.current_player['name'] or not exclude_current_player:
+        if player.name != game_state.current_player.name or not exclude_current_player:
             game_state = game_state.update_player(player_idx=game_state.players.index(player),
                                                   has_acted=False)
     return game_state
@@ -389,7 +355,7 @@ def player_call(game_state):
     """
     Player calls the current bet
     """
-    call_amount = game_state.highest_bet - game_state.current_player['bet']
+    call_amount = game_state.highest_bet - game_state.current_player.bet
     game_state = place_bet(game_state=game_state, amount=call_amount)
     return game_state
 
@@ -405,9 +371,8 @@ def player_fold(game_state):
     """
     Player folds their hand.
     """
-    new_discard_pile = game_state.discard_pile + game_state.current_player['hand']
-    game_state = game_state.update_player(players=game_state.players,
-                                          player_idx=game_state.current_player_idx,
+    new_discard_pile = game_state.discard_pile + game_state.current_player.hand
+    game_state = game_state.update_player(player_idx=game_state.current_player_idx,
                                           is_folded=True,
                                           # Commenting out hand reset for now, keeping the cards allows for some other
                                           # ways to compare later. Removing them removes them from the UI as well.
@@ -421,7 +386,7 @@ def player_raise(game_state, amount: int):
     Player raises the current highest bet by the provided amount.
     """
     # Calculate the cost_to_call as the difference between the current highest bet and the players current bet
-    cost_to_call = game_state.highest_bet - game_state.current_player['bet']
+    cost_to_call = game_state.highest_bet - game_state.current_player.bet
     game_state = place_bet(game_state=game_state, amount=amount + cost_to_call)
     return game_state
 
@@ -430,7 +395,7 @@ def player_all_in(game_state):
     """
     Player bets all of their remaining chips.
     """
-    game_state = place_bet(game_state=game_state, amount=game_state.current_player['stack'])
+    game_state = place_bet(game_state=game_state, amount=game_state.current_player.stack)
     return game_state
 
 
@@ -513,7 +478,7 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
     return game_state
 
 
-def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx: int) -> int:
+def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx: int) -> int:
     """
     Determines the index of the next active player in the players list based on is_player_active()
 
@@ -535,7 +500,7 @@ def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx
     next_player_idx = (starting_idx + 1) % player_count
 
     while True:
-        if is_player_active(players[next_player_idx]):
+        if players[next_player_idx].is_active:
             return next_player_idx
         if next_player_idx == starting_idx:
             return starting_idx
@@ -558,9 +523,9 @@ def initialize_game_state(player_names: List[str]) -> PokerGameState:
         - set dealer, current_player
     """
     # Create a tuple of Human and AI players to be added to the game state. Using a hard-coded human name
-    ai_players = tuple(create_player(name=n, is_human=False) for n in player_names)
-    test_players = tuple(create_player(name=n, is_human=True) for n in player_names)
-    new_players = (create_player(HUMAN_NAME, is_human=True),) + (ai_players if not TEST_MODE else test_players)
+    ai_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=False) for n in player_names)
+    test_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=True) for n in player_names)
+    new_players = (Player(name=HUMAN_NAME, stack= STACK_SIZE, is_human=True),) + (ai_players if not TEST_MODE else test_players)
     game_state = PokerGameState(players=new_players)
 
     return game_state
@@ -580,8 +545,9 @@ def setup_hand(game_state: PokerGameState) -> PokerGameState:
         If invalid player index or bet value is encountered.
     """
     game_state = deal_hole_cards(game_state)
-    game_state = place_bet(game_state, int(ANTE / 2), player_idx=game_state.small_blind_idx)
-    game_state = place_bet(game_state, ANTE, player_idx=game_state.big_blind_idx)
+    hand_ante = game_state.current_ante
+    game_state = place_bet(game_state, int(hand_ante / 2), player_idx=game_state.small_blind_idx)
+    game_state = place_bet(game_state, hand_ante, player_idx=game_state.big_blind_idx)
     return game_state
 
 
@@ -595,7 +561,7 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     # Create new players with reset flags to prepare for the next round
     new_players = []
     for player in game_state.players:
-        new_player = create_player(name=player['name'], stack=player['stack'], is_human=player['is_human'])
+        new_player = Player(name=player.name, stack=player.stack, is_human=player.is_human)
         new_players.append(new_player)
 
     # Rotate the dealer position to the next active player in the game. This needs to come after the players are
@@ -606,7 +572,7 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
 
     # Remove players who have no chips left. This needs to come after the players are reset and the dealer is rotated
     # because we reference the game state's current dealer index in order to rotate.
-    new_players = [player for player in new_players if player['stack'] > 0]
+    new_players = [player for player in new_players if player.stack > 0]
 
     # Create a new game state with just the properties we want to carry over (just the new players queue)
     return PokerGameState(players=tuple(new_players))
@@ -618,7 +584,7 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
     """
     pot_is_settled = not (not are_pot_contributions_valid(game_state)
                       # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
-                      and len([p['name'] for p in game_state.players if not p['is_folded'] or not p['is_all_in']]) > 1)
+                      and len([p.name for p in game_state.players if not p.is_folded or not p.is_all_in]) > 1)
     print(1, game_state.current_phase, f'start of the function, {"pot is settled" if pot_is_settled else "pot is not settled"}')
     # Set up the hand to played if it hasn't already been set up
     if game_state.current_phase == GamePhase.INITIALIZING_GAME:
@@ -644,7 +610,7 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
         ##### PLAY BETTING ROUND #####
         # Loop through the betting round until the pot is valid, or it's time for a player to take a turn
 
-        if pot_is_settled and not game_state.current_phase == GamePhase.DETERMINING_WINNER:     # TODO: validate that the last change did not introduce a bug
+        if pot_is_settled and game_state.current_phase != GamePhase.DETERMINING_WINNER:
             print(7, game_state.current_phase, "pot is settled, dealing cards and resetting betting round")
             # TODO: check for game end conditions and advance to the next state if it's over
             ##### DEAL COMMUNITY CARDS #####
@@ -657,7 +623,7 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
             game_state = set_betting_round_start_player(game_state=game_state)
             return game_state
         else:
-            print(6, game_state.current_phase, f"pot is not settled, {game_state.current_player['name']} is up next")
+            print(6, game_state.current_phase, f"pot is not settled, {game_state.current_player.name} is up next")
             game_state = game_state.update(awaiting_action=True)
             return game_state
 
@@ -688,7 +654,7 @@ def determine_winner(game_state: PokerGameState) -> Tuple[PokerGameState, Mappin
     players_eligible_for_pot = []
     for player_name in game_state.pot:
         if not player_name == 'total':
-            has_player_folded = game_state.get_player_by_name(player_name)[0]['is_folded']
+            has_player_folded = game_state.get_player_by_name(player_name)[0].is_folded
             if not has_player_folded:
                 players_eligible_for_pot.append(player_name)
 
@@ -702,11 +668,11 @@ def determine_winner(game_state: PokerGameState) -> Tuple[PokerGameState, Mappin
 
     # Create a List with each player's hand using the Card class and Evaluate them
     for player in game_state.players:
-        if player['name'] in players_eligible_for_pot:
+        if player.name in players_eligible_for_pot:
             new_cards = []
-            for card in player['hand']:
+            for card in player.hand:
                 new_cards.append(Card(rank=card['rank'], suit=card['suit']))
-            hands.append((player['name'], HandEvaluator(new_cards + cards_prepped_for_evaluation).evaluate_hand()))
+            hands.append((player.name, HandEvaluator(new_cards + cards_prepped_for_evaluation).evaluate_hand()))
 
     # Sort the hands from best to worst
     hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
@@ -725,7 +691,7 @@ def determine_winner(game_state: PokerGameState) -> Tuple[PokerGameState, Mappin
         # Retrieve the player index for the player of the winning hand
         _ , player_idx = game_state.get_player_by_name(hand[0])
 
-        new_stack_total = game_state.pot['total']/len(winning_hands) + game_state.players[player_idx]['stack']
+        new_stack_total = game_state.pot['total']/len(winning_hands) + game_state.players[player_idx].stack
         game_state = game_state.update_player(player_idx=player_idx, stack=new_stack_total)
 
     winner_info = {

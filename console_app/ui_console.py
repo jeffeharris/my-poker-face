@@ -1,6 +1,6 @@
 # ui_console.py
 from sre_constants import error
-from typing import Optional
+from typing import Optional, Dict
 
 from old_files.poker_player import AIPokerPlayer
 
@@ -102,7 +102,7 @@ class CardRenderer:
         return hole_card_art
 
 
-def prepare_ui_data(game_state):
+def prepare_ui_data(game_state: PokerGameState) -> Tuple[Dict, List]:
     """
     Prepare the data needed for the UI to display the current game state and actions available to the player.
 
@@ -114,17 +114,17 @@ def prepare_ui_data(game_state):
         - A list of player options available for the current player.
     """
     player_options = game_state.current_player_options
-    cost_to_call_bet = game_state.highest_bet - game_state.current_player['bet']
+    cost_to_call_bet = game_state.highest_bet - game_state.current_player.bet
     current_player = game_state.current_player
-    opponents = [p['name'] for p in game_state.players if p != current_player]
+    opponents = [p.name for p in game_state.players if p != current_player]
 
     ui_data = {
         'community_cards': game_state.community_cards,
-        'player_hand': current_player['hand'],
+        'player_hand': current_player.hand,
         'pot_total': game_state.pot['total'],
-        'player_stack': current_player['stack'],
+        'player_stack': current_player.stack,
         'cost_to_call': cost_to_call_bet,
-        'player_name': current_player['name'],
+        'player_name': current_player.name,
         'opponents': opponents,
     }
 
@@ -203,8 +203,8 @@ def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
 
 
 def ai_player_action(game_state):
-    current_player = game_state.current_player
-    poker_player = AIPokerPlayer(current_player['name'],starting_money=current_player['stack'],ai_temp=0.9)
+    current_player: Player = game_state.current_player
+    poker_player = AIPokerPlayer(name=current_player.name, starting_money=current_player.stack, ai_temp=0.9)
     ai = poker_player.assistant
     # for message in player_messages:
     #     ai_assistant.assistant.add_to_memory(message)
@@ -229,7 +229,7 @@ def ai_player_action(game_state):
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
     print(f"\n{'-'*20}\n")
-    print(f"{current_player['name']} chose to {player_choice} by {amount}")
+    print(f"{current_player.name} chose to {player_choice} by {amount}")
     print(f"\"{player_message}\"")
     print(f"{player_physical_description}")
     print(f"\n{'-'*20}\n")
@@ -332,7 +332,7 @@ def display_cards(cards, display_text: Optional[str] = None):
 def handle_player_action(game_state):
     ui_data, player_options = prepare_ui_data(game_state)
 
-    if game_state.current_player['is_human']:
+    if game_state.current_player.is_human:
         action, amount = human_player_action(ui_data, player_options)
     else:
         action, amount = ai_player_action(game_state)
@@ -367,7 +367,7 @@ if __name__ == '__main__':
                 game_instance = game_instance.update(awaiting_action=False)
 
         display_game_state(game_instance, include_deck=True)
-        print(f"\n{game_instance.players[0]['name']} Won! Thanks for playing!")
+        print(f"\n{game_instance.players[0].name} Won! Thanks for playing!")
 
     except KeyboardInterrupt:
         display_game_state(game_instance, include_deck=True)
