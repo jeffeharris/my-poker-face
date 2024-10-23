@@ -342,14 +342,14 @@ if __name__ == '__main__':
                 # Determine the winner
                 game_instance, winner_info = determine_winner(game_instance)
                 display_hand_winner(winner_info)
-                game_instance = update_poker_game_state(game_instance, current_phase='hand-over')
+                game_instance = game_instance.update(current_phase='hand-over')
                 print(10, game_instance.current_phase, "hand has ended!")
                 # Reset the game for a new hand
                 game_instance = reset_game_state_for_new_hand(game_state=game_instance)
             # Get action from player and update the game state
             elif game_instance.awaiting_action:
                 game_instance = handle_player_action(game_state=game_instance)
-                game_instance = update_poker_game_state(game_instance, awaiting_action=False)
+                game_instance = game_instance.update(awaiting_action=False)
 
         display_game_state(game_instance, include_deck=True)
         print(f"\n{game_instance.players[0]['name']} Won! Thanks for playing!")

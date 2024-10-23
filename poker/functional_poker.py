@@ -41,8 +41,16 @@ class PokerGameState:
     awaiting_action: bool = False
 
     @property
-    def to_dict(self):
+    def as_dict(self):
         return obj_to_dict(PokerGameState)
+
+    @property
+    def as_json(self, include_deck=False):
+        # Convert game_state to JSON and pretty print to console
+        game_state_json = json.loads(json.dumps(self, default=lambda o: o.__dict__))
+        if not include_deck:
+            del game_state_json['deck']
+        return json.dumps(game_state_json, indent=4)
 
     @property
     def current_player(self):
@@ -125,6 +133,19 @@ class PokerGameState:
                 player_options.remove('chat')
         return player_options
 
+    def update(self, **kwargs) -> 'PokerGameState':
+        return replace(self, **kwargs)
+
+    def update_player(self, player_idx: int, **kwargs) -> 'PokerGameState':
+        """
+        Update a specific player's state with the provided kwargs within a player tuple
+        """
+        players = list(self.players)
+        player = players[player_idx]
+        updated_player = {**player, **kwargs}
+        players[player_idx] = updated_player
+        return self.update(players=tuple(players))
+
     def get_player_by_name(self, search_name: str):
         for idx, player in enumerate(self.players):
             if player['name'] == search_name:
@@ -188,47 +209,35 @@ def create_player(name: str, stack: int = STACK_SIZE, is_human: bool = False) ->
 ##################################################################
 ##################         UPDATERS         ######################
 ##################################################################
-def update_poker_game_state(
-        game_state: PokerGameState,
-        players: Tuple[Mapping[str, any], ...] = None,
-        deck: Tuple[Mapping[str, any], ...] = None,
-        discard_pile: Tuple[Mapping[str, any], ...] = None,
-        pot: Mapping[str, any] = None,
-        current_player_idx: int = None,
-        current_dealer_idx: int = None,
-        pre_flop_action_taken: bool = None,
-        community_cards: Tuple[Mapping[str, any], ...] = None,
-        current_phase: str = None,
-        awaiting_action: bool = None,
-) -> PokerGameState:
-    """
-    Simplify updates to the PokerGameState
-    """
-    return replace(
-        game_state,
-        players=players or game_state.players,
-        deck=deck or game_state.deck,
-        discard_pile=discard_pile or game_state.discard_pile,
-        pot=pot or game_state.pot,
-        current_player_idx=current_player_idx if current_player_idx is not None else game_state.current_player_idx,
-        current_dealer_idx=current_dealer_idx if current_dealer_idx is not None else game_state.current_dealer_idx,
-        pre_flop_action_taken=pre_flop_action_taken or game_state.pre_flop_action_taken,
-        community_cards=community_cards or game_state.community_cards,
-        current_phase=current_phase or game_state.current_phase,
-        awaiting_action = awaiting_action or game_state.awaiting_action
-    )
-
-
-def update_player_state(players: Tuple[Mapping, ...], player_idx: int, **state) -> Tuple[Mapping, ...]:
-    """
-    Update a specific player's state with the provided kwargs within a player tuple
-    """
-    player = players[player_idx]
-    updated_player = {**player, **state}
-    new_players = (players[:player_idx] +
-                   (updated_player,) + players[player_idx + 1:])
-    return new_players
-
+# def update_poker_game_state(
+#         game_state: PokerGameState,
+#         players: Tuple[Mapping[str, any], ...] = None,
+#         deck: Tuple[Mapping[str, any], ...] = None,
+#         discard_pile: Tuple[Mapping[str, any], ...] = None,
+#         pot: Mapping[str, any] = None,
+#         current_player_idx: int = None,
+#         current_dealer_idx: int = None,
+#         pre_flop_action_taken: bool = None,
+#         community_cards: Tuple[Mapping[str, any], ...] = None,
+#         current_phase: str = None,
+#         awaiting_action: bool = None,
+# ) -> PokerGameState:
+#     """
+#     Simplify updates to the PokerGameState
+#     """
+#     return replace(
+#         game_state,
+#         players=players or game_state.players,
+#         deck=deck or game_state.deck,
+#         discard_pile=discard_pile or game_state.discard_pile,
+#         pot=pot or game_state.pot,
+#         current_player_idx=current_player_idx if current_player_idx is not None else game_state.current_player_idx,
+#         current_dealer_idx=current_dealer_idx if current_dealer_idx is not None else game_state.current_dealer_idx,
+#         pre_flop_action_taken=pre_flop_action_taken or game_state.pre_flop_action_taken,
+#         community_cards=community_cards or game_state.community_cards,
+#         current_phase=current_phase or game_state.current_phase,
+#         awaiting_action = awaiting_action or game_state.awaiting_action
+#     )
 
 ##################################################################
 ##################      DEALER ACTIONS      ######################
@@ -267,8 +276,8 @@ def deal_hole_cards(game_state: PokerGameState) -> PokerGameState:
             player_idx = game_state.players.index(player)
             cards, new_deck = draw_cards(deck=game_state.deck, num_cards=2)
             new_hand = player['hand'] + cards
-            new_players = update_player_state(players=game_state.players, player_idx=player_idx, hand=new_hand)
-            game_state = update_poker_game_state(game_state, players=new_players, deck=new_deck)
+            game_state = game_state.update_player(player_idx=player_idx, hand=new_hand)
+            game_state = game_state.update(deck=new_deck)
 
     # Return a new game state with the updated deck and players
     return game_state
@@ -311,15 +320,14 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
     # Update the players chip stack by removing the bet amount from the stack
     new_stack = betting_player['stack'] - amount
     new_bet = betting_player['bet'] + amount
-    new_players = update_player_state(players=game_state.players,
-                                     player_idx=game_state.current_player_idx,
-                                     stack=new_stack,
-                                     is_all_in=is_player_all_in,
-                                     bet=new_bet)
+    game_state = game_state.update_player(player_idx=game_state.current_player_idx,
+                                          stack=new_stack,
+                                          is_all_in=is_player_all_in,
+                                          bet=new_bet)
 
     # Create a new pot with updated totals for the pot and the amount contributed by the player.
     new_pot = {**game_state.pot, 'total': game_state.pot['total'] + amount, game_state.current_player['name']: new_bet}
-    game_state = update_poker_game_state(game_state, players=new_players, pot=new_pot)
+    game_state = game_state.update(pot=new_pot)
 
     # If the players bet has raised the high bet, reset the player action flags so that they become active in the round
     # Exclude current player from being marked False so they don't get to take an action again unless someone else bets
@@ -336,10 +344,8 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     """
     for player in game_state.players:
         if player['name'] != game_state.current_player['name'] or not exclude_current_player:
-            new_players = update_player_state(players=game_state.players,
-                                              player_idx=game_state.players.index(player),
-                                              has_acted=False)
-            game_state = update_poker_game_state(game_state, players=new_players)
+            game_state = game_state.update_player(player_idx=game_state.players.index(player),
+                                                  has_acted=False)
     return game_state
 
 
@@ -364,12 +370,14 @@ def player_fold(game_state):
     Player folds their hand.
     """
     new_discard_pile = game_state.discard_pile + game_state.current_player['hand']
-    new_players = update_player_state(players=game_state.players,
-                                      player_idx=game_state.current_player_idx,
-                                      is_folded=True,
-                                      # hand=()         # TODO: decide whether or not to reset the hand
-                                    )
-    return update_poker_game_state(game_state, players=new_players, discard_pile=new_discard_pile)
+    game_state = game_state.update_player(players=game_state.players,
+                                          player_idx=game_state.current_player_idx,
+                                          is_folded=True,
+                                          # Commenting out hand reset for now, keeping the cards allows for some other
+                                          # ways to compare later. Removing them removes them from the UI as well.
+                                          # hand=()         # TODO: decide whether or not to reset the hand
+                                          )
+    return game_state.update(discard_pile=new_discard_pile)
 
 
 def player_raise(game_state, amount: int):
@@ -387,14 +395,6 @@ def player_all_in(game_state):
     Player bets all of their remaining chips.
     """
     game_state = place_bet(game_state=game_state, amount=game_state.current_player['stack'])
-    return game_state
-
-
-def player_players(game_state):
-    # Convert game_state to JSON and pretty print to console
-    game_state_json = json.loads(json.dumps(game_state, default=lambda o: o.__dict__))
-    del game_state_json['deck']
-    print(json.dumps(game_state_json, indent=4))
     return game_state
 
 
@@ -419,10 +419,7 @@ def set_betting_round_start_player(game_state) -> PokerGameState:
     else:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx + 2)
-
-    game_state = update_poker_game_state(game_state, current_player_idx=first_action_player_idx)
-
-    return game_state
+    return game_state.update(current_player_idx=first_action_player_idx)
 
 def deal_community_cards(game_state):
     # Deal the community cards
@@ -441,12 +438,9 @@ def deal_community_cards(game_state):
 
     cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards_to_draw)
     new_community_cards = game_state.community_cards + cards
-    game_state = update_poker_game_state(game_state,
-                                         current_phase=phase_name,
-                                         community_cards=new_community_cards,
-                                         deck=new_deck)
-
-    return game_state
+    return game_state.update(current_phase=phase_name,
+                             community_cards=new_community_cards,
+                             deck=new_deck)
 
 
 def play_turn(game_state, action, amount):
@@ -468,13 +462,11 @@ def play_turn(game_state, action, amount):
     else:
         game_state = player_action_function(game_state)
 
-    new_players = update_player_state(players=game_state.players,
-                                      player_idx=game_state.current_player_idx,
-                                      has_acted=True)
-    game_state = update_poker_game_state(game_state, players=new_players)
+    game_state = game_state.update_player(player_idx=game_state.current_player_idx,
+                                          has_acted=True)
 
     if game_state.can_big_blind_take_pre_flop_action:
-        game_state = update_poker_game_state(game_state, pre_flop_action_taken=True)
+        game_state = game_state.update(pre_flop_action_taken=True)
 
     return game_state
 
@@ -502,7 +494,7 @@ def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
     Move to the next active player in the game.
     """
     next_active_player_idx = get_next_active_player_idx(players=game_state.players, relative_player_idx=game_state.current_player_idx)
-    return update_poker_game_state(game_state=game_state, current_player_idx=next_active_player_idx)
+    return game_state.update(current_player_idx=next_active_player_idx)
 
 
 def initialize_game_state(player_names: List[str]) -> PokerGameState:
@@ -578,7 +570,7 @@ def run_hand_until_player_turn(game_state):
     # Set up the hand to played if it hasn't already been set up
     if game_state.current_phase == 'initializing-game':
         game_state = setup_hand(game_state)
-        game_state = update_poker_game_state(game_state, current_phase='game-initialized')
+        game_state = game_state.update(current_phase='game-initialized')
         print(2, game_state.current_phase, 'game is ready')
         return game_state
 
@@ -588,12 +580,12 @@ def run_hand_until_player_turn(game_state):
         print(3, game_state.current_phase, f"there are {len(game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
         # Set up the betting round if the betting round hasn't started yet
         if game_state.current_phase == 'game-initialized':
-            game_state = update_poker_game_state(game_state, current_phase='hand-initialized')
+            game_state = game_state.update(current_phase='hand-initialized')
             print(4, game_state.current_phase, "hand is ready")
 
         if game_state.current_phase == 'hand-initialized':
             game_state = set_betting_round_start_player(game_state=game_state)
-            game_state = update_poker_game_state(game_state, current_phase='Pre-flop')
+            game_state = game_state.update(current_phase='Pre-flop')
             print(5, game_state.current_phase, "betting round players set ready to start")
 
         ##### PLAY BETTING ROUND #####
@@ -613,14 +605,14 @@ def run_hand_until_player_turn(game_state):
             return game_state
         else:
             print(6, game_state.current_phase, f"pot is not settled, {game_state.current_player['name']} is up next")
-            game_state = update_poker_game_state(game_state, awaiting_action=True)
+            game_state = game_state.update(awaiting_action=True)
             return game_state
 
     if (game_state.current_phase == 'River' and pot_is_settled) or game_state.current_phase == 'determining-winner':
         ##### DETERMINE HAND WINNER #####
         # Once the betting rounds have completed, it's time to evaluate the players cards and find the winner(s)
         print(9, game_state.current_phase, "there are 5 community cards, determining winner next")
-        game_state = update_poker_game_state(game_state, current_phase='determining-winner')
+        game_state = game_state.update(current_phase='determining-winner')
 
     return game_state
 
@@ -681,8 +673,7 @@ def determine_winner(game_state):
         _ , player_idx = game_state.get_player_by_name(hand[0])
 
         new_stack_total = game_state.pot['total']/len(winning_hands) + game_state.players[player_idx]['stack']
-        new_players = update_player_state(game_state.players, player_idx=player_idx, stack=new_stack_total)
-        game_state = update_poker_game_state(game_state, players=new_players)
+        game_state = game_state.update(player_idx=player_idx, stack=new_stack_total)
 
     winner_info = {
         'winning_player_names': winning_player_names,
