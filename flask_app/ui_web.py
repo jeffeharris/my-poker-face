@@ -2,10 +2,9 @@
 from typing import Optional
 
 from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO
 from datetime import datetime
 import time
-import pickle
 
 from old_files.poker_player import AIPokerPlayer
 from functional_poker import *
