@@ -1,4 +1,5 @@
 # ui_console.py
+from sre_constants import error
 from typing import Optional
 
 from old_files.poker_player import AIPokerPlayer
@@ -212,8 +213,15 @@ def ai_player_action(game_state):
     response_json = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
     try:
         response_dict = json.loads(response_json)
+        if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
+            raise ValueError("AI response is missing required keys.")
     except json.JSONDecodeError as e:
-        raise ValueError(f"Error decoding JSON response: {e}")
+        # Let the player choose the AI action if there is an error.
+        ui_data, player_options = prepare_ui_data(game_state)
+        ui_data['error_response'] = response_json
+        player_choice, amount = human_player_action(ui_data=ui_data,
+                                                    player_options=player_options,)
+        return player_choice, amount
 
     # print(response_json)
     player_choice = response_dict['action']
@@ -234,9 +242,16 @@ def human_player_action(ui_data: dict, player_options: List[str]) -> Tuple[str, 
     Console UI is used to update the player with the relevant game state info and receives input.
     This will return a tuple as ( action, amount ) for the players bet.
     """
-    # Render the player's cards using the CardRenderer.
-    rendered_hole_cards = CardRenderer().render_hole_cards(
-        [Card(c['rank'], c['suit']) for c in ui_data['player_hand']])
+    player_name = ui_data['player_name']
+    player_hand = ui_data['player_hand']
+
+    try:
+        # Render the player's cards using the CardRenderer.
+        rendered_hole_cards = CardRenderer().render_hole_cards(
+            [Card(c['rank'], c['suit']) for c in player_hand])
+    except:
+        print(f"{player_name} has no cards.")
+        raise ValueError('Missing cards. Please check your hand.')
 
     # Display information to the user
     if len(ui_data['community_cards']) > 0:
@@ -337,12 +352,12 @@ if __name__ == '__main__':
         # Loop playing a hand until there is 1 player remaining
         while len(game_instance.players) > 1:
             game_instance = run_hand_until_player_turn(game_state=game_instance)
-            if game_instance.current_phase == 'determining-winner':
+            if game_instance.current_phase == GamePhase.DETERMINING_WINNER:
                 # The hand will reset when it loops back
                 # Determine the winner
                 game_instance, winner_info = determine_winner(game_instance)
                 display_hand_winner(winner_info)
-                game_instance = game_instance.update(current_phase='hand-over')
+                game_instance = game_instance.update(current_phase=GamePhase.HAND_OVER)
                 print(10, game_instance.current_phase, "hand has ended!")
                 # Reset the game for a new hand
                 game_instance = reset_game_state_for_new_hand(game_state=game_instance)
