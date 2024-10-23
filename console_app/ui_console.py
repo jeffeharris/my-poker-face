@@ -2,9 +2,10 @@
 from sre_constants import error
 from typing import Optional, Dict
 
+from controllers import HumanPlayerController, AIPlayerController
 from old_files.poker_player import AIPokerPlayer
 
-from assistants import OpenAILLMAssistant
+from assistants import OpenAILLMAssistant, LLMAssistant
 from functional_poker import *
 from spades_game import assistant
 from utils import get_celebrities
@@ -202,15 +203,13 @@ def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
     return hand_update_message
 
 
-def ai_player_action(game_state):
+def ai_player_action(game_state, ai_assistant: OpenAILLMAssistant):
     current_player: Player = game_state.current_player
-    poker_player = AIPokerPlayer(name=current_player.name, starting_money=current_player.stack, ai_temp=0.9)
-    ai = poker_player.assistant
     # for message in player_messages:
     #     ai_assistant.assistant.add_to_memory(message)
     message = json.dumps(prepare_ui_data(game_state))
     # print(message)
-    response_json = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
+    response_json = ai_assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
     try:
         response_dict = json.loads(response_json)
         if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
@@ -346,29 +345,38 @@ def handle_player_action(game_state):
 if __name__ == '__main__':
     # Get AI player names and initialize the game instance
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
-    game_instance = initialize_game_state(player_names=ai_player_names)
+    game_state = initialize_game_state(player_names=ai_player_names)
+
+    controllers = []
+    for player in game_state.players:
+        if player.is_human:
+            controllers.append(HumanPlayerController(player.name))
+        else:
+            controllers.append(AIPlayerController(player.name))
+
+    state_machine = PokerStateMachine(game_state, controllers)
 
     try:
-        # Loop playing a hand until there is 1 player remaining
-        while len(game_instance.players) > 1:
-            game_instance = run_hand_until_player_turn(game_state=game_instance)
-            if game_instance.current_phase == GamePhase.DETERMINING_WINNER:
-                # The hand will reset when it loops back
-                # Determine the winner
-                game_instance, winner_info = determine_winner(game_instance)
-                display_hand_winner(winner_info)
-                game_instance = game_instance.update(current_phase=GamePhase.HAND_OVER)
-                print(10, game_instance.current_phase, "hand has ended!")
-                # Reset the game for a new hand
-                game_instance = reset_game_state_for_new_hand(game_state=game_instance)
-            # Get action from player and update the game state
-            elif game_instance.awaiting_action:
-                game_instance = handle_player_action(game_state=game_instance)
-                game_instance = game_instance.update(awaiting_action=False)
-
-        display_game_state(game_instance, include_deck=True)
-        print(f"\n{game_instance.players[0].name} Won! Thanks for playing!")
+        # # Loop playing a hand until there is 1 player remaining
+        # while len(game_instance.players) > 1:
+        #     game_instance = run_hand_until_player_turn(game_state=game_instance)
+        #     if game_instance.current_phase == GamePhase.DETERMINING_WINNER:
+        #         # The hand will reset when it loops back
+        #         # Determine the winner
+        #         game_instance, winner_info = determine_winner(game_instance)
+        #         display_hand_winner(winner_info)
+        #         game_instance = game_instance.update(current_phase=GamePhase.HAND_OVER)
+        #         print(10, game_instance.current_phase, "hand has ended!")
+        #         # Reset the game for a new hand
+        #         game_instance = reset_game_state_for_new_hand(game_state=game_instance)
+        #     # Get action from player and update the game state
+        #     elif game_instance.awaiting_action:
+        #         game_instance = handle_player_action(game_state=game_instance)
+        #         game_instance = game_instance.update(awaiting_action=False)
+        state_machine.run()
+        display_game_state(state_machine.game_state, include_deck=True)
+        print(f"\n{state_machine.game_state.players[0].name} Won! Thanks for playing!")
 
     except KeyboardInterrupt:
-        display_game_state(game_instance, include_deck=True)
+        display_game_state(state_machine.game_state, include_deck=True)
         print("\nGame interrupted. Thanks for playing!")

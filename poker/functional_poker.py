@@ -32,7 +32,7 @@ class GamePhase(Enum):
     An enum class that represents different phases of the poker game.
     """
     INITIALIZING_GAME = auto()
-    GAME_INITIALIZED = auto()
+    INITIALIZING_HAND = auto()
     HAND_INITIALIZED = auto()
     PRE_FLOP = auto()
     FLOP = auto()
@@ -46,7 +46,7 @@ class GamePhase(Enum):
     def _to_string(cls, phase):
         phase_to_strings = {
             cls.INITIALIZING_GAME: "Initializing Game",
-            cls.GAME_INITIALIZED: "Game Initialized",
+            cls.INITIALIZING_HAND: "Game Initialized",
             cls.HAND_INITIALIZED: "Hand Initialized",
             cls.PRE_FLOP: "Pre-Flop",
             cls.FLOP: "Flop",
@@ -229,10 +229,17 @@ class PokerStateMachine:
 
     def run(self):
         while len(self.game_state.players) > 1:
+            game_state = self.game_state
+            pot_is_settled = not (not are_pot_contributions_valid(game_state)
+                                  # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
+                                  and len(
+                        [p.name for p in game_state.players if not p.is_folded or not p.is_all_in]) > 1)
+            print(1, game_state.current_phase,
+                  f'start of the function, {"pot is settled" if pot_is_settled else "pot is not settled"}')
             if self.phase == GamePhase.INITIALIZING_GAME:
                 self.initialize_game()
-            elif self.phase == GamePhase.HAND_INITIALIZED:
-                self.setup_hand()
+            elif self.phase == GamePhase.INITIALIZING_HAND:
+                self.initialize_hand()
             elif self.phase == GamePhase.PRE_FLOP:
                 self.pre_flop()
             elif self.phase == GamePhase.FLOP:
@@ -249,11 +256,13 @@ class PokerStateMachine:
                 raise Exception(f"Invalid game phase: {self.phase}")
 
     def initialize_game(self):
-        # Any initialization logic goes here
-        print("Initializing game...")
-        self.phase = GamePhase.HAND_INITIALIZED
+        game_state = setup_hand(self.game_state)
+        game_state = self.game_state.update(current_phase=GamePhase.INITIALIZING_HAND)
+        self.phase = GamePhase.INITIALIZING_HAND
+        self.game_state = game_state
+        print(2, self.game_state.current_phase, 'game is ready')
 
-    def setup_hand(self):
+    def initialize_hand(self):
         self.game_state = setup_hand(self.game_state)
         self.phase = GamePhase.PRE_FLOP
 
@@ -262,7 +271,7 @@ class PokerStateMachine:
 
     def flop(self):
         self.game_state = deal_community_cards(self.game_state)
-        self.phase = GamePhase.TURN
+        self.phase = GamePhase.INITIALIZING_HAND
         self.game_state = self.run_betting_round(GamePhase.TURN)
 
     def turn(self):
@@ -283,16 +292,26 @@ class PokerStateMachine:
         self.phase = GamePhase.HAND_INITIALIZED
 
     def run_betting_round(self, next_phase):
+        self.start_betting_round(next_phase)
+        while not are_pot_contributions_valid(self.game_state):
+            self.process_next_player_action()
+    # Betting round is over; the phase will be updated in process_next_player_action if needed
+
+    def start_betting_round(self, next_phase):
         self.game_state = reset_player_action_flags(self.game_state)
         self.game_state = set_betting_round_start_player(self.game_state)
-        while not are_pot_contributions_valid(self.game_state):
+        self.next_phase = next_phase
+
+    def process_next_player_action(self):
+        if not are_pot_contributions_valid(self.game_state):
             current_player_idx = self.game_state.current_player_idx
             controller = self.controllers[current_player_idx]
             action, amount = controller.decide_action(self.game_state)
             self.game_state = play_turn(self.game_state, action, amount)
             self.game_state = advance_to_next_active_player(self.game_state)
-        self.phase = next_phase
-        return self.game_state
+        else:
+            # Betting round is over
+            self.phase = self.next_phase
 
 ##################################################################
 ##################            CHECKS            ##################
@@ -662,7 +681,7 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
     # Set up the hand to played if it hasn't already been set up
     if game_state.current_phase == GamePhase.INITIALIZING_GAME:
         game_state = setup_hand(game_state)
-        game_state = game_state.update(current_phase=GamePhase.GAME_INITIALIZED)
+        game_state = game_state.update(current_phase=GamePhase.INITIALIZING_HAND)
         print(2, game_state.current_phase, 'game is ready')
         return game_state
 
@@ -671,7 +690,7 @@ def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
     if game_state.current_phase != GamePhase.RIVER or (game_state.current_phase == GamePhase.RIVER and not pot_is_settled):
         print(3, game_state.current_phase, f"there are {len(game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
         # Set up the betting round if the betting round hasn't started yet
-        if game_state.current_phase == GamePhase.GAME_INITIALIZED:
+        if game_state.current_phase == GamePhase.INITIALIZING_HAND:
             game_state = game_state.update(current_phase=GamePhase.HAND_INITIALIZED)
             print(4, game_state.current_phase, "hand is ready")
 
