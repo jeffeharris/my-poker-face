@@ -471,9 +471,20 @@ def play_turn(game_state, action, amount):
     return game_state
 
 
-def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx: int) -> int or None:
+def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx: int) -> int:
     """
-    Find the index for the next active player in the game.
+    Determines the index of the next active player in the players list based on is_player_active()
+
+    :param players: (Tuple[Mapping, ...])
+        A tuple of player mappings where each mapping represents player data.
+    :param relative_player_idx: (int)
+        The index of the current player.
+
+    :return: (int)
+        The index of the next active player.
+
+    :raises ValueError:
+        If there are no active players in the list.
     """
     player_count = len(players)
     # Start with the next player in the queue, save the starting index for later so we can take action
@@ -485,7 +496,7 @@ def get_next_active_player_idx(players: Tuple[Mapping, ...], relative_player_idx
         if is_player_active(players[next_player_idx]):
             return next_player_idx
         if next_player_idx == starting_idx:
-            break
+            return starting_idx
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
 
