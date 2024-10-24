@@ -65,7 +65,7 @@ def game(game_id) -> str or Response:
                                        player_options=game_state.current_player_options,
                                        game_id=game_id)
 
-        elif game_state.current_phase == GamePhase.DETERMINING_WINNER:
+        elif game_state.current_phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
 
             message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "

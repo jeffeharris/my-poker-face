@@ -22,10 +22,10 @@ class ConsolePlayerController(PlayerController):
 
 
 class AIPlayerController(PlayerController):
-    def __init__(self, player, ai_temp=0.9):
-        super().__init__(player)
+    def __init__(self, player_name, ai_temp=0.9):
+        super().__init__(player_name)
         self.ai_temp = ai_temp
-        self.assistant = AIPokerPlayer(player.name, starting_money=player.stack, ai_temp=ai_temp).assistant
+        self.assistant = AIPokerPlayer(player_name, ai_temp=ai_temp).assistant
 
     def decide_action(self, game_state):
         message = json.dumps(prepare_ui_data(game_state))

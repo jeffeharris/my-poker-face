@@ -1,10 +1,16 @@
 # ui_console.py
+import os
+from dotenv import load_dotenv
+
 from card import CardRenderer
 from controllers import ConsolePlayerController, AIPlayerController, human_player_action, display_player_turn_update
 
 from functional_poker import *
+from old_files.poker_player import AIPokerPlayer
 from utils import get_celebrities, prepare_ui_data
 
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 def display_ai_player_action(player_name: str, response_dict: dict):
     player_choice = response_dict['action']
@@ -53,9 +59,14 @@ def handle_player_action(game_state):
         display_player_turn_update(ui_data=ui_data, player_options=player_options)
         action, amount = human_player_action(ui_data, player_options)
     else:
-        ai_controller = AIPlayerController(game_state.current_player.name)
-        action, amount, response_dict = ai_player_action(game_state, ai_controller.assistant)
-        display_ai_player_action(game_state.current_player.name, action)
+        # ai_controller = AIPlayerController(game_state.current_player.name)
+        # action, amount, response_dict = ai_player_action(game_state, ai_controller.assistant)
+        ai_assistant = AIPokerPlayer(name=game_state.current_player.name,
+                                     starting_money=game_state.current_player.stack).assistant
+        ai_assistant.api_key = OPENAI_API_KEY
+        response_dict = ai_player_action(game_state=game_state, ai_assistant=ai_assistant)
+        display_ai_player_action(game_state.current_player.name, response_dict)
+        action, amount = (response_dict['action'], response_dict['amount'])
 
     game_state = play_turn(game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)
@@ -68,6 +79,8 @@ if __name__ == '__main__':
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
     game_instance = initialize_game_state(player_names=ai_player_names)
 
+    # Create a controller for each player in the game.
+    # Could consider a single controller for the AI
     controllers = []
     for player in game_instance.players:
         if player.is_human:
