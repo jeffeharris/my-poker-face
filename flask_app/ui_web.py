@@ -1,15 +1,11 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
-from typing import Optional
-
 from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO
 from datetime import datetime
 import time
-import pickle
 
 from old_files.poker_player import AIPokerPlayer
 from functional_poker import *
-from ui_console import prepare_ui_data
 from utils import get_celebrities
 
 app = Flask(__name__)
@@ -50,14 +46,14 @@ def game(game_id) -> str or Response:
         game_state = run_hand_until_player_turn(game_state)
         games[game_id] = game_state
         if game_state.awaiting_action:
-            if game_state.current_phase in ['Flop', 'Turn', 'River'] and game_state.no_action_taken:
+            if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
                 num_cards_dealt = 3 if game_state.current_phase == 'Flop' else 1
                 message_content = (f"{game_state.current_phase} cards dealt: "
                                    f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
                 send_message(game_id, "table", message_content, "table")
 
-            if not game_state.current_player['is_human']:
+            if not game_state.current_player.is_human:
                 socketio.start_background_task(ai_player_action, game_id)
                 return render_template('poker_game.html',
                                        game_state=game_state,
@@ -69,14 +65,14 @@ def game(game_id) -> str or Response:
                                        player_options=game_state.current_player_options,
                                        game_id=game_id)
 
-        elif game_state.current_phase == 'determining-winner':
+        elif game_state.current_phase == GamePhase.DETERMINING_WINNER:
             game_state, winner_info = determine_winner(game_state)
 
             message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
                                f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
             send_message(game_id,"table", message_content, "table", 1)
 
-            game_state = update_poker_game_state(game_state, current_phase='hand-over')
+            game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
             game_state = reset_game_state_for_new_hand(game_state=game_state)
             games[game_id] = game_state
             return redirect(url_for('game', game_id=game_id))
@@ -108,7 +104,7 @@ def player_action(game_id) -> tuple[str, int] or Response:
     game_state = play_turn(game_state, action, amount)
 
     # Generate a message to be added to the game table
-    message_content = f"{current_player['name']} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
     send_message(game_id,"table", message_content, "table")
     game_state = advance_to_next_active_player(game_state)
 
@@ -151,21 +147,39 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     socketio.sleep(sleep) if sleep else None
 
 
-def ai_player_action(game_id):
+# def ai_player_action(game_id):
+#     game_state = games.get(game_id)
+#     if not game_state:
+#         return
+#
+#     current_player = game_state.current_player
+#     poker_player = AIPokerPlayer(name=current_player.name, starting_money=current_player.stack, ai_temp=0.9)
+#     ai = poker_player.assistant
+#     message = json.dumps(prepare_ui_data(game_state))
+#     response_dict = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
+#     try:
+#         response_dict = json.loads(response_dict)
+#     except json.JSONDecodeError as e:
+#         raise ValueError(f"Error decoding JSON response: {e}")
+#     return response_dict
+
+def handle_ai_action(game_id: int) -> None:
+    """
+    Handle an AI player's action in the game.
+
+    :param game_id: (int)
+        The ID of the game for which the AI action is being handled.
+    :return: (None)
+    """
     game_state = games.get(game_id)
     game_messages = messages.get(game_id, [])
     if not game_state:
         return
 
     current_player = game_state.current_player
-    poker_player = AIPokerPlayer(current_player['name'], starting_money=current_player['stack'], ai_temp=0.9)
-    ai = poker_player.assistant
-    message = json.dumps(prepare_ui_data(game_state))
-    response_dict = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
-    try:
-        response_dict = json.loads(response_dict)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Error decoding JSON response: {e}")
+    ai_assistant = AIPokerPlayer(name=current_player.name, starting_money=current_player.stack, ai_temp=0.9).assistant
+
+    response_dict = ai_player_action(game_state=game_state, ai_assistant=ai_assistant)
 
     # Prepare variables needed for new messages
     action = response_dict['action']
@@ -173,8 +187,8 @@ def ai_player_action(game_id):
     player_message = response_dict['persona_response']
     player_physical_description = response_dict['physical']
 
-    send_message(game_id, "table", f"{current_player['name']} chose to {action} by {amount}.", "table", 1)
-    send_message(game_id, current_player['name'], f"{player_message} {player_physical_description}", "ai")
+    send_message(game_id, "table", f"{current_player.name} chose to {action} by {amount}.", "table", 1)
+    send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai")
 
     game_state = play_turn(game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)
