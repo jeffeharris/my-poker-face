@@ -3,11 +3,12 @@ from enum import Enum, auto
 from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
 from random import shuffle
-from typing import Tuple, Mapping, List, Optional
+from typing import Tuple, Mapping, List, Optional, Dict
 
+from assistants import OpenAILLMAssistant
 from core.card import Card
 from old_files.hand_evaluator import HandEvaluator
-from utils import obj_to_dict
+from utils import obj_to_dict, prepare_ui_data
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
@@ -226,81 +227,80 @@ class PokerStateMachine:
         self.game_state = game_state
         self.controllers = controllers
         self.phase = GamePhase.INITIALIZING_GAME
+        self.snapshots = []
+
+    @property
+    def next_phase(self):
+        current_phase = self.phase
+        phase_map = {
+            GamePhase.PRE_FLOP: GamePhase.FLOP,
+            GamePhase.FLOP: GamePhase.TURN,
+            GamePhase.TURN: GamePhase.RIVER,
+            GamePhase.RIVER: GamePhase.DETERMINING_WINNER
+        }
+        return phase_map[current_phase]
 
     def run(self):
         while len(self.game_state.players) > 1:
+            self.snapshots.append(self.game_state)
             game_state = self.game_state
             pot_is_settled = not (not are_pot_contributions_valid(game_state)
                                   # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
                                   and len(
                         [p.name for p in game_state.players if not p.is_folded or not p.is_all_in]) > 1)
             print(1, game_state.current_phase,
-                  f'start of the function, {"pot is settled" if pot_is_settled else "pot is not settled"}')
+                  f'start of the run, {"pot is settled" if pot_is_settled else "pot is not settled"}')
             if self.phase == GamePhase.INITIALIZING_GAME:
                 self.initialize_game()
             elif self.phase == GamePhase.INITIALIZING_HAND:
                 self.initialize_hand()
             elif self.phase == GamePhase.PRE_FLOP:
-                self.pre_flop()
-            elif self.phase == GamePhase.FLOP:
-                self.flop()
-            elif self.phase == GamePhase.TURN:
-                self.turn()
-            elif self.phase == GamePhase.RIVER:
-                self.river()
+                self.run_betting_round()
+            elif self.phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER]:
+                self.game_state = deal_community_cards(self.game_state)
+                self.run_betting_round()
             elif self.phase == GamePhase.SHOWDOWN:
                 self.showdown()
+            elif self.phase == GamePhase.DETERMINING_WINNER:
+                self.game_state, winner_info = determine_winner(self.game_state)
+                self.game_state = self.game_state.update(current_phase=GamePhase.HAND_OVER)
+                self.phase = GamePhase.HAND_OVER
             elif self.phase == GamePhase.HAND_OVER:
                 self.hand_over()
             else:
                 raise Exception(f"Invalid game phase: {self.phase}")
 
     def initialize_game(self):
-        game_state = setup_hand(self.game_state)
-        game_state = self.game_state.update(current_phase=GamePhase.INITIALIZING_HAND)
+        self.game_state = setup_hand(self.game_state)
+        self.game_state = self.game_state.update(current_phase=GamePhase.INITIALIZING_HAND)
         self.phase = GamePhase.INITIALIZING_HAND
-        self.game_state = game_state
         print(2, self.game_state.current_phase, 'game is ready')
 
     def initialize_hand(self):
-        self.game_state = setup_hand(self.game_state)
+        # self.game_state = setup_hand(self.game_state)
+        self.game_state = self.game_state.update(current_phase=GamePhase.PRE_FLOP)
         self.phase = GamePhase.PRE_FLOP
-
-    def pre_flop(self):
-        self.game_state = self.run_betting_round(GamePhase.FLOP)
-
-    def flop(self):
-        self.game_state = deal_community_cards(self.game_state)
-        self.phase = GamePhase.INITIALIZING_HAND
-        self.game_state = self.run_betting_round(GamePhase.TURN)
-
-    def turn(self):
-        self.game_state = deal_community_cards(self.game_state)
-        self.phase = GamePhase.RIVER
-        self.game_state = self.run_betting_round(GamePhase.RIVER)
-
-    def river(self):
-        self.game_state = deal_community_cards(self.game_state)
-        self.phase = GamePhase.SHOWDOWN
-        self.game_state = self.run_betting_round(GamePhase.SHOWDOWN)
+        print(4, self.game_state.current_phase, "hand is ready")
 
     def showdown(self):
         pass
 
     def hand_over(self):
         self.game_state = reset_game_state_for_new_hand(self.game_state)
-        self.phase = GamePhase.HAND_INITIALIZED
+        self.game_state = self.game_state.update(current_phase=GamePhase.INITIALIZING_GAME)
+        self.phase = GamePhase.INITIALIZING_GAME
 
-    def run_betting_round(self, next_phase):
-        self.start_betting_round(next_phase)
+    def run_betting_round(self):
+        self.start_betting_round()      # TODO: work out the logic bug that exists here. this shouldn't be called everytime i don't think
         while not are_pot_contributions_valid(self.game_state):
             self.process_next_player_action()
     # Betting round is over; the phase will be updated in process_next_player_action if needed
 
-    def start_betting_round(self, next_phase):
+    def start_betting_round(self):
         self.game_state = reset_player_action_flags(self.game_state)
         self.game_state = set_betting_round_start_player(self.game_state)
-        self.next_phase = next_phase
+        self.game_state = self.game_state.update(current_phase=self.next_phase)
+        self.phase = self.next_phase
 
     def process_next_player_action(self):
         if not are_pot_contributions_valid(self.game_state):
@@ -311,6 +311,7 @@ class PokerStateMachine:
             self.game_state = advance_to_next_active_player(self.game_state)
         else:
             # Betting round is over
+            self.game_state = self.game_state.update(current_phase=self.next_phase)
             self.phase = self.next_phase
 
 ##################################################################
@@ -526,8 +527,9 @@ def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
     # Define a map of count of community cards in the game state to the round info to be used for dealing cards (or not)
     phase_transition_map = {
         GamePhase.PRE_FLOP: (GamePhase.FLOP, 3),
-        GamePhase.FLOP: (GamePhase.TURN, 1),
-        GamePhase.TURN: (GamePhase.RIVER, 1)
+        GamePhase.FLOP: (GamePhase.TURN, 3),
+        GamePhase.TURN: (GamePhase.RIVER, 1),
+        GamePhase.RIVER: (GamePhase.HAND_OVER, 1),
     }
 
     next_phase_config = phase_transition_map[game_state.current_phase]
@@ -537,7 +539,7 @@ def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
 
     cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards_to_draw)
     new_community_cards = game_state.community_cards + cards
-    return game_state.update(current_phase=next_phase,
+    return game_state.update(# current_phase=next_phase,
                              community_cards=new_community_cards,
                              deck=new_deck)
 
@@ -568,6 +570,18 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
         game_state = game_state.update(pre_flop_action_taken=True)
 
     return game_state
+
+
+def ai_player_action(game_state, ai_assistant: OpenAILLMAssistant) -> Dict:
+    message = json.dumps(prepare_ui_data(game_state))
+    response_json = ai_assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
+    try:
+        response_dict = json.loads(response_json)
+        if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
+            raise ValueError("AI response is missing required keys.")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Error decoding AI response: {response_json}")
+    return response_dict
 
 
 def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx: int) -> int:
