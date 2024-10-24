@@ -54,7 +54,7 @@ def game(game_id) -> str or Response:
                 send_message(game_id, "table", message_content, "table")
 
             if not game_state.current_player.is_human:
-                socketio.start_background_task(ai_player_action, game_id)
+                socketio.start_background_task(handle_ai_action, game_id)
                 return render_template('poker_game.html',
                                        game_state=game_state,
                                        player_options=game_state.current_player_options,
@@ -147,23 +147,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     socketio.sleep(sleep) if sleep else None
 
 
-# def ai_player_action(game_id):
-#     game_state = games.get(game_id)
-#     if not game_state:
-#         return
-#
-#     current_player = game_state.current_player
-#     poker_player = AIPokerPlayer(name=current_player.name, starting_money=current_player.stack, ai_temp=0.9)
-#     ai = poker_player.assistant
-#     message = json.dumps(prepare_ui_data(game_state))
-#     response_dict = ai.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
-#     try:
-#         response_dict = json.loads(response_dict)
-#     except json.JSONDecodeError as e:
-#         raise ValueError(f"Error decoding JSON response: {e}")
-#     return response_dict
-
-def handle_ai_action(game_id: int) -> None:
+def handle_ai_action(game_id: str) -> None:
     """
     Handle an AI player's action in the game.
 
