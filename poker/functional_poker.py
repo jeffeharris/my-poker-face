@@ -1,5 +1,6 @@
 import json
 from enum import Enum, auto
+from logging import exception
 from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
 from random import shuffle
@@ -34,7 +35,9 @@ class GamePhase(Enum):
     INITIALIZING_GAME = auto()
     INITIALIZING_HAND = auto()
     HAND_INITIALIZED = auto()
+    INITIALIZING_BET_ROUND = auto()
     PRE_FLOP = auto()
+    DEALING_CARDS = auto()
     FLOP = auto()
     TURN = auto()
     RIVER = auto()
@@ -46,9 +49,10 @@ class GamePhase(Enum):
     def _to_string(cls, phase):
         phase_to_strings = {
             cls.INITIALIZING_GAME: "Initializing Game",
-            cls.INITIALIZING_HAND: "Game Initialized",
-            cls.HAND_INITIALIZED: "Hand Initialized",
+            cls.INITIALIZING_HAND: "Initializing Hand",
+            cls.INITIALIZING_BET_ROUND: "Initializing Betting Round",
             cls.PRE_FLOP: "Pre-Flop",
+            cls.DEALING_CARDS: "Dealing Cards",
             cls.FLOP: "Flop",
             cls.TURN: "Turn",
             cls.RIVER: "River",
@@ -231,29 +235,50 @@ class PokerStateMachine:
     @property
     def next_phase(self):
         current_phase = self.phase
-        phase_map = {
+
+        def next_betting_round_phase() -> GamePhase:
+            num_cards_dealt = len(self.game_state.community_cards)
+            cards_dealt_to_next_phase = {
+                0: GamePhase.PRE_FLOP,
+                3: GamePhase.FLOP,
+                4: GamePhase.TURN,
+                5: GamePhase.RIVER
+            }
+            return cards_dealt_to_next_phase[num_cards_dealt]
+
+        next_phase_map = {
             GamePhase.INITIALIZING_GAME: GamePhase.INITIALIZING_HAND,
             GamePhase.INITIALIZING_HAND: GamePhase.PRE_FLOP,
-            GamePhase.PRE_FLOP: GamePhase.FLOP,
-            GamePhase.FLOP: GamePhase.TURN,
-            GamePhase.TURN: GamePhase.RIVER,
+            GamePhase.INITIALIZING_BET_ROUND: next_betting_round_phase(),
+            GamePhase.PRE_FLOP: GamePhase.DEALING_CARDS,
+            GamePhase.FLOP: GamePhase.DEALING_CARDS,
+            GamePhase.TURN: GamePhase.DEALING_CARDS,
+            GamePhase.DEALING_CARDS: GamePhase.INITIALIZING_BET_ROUND,
             GamePhase.RIVER: GamePhase.EVALUATING_HAND,
+            GamePhase.SHOWDOWN: GamePhase.EVALUATING_HAND,
             GamePhase.EVALUATING_HAND: GamePhase.HAND_OVER,
-            GamePhase.HAND_OVER: GamePhase.INITIALIZING_GAME
+            GamePhase.HAND_OVER: GamePhase.INITIALIZING_HAND
         }
-        return phase_map[current_phase]
+
+        return next_phase_map[current_phase]
 
     def run(self):
         while len(self.game_state.players) > 1:
+            print(1, self.game_state.current_phase, 'run has begun')
             self.snapshots.append(self.game_state)
             if self.phase == GamePhase.INITIALIZING_GAME:
                 self.initialize_game()
             elif self.phase == GamePhase.INITIALIZING_HAND:
                 self.initialize_hand()
-            elif self.phase == GamePhase.PRE_FLOP:
+            elif self.phase == GamePhase.INITIALIZING_BET_ROUND:
+                self.initialize_betting_round()
+            elif self.phase in [GamePhase.PRE_FLOP,
+                                GamePhase.FLOP,
+                                GamePhase.TURN,
+                                GamePhase.RIVER]:
                 self.run_betting_round()
-            elif self.phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER]:
-                self.run_betting_round()
+            elif self.phase == GamePhase.DEALING_CARDS:
+                self.deal_cards()
             elif self.phase == GamePhase.SHOWDOWN:
                 self.showdown()
             elif self.phase == GamePhase.EVALUATING_HAND:
@@ -264,19 +289,56 @@ class PokerStateMachine:
                 raise Exception(f"Invalid game phase: {self.phase}")
 
     def initialize_game(self):
-        self.game_state = setup_hand(self.game_state)
+        print(2, self.game_state.current_phase, 'game is ready')
         self.game_state = self.game_state.update(current_phase=self.next_phase)
         self.phase = self.next_phase
-        print(2, self.game_state.current_phase, 'game is ready')
 
     def initialize_hand(self):
-        # self.game_state = setup_hand(self.game_state)
+        print(3, self.game_state.current_phase,
+              f"there are {len(self.game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
+        self.game_state = setup_hand(self.game_state)
+        self.game_state = set_betting_round_start_player(game_state=self.game_state)
         self.game_state = self.game_state.update(current_phase=self.next_phase)
         self.phase = self.next_phase
         print(4, self.game_state.current_phase, "hand is ready")
 
+    def initialize_betting_round(self):
+        num_active_players = len([p.name for p in self.game_state.players if not (p.is_folded or p.is_all_in)])
+
+        if num_active_players == 1:
+            next_phase = GamePhase.SHOWDOWN
+        else:
+            print(8, self.game_state.current_phase, "pot is settled, dealing cards and resetting betting round")
+            self.game_state = reset_player_action_flags(self.game_state)
+            self.game_state = set_betting_round_start_player(self.game_state)
+            next_phase = self.next_phase
+        print(5, self.game_state.current_phase, "betting round players set ready to start")
+        self.game_state = self.game_state.update(current_phase=next_phase)
+        self.phase = next_phase
+
+    def run_betting_round(self):
+        pot_is_settled = not (not are_pot_contributions_valid(self.game_state)
+                              # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
+                              and len(
+                    [p.name for p in self.game_state.players if not p.is_folded or not p.is_all_in]) > 1)
+
+        if not are_pot_contributions_valid(self.game_state):
+            print(7, self.game_state.current_phase, f"pot is not settled, {self.game_state.current_player.name} is up next")
+            self.process_next_player_action()
+        elif pot_is_settled and self.game_state.current_phase != GamePhase.EVALUATING_HAND:
+            self.game_state = self.game_state.update(current_phase=self.next_phase)
+            self.phase = self.next_phase
+
+    def deal_cards(self):
+        self.game_state = deal_community_cards(self.game_state)
+        print(6, self.game_state.current_phase,
+              f"{len(self.game_state.community_cards)} community cards have been dealt")
+        self.game_state = self.game_state.update(current_phase=self.next_phase)
+        self.phase = self.next_phase
+
     def showdown(self):
-        pass
+        self.game_state = self.game_state.update(current_phase=self.next_phase)
+        self.phase = self.next_phase
 
     def evaluating_hand(self):
         self.game_state, winner_info = determine_winner(self.game_state)
@@ -291,32 +353,13 @@ class PokerStateMachine:
             self.game_state = self.game_state.update(current_phase=self.next_phase)
             self.phase = self.next_phase
 
-    def run_betting_round(self):
-        self.start_betting_round()
-        while not are_pot_contributions_valid(self.game_state):
-            self.process_next_player_action()
-        # Betting round is over; the phase will be updated in process_next_player_action if needed
-        self.game_state = self.game_state.update(current_phase=self.next_phase)
-        self.phase = self.next_phase
-
-    def start_betting_round(self):
-        self.game_state = deal_community_cards(self.game_state)
-        self.game_state = reset_player_action_flags(self.game_state)
-        self.game_state = set_betting_round_start_player(self.game_state)
-        # self.game_state = self.game_state.update(current_phase=self.next_phase)
-        # self.phase = self.next_phase
-
     def process_next_player_action(self):
-        if not are_pot_contributions_valid(self.game_state):
-            current_player_idx = self.game_state.current_player_idx
-            controller = self.controllers[current_player_idx]
-            action, amount = controller.decide_action(self.game_state)
-            self.game_state = play_turn(self.game_state, action, amount)
-            self.game_state = advance_to_next_active_player(self.game_state)
-        # else:
-            # Betting round is over
-            # self.game_state = self.game_state.update(current_phase=self.next_phase)
-            # self.phase = self.next_phase
+        current_player_idx = self.game_state.current_player_idx
+        controller = self.controllers[current_player_idx]
+        action, amount = controller.decide_action(self.game_state)
+        self.game_state = play_turn(self.game_state, action, amount)
+        self.game_state = advance_to_next_active_player(self.game_state)
+
 
 ##################################################################
 ##################            CHECKS            ##################
@@ -522,21 +565,15 @@ def set_betting_round_start_player(game_state) -> PokerGameState:
 def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
     """
     Deal the community cards based on the current phase of the game.
+    This function expects that it will be called at the right time, after the betting round has ended.
 
     :param game_state: (PokerGameState)
         The current state of the game, including phase, deck, and community cards.
     :return: (PokerGameState)
         The updated game state after dealing the community cards.
     """
-    # Define a map of count of community cards in the game state to the round info to be used for dealing cards (or not)
-    card_to_deal_for_phase = {
-        GamePhase.PRE_FLOP: 0,
-        GamePhase.FLOP: 3,
-        GamePhase.TURN: 1,
-        GamePhase.RIVER: 1,
-    }
-
-    num_cards_to_draw= card_to_deal_for_phase[game_state.current_phase]
+    # Assumes this function is called at the right time during the round.
+    num_cards_to_draw = 3 if len(game_state.community_cards) == 0 else 1
 
     cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards_to_draw)
     new_community_cards = game_state.community_cards + cards
