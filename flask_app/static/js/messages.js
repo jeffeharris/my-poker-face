@@ -90,7 +90,7 @@ function displayMessage(msg){
 function sendUserMessage(socket) {
     let messageInput = document.getElementById('message-input');
     let message = messageInput.value;
-    socket.emit('send_message', { message: message });
+    socket.emit('send_message', { message: message, game_id: gameId});
     messageInput.value = '';
     console.log(message)
 }
