@@ -58,7 +58,7 @@ def game(game_id) -> str or Response:
         if game_state.awaiting_action:
             if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
-                num_cards_dealt = 3 if game_state.current_phase == 'Flop' else 1
+                num_cards_dealt = 3 if str(game_state.current_phase) == 'Flop' else 1
                 message_content = (f"{game_state.current_phase} cards dealt: "
                                    f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
                 send_message(game_id, "table", message_content, "table")
@@ -105,21 +105,22 @@ def player_action(game_id) -> tuple[str, int] or Response:
         app.logger.error(f"Error parsing request: {e}")
         return jsonify({'error': str(e)}), 400
 
-    game_state = games.get(game_id)
-    if not game_state:
+    state_machine = games.get(game_id)
+    if not state_machine:
         return jsonify({'redirect': url_for('index')}), 400
 
     # Play the current player's turn
-    current_player = game_state.current_player
-    game_state = play_turn(game_state, action, amount)
+    current_player = state_machine.game_state.current_player
+    game_state = play_turn(state_machine.game_state, action, amount)
 
     # Generate a message to be added to the game table
     message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
     send_message(game_id,"table", message_content, "table")
     game_state = advance_to_next_active_player(game_state)
+    state_machine.game_state = game_state
 
     # Update the game session states (global variables right now)
-    games[game_id] = game_state
+    games[game_id] = state_machine
     return jsonify({'redirect': url_for('game', game_id=game_id)})
 
 
@@ -165,15 +166,15 @@ def handle_ai_action(game_id: str) -> None:
         The ID of the game for which the AI action is being handled.
     :return: (None)
     """
-    game_state = games.get(game_id)
+    state_machine = games.get(game_id)
     game_messages = messages.get(game_id, [])
-    if not game_state:
+    if not state_machine:
         return
 
-    current_player = game_state.current_player
+    current_player = state_machine.game_state.current_player
     ai_assistant = AIPokerPlayer(name=current_player.name, starting_money=current_player.stack, ai_temp=0.9).assistant
 
-    response_dict = ai_player_action(game_state=game_state, ai_assistant=ai_assistant)
+    response_dict = ai_player_action(game_state=state_machine.game_state, ai_assistant=ai_assistant)
 
     # Prepare variables needed for new messages
     action = response_dict['action']
@@ -184,9 +185,10 @@ def handle_ai_action(game_id: str) -> None:
     send_message(game_id, "table", f"{current_player.name} chose to {action} by {amount}.", "table", 1)
     send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai")
 
-    game_state = play_turn(game_state, action, amount)
+    game_state = play_turn(state_machine.game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)
-    games[game_id] = game_state
+    state_machine.game_state = game_state
+    games[game_id] = state_machine
     messages[game_id] = game_messages
     socketio.emit('ai_action_complete')
 
