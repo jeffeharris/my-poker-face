@@ -2,7 +2,7 @@ import json
 from typing import List, Optional, Any, Dict
 
 from core.card import Card
-from ui_console import CardRenderer
+from card import CardRenderer
 from old_files.deck import Deck
 from old_files.user_interface import UserInterface
 from old_files.poker_action import PokerAction
