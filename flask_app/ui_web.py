@@ -4,6 +4,7 @@ from flask_socketio import SocketIO
 from datetime import datetime
 import time
 
+from controllers import AIPlayerController
 from old_files.poker_player import AIPokerPlayer
 from functional_poker import *
 from utils import get_celebrities
@@ -28,23 +29,32 @@ def index():
 def new_game():
     ai_player_names = get_celebrities(shuffled=True)[:2]
     game_state = initialize_game_state(player_names=ai_player_names)
+    state_machine = PokerStateMachine(game_state=game_state)
+    # Create a controller for each player in the game and add to a map of name -> controller
+    ai_controllers = {}
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            new_controller = AIPlayerController(player.name, state_machine)
+            ai_controllers[player.name] = new_controller
+
     game_id = generate_game_id()
-    games[game_id] = game_state
+    games[game_id] = state_machine
     messages[game_id] = []
     return redirect(url_for('game', game_id=game_id))
 
 @app.route('/game/<game_id>', methods=['GET'])
 def game(game_id) -> str or Response:
-    game_state = games.get(game_id)
-    if not game_state:
+    state_machine = games.get(game_id)
+    if not state_machine:
         return redirect(url_for('index'))
 
-    num_players_remaining = len(game_state.players)
+    num_players_remaining = len(state_machine.game_state.players)
     if num_players_remaining == 1:
         return redirect(url_for('end_game', game_id=game_id))
     else:
-        game_state = run_hand_until_player_turn(game_state)
-        games[game_id] = game_state
+        state_machine.run_until_player_action()
+        games[game_id] = state_machine
+        game_state = state_machine.game_state
         if game_state.awaiting_action:
             if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
