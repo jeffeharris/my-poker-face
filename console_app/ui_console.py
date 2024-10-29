@@ -3,11 +3,10 @@ import os
 from dotenv import load_dotenv
 
 from card import CardRenderer
-from controllers import ConsolePlayerController, AIPlayerController, human_player_action, display_player_turn_update
+from controllers import ConsolePlayerController, AIPlayerController
 
 from functional_poker import *
-from old_files.poker_player import AIPokerPlayer
-from utils import get_celebrities, prepare_ui_data
+from utils import get_celebrities
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -52,49 +51,28 @@ def display_cards(cards, display_text: Optional[str] = None):
     print(f"\n{rendered_cards}\n")
 
 
-def handle_player_action(game_state):
-    ui_data, player_options = prepare_ui_data(game_state)
-
-    if game_state.current_player.is_human:
-        display_player_turn_update(ui_data=ui_data, player_options=player_options)
-        action, amount = human_player_action(ui_data, player_options)
-    else:
-        # ai_controller = AIPlayerController(game_state.current_player.name)
-        # action, amount, response_dict = ai_player_action(game_state, ai_controller.assistant)
-        ai_assistant = AIPokerPlayer(name=game_state.current_player.name,
-                                     starting_money=game_state.current_player.stack).assistant
-        ai_assistant.api_key = OPENAI_API_KEY
-        response_dict = ai_player_action(game_state=game_state, ai_assistant=ai_assistant)
-        display_ai_player_action(game_state.current_player.name, response_dict)
-        action, amount = (response_dict['action'], response_dict['amount'])
-
-    game_state = play_turn(game_state, action, amount)
-    game_state = advance_to_next_active_player(game_state)
-
-    return game_state
-
-
 if __name__ == '__main__':
-    # Get AI player names and initialize the game instance
+    # Get AI player names and initialize the game instance and state machine
     ai_player_names = get_celebrities(shuffled=True)[:NUM_AI_PLAYERS]
-    game_instance = initialize_game_state(player_names=ai_player_names)
+    state_machine = PokerStateMachine(game_state=initialize_game_state(player_names=ai_player_names))
 
-    # Create a controller for each player in the game.
-    # Could consider a single controller for the AI
-    controllers = []
-    for player in game_instance.players:
+    # Create a controller for each player in the game and add to a map of name -> controller
+    controllers = {}
+    for player in state_machine.game_state.players:
         if player.is_human:
-            controllers.append(ConsolePlayerController(player.name))
+            new_controller = ConsolePlayerController(player.name, state_machine)
         else:
-            controllers.append(AIPlayerController(player.name))
+            new_controller = AIPlayerController(player.name, state_machine)
+        controllers[player.name] = new_controller
 
-    state_machine = PokerStateMachine(game_instance, controllers)
-
-    try:
-        state_machine.run()
-        display_game_state(state_machine.game_state, include_deck=True)
-        print(f"\n{state_machine.game_state.players[0].name} Won! Thanks for playing!")
-
-    except KeyboardInterrupt:
-        display_game_state(state_machine.game_state, include_deck=True)
-        print("\nGame interrupted. Thanks for playing!")
+    while len(state_machine.game_state.players) > 1:
+        # Run the game
+        state_machine.run_until_player_action()
+        controller = controllers[state_machine.game_state.current_player.name]
+        player_response_dict = controller.decide_action()
+        action, amount = (player_response_dict['action'], player_response_dict['adding_to_pot'])
+        current_player = state_machine.game_state.current_player
+        if not current_player.is_human:
+            display_ai_player_action(state_machine.game_state.current_player.name, player_response_dict)
+        state_machine.game_state = play_turn(state_machine.game_state, action, amount)
+        state_machine.game_state = advance_to_next_active_player(state_machine.game_state)
