@@ -73,12 +73,14 @@ def game(game_id) -> str or Response:
                 return render_template('poker_game.html',
                                        game_state=game_state,
                                        player_options=game_state.current_player_options,
-                                       game_id=game_id)
+                                       game_id=game_id,
+                                       current_phase=str(game_state.current_phase))
             else:
                 return render_template('poker_game.html',
                                        game_state=game_state,
                                        player_options=game_state.current_player_options,
-                                       game_id=game_id)
+                                       game_id=game_id,
+                                       current_phase=str(game_state.current_phase))
 
         elif game_state.current_phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
@@ -94,7 +96,11 @@ def game(game_id) -> str or Response:
             games[game_id] = current_game_data
             return redirect(url_for('game', game_id=game_id))
 
-    return render_template('poker_game.html', game_state=game_state, player_options=game_state.current_player_options, game_id=game_id)
+    return render_template('poker_game.html',
+                           game_state=state_machine.game_state,
+                           player_options=state_machine.game_state.current_player_options,
+                           game_id=game_id,
+                           current_phase=str(game_state.current_phase))
 
 @app.route('/action/<game_id>', methods=['POST'])
 def player_action(game_id) -> tuple[str, int] or Response:
