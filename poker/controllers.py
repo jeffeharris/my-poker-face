@@ -35,6 +35,7 @@ class AIPlayerController:
                 raise ValueError("AI response is missing required keys.")
         except json.JSONDecodeError:
             raise ValueError(f"Error decoding AI response: {response_json}")
+        print(json.dumps(response_dict, indent=4))
         return response_dict
 
 
