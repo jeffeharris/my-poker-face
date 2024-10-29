@@ -46,6 +46,7 @@
                     <h2>{{ player.name }}</h2>
                     <p>${{ player.stack }}</p>
                     <div id="cards-player-{{ loop.index + 1 }}" class="{% if player.is_folded %}player-cards--is-folded{% else %}player-cards{% endif %}">
+                    {% if player.is_human %}
                         {% for card in player.hand %}
                             <span class="card
                                 {% if card.suit == 'Hearts' %}hearts{% elif card.suit == 'Diamonds' %}diamonds
@@ -53,6 +54,9 @@
                             ">{{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦
                                 {% elif card.suit == 'Clubs' %}♣{% elif card.suit == 'Spades' %}♠{% endif %}</span>
                         {% endfor %}
+                    {% else %}
+                        <span class="ai-card"></span><span class="ai-card"></span>
+                    {% endif %}
                     </div>
                 </div>
             {% endfor %}
@@ -61,12 +65,12 @@
 
     <div class="table-container content">
         <div class="table">
-            <div id="pot" class="pot">
+            <div id="pot" class="pot" style="font-size: 2em;">
                 Pot: ${{ game_state.pot.total }} | Current bet: $ {{ game_state.highest_bet }}
             </div>
             <div id="community-cards" class="community-cards">
                 {% for card in game_state.community_cards %}
-                    <span class="card
+                    <span class="card large
                         {% if card.suit == 'Hearts' %}hearts{% elif card.suit == 'Diamonds' %}diamonds
                         {% elif card.suit == 'Clubs' %}clubs{% elif card.suit == 'Spades' %}spades{% endif %}
                     ">{{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦

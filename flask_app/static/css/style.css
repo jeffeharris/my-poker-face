@@ -158,6 +158,27 @@ body {
     font-size: 1.5em;
 }
 
+.card.large {
+    width: 100px;
+    height: 150px;
+    font-size: 3em;
+}
+
+.ai-card {
+    width: 50px;
+    height: 75px;
+    border: 1px solid white;
+    border-radius: 5px;
+    margin: 0 5px;
+    background-color: #fff;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+    background-image: url('../images/poker_background.png');
+}
+
 .hearts {
     color: red;
 }
