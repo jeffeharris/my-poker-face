@@ -5,7 +5,6 @@ from datetime import datetime
 import time
 
 from controllers import AIPlayerController
-from old_files.poker_player import AIPokerPlayer
 from functional_poker import *
 from utils import get_celebrities
 

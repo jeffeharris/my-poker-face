@@ -261,10 +261,6 @@ class PokerStateMachine:
 
         return next_phase_map[current_phase]
 
-    def run(self):
-        while len(self.game_state.players) > 1:
-            self.advance_state()
-
     def run_until_player_action(self):
         while not self.game_state.awaiting_action:
             self.advance_state()
@@ -338,7 +334,6 @@ class PokerStateMachine:
                               and len([p.name for p in self.game_state.players if not p.is_folded or not p.is_all_in]) > 1)
         if not are_pot_contributions_valid(self.game_state):
             print(7, self.game_state.current_phase, f"pot is not settled, {self.game_state.current_player.name} is up next")
-            # self.process_next_player_action()
             self.game_state = self.game_state.update(awaiting_action=True)  # Expect this flag to be reset after player action has been taken in play_turn
         elif pot_is_settled and self.game_state.current_phase != GamePhase.EVALUATING_HAND:
             self.update_phase()
@@ -362,13 +357,6 @@ class PokerStateMachine:
         hand_is_reset = True    # TODO: implement a check before advancing to the next phase
         if hand_is_reset:
             self.update_phase()
-
-    # def process_next_player_action(self):
-    #     controller = self.controllers[self.game_state.current_player.name]
-    #     player_response_dict = controller.decide_action(self.game_state)
-    #     action, amount = (player_response_dict['action'], player_response_dict['adding_to_pot'])
-    #     self.game_state = play_turn(self.game_state, action, amount)
-    #     self.game_state = advance_to_next_active_player(self.game_state)
 
 
 ##################################################################
@@ -619,18 +607,6 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
     return game_state.update(awaiting_action=False)
 
 
-def ai_player_action(game_state, ai_assistant) -> Dict:
-    message = json.dumps(prepare_ui_data(game_state))
-    response_json = ai_assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
-    try:
-        response_dict = json.loads(response_json)
-        if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
-            raise ValueError("AI response is missing required keys.")
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Error decoding AI response: {response_json}")
-    return response_dict
-
-
 def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx: int) -> int:
     """
     Determines the index of the next active player in the players list based on is_player_active()
@@ -730,63 +706,6 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     # Create a new game state with just the properties we want to carry over (just the new players queue)
     return PokerGameState(players=tuple(new_players))
 
-
-def run_hand_until_player_turn(game_state: PokerGameState) -> PokerGameState:
-    """
-    Takes an initialized game state and runs the hand until it is the player's turn at which point it returns the game state.
-    """
-    pot_is_settled = not (not are_pot_contributions_valid(game_state)
-                      # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
-                      and len([p.name for p in game_state.players if not p.is_folded or not p.is_all_in]) > 1)
-    print(1, game_state.current_phase, f'start of the function, {"pot is settled" if pot_is_settled else "pot is not settled"}')
-    # Set up the hand to played if it hasn't already been set up
-    if game_state.current_phase == GamePhase.INITIALIZING_GAME:
-        game_state = setup_hand(game_state)
-        game_state = game_state.update(current_phase=GamePhase.INITIALIZING_HAND)
-        print(2, game_state.current_phase, 'game is ready')
-        return game_state
-
-    ##### PLAY HAND #####
-    # Determine if the pot is settled, if not .
-    if game_state.current_phase != GamePhase.RIVER or (game_state.current_phase == GamePhase.RIVER and not pot_is_settled):
-        print(3, game_state.current_phase, f"there are {len(game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
-        # Set up the betting round if the betting round hasn't started yet
-        if game_state.current_phase == GamePhase.INITIALIZING_HAND:
-            game_state = game_state.update(current_phase=GamePhase.HAND_INITIALIZED)
-            print(4, game_state.current_phase, "hand is ready")
-
-        if game_state.current_phase == GamePhase.HAND_INITIALIZED:
-            game_state = set_betting_round_start_player(game_state=game_state)
-            game_state = game_state.update(current_phase=GamePhase.PRE_FLOP)
-            print(5, game_state.current_phase, "betting round players set ready to start")
-
-        ##### PLAY BETTING ROUND #####
-        # Loop through the betting round until the pot is valid, or it's time for a player to take a turn
-
-        if pot_is_settled and game_state.current_phase != GamePhase.EVALUATING_HAND:
-            print(7, game_state.current_phase, "pot is settled, dealing cards and resetting betting round")
-            # TODO: check for game end conditions and advance to the next state if it's over
-            ##### DEAL COMMUNITY CARDS #####
-            # Once the betting round has ended, we deal the next set of community cards. Which cards are dealt depends
-            # on the current game state and is detailed in the deal_community_cards function.
-            game_state = deal_community_cards(game_state=game_state)
-            print(8, game_state.current_phase, f"{len(game_state.community_cards)} community cards have been dealt")
-            # Wrap up the betting round by resetting the betting round action flags
-            game_state = reset_player_action_flags(game_state, exclude_current_player=False)
-            game_state = set_betting_round_start_player(game_state=game_state)
-            return game_state
-        else:
-            print(6, game_state.current_phase, f"pot is not settled, {game_state.current_player.name} is up next")
-            game_state = game_state.update(awaiting_action=True)
-            return game_state
-
-    if (game_state.current_phase == GamePhase.RIVER and pot_is_settled) or game_state.current_phase == GamePhase.EVALUATING_HAND:
-        ##### DETERMINE HAND WINNER #####
-        # Once the betting rounds have completed, it's time to evaluate the players cards and find the winner(s)
-        print(9, game_state.current_phase, "there are 5 community cards, determining winner next")
-        game_state = game_state.update(current_phase=GamePhase.EVALUATING_HAND)
-
-    return game_state
 
 # TODO: refactor to only return PokerGameState, add winner info to the state
 def determine_winner(game_state: PokerGameState) -> Tuple[PokerGameState, Mapping]:

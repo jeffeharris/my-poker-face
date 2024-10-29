@@ -33,9 +33,8 @@ class AIPlayerController:
             response_dict = json.loads(response_json)
             if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
                 raise ValueError("AI response is missing required keys.")
-        except json.JSONDecodeError as e:
-            raise ValueError("What happened here")
-
+        except json.JSONDecodeError:
+            raise ValueError(f"Error decoding AI response: {response_json}")
         return response_dict
 
 
