@@ -13,7 +13,7 @@ NUM_AI_PLAYERS = 2
 HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000      # player starting stack
 ANTE = 50               # starting big blind
-TEST_MODE = False
+TEST_MODE = True
 
 def create_deck(shuffled: bool = True):
     """

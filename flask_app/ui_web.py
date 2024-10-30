@@ -7,8 +7,7 @@ from datetime import datetime
 import time
 
 from controllers import AIPlayerController
-from poker_game import initialize_game_state, determine_winner, reset_game_state_for_new_hand, play_turn, \
-    advance_to_next_active_player
+from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, advance_to_next_active_player
 from poker_state_machine import PokerStateMachine, GamePhase
 from utils import get_celebrities
 
@@ -30,7 +29,7 @@ def index():
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:5]
+    ai_player_names = get_celebrities(shuffled=True)[:2]
     game_state = initialize_game_state(player_names=ai_player_names)
     state_machine = PokerStateMachine(game_state=game_state)
     # Create a controller for each player in the game and add to a map of name -> controller
@@ -63,7 +62,7 @@ def game(game_id) -> str or Response:
         state_machine.run_until([GamePhase.EVALUATING_HAND])
         current_game_data['state_machine'] = state_machine
         games[game_id] = current_game_data
-        game_state = state_machine.game_state
+        game_state: PokerGameState = state_machine.game_state
         if game_state.awaiting_action:
             if state_machine.phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
@@ -83,13 +82,12 @@ def game(game_id) -> str or Response:
 
         elif state_machine.phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
+            state_machine.update_phase()
 
             message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
                                f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
             send_message(game_id,"table", message_content, "table", 1)
 
-            game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
-            game_state = reset_game_state_for_new_hand(game_state=game_state)
             state_machine.game_state = game_state
             current_game_data['state_machine'] = state_machine
             games[game_id] = current_game_data
