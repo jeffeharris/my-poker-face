@@ -60,7 +60,7 @@ def game(game_id) -> str or Response:
     if num_players_remaining == 1:
         return redirect(url_for('end_game', game_id=game_id))
     else:
-        state_machine.run_until_player_action()
+        state_machine.run_until([GamePhase.EVALUATING_HAND])
         current_game_data['state_machine'] = state_machine
         games[game_id] = current_game_data
         game_state = state_machine.game_state

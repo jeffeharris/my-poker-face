@@ -19,21 +19,22 @@ class ConsolePlayerController:
         return human_player_action(ui_data, player_options)
 
 
-def summarize_messages(messages: List, name: str):
+def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[Dict[str, str]]:
     # Find the index of the last message from the Player with 'name'
     # Search the list of messages for the last message from the player
     last_message_index = -1
-    for i, message in enumerate(messages):
-        if message['name'] == name:
+    for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
+        if messages[i]['sender'] == name:
             last_message_index = i
             break
 
     # Send the messages since the player's last message to the assistant to be summarized
     if last_message_index >= 0:
-        messages_since_last_message = messages[last_message_index+1:]
+        messages_since_last_message = messages[last_message_index + 1:]
         return messages_since_last_message
     else:
         return messages
+
 
 
 class AIPlayerController:

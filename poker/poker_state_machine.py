@@ -1,4 +1,5 @@
 from enum import Enum, auto
+from typing import List
 
 from poker_game import PokerGameState, setup_hand, set_betting_round_start_player, reset_player_action_flags, \
     are_pot_contributions_valid, deal_community_cards, determine_winner, reset_game_state_for_new_hand
@@ -82,6 +83,15 @@ class PokerStateMachine:
     def run_until_player_action(self):
         while not self.game_state.awaiting_action:
             self.advance_state()
+
+    def run_until(self, phases: List[GamePhase]):
+        """
+        Run the state machine to the next phase until it reaches a player action or a phase in the list of phases.
+        """
+        while self.phase not in phases:
+            self.advance_state()
+            if self.game_state.awaiting_action:
+                break
 
     def advance_state(self):
         print(1, self.phase, 'at start of state machine')
