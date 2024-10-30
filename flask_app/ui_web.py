@@ -60,6 +60,7 @@ def game(game_id) -> str or Response:
         current_game_data['state_machine'] = state_machine
         games[game_id] = current_game_data
         game_state = state_machine.game_state
+        print(game_state.current_phase)
         if game_state.awaiting_action:
             if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
@@ -70,17 +71,12 @@ def game(game_id) -> str or Response:
 
             if not game_state.current_player.is_human:
                 socketio.start_background_task(handle_ai_action, game_id)
-                return render_template('poker_game.html',
-                                       game_state=game_state,
-                                       player_options=game_state.current_player_options,
-                                       game_id=game_id,
-                                       current_phase=str(game_state.current_phase))
-            else:
-                return render_template('poker_game.html',
-                                       game_state=game_state,
-                                       player_options=game_state.current_player_options,
-                                       game_id=game_id,
-                                       current_phase=str(game_state.current_phase))
+
+            return render_template('poker_game.html',
+                                   game_state=game_state,
+                                   player_options=game_state.current_player_options,
+                                   game_id=game_id,
+                                   current_phase=str(game_state.current_phase))
 
         elif game_state.current_phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
@@ -212,7 +208,6 @@ def handle_ai_action(game_id: str) -> None:
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    messages[game_id] = game_messages
     socketio.emit('ai_action_complete')
 
 @app.route('/next_round/<game_id>', methods=['POST'])
