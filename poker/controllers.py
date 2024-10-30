@@ -56,7 +56,12 @@ class AIPlayerController:
             self.state_machine.phase,
             game_messages)
         print(message)
-        response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.")
+        response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes. "
+                                                      "Use your persona response to communicate to the players at the table! "
+                                                      "Based on your mood, confidence, and persona, you should bluff, use emojis, "
+                                                      "and interact with the table by calling out other players directly. You "
+                                                      "can influence their confidence and throw them off their game. Kick back, "
+                                                      "have a drink, and let loose in this private chat.")
         try:
             response_dict = json.loads(response_json)
             if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):

@@ -84,8 +84,15 @@ def game(game_id) -> str or Response:
             game_state, winner_info = determine_winner(game_state)
             state_machine.update_phase()
 
-            message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
-                               f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
+            winning_players = ', '.join(winner_info['winning_player_names'][:-1]) + \
+                              f" and {winner_info['winning_player_names'][-1]}" if len(
+                winner_info['winning_player_names']) > 1 \
+                else winner_info['winning_player_names'][0]
+
+            message_content = (
+                f"{winning_players} won the pot of ${winner_info['pot_total']}.             "
+                f"Winning hand: {winner_info['winning_hand']}"
+            )
             send_message(game_id,"table", message_content, "table", 1)
 
             state_machine.game_state = game_state
