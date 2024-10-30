@@ -5,7 +5,7 @@ from typing import List, Dict
 from core.card import Card
 from core.assistants import OpenAILLMAssistant
 from old_files.deck import CardSet
-from old_files.poker_action import PlayerAction
+from poker_action import PlayerAction
 
 
 class PokerPlayer:

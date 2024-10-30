@@ -4,12 +4,12 @@ from typing import List, Dict, Optional
 from old_files.user_interface import UserInterface
 from old_files.poker_settings import PokerSettings
 
-from old_files.poker_action import PokerAction, PlayerAction
+from poker_action import PokerAction, PlayerAction
 
 from old_files.deck import Deck
 from core.assistants import OpenAILLMAssistant
 from old_files.poker_hand_pot import PokerHandPot
-from old_files.poker_player import PokerPlayer, AIPokerPlayer
+from poker_player import PokerPlayer, AIPokerPlayer
 from poker.utils import shift_list_left, PokerHandPhase
 
 

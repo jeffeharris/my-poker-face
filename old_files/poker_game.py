@@ -4,7 +4,7 @@ from typing import List
 
 from poker.utils import get_celebrities
 
-from old_files.hand_evaluator import HandEvaluator
+from hand_evaluator import HandEvaluator
 from old_files.poker_hand import PokerHand
 from old_files.poker_settings import PokerSettings
 from old_files.round_manager import RoundManager

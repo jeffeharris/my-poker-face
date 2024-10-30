@@ -1,7 +1,7 @@
 from typing import List
 
 from old_files.deck import CardSet
-from old_files.poker_action import PokerAction
+from poker_action import PokerAction
 from old_files.poker_hand_pot import PokerHandPot
 from poker.utils import obj_to_dict, PokerHandPhase
 
