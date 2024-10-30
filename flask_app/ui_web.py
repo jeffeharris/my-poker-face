@@ -1,11 +1,15 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
+from typing import Optional
+
 from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
 from flask_socketio import SocketIO
 from datetime import datetime
 import time
 
 from controllers import AIPlayerController
-from functional_poker import *
+from poker_game import initialize_game_state, determine_winner, reset_game_state_for_new_hand, play_turn, \
+    advance_to_next_active_player
+from poker_state_machine import PokerStateMachine, GamePhase
 from utils import get_celebrities
 
 app = Flask(__name__)
@@ -26,7 +30,7 @@ def index():
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:2]
+    ai_player_names = get_celebrities(shuffled=True)[:5]
     game_state = initialize_game_state(player_names=ai_player_names)
     state_machine = PokerStateMachine(game_state=game_state)
     # Create a controller for each player in the game and add to a map of name -> controller
@@ -60,12 +64,11 @@ def game(game_id) -> str or Response:
         current_game_data['state_machine'] = state_machine
         games[game_id] = current_game_data
         game_state = state_machine.game_state
-        print(game_state.current_phase)
         if game_state.awaiting_action:
-            if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
+            if state_machine.phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
-                num_cards_dealt = 3 if game_state.current_phase == GamePhase.FLOP else 1
-                message_content = (f"{game_state.current_phase} cards dealt: "
+                num_cards_dealt = 3 if state_machine.phase == GamePhase.FLOP else 1
+                message_content = (f"{state_machine.phase} cards dealt: "
                                    f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
                 send_message(game_id, "table", message_content, "table")
 
@@ -76,9 +79,9 @@ def game(game_id) -> str or Response:
                                    game_state=game_state,
                                    player_options=game_state.current_player_options,
                                    game_id=game_id,
-                                   current_phase=str(game_state.current_phase))
+                                   current_phase=str(state_machine.phase))
 
-        elif game_state.current_phase == GamePhase.EVALUATING_HAND:
+        elif state_machine.phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
 
             message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
@@ -96,7 +99,7 @@ def game(game_id) -> str or Response:
                            game_state=state_machine.game_state,
                            player_options=state_machine.game_state.current_player_options,
                            game_id=game_id,
-                           current_phase=str(game_state.current_phase))
+                           current_phase=str(state_machine.phase))
 
 @app.route('/action/<game_id>', methods=['POST'])
 def player_action(game_id) -> tuple[str, int] or Response:
@@ -191,7 +194,7 @@ def handle_ai_action(game_id: str) -> None:
 
     current_player = state_machine.game_state.current_player
     controller = ai_controllers[current_player.name]
-    player_response_dict = controller.decide_action()
+    player_response_dict = controller.decide_action(game_messages[-8:])
 
     # Prepare variables needed for new messages
     action = player_response_dict['action']
@@ -249,7 +252,7 @@ def handle_send_message(data):
     # Get needed values from the data
     game_id = data.get('game_id')
     content = data.get('message')
-    sender = data.get('sender', 'User')
+    sender = data.get('sender', 'Jeff')
     message_type = data.get('message_type', 'user')
 
     send_message(game_id, sender, content, message_type)
