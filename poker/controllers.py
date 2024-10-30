@@ -2,8 +2,9 @@ import json
 from typing import List, Optional, Dict
 
 from card import Card, CardRenderer
-from functional_poker import PokerStateMachine
-from old_files.poker_player import AIPokerPlayer
+from poker_game import Player
+from poker_state_machine import PokerStateMachine
+from poker_player import AIPokerPlayer
 from utils import prepare_ui_data
 
 
