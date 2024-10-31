@@ -7,7 +7,8 @@ from datetime import datetime
 import time
 
 from controllers import AIPlayerController
-from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, advance_to_next_active_player
+from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
+    advance_to_next_active_player, award_pot_winnings
 from poker_state_machine import PokerStateMachine, GamePhase
 from utils import get_celebrities
 
@@ -81,16 +82,18 @@ def game(game_id) -> str or Response:
                                    current_phase=str(state_machine.phase))
 
         elif state_machine.phase == GamePhase.EVALUATING_HAND:
-            game_state, winner_info = determine_winner(game_state)
+            winner_info = determine_winner(game_state)
+            winning_player_names = winner_info['winning_player_names']
+            game_state = award_pot_winnings(game_state, winning_player_names)
             state_machine.update_phase()
 
-            winning_players = ', '.join(winner_info['winning_player_names'][:-1]) + \
-                              f" and {winner_info['winning_player_names'][-1]}" if len(
-                winner_info['winning_player_names']) > 1 \
-                else winner_info['winning_player_names'][0]
+            winning_players_string = ', '.join(winning_player_names[:-1]) + \
+                              f" and {winning_player_names[-1]}" if len(
+                winning_player_names) > 1 \
+                else winning_player_names[0]
 
             message_content = (
-                f"{winning_players} won the pot of ${winner_info['pot_total']}.             "
+                f"{winning_players_string} won the pot of ${winner_info['pot_total']} with {winner_info['hand_name']}. "
                 f"Winning hand: {winner_info['winning_hand']}"
             )
             send_message(game_id,"table", message_content, "table", 1)

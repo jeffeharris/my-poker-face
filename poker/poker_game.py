@@ -582,7 +582,7 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
 
 
 # TODO: refactor to only return PokerGameState, add winner info to the state
-def determine_winner(game_state: PokerGameState) -> Tuple[PokerGameState, Mapping]:
+def determine_winner(game_state: PokerGameState) -> Mapping:
     """
     Determine the winner(s) of a poker game, update their stacks, and return the updated game state.
 
@@ -627,22 +627,27 @@ def determine_winner(game_state: PokerGameState) -> Tuple[PokerGameState, Mappin
 
     # Check a tie amongst the hands
     a_winning_hand = hands[0][1]
-    winning_hands = [hand for hand in hands if hand[1] == a_winning_hand]
+    winning_player_names = [hand[0] for hand in hands if hand[1] == a_winning_hand]
 
-    winning_player_names = [hand[0] for hand in winning_hands]
     winning_hand = hands[0][1]["hand_values"] + hands[0][1]["kicker_values"]
-
-    # Reward winning players
-    for hand in winning_hands:
-        # Retrieve the player index for the player of the winning hand
-        _ , player_idx = game_state.get_player_by_name(hand[0])
-
-        new_stack_total = game_state.pot['total']/len(winning_hands) + game_state.players[player_idx].stack
-        game_state = game_state.update_player(player_idx=player_idx, stack=new_stack_total)
 
     winner_info = {
         'winning_player_names': winning_player_names,
         'winning_hand': winning_hand,
-        'pot_total': game_state.pot['total']
+        'pot_total': game_state.pot['total'],
+        'hand_name': hands[0][1]['hand_name']
     }
-    return game_state, winner_info
+    return winner_info
+
+
+def award_pot_winnings(game_state, winning_player_names):
+    # Reward winning players
+    num_winners = len(winning_player_names)
+    pot_winnings = int(game_state.pot['total'] / num_winners)
+    for name in winning_player_names:
+        # Retrieve the player index for the player of the winning hand
+        _, player_idx = game_state.get_player_by_name(name)
+        current_stack = game_state.players[player_idx].stack
+        new_stack_total = pot_winnings + current_stack
+        game_state = game_state.update_player(player_idx=player_idx, stack=new_stack_total)
+    return game_state
