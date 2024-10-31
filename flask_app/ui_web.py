@@ -1,6 +1,6 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
 from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, join_room
 from datetime import datetime
 import time
 
@@ -19,6 +19,18 @@ messages = {}
 # Helper function to generate unique game ID
 def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
+
+
+def update_and_emit_game_state(game_id):
+    game_state = games[game_id]['state_machine'].game_state  # Obtain current game state
+    socketio.emit('game_state_update', {'game_state': game_state, 'room': game_id}, to=game_id)
+
+
+@socketio.on('join_game')
+def on_join(game_id):
+    join_room(game_id)
+    print(f"User joined room: {game_id}")
+    socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
 @app.route('/')
 def index():
@@ -72,11 +84,12 @@ def game(game_id) -> str or Response:
             if not game_state.current_player.is_human:
                 socketio.start_background_task(handle_ai_action, game_id)
 
-            return render_template('poker_game.html',
-                                   game_state=game_state,
-                                   player_options=game_state.current_player_options,
-                                   game_id=game_id,
-                                   current_phase=str(game_state.current_phase))
+            socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
+            # return render_template('poker_game.html',
+            #                        game_state=game_state,
+            #                        player_options=game_state.current_player_options,
+            #                        game_id=game_id,
+            #                        current_phase=str(game_state.current_phase))
 
         elif game_state.current_phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
@@ -169,7 +182,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     # Update the messages session state
     game_data['messages'] = game_messages
     games[game_id] = game_data
-    socketio.emit('new_messages', {'game_messages': game_messages})
+    socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
     socketio.sleep(sleep) if sleep else None
 
 
@@ -208,6 +221,7 @@ def handle_ai_action(game_id: str) -> None:
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
+    socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
     socketio.emit('ai_action_complete')
 
 @app.route('/next_round/<game_id>', methods=['POST'])

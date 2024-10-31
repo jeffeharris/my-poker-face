@@ -77,6 +77,18 @@ class Player:
     is_folded: bool = False
     has_acted: bool = False
 
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'stack': self.stack,
+            'is_human': self.is_human,
+            'is_all_in': self.is_all_in,
+            'is_folded': self.is_folded,
+            'has_acted': self.has_acted,
+            'bet': self.bet,
+            'hand': self.hand,
+        }
+
     def update(self, **kwargs):
         return replace(self, **kwargs)
 
@@ -111,17 +123,30 @@ class PokerGameState:
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
 
-    @property
-    def as_dict(self):
-        return obj_to_dict(PokerGameState)
+    def to_dict(self) -> Dict:
+        return {
+            'players': [p.to_dict() for p in self.players],
+            'deck': list(self.deck),
+            'discard_pile': list(self.discard_pile),
+            'pot': {**self.pot, 'highest_bet': self.highest_bet},
+            'current_player_idx': self.current_player_idx,
+            'current_dealer_idx': self.current_dealer_idx,
+            'community_cards': list(self.community_cards),
+            'current_phase': self.current_phase.value,
+            'current_ante': self.current_ante,
+            'pre_flop_action_taken': self.pre_flop_action_taken,
+            'awaiting_action': self.awaiting_action,
+            'small_blind_idx': self.small_blind_idx,
+            'big_blind_idx': self.big_blind_idx,
+            'current_player_options': self.current_player_options,
+            'are_pot_contributions_valid': are_pot_contributions_valid(self),
+        }
 
     @property
-    def as_json(self, include_deck=False):
+    def as_json(self):
         # Convert game_state to JSON and pretty print to console
-        game_state_json = json.loads(json.dumps(self, default=lambda o: o.__dict__))
-        if not include_deck:
-            del game_state_json['deck']
-        return json.dumps(game_state_json, indent=4)
+        # game_state_json = json.loads(json.dumps(self, default=lambda o: o.__dict__))
+        return json.dumps(self, indent=4)
 
     @property
     def current_player(self) -> Player:

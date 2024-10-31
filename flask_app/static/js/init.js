@@ -3,16 +3,19 @@ var socket = io('http://localhost:5000', {
     transports: ['websocket'],
     debug: true
 });
+// Verify gameId has been set and join the room
+if(gameId === undefined){
+    window.location.href = '/';
+}
+else {
+    socket.emit('join_game', gameId);
+}
 
 // Listen for game state updates from the server
 socket.on('update_game_state', function(data) {
-    let gameState = data['game_state'];
-    updateGameState(gameState);
-
-    // If the game state is 'game_initialized', show the modal
-    if (gameState === 'game_initialized') {
-        showGameInitializedModal();
-    }
+    // let gameState = data['game_state'];
+    console.log('Game state update received:', data);
+    updateGameState(data);
 });
 
 // Listen for AI action completion and reload the game page
@@ -31,11 +34,49 @@ socket.on('ai_action_complete', function(action) {
 //     body.classList.remove('dimmed');
 // }
 
+function updateCommunityCards(communityCards) {
+    const container = document.getElementById('community-cards');
+    container.innerHTML = communityCards.map(card => `
+        <span class="card large ${card['suit'].toLowerCase()}">
+            ${card['rank']}${getSuitSymbol(card['suit'])}
+        </span>
+    `).join('');
+}
+
+function getSuitSymbol(suit) {
+    switch (suit) {
+        case 'Hearts':
+            return '♥';
+        case 'Diamonds':
+            return '♦';
+        case 'Clubs':
+            return '♣';
+        case 'Spades':
+            return '♠';
+        default:
+            return '';
+    }
+}
+
+function updatePot(potData) {
+    const potTotal = potData['total']
+    const highestBet = potData['highest_bet']
+    document.getElementById('pot').innerHTML = `Pot: $${potTotal} | Min: $${highestBet}`;
+}
+
 // Function to update the game state on the UI
-function updateGameState(gameState) {
-    document.getElementById('community-cards').innerHTML = JSON.stringify(gameState['community_cards']);
-    document.getElementById('pot').innerHTML = `Pot: $${gameState['pot']['total']} | Min: ${gameState['highest_bet']}`;
-    updatePlayerState(gameState['players']);
+/*
+
+*/
+function updateGameState(data) {
+    const gameState = data['game_state'];
+    const gameStatePlayers = gameState['players'];
+    const communityCards = Array.from(gameState['community_cards']);
+    const currentPot = gameState['pot'];
+
+    updateCommunityCards(communityCards);
+    updatePot(currentPot)
+    updatePlayerState(gameStatePlayers);
 }
 
 // Function to handle player actions
@@ -101,7 +142,7 @@ function updatePlayerState(playerState) {
             if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
             if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
             if (card.suit === 'Spades') cardSpan.classList.add('spades');
-            cardSpan.textContent = `${card.rank} ${card.suit}`;
+            cardSpan.textContent = `${card.rank}${getSuitSymbol(card['suit'])}`;
             playerCardsContainer.appendChild(cardSpan);
         });
 
