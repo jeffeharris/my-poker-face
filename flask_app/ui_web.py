@@ -29,7 +29,7 @@ def index():
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:2]
+    ai_player_names = get_celebrities(shuffled=True)[:5]
     game_state = initialize_game_state(player_names=ai_player_names)
     state_machine = PokerStateMachine(game_state=game_state)
     # Create a controller for each player in the game and add to a map of name -> controller

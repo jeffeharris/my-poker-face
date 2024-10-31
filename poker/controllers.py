@@ -56,12 +56,15 @@ class AIPlayerController:
             self.state_machine.phase,
             game_messages)
         print(message)
-        response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes. "
-                                                      "Use your persona response to communicate to the players at the table! "
-                                                      "Based on your mood, confidence, and persona, you should bluff, use emojis, "
-                                                      "and interact with the table by calling out other players directly. You "
-                                                      "can influence their confidence and throw them off their game. Kick back, "
-                                                      "have a drink, and let loose in this private chat.")
+        response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.\n"
+                                                      "Use your persona response to interact with the players at the table directly! You "
+                                                      "can influence their confidence and throw them off their game. "
+                                                      "Use emojis to express yourself, but mix it up and keep it feeling fresh! "
+                                                      "Vary the length of your responses based on your mood and the pace of the game."
+                                                      # "Based on your mood, confidence, and persona, you should bluff, use emojis, "
+                                                      # "and interact with the table by calling out other players directly. You "
+                                                      # "Kick back, have a drink, and let loose in this private chat."
+                                            )
         try:
             response_dict = json.loads(response_json)
             if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
@@ -141,12 +144,11 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     opponent_status = game_state.opponent_status
     current_round = phase
     community_cards = [str(card) for card in [Card(c['rank'], c['suit']) for c in game_state.community_cards]]
-    opponents = game_state.players
-    number_of_opponents = len(opponents) - 1
+    # opponents = [p.name for p in game_state.players if p.name != player.name]
+    # number_of_opponents = len(opponents)
     player_money = player.stack
-
-    player_positions = [index for index, position in enumerate(table_positions) if position == player.name]
-    current_situation = f"The {current_round} cards have just been dealt",
+    player_positions = [position for position, name in table_positions.items() if name == player.name]
+    current_situation = f"The {current_round} cards have just been dealt"
     hole_cards = [str(card) for card in [Card(c['rank'], c['suit']) for c in player.hand]]
     current_pot = game_state.pot['total']
     current_bet = game_state.current_player.bet
@@ -185,12 +187,11 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     )
 
     hand_update_message = persona_state + hand_state + pot_state + (
-        # f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
-        # f"Remember, you're feeling {attitude} and {confidence}.\n"
         f"Consider your table position and the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
         f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
         f"You cannot bet more than you have, ${player_money}.\n"
         f"You must select from these options: {player_options}\n"
+        f"Your table position: {player_positions}\n"
         f"What is your move, {persona}?\n\n"
     )
 
