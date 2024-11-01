@@ -23,22 +23,12 @@ socket.on('ai_action_complete', function(action) {
     console.log('AI action complete:', action);
     window.location.reload(); // Reload the current page
 });
-//
-// // Function to hide the game initialized modal
-// function hideGameInitializedModal() {
-//     console.log("Hiding the game initialization modal.");
-//
-//     // Ensure both the display property and hidden class are correctly applied
-//     modal.style.display = 'none'; // Ensure the modal is visually hidden
-//     modal.classList.add('hidden');
-//     body.classList.remove('dimmed');
-// }
 
 function updateCommunityCards(communityCards) {
     const container = document.getElementById('community-cards');
     container.innerHTML = communityCards.map(card => `
         <span class="card large ${card['suit'].toLowerCase()}">
-            ${card['rank']}${getSuitSymbol(card['suit'])}
+            ${card['rank']} ${getSuitSymbol(card['suit'])}
         </span>
     `).join('');
 }
@@ -142,7 +132,7 @@ function updatePlayerState(playerState) {
             if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
             if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
             if (card.suit === 'Spades') cardSpan.classList.add('spades');
-            cardSpan.textContent = `${card.rank}${getSuitSymbol(card['suit'])}`;
+            cardSpan.textContent = `${card.rank} ${getSuitSymbol(card['suit'])}`;
             playerCardsContainer.appendChild(cardSpan);
         });
 
