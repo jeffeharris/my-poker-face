@@ -21,7 +21,6 @@ socket.on('update_game_state', function(data) {
 // Listen for AI action completion and reload the game page
 socket.on('ai_action_complete', function(action) {
     console.log('AI action complete:', action);
-    window.location.reload(); // Reload the current page
 });
 
 function updateCommunityCards(communityCards) {
@@ -70,34 +69,14 @@ function updateGameState(data) {
 }
 
 // Function to handle player actions
-function playerAction(action) {
+function playerAction(action, amount = 0) {
     console.log(`Player action selected: ${action}`);
-
-    fetch(`/action/${gameId}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action: action })
-    })
-    .then(response => {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-            return response.json();
-        } else {
-            throw new Error("Expected JSON response but got HTML or other content type");
-        }
-    })
-    .then(data => {
-        if (data.redirect) {
-            window.location.href = data.redirect; // Navigate to updated game view
-        } else {
-            console.error('Server error:', data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Network error:', error);
-    });
+    const data = {
+        game_id: gameId,
+        action: action,
+        amount: amount
+    }
+    socket.emit('player_action', data);
 }
 
 // Function to update the player state on the UI
@@ -155,21 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (modal) {
                 modal.style.display = 'none';
             }
-            fetch(`/game/${gameId}`, { method: 'GET' })
-                .then(response => {
-                    const contentType = response.headers.get("content-type");
-                    if (contentType && contentType.indexOf("application/json") !== -1) {
-                        return response.json();
-                    } else {
-                        throw new Error("Expected JSON response but got HTML or other content type");
-                    }
-                })
-                .then(data => {
-                    updateGameState(data);
-                })
-                .catch(error => {
-                    console.error('Network error:', error);
-                });
+            socket.emit('progress_game', gameId)
         } else if (event.target && event.target.id === 'quit-button') {
             console.log("Quit button clicked.");
             const modal = document.getElementById('game-initialized-modal');
@@ -178,6 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             window.location.href = '/';
         } else if (event.target && event.target.id === 'raise-button') {
+            // Event listener for Raise
             console.log("Raise button clicked");
             // Betting Elements
             const raiseButton = document.getElementById('raise-button');
@@ -187,15 +153,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const submitRaiseButton = document.getElementById('bet-submit-button');
             const doubleBetButton = document.getElementById('double-bet-amount-button')
 
-            // Event listener for Raise
-            console.log('Raise button clicked');
             betSliderContainer.classList.toggle('bet-slider-container-expanded');
 
             const buttonRect = raiseButton.getBoundingClientRect();
             const centerX = buttonRect.left + (buttonRect.width / 2);
             const containerWidth = betSliderContainer.offsetWidth;
 
-            betSliderContainer.style.left = `${centerX - (containerWidth * 2)}px`;
+            betSliderContainer.style.left = `${(centerX - (containerWidth / 2))*.75}px`;
 
             // Event listener for slider and input synchronization
             betSlider.addEventListener('input', () => {
@@ -213,53 +177,22 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             doubleBetButton.addEventListener('click', () => {
-                betAmount.value = betAmount.value * 2;
+                if (betAmount.value * 2 < betAmount.max) {
+                    betAmount.value = betAmount.value * 2;
+                    betSlider.value = betAmount.value;
+                } else {
+                    betAmount.value = betAmount.max;
+                    betSlider.value = betAmount.value;
+                }
             })
 
             // Event listener for submitting a raise
             submitRaiseButton.addEventListener('click', async () => {
                 console.log('Bet submit button clicked');
-                const amount = betAmount.value;
-
-                try {
-                    const response = await fetch(`/action/${gameId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ action: 'raise', amount: amount })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-
-                    const result = await response.json();
-                    console.log('Success:', result);
-
-                    // Reload the game page to force the next action. Not ideal implementation.
-                    fetch(`/game/${gameId}`, { method: 'GET' })
-                    .then(response => {
-                        const contentType = response.headers.get("content-type");
-                        if (contentType && contentType.indexOf("application/json") !== -1) {
-                            return response.json();
-                        } else {
-                            throw new Error("Expected JSON response but got HTML or other content type");
-                        }
-                    })
-                    .then(data => {
-                        updateGameState(data);
-                    })
-                    .catch(error => {
-                        console.error('Network error:', error);
-                    });
-
-                } catch (error) {
-                    console.error('Error:', error);
-                }
+                playerAction('raise', betAmount.value);
 
                 // Collapse the slider container after submission
-                betSliderContainer.classList.add('bet-slider-container-collapsed');
+                betSliderContainer.classList.toggle('bet-slider-container-collapsed');
                 setTimeout(() => {
                     betSliderContainer.style.display = 'none';
                 }, 500);

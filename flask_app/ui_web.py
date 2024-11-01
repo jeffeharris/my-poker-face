@@ -23,7 +23,7 @@ def generate_game_id():
 
 def update_and_emit_game_state(game_id):
     game_state = games[game_id]['state_machine'].game_state  # Obtain current game state
-    socketio.emit('game_state_update', {'game_state': game_state, 'room': game_id}, to=game_id)
+    socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
 
 
 @socketio.on('join_game')
@@ -38,7 +38,7 @@ def index():
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:2]
+    ai_player_names = get_celebrities(shuffled=True)[:3]
     game_state = initialize_game_state(player_names=ai_player_names)
     state_machine = PokerStateMachine(game_state=game_state)
     # Create a controller for each player in the game and add to a map of name -> controller
@@ -57,6 +57,42 @@ def new_game():
     games[game_id] = game_data
     return redirect(url_for('game', game_id=game_id))
 
+@socketio.on('progress_game')
+def progress_game(game_id):
+    current_game_data = games.get(game_id)
+    if not current_game_data:
+        return
+    state_machine = current_game_data['state_machine']
+
+    while True:
+        # Run until a player action is needed
+        state_machine.run_until_player_action()
+        current_game_data['state_machine'] = state_machine
+        games[game_id] = current_game_data
+        game_state = state_machine.game_state
+
+        # Emit the latest game state to the client
+        update_and_emit_game_state(game_id)
+
+        # Check if it's an AI's turn to play, then handle AI actions
+        if not game_state.current_player.is_human:
+            handle_ai_action(game_id)
+        else:
+            # If a human action is required, exit the loop
+            break
+
+
+# @app.route('/game/<game_id>', methods=['GET'])
+# def game(game_id) -> str or Response:
+#     current_game_data = games.get(game_id)
+#     if not current_game_data:
+#         return redirect(url_for('index'))
+#
+#     # Start the background task to progress the game
+#     socketio.start_background_task(progress_game, game_id)
+#
+#     return render_template('poker_game.html', game_id=game_id)
+
 @app.route('/game/<game_id>', methods=['GET'])
 def game(game_id) -> str or Response:
     current_game_data = games.get(game_id)
@@ -64,72 +100,67 @@ def game(game_id) -> str or Response:
         return redirect(url_for('index'))
     state_machine = current_game_data['state_machine']
 
-    num_players_remaining = len(state_machine.game_state.players)
-    if num_players_remaining == 1:
-        return redirect(url_for('end_game', game_id=game_id))
-    else:
-        state_machine.run_until_player_action()
-        current_game_data['state_machine'] = state_machine
-        games[game_id] = current_game_data
-        game_state = state_machine.game_state
-        print(game_state.current_phase)
-        if game_state.awaiting_action:
-            if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
-                # Send a table messages with the cards that were dealt
-                num_cards_dealt = 3 if game_state.current_phase == GamePhase.FLOP else 1
-                message_content = (f"{game_state.current_phase} cards dealt: "
-                                   f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
-                send_message(game_id, "table", message_content, "table")
+    socketio.start_background_task(progress_game, game_id)
 
-            if not game_state.current_player.is_human:
-                socketio.start_background_task(handle_ai_action, game_id)
-
-            socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
-            # return render_template('poker_game.html',
-            #                        game_state=game_state,
-            #                        player_options=game_state.current_player_options,
-            #                        game_id=game_id,
-            #                        current_phase=str(game_state.current_phase))
-
-        elif game_state.current_phase == GamePhase.EVALUATING_HAND:
-            game_state, winner_info = determine_winner(game_state)
-
-            message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
-                               f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
-            send_message(game_id,"table", message_content, "table", 1)
-
-            game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
-            game_state = reset_game_state_for_new_hand(game_state=game_state)
-            state_machine.game_state = game_state
-            current_game_data['state_machine'] = state_machine
-            games[game_id] = current_game_data
-            return redirect(url_for('game', game_id=game_id))
+    # num_players_remaining = len(state_machine.game_state.players)
+    # if num_players_remaining == 1:
+    #     return redirect(url_for('end_game', game_id=game_id))
+    # else:
+    #     state_machine.run_until_player_action()
+    #     current_game_data['state_machine'] = state_machine
+    #     games[game_id] = current_game_data
+    #     game_state = state_machine.game_state
+    #     print(game_state.current_phase)
+    #     if game_state.awaiting_action:
+    #         if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
+    #             # Send a table messages with the cards that were dealt
+    #             num_cards_dealt = 3 if game_state.current_phase == GamePhase.FLOP else 1
+    #             message_content = (f"{game_state.current_phase} cards dealt: "
+    #                                f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
+    #             send_message(game_id, "table", message_content, "table")
+    #
+    #         if not game_state.current_player.is_human:
+    #             socketio.start_background_task(handle_ai_action, game_id)
+    #
+    #         socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
+    #         # return render_template('poker_game.html',
+    #         #                        game_state=game_state,
+    #         #                        player_options=game_state.current_player_options,
+    #         #                        game_id=game_id,
+    #         #                        current_phase=str(game_state.current_phase))
+    #
+    #     elif game_state.current_phase == GamePhase.EVALUATING_HAND:
+    #         game_state, winner_info = determine_winner(game_state)
+    #
+    #         message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
+    #                            f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
+    #         send_message(game_id,"table", message_content, "table", 1)
+    #
+    #         game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
+    #         game_state = reset_game_state_for_new_hand(game_state=game_state)
+    #         state_machine.game_state = game_state
+    #         current_game_data['state_machine'] = state_machine
+    #         games[game_id] = current_game_data
+    #         return redirect(url_for('game', game_id=game_id))
 
     return render_template('poker_game.html',
                            game_state=state_machine.game_state,
                            player_options=state_machine.game_state.current_player_options,
                            game_id=game_id,
-                           current_phase=str(game_state.current_phase))
+                           current_phase=str(state_machine.game_state.current_phase))
 
-@app.route('/action/<game_id>', methods=['POST'])
-def player_action(game_id) -> tuple[str, int] or Response:
+@socketio.on('player_action')
+def handle_player_action(data):
     try:
-        data = request.get_json()
-        app.logger.debug(f"Received data: {data}")
-
-        if not data or 'action' not in data:
-            return jsonify({'error': 'Invalid request payload'}), 400
-
+        game_id = data['game_id']
         action = data['action']
         amount = int(data.get('amount', 0))
-        app.logger.debug(f"Action: {action}, Amount: {amount}")
-    except (KeyError, TypeError, ValueError) as e:
-        app.logger.error(f"Error parsing request: {e}")
-        return jsonify({'error': str(e)}), 400
+    except KeyError:
+        return
 
     current_game_data = games.get(game_id)
     if not current_game_data:
-        return jsonify({'redirect': url_for('index')}), 400
+        return
     state_machine = current_game_data['state_machine']
 
     # Play the current player's turn
@@ -145,7 +176,8 @@ def player_action(game_id) -> tuple[str, int] or Response:
     # Update the game session states (global variables right now)
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    return jsonify({'redirect': url_for('game', game_id=game_id)})
+    update_and_emit_game_state(game_id)  # Emit updated game state
+    socketio.start_background_task(progress_game, game_id)
 
 
 def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
@@ -221,8 +253,10 @@ def handle_ai_action(game_id: str) -> None:
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
-    socketio.emit('ai_action_complete')
+    # socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
+    # socketio.emit('ai_action_complete', to=game_id)
+    update_and_emit_game_state(game_id)
+    # socketio.start_background_task(progress_game, game_id)
 
 @app.route('/next_round/<game_id>', methods=['POST'])
 def next_round(game_id):
