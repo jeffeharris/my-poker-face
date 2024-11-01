@@ -29,37 +29,6 @@ def get_celebrities(shuffled: bool = False):
     return celebrities_list
 
 
-def initialize_test_players():
-    """Set up test players for simplified testing scenario."""
-    return ["Player1", "Player2"]
-
-
-def shift_list_left(my_list: list, count: int = 1):
-    """
-    Shifts the elements of the given list to the left by a specified count.
-
-    :param my_list: The list to manipulate.
-    :param count: The number of positions to shift the list to the left. Default is 1.
-    """
-    if not my_list:  # Handle empty list
-        return
-    count = count % len(my_list)  # Ensure count is within valid bounds
-    my_list[:] = my_list[count:] + my_list[:count]
-
-
-def shift_list_right(my_list: list, count: int = 1):
-    """
-    Shifts the elements of the given list to the right by a specified count.
-
-    :param my_list: The list to manipulate.
-    :param count: The number of positions to shift the list to the right. Default is 1.
-    """
-    if not my_list:  # Handle empty list
-        return
-    count = -count % len(my_list)
-    my_list[:] = my_list[count:] + my_list[:count]
-
-
 def obj_to_dict(self):
     result = {}
     for key, value in self.__dict__.items():
@@ -86,16 +55,6 @@ def serialize(converted_object):
     else:
         # Provide a placeholder or convert to string
         return str(converted_object)
-
-
-# TODO: <REFACTOR> move bake to PokerHand or RoundManager
-class PokerHandPhase(Enum):
-    INITIALIZING = "initializing"
-    PRE_FLOP = "pre-flop"
-    FLOP = "flop"
-    TURN = "turn"
-    RIVER = "river"
-    SHOWDOWN = "showdown"   # TODO: implement showdown gameplay
 
 
 def prepare_ui_data(game_state) -> Tuple[Dict, List]:

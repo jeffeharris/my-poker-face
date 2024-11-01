@@ -5,7 +5,8 @@ from dotenv import load_dotenv
 from card import CardRenderer
 from controllers import ConsolePlayerController, AIPlayerController
 
-from functional_poker import *
+from poker_game import *
+from poker_state_machine import PokerStateMachine
 from utils import get_celebrities
 
 load_dotenv()

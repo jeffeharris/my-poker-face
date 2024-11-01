@@ -6,7 +6,7 @@ from flask_session import Session
 from old_files.user_interface import UserInterface
 from old_files.poker_game import PokerGame
 from old_files.poker_hand import PokerHand
-from old_files.poker_action import PokerAction
+from poker_action import PokerAction
 from poker.utils import get_celebrities
 
 app = Flask(__name__,

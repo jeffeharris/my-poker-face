@@ -1,11 +1,14 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
+from typing import Optional
+
 from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
 from flask_socketio import SocketIO, join_room
 from datetime import datetime
 import time
 
 from controllers import AIPlayerController
-from functional_poker import *
+from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, advance_to_next_active_player
+from poker_state_machine import PokerStateMachine, GamePhase
 from utils import get_celebrities
 
 app = Flask(__name__)
@@ -88,15 +91,21 @@ def progress_game(game_id):
         if not game_state.current_player.is_human:
             handle_ai_action(game_id)
 
-        elif game_state.current_phase == GamePhase.EVALUATING_HAND:
+        elif state_machine.phase == GamePhase.EVALUATING_HAND:
             game_state, winner_info = determine_winner(game_state)
+            state_machine.update_phase()
 
-            message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
-                               f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
+            winning_players = ', '.join(winner_info['winning_player_names'][:-1]) + \
+                              f" and {winner_info['winning_player_names'][-1]}" if len(
+                winner_info['winning_player_names']) > 1 \
+                else winner_info['winning_player_names'][0]
+
+            message_content = (
+                f"{winning_players} won the pot of ${winner_info['pot_total']}.             "
+                f"Winning hand: {winner_info['winning_hand']}"
+            )
             send_message(game_id,"table", message_content, "table", 1)
 
-            game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
-            game_state = reset_game_state_for_new_hand(game_state=game_state)
             state_machine.game_state = game_state
             current_game_data['state_machine'] = state_machine
             games[game_id] = current_game_data
@@ -160,7 +169,7 @@ def game(game_id) -> str or Response:
                            game_state=state_machine.game_state,
                            player_options=state_machine.game_state.current_player_options,
                            game_id=game_id,
-                           current_phase=str(state_machine.game_state.current_phase))
+                           current_phase=str(state_machine.phase))
 
 @socketio.on('player_action')
 def handle_player_action(data):
@@ -250,7 +259,7 @@ def handle_ai_action(game_id: str) -> None:
 
     current_player = state_machine.game_state.current_player
     controller = ai_controllers[current_player.name]
-    player_response_dict = controller.decide_action()
+    player_response_dict = controller.decide_action(game_messages[-8:])
 
     # Prepare variables needed for new messages
     action = player_response_dict['action']
@@ -311,7 +320,7 @@ def handle_send_message(data):
     # Get needed values from the data
     game_id = data.get('game_id')
     content = data.get('message')
-    sender = data.get('sender', 'User')
+    sender = data.get('sender', 'Jeff')
     message_type = data.get('message_type', 'user')
 
     send_message(game_id, sender, content, message_type)

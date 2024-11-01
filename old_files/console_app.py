@@ -1,14 +1,13 @@
 import json
 from typing import List, Optional, Any, Dict
 
-from core.card import Card
 from card import CardRenderer
 from old_files.deck import Deck
 from old_files.user_interface import UserInterface
-from old_files.poker_action import PokerAction
+from poker_action import PokerAction
 from old_files.poker_game import PokerGame
 from old_files.poker_hand import PokerHand
-from old_files.poker_player import AIPokerPlayer
+from poker_player import AIPokerPlayer
 from poker.utils import PokerHandPhase
 
 

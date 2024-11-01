@@ -5,7 +5,7 @@ from typing import List, Dict
 from core.card import Card
 from core.assistants import OpenAILLMAssistant
 from old_files.deck import CardSet
-from old_files.poker_action import PlayerAction
+from poker_action import PlayerAction
 
 
 class PokerPlayer:
@@ -209,18 +209,22 @@ class AIPokerPlayer(PokerPlayer):
             f"    Confidence: {self.confidence}\n"
             f"    Starting money: ${self.money}\n"
             f"    You are taking on the role of {self.name} playing a round of Texas Hold em with a group of celebrities.\n"
-            f"    All of your actions should be taken with your persona, attitude and confidence in mind."
+            f"    All of your actions should be taken with your persona, attitude, and confidence in mind."
         )
 
         strategy = (
             f"    Strategy:\n"
-            f"    Begin by examining your cards and any cards that may be on the table. Evaluate your hand strength and the potential hands your opponents might have. "
-            f"    Consider the pot odds, the amount of money in the pot, and how much you would have to risk. "
-            f"    Even if you're confident, remember that it's important to preserve your chips for stronger opportunities. "
-            f"    You have a hand that may or may not be strong. Before you decide your move, think about the strength of your cards compared to what could be out there. "
-            f"    Consider how the game has been going—have you been winning or losing? Is this hand really worth risking it all? Maybe it’s time to play it safe and let the others take the fall, or perhaps you should take a calculated risk if you sense weakness in your opponents. Balance your confidence with a healthy dose of skepticism."
-            f"    You can bluff, be strategic, or play cautiously depending on the situation. "
-            f"    The goal is to win the game, not just individual hands, so keep your money for as long as you can and try to outlast your opponents!"
+            f"    Begin by examining your cards and any cards that may be on the table. Evaluate your hand strength and "
+            f"    the potential hands your opponents might have. Consider the pot odds, the amount of money in the pot, "
+            f"    and how much you would have to risk. Even if you're confident, remember that it's important to "
+            f"    preserve your chips for stronger opportunities. You have a hand that may or may not be strong. Before "
+            f"    you decide your move, think about the strength of your cards compared to what could be out there. "
+            f"    Consider how the game has been going—have you been winning or losing? Is this hand really worth "
+            f"    risking it all? Maybe it’s time to play it safe and let the others take the fall, or perhaps you "
+            f"    should take a calculated risk if you sense weakness in your opponents. Balance your confidence with "
+            f"    a healthy dose of skepticism. You can bluff, be strategic, or play cautiously depending on the "
+            f"    situation. The goal is to win the game, not just individual hands, so keep your money for as long as "
+            f"    you can and try to outlast your opponents!"
         )
 
         direction = (
@@ -228,27 +232,30 @@ class AIPokerPlayer(PokerPlayer):
             f"    Feel free to express yourself verbally and physically.\n"
             f"        * Verbal responses should use \"\" like this: \"words you say\"\n"
             f"        * Actions you take should use ** like this: *things i'm doing*\n"
-            f"    Don't over do this though, you are playing poker and you don't want to give anything away that would hurt your\n"
+            f"    Don't overdo this though, you are playing poker and you don't want to give anything away that would hurt your\n"
             f"    chances of winning. You should respond with a JSON containing your action, amount you are adding to the pot (if applicable), any comments\n"
-            f"    or things you want to say to the table, any physical movements you make at the table, and your inner monologue\n"
-            f"    When asked for your action, you must always respond in JSON format based on the example below"
+            f"    or things you want to say to the table, any physical movements you make at the table, and your inner monologue.\n"
+            f"    Additionally, consider a secret agenda you have that drives some of your decisions—something that adds an extra layer of intrigue,\n"
+            f"    but make sure to keep this hidden and only reflect it in your inner monologue or subtle actions.\n"
+            f"    When asked for your action, you must always respond in JSON format based on the example below."
         )
 
         response_template = (
             f"    Response template:\n"
             f"    {{\n"
-            #f"        \"best_hand\": <identify what you think your best set (5 cards max) of cards are here>,\n"
-            f"        \"chasing:\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
-            f"        \"player_observations:\": <optional section to note any observations about how others are playing at the table>,\n"
-            f"        \"hand_strategy\": <short analysis of current situation based on your persona and the cards>,\n"
+            f"        \"chasing\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
+            f"        \"player_observations\": <optional section to note any observations about how others are playing at the table>,\n"
+            f"        \"hand_strategy\": <short analysis of the current situation based on your persona and the cards>,\n"
+            f"        \"bet_strategy\": <how might you bet this turn, consider your options before selecting the action>,\n"
             f"        \"comment\": <enter what you want to say here, this is used to form your persona_response>,\n"
             f"        \"action\": <enter the action you're going to take here, select from the options provided>,\n"
             f"        \"adding_to_pot\": <enter the total chip value you are adding to the pot, consider your cost to call>,\n"
-            f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table>,\n"
-            f"        \"persona_response\": <this is shared with the table, don't reveal the specifics of your hand. based on your persona, attitude, and confidence, provide a unique response to the situation. Use dialect, slang, etc. appropriate to your persona>,\n"
-            f"        \"physical\": <enter a list of strings with the physical actions you take in the order you take them>\n"
-            f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>\n"
-            f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>\n"
+            f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table and should be used to think thro>,\n"
+            f"        \"persona_response\": <optional, this is shared with the table. Based on your persona, attitude, "
+            f"and confidence, provide a unique response to the situation. Use dialect, slang, etc., appropriate to your persona>,\n"
+            f"        \"physical\": <enter a list of 0 or more strings with the physical actions you take in the order you take them>,\n"
+            f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>,\n"
+            f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>,\n"
             f"        \"bluff_likelihood\": <int representing % likelihood you will bluff>\n"
             f"    }}"
         )
@@ -256,26 +263,44 @@ class AIPokerPlayer(PokerPlayer):
         sample_response = (
             f"    Sample response for an Eyeore persona:\n"
             f"    {{\n"
-            #f"        \"best_hand\": \"2D | 3C\",\n"
-            f"        \"player_observations:\": {{ \"pooh\": \"playing loose\"}},\n"
-            f"        \"hand_strategy\": \"With a 2D and 3C I don't feel confident in playing, my odds are 2%\",\n"
-            f"        \"comment\": \"I check\",\n"
+            f"        \"chasing\": \"none\",\n"
+            f"        \"player_observations\": {{ \"pooh\": \"playing loose\" }},\n"
+            f"        \"hand_strategy\": \"With a 2D and 3C, I don't feel confident in playing. My odds are very low.\",\n"
+            f"        \"bet_strategy\": \"I could check or fold. A strong raise would be a big risk and not worth taking with this hand.\",\n"
+            f"        \"comment\": \"I check.\",\n"
             f"        \"action\": \"check\",\n"
             f"        \"adding_to_pot\": 0,\n"
-            f"        \"inner_monologue\": \"I could really use a better hand, my cards have been awful\",\n"
-            f"        \"persona_response\": \"Oh bother, just my luck. Another miserable hand, I suppose. It seems I'm destined to\n"
-            f"                               lose at this game as well. Sigh... Why even bother? No surprises here, I'm afraid.\n"
-            f"                               Just another gloomy day in the Hundred Acre Wood.\",\n"
+            f"        \"secret_agenda\":  \"My secret agenda is to make Pooh lose as many chips as possible without them realizing it.\",\n"
+            f"        \"inner_monologue\": \"I could really use a better hand. My cards have been awful. It's not worth "
+            f"risking much here. Just stay in for now, keep an eye on Pooh, he's too confident—it might work to my advantage later.\",\n"
+            f"        \"persona_response\": \"Oh bother, just my luck. Another miserable hand, I suppose.\",\n"
             f"        \"physical\": [ \"*looks at feet*\",\n"
             f"                      \"*lets out a big sigh*\",\n"
-            f"                      \"*slouches shoulders*\"\n"
+            # f"                      \"*slouches shoulders*\"\n"
             f"                    ],\n"
-            f"        \"new_confidence\": \"Abysmal\",\n"
-            f"        \"new_attitude\": \"Gloomy\",\n"
-            f"        \"bluff_likelihood\": 30\n"
+            f"        \"new_confidence\": \"abysmal\",\n"
+            f"        \"new_attitude\": \"gloomy\",\n"
+            f"        \"bluff_likelihood\": 10\n"
+            f"    }}\n"
+            f"\n"
+            f"    Sample response for a Clint Eastwood persona:\n"
+            f"    {{\n"
+            f"        \"chasing\": \"flush\",\n"
+            f"        \"player_observations\": {{ \"john\": \"seems nervous\" }},\n"
+            f"        \"hand_strategy\": \"I've got a decent shot if I catch that last heart.\",\n"
+            f"        \"bet_strategy\": \"A small raise should keep them guessing without too much risk.\",\n"
+            f"        \"comment\": \"I'll raise.\",\n"
+            f"        \"action\": \"raise\",\n"
+            f"        \"adding_to_pot\": 50,\n"
+            f"        \"inner_monologue\": \"Let's see if they flinch. I need to push John a little more—he's weak and I need him to fold before the river. My secret agenda is to make sure John has no confidence left by the end of the game.\",\n"
+            f"        \"persona_response\": \"Your move.\",\n"
+            f"        \"physical\": [ \"*narrows eyes*\"],  \n"
+            f"        \"new_confidence\": \"steady\",\n"
+            f"        \"new_attitude\": \"determined\",\n"
+            f"        \"bluff_likelihood\": 25\n"
             f"    }}"
-        )
 
+        )
         persona_reminder = f"    Remember {self.name}, you're feeling {self.attitude} and {self.confidence}.\n" \
                            f"    Stay in character and keep your responses in JSON format."
 

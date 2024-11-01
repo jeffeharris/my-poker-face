@@ -2,8 +2,9 @@ import json
 from typing import List, Optional, Dict
 
 from card import Card, CardRenderer
-from functional_poker import PokerStateMachine
-from old_files.poker_player import AIPokerPlayer
+from poker_game import Player
+from poker_state_machine import PokerStateMachine
+from poker_player import AIPokerPlayer
 from utils import prepare_ui_data
 
 
@@ -18,6 +19,24 @@ class ConsolePlayerController:
         return human_player_action(ui_data, player_options)
 
 
+def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[Dict[str, str]]:
+    # Find the index of the last message from the Player with 'name'
+    # Search the list of messages for the last message from the player
+    last_message_index = -1
+    for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
+        if messages[i]['sender'] == name:
+            last_message_index = i
+            break
+
+    # Send the messages since the player's last message to the assistant to be summarized
+    if last_message_index >= 0:
+        messages_since_last_message = messages[last_message_index + 1:]
+        return messages_since_last_message
+    else:
+        return messages
+
+
+
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, ai_temp=0.9):
         self.player_name = player_name
@@ -25,10 +44,27 @@ class AIPlayerController:
         self.ai_temp = ai_temp
         self.assistant = AIPokerPlayer(player_name, ai_temp=ai_temp).assistant
 
-    def decide_action(self) -> Dict:
-        message = json.dumps(prepare_ui_data(self.state_machine.game_state))
-        response_json = self.assistant.chat(
-            message + "\nPlease only respond with the JSON, not the text with back quotes.")
+    def decide_action(self, game_messages) -> Dict:
+        # message = json.dumps(prepare_ui_data(self.state_machine.game_state))
+        game_state = self.state_machine.game_state
+        game_messages = summarize_messages(
+            game_messages,
+            self.player_name)
+        message = convert_game_to_hand_state(
+            game_state,
+            game_state.current_player,
+            self.state_machine.phase,
+            game_messages)
+        print(message)
+        response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.\n"
+                                                      "Use your persona response to interact with the players at the table directly! You "
+                                                      "can influence their confidence and throw them off their game. "
+                                                      "Use emojis to express yourself, but mix it up and keep it feeling fresh! "
+                                                      "Vary the length of your responses based on your mood and the pace of the game."
+                                                      # "Based on your mood, confidence, and persona, you should bluff, use emojis, "
+                                                      # "and interact with the table by calling out other players directly. You "
+                                                      # "Kick back, have a drink, and let loose in this private chat."
+                                            )
         try:
             response_dict = json.loads(response_json)
             if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
@@ -99,65 +135,64 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
     print(f"Options: {player_options}\n")
 
 
-# def convert_game_to_hand_state(game_state, player: AIPokerPlayer):
-#     # Currently used values
-#     persona = player.name
-#     attitude = player.attitude
-#     confidence = player.confidence
-#     table_positions = hand_state["table_positions"]                         # TODO: create table positions
-#     opponent_status = hand_state["opponent_status"]                         # TODO: create opponent status
-#     current_round = hand_state["current_phase"]                             # TODO: assign current round here
-#     community_cards = [str(card) for card in hand_state["community_cards"]] # TODO: create community cards as Card objects
-#     opponents = game_state.players
-#     number_of_opponents = len(opponents) - 1
-#     player_money = player.money
-#     # TODO: <FEATURE> decide what to do with this position idea
-#     # position = hand_state["positions"][self]
-#     current_situation = hand_state["current_situation"]
-#     hole_cards = [str(card) for card in player.cards]
-#     current_pot = hand_state["current_pot"]
-#     # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
-#     cost_to_call = game_state.highest_bet - game_state.current_player['bet']
-#     player_options = game_state.current_player_options
-#
-#     # create a list of the action comments and then send them to the table manager to summarize
-#     action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-#     action_summary = "We're just getting started! You're first to go."
-#     if len(action_comment_list) > 0:
-#         action_summary = hand_state["table_manager"].summarize_actions_for_player(
-#             action_comment_list[-number_of_opponents:], self.name)
-#
-#     persona_state = (
-#         f"Persona: {persona}\n"
-#         f"Attitude: {attitude}\n"
-#         f"Confidence: {confidence}\n"
-#         f"Your Cards: {hole_cards}\n"
-#         f"Your Money: {player_money}\n"
-#     )
-#
-#     hand_state = (
-#         f"{current_situation}\n"
-#         f"Current Round: {current_round}\n"
-#         f"Community Cards: {community_cards}\n"
-#         f"Table Positions: {table_positions}\n"
-#         f"Opponent Status:\n{opponent_status}\n"
-#         f"Actions since your last turn: {action_summary}\n"
-#     )
-#
-#     pot_state = (
-#         f"Pot Total: ${current_pot.total}\n"
-#         f"How much you've bet: ${current_pot.get_player_pot_amount(self.name)}\n"
-#         f"Your cost to call: ${cost_to_call}\n"
-#     )
-#
-#     hand_update_message = persona_state + hand_state + pot_state + (
-#         # f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
-#         # f"Remember, you're feeling {attitude} and {confidence}.\n"
-#         f"Consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
-#         f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
-#         f"You cannot bet more than you have, ${player_money}.\n"
-#         f"You must select from these options: {player_options}\n"
-#         f"What is your move, {persona}?\n\n"
-#     )
-#
-#     return hand_update_message
+def convert_game_to_hand_state(game_state, player: Player, phase, messages):
+    # Currently used values
+    persona = player.name
+    # attitude = player.attitude
+    # confidence = player.confidence
+    table_positions = game_state.table_positions
+    opponent_status = game_state.opponent_status
+    current_round = phase
+    community_cards = [str(card) for card in [Card(c['rank'], c['suit']) for c in game_state.community_cards]]
+    # opponents = [p.name for p in game_state.players if p.name != player.name]
+    # number_of_opponents = len(opponents)
+    player_money = player.stack
+    player_positions = [position for position, name in table_positions.items() if name == player.name]
+    current_situation = f"The {current_round} cards have just been dealt"
+    hole_cards = [str(card) for card in [Card(c['rank'], c['suit']) for c in player.hand]]
+    current_pot = game_state.pot['total']
+    current_bet = game_state.current_player.bet
+    cost_to_call = game_state.highest_bet - game_state.current_player.bet
+    player_options = game_state.current_player_options
+
+    # create a list of the action comments and then send them to the table manager to summarize
+    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
+    # action_summary = "We're just getting started! You're first to go."
+    # if len(action_comment_list) > 0:
+    #     action_summary = hand_state["table_manager"].summarize_actions_for_player(
+    #         action_comment_list[-number_of_opponents:], self.name)
+    action_summary = messages
+
+    persona_state = (
+        f"Persona: {persona}\n"
+        # f"Attitude: {attitude}\n"
+        # f"Confidence: {confidence}\n"
+        f"Your Cards: {hole_cards}\n"
+        f"Your Money: {player_money}\n"
+    )
+
+    hand_state = (
+        f"{current_situation}\n"
+        f"Current Round: {current_round}\n"
+        f"Community Cards: {community_cards}\n"
+        f"Table Positions: {table_positions}\n"
+        f"Opponent Status:\n{opponent_status}\n"
+        f"Actions since your last turn: {action_summary}\n"
+    )
+
+    pot_state = (
+        f"Pot Total: ${current_pot}\n"
+        f"How much you've bet: ${current_bet}\n"
+        f"Your cost to call: ${cost_to_call}\n"
+    )
+
+    hand_update_message = persona_state + hand_state + pot_state + (
+        f"Consider your table position and the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
+        f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
+        f"You cannot bet more than you have, ${player_money}.\n"
+        f"You must select from these options: {player_options}\n"
+        f"Your table position: {player_positions}\n"
+        f"What is your move, {persona}?\n\n"
+    )
+
+    return hand_update_message
