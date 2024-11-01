@@ -172,7 +172,7 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     )
 
     hand_state = (
-        f"{current_situation}\n"
+        # f"{current_situation}\n"
         f"Current Round: {current_round}\n"
         f"Community Cards: {community_cards}\n"
         f"Table Positions: {table_positions}\n"
