@@ -82,17 +82,6 @@ def progress_game(game_id):
             break
 
 
-# @app.route('/game/<game_id>', methods=['GET'])
-# def game(game_id) -> str or Response:
-#     current_game_data = games.get(game_id)
-#     if not current_game_data:
-#         return redirect(url_for('index'))
-#
-#     # Start the background task to progress the game
-#     socketio.start_background_task(progress_game, game_id)
-#
-#     return render_template('poker_game.html', game_id=game_id)
-
 @app.route('/game/<game_id>', methods=['GET'])
 def game(game_id) -> str or Response:
     current_game_data = games.get(game_id)
@@ -100,8 +89,8 @@ def game(game_id) -> str or Response:
         return redirect(url_for('index'))
     state_machine = current_game_data['state_machine']
 
-    socketio.start_background_task(progress_game, game_id)
-
+    # socketio.start_background_task(progress_game, game_id)
+    progress_game(game_id)
     # num_players_remaining = len(state_machine.game_state.players)
     # if num_players_remaining == 1:
     #     return redirect(url_for('end_game', game_id=game_id))
@@ -177,7 +166,8 @@ def handle_player_action(data):
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
     update_and_emit_game_state(game_id)  # Emit updated game state
-    socketio.start_background_task(progress_game, game_id)
+    # socketio.start_background_task(progress_game, game_id)
+    progress_game(game_id)
 
 
 def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
