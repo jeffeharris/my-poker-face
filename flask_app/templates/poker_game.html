@@ -41,11 +41,11 @@
         <div class="players" id="players">
             {% for player in game_state.players %}
                 <div class="{% if game_state.current_player.name == player.name %}player-card--current-player{% elif player.has_acted %}player-card--has-acted{% else %}player-card{% endif %}"
-                     id="player-{{ loop.index + 1 }}">
+                     id="player-{{ player.name }}">
                     <img src="{{ url_for('static', filename='images/kanye.jpg') }}" class="player-headshot" alt="Player picture" >
                     <h2>{{ player.name }}</h2>
                     <p>${{ player.stack }}</p>
-                    <div id="cards-player-{{ loop.index + 1 }}" class="{% if player.is_folded %}player-cards--is-folded{% else %}player-cards{% endif %}">
+                    <div id="cards-player-{{ player.name }}" class="{% if player.is_folded %}player-cards--is-folded{% else %}player-cards{% endif %}">
                     {% if player.is_human %}
                         {% for card in player.hand %}
                             <span class="card
@@ -83,8 +83,9 @@
         </div>
     </div>
 
-    {% if game_state.current_player.is_human %}
-    <div id="player-options" class="player-options content">
+
+    <div id="player-options"
+         class="{% if game_state.current_player.is_human %}player-options content{% else %}bet-slider-container-collapsed{% endif %}">
     {% for option in player_options %}
         {% if option == "raise" %}
             <button class="player-action" id="raise-button">raise</button>
@@ -98,26 +99,18 @@
                        max="{{ game_state.current_player.stack }}" step="{{ game_state.current_ante/2 }}"
                        value="{{ game_state.current_ante*2 }}">
 
-                <div style="display: flex; justify-content: space-between; width: 100%;">
+                <div class="bet-slider-button-container">
                     <button id="bet-submit-button">Submit</button>
                     <button id="double-bet-amount-button">X2</button>
                 </div>
             </div>
         {% else %}
-            <button class="player-action" id="{{ option }}-button" onclick="playerAction('{{ option }}')">
+            <button class="player-action" id="{{ option }}-button">
                 {{ option }}{% if option == "call" %} ${{ game_state.highest_bet - game_state.current_player.bet }}{% endif %}
             </button>
         {% endif %}
     {% endfor %}
-</div>
-{#    {% else %}#}
-{#    <!-- Pop-up Container to display AI actions -->#}
-{#    <div id="popup-container" class="popup">#}
-{#        <div id="popup-content" class="popup-content">#}
-{#            <span id="popup-message"></span>#}
-{#        </div>#}
-{#    </div>#}
-    {% endif %}
+    </div>
 
     <!-- Advantages Window -->
     {% include 'advantages.html' %}

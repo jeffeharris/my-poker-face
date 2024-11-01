@@ -23,6 +23,14 @@ socket.on('ai_action_complete', function(action) {
     console.log('AI action complete:', action);
 });
 
+socket.on('player_turn_start', function(data) {
+    console.log('Player turn:', data);
+    const playerOptionsComponent = document.getElementById('player-options');
+    updatePlayerOptions(data['current_player_options'], data['cost_to_call']);
+    playerOptionsComponent.classList.add('player-options', 'content');
+    playerOptionsComponent.classList.remove('bet-slider-container-collapsed');
+});
+
 function updateCommunityCards(communityCards) {
     const container = document.getElementById('community-cards');
     container.innerHTML = communityCards.map(card => `
@@ -53,19 +61,81 @@ function updatePot(potData) {
     document.getElementById('pot').innerHTML = `Pot: $${potTotal} | Min: $${highestBet}`;
 }
 
-// Function to update the game state on the UI
-/*
+function updatePlayerOptions(playerOptions, costToCall) {
+    const playerOptionsContainer = document.getElementById('player-options');
+    playerOptionsContainer.innerHTML = ''
+    console.log('Player options:', playerOptions);
+    // For each option, create the associated button
+    playerOptions.forEach(option => {
+        const button = document.createElement('button');
+        button.id = `${option}-button`;
+        if (option === 'call') {
+            button.textContent = `${option} $${costToCall}`;
+        } else {
+            button.textContent = option;
+        }
+        if (option === 'raise') {
+            const betSliderContainer = document.createElement('div');
+            betSliderContainer.id = 'bet-slider-container';
+            betSliderContainer.classList.add('bet-slider-container','bet-slider-container-collapsed');
 
-*/
+            const betSlider = document.createElement('input');
+            betSlider.id = 'bet-slider';
+            betSlider.type = 'range';
+            betSlider.min = "50";
+            betSlider.max = "10000";
+            betSlider.step = "25";
+            betSlider.value = "200";
+            betSlider.classList.add('bet-slider');
+
+            const betAmount = document.createElement('input');
+            betAmount.id = 'bet-amount';
+            betAmount.type = 'number';
+            betAmount.min = "50";
+            betAmount.max = "10000";
+            betAmount.step = "25";
+            betAmount.value = "200";
+            betAmount.classList.add('bet-amount');
+
+            const buttonDiv = document.createElement('div');
+            buttonDiv.classList.add('bet-slider-button-container');
+
+            const submitRaiseButton = document.createElement('button');
+            submitRaiseButton.id = 'bet-submit-button';
+            submitRaiseButton.textContent = 'Submit';
+            submitRaiseButton.classList.add('bet-submit-button');
+
+            const doubleBetButton = document.createElement('button');
+            doubleBetButton.id = 'double-bet-amount-button';
+            doubleBetButton.textContent = 'X2';
+
+            buttonDiv.appendChild(submitRaiseButton);
+            buttonDiv.appendChild(doubleBetButton);
+
+            betSliderContainer.appendChild(betSlider);
+            betSliderContainer.appendChild(betAmount);
+            betSliderContainer.appendChild(buttonDiv);
+            playerOptionsContainer.appendChild(betSliderContainer);
+        }
+        button.classList.add('player-option');
+        playerOptionsContainer.appendChild(button);
+    })
+}
+
+// Function to update the game state on the UI
 function updateGameState(data) {
     const gameState = data['game_state'];
     const gameStatePlayers = gameState['players'];
     const communityCards = Array.from(gameState['community_cards']);
     const currentPot = gameState['pot'];
+    const currentPlayer = gameStatePlayers[gameState['current_player_idx']];
+    const playerOptions = gameState['current_player_options'];
+    const costToCall = currentPot['highest_bet'] - currentPlayer['bet'];
 
     updateCommunityCards(communityCards);
     updatePot(currentPot)
-    updatePlayerState(gameStatePlayers);
+    updatePlayerState(gameStatePlayers, gameStatePlayers[gameState['current_player_idx']]['name']);
+    updatePlayerOptions(playerOptions, costToCall);
 }
 
 // Function to handle player actions
@@ -77,17 +147,27 @@ function playerAction(action, amount = 0) {
         amount: amount
     }
     socket.emit('player_action', data);
+
+    const playerOptionsComponent = document.getElementById('player-options');
+    playerOptionsComponent.classList.remove('player-options', 'content');
+    playerOptionsComponent.classList.add('bet-slider-container-collapsed');
 }
 
 // Function to update the player state on the UI
-function updatePlayerState(playerState) {
+function updatePlayerState(playerState, currentPlayerName) {
     let playersContainer = document.getElementById('players');
     playersContainer.innerHTML = ''; // Clear existing content
 
-    playerState.forEach((player, index) => {
+    playerState.forEach(player => {
         let playerCard = document.createElement('div');
-        playerCard.classList.add('player-card');
-        playerCard.id = `player-${index + 1}`;
+        playerCard.id = `player-${player.name}`;
+        if (player.name === currentPlayerName) {
+            playerCard.classList.add('player-card--current-player');
+        } else if (player['has_acted']) {
+            playerCard.classList.add('player-card--has-acted');
+        } else {
+            playerCard.classList.add('player-card');
+        }
 
         let playerHeadshot = document.createElement('img');
         playerHeadshot.src = '/static/images/kanye.jpg';
@@ -101,17 +181,25 @@ function updatePlayerState(playerState) {
         playerMoney.textContent = `$${player.stack}`;
 
         let playerCardsContainer = document.createElement('div');
-        playerCardsContainer.id = `cards-player-${index + 1}`;
-        playerCardsContainer.classList.add('player-cards');
+        playerCardsContainer.id = `cards-player-${player.name}`;
+        if (player['is_folded']) {
+            playerCardsContainer.classList.add('player-cards--is-folded');
+        } else {
+            playerCardsContainer.classList.add('player-cards');
+        }
 
         player.hand.forEach(card => {
             let cardSpan = document.createElement('span');
-            cardSpan.classList.add('card');
-            if (card.suit === 'Hearts') cardSpan.classList.add('hearts');
-            if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
-            if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
-            if (card.suit === 'Spades') cardSpan.classList.add('spades');
-            cardSpan.textContent = `${card.rank} ${getSuitSymbol(card['suit'])}`;
+            if (player['is_human']) {
+                cardSpan.classList.add('card');
+                if (card.suit === 'Hearts') cardSpan.classList.add('hearts');
+                if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
+                if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
+                if (card.suit === 'Spades') cardSpan.classList.add('spades');
+                cardSpan.textContent = `${card.rank} ${getSuitSymbol(card['suit'])}`;
+            } else {
+                cardSpan.classList.add('ai-card');
+            }
             playerCardsContainer.appendChild(cardSpan);
         });
 
@@ -128,6 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded and parsed');
     // ELEMENTS THAT MAY NOT EXIST ON THE PAGE YET //
     document.body.addEventListener('click', (event) => {
+        console.log("Event target: " + event.target.id);
         if (event.target && event.target.id === 'begin-round-button') {
             console.log("Begin Round button clicked.");
             const modal = document.getElementById('game-initialized-modal');
@@ -142,7 +231,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 modal.style.display = 'none';
             }
             window.location.href = '/';
-        } else if (event.target && event.target.id === 'raise-button') {
+        } else if (event.target && ['fold-button', 'check-button', 'call-button', 'all_in-button'].includes(event.target.id)) {
+            console.log("Player action button clicked.");
+            // Remove '-button' from the target.id string
+            const action = event.target.id.slice(0, -7);
+            playerAction(action);
+        }
+        else if (event.target && event.target.id === 'raise-button') {
             // Event listener for Raise
             console.log("Raise button clicked");
             // Betting Elements

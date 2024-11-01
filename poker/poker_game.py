@@ -92,7 +92,6 @@ class PokerGameState:
             'current_player_idx': self.current_player_idx,
             'current_dealer_idx': self.current_dealer_idx,
             'community_cards': list(self.community_cards),
-            'current_phase': self.current_phase.value,
             'current_ante': self.current_ante,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,

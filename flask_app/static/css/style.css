@@ -230,7 +230,12 @@ body {
     border-radius: 10px;
     position: relative;
     z-index: 2; /* Ensure it stays above the background */
+    transition: transform 0.3s ease-in-out;
     transform: translateY(-50%);
+}
+
+.player-options.hidden {
+    transform: translateY(100%); /* Hide the div when not in use */
 }
 
 .player-options button {
@@ -262,6 +267,12 @@ body {
     z-index: 1;
     transform-origin: bottom; /* Expand upwards */
     transition: transform 0.5s ease-in-out;
+}
+
+.bet-slider-button-container {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
 }
 
 .bet-slider-container-expanded {
