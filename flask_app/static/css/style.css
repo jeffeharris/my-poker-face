@@ -277,6 +277,24 @@ input[type="number"] {
     width: 150px;
 }
 
+/* Style the input number to match the slider */
+#bet-amount {
+    width: 80%;
+    padding: 8px;
+    font-size: 2em;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    text-align: center;
+    background-color: #f9f9f9;
+    color: #333;
+}
+
+#bet-slider {
+    width: 100%;
+    margin: 5px 0;
+
+}
+
 .bet-submit-button {
     display: block;
     margin: 10px auto;
