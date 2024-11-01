@@ -74,9 +74,34 @@ def progress_game(game_id):
         # Emit the latest game state to the client
         update_and_emit_game_state(game_id)
 
+        if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
+            return redirect(url_for('end_game', game_id=game_id))
+
+        if game_state.current_phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
+            # Send a table messages with the cards that were dealt
+            num_cards_dealt = 3 if game_state.current_phase == GamePhase.FLOP else 1
+            message_content = (f"{game_state.current_phase} cards dealt: "
+                               f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
+            send_message(game_id, "table", message_content, "table")
+
         # Check if it's an AI's turn to play, then handle AI actions
         if not game_state.current_player.is_human:
             handle_ai_action(game_id)
+
+        elif game_state.current_phase == GamePhase.EVALUATING_HAND:
+            game_state, winner_info = determine_winner(game_state)
+
+            message_content = (f"{' and'.join([name for name in winner_info['winning_player_names']])} won the pot of "
+                               f"${winner_info['pot_total']}.\nwinning hand: {winner_info['winning_hand']}")
+            send_message(game_id,"table", message_content, "table", 1)
+
+            game_state = game_state.update(current_phase=GamePhase.HAND_OVER)
+            game_state = reset_game_state_for_new_hand(game_state=game_state)
+            state_machine.game_state = game_state
+            current_game_data['state_machine'] = state_machine
+            games[game_id] = current_game_data
+            update_and_emit_game_state(game_id)
+
         else:
             # If a human action is required, exit the loop
             break
@@ -89,7 +114,6 @@ def game(game_id) -> str or Response:
         return redirect(url_for('index'))
     state_machine = current_game_data['state_machine']
 
-    # socketio.start_background_task(progress_game, game_id)
     progress_game(game_id)
     # num_players_remaining = len(state_machine.game_state.players)
     # if num_players_remaining == 1:
