@@ -134,7 +134,7 @@ function updateGameState(data) {
 
     updateCommunityCards(communityCards);
     updatePot(currentPot)
-    updatePlayerState(gameStatePlayers, gameStatePlayers[gameState['current_player_idx']]['name']);
+    updatePlayerInfo(gameStatePlayers, gameStatePlayers[gameState['current_player_idx']]['name']);
     updatePlayerOptions(playerOptions, costToCall);
 }
 
@@ -153,8 +153,67 @@ function playerAction(action, amount = 0) {
     playerOptionsComponent.classList.add('bet-slider-container-collapsed');
 }
 
+
+function updatePlayerInfo(playerState, currentPlayerName) {
+    playerState.forEach(player => {
+        const playerCard = document.getElementById(`player-${player.name}`);
+        const playerStack = document.getElementById(`${player.name}-stack`);
+        playerStack.textContent = `$${player.stack}`;
+
+        if (player.name === currentPlayerName) {
+            playerCard.classList.add('player-card--current-player');
+            playerCard.classList.remove('player-card');
+        } else {
+            playerCard.classList.add('player-card');
+            playerCard.classList.remove('player-card--current-player')
+        }
+
+        if (player['has_acted']) {
+            playerCard.classList.add('player-card--has-acted');
+            playerCard.classList.remove('player-card');
+        } else {
+            playerCard.classList.add('player-card');
+            playerCard.classList.remove('player-card--has-acted');
+        }
+
+        if (player['is_folded']) {
+            const playerCardsContainer = document.getElementById(`cards-player-${player.name}`);
+            playerCardsContainer.classList.add('player-cards--is-folded');
+        } else {
+            const playerCardsContainer = document.getElementById(`cards-player-${player.name}`);
+            playerCardsContainer.classList.remove('player-cards--is-folded');
+        }
+
+        if (player['is_human']) {
+            const playerCardsContainer = document.getElementById(`cards-player-${player.name}`);
+            const playerHand = player['hand'];
+
+            playerCardsContainer.classList.remove('ai-cards');
+
+            // Assuming playerHand.length and playerCardsContainer.children.length are the same
+            Array.from(playerCardsContainer.children).forEach((cardElement, index) => {
+                const card = playerHand[index];
+                const cardSpan = cardElement;
+
+                // Reset classes and text content
+                cardSpan.className = 'card';
+                cardSpan.textContent = '';
+
+                // Add suit-specific class
+                if (card.suit === 'Hearts') cardSpan.classList.add('hearts');
+                if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
+                if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
+                if (card.suit === 'Spades') cardSpan.classList.add('spades');
+
+                // Set the card content
+                cardSpan.textContent = `${card.rank} ${getSuitSymbol(card['suit'])}`;
+            });
+        }
+    })
+}
+
 // Function to update the player state on the UI
-function updatePlayerState(playerState, currentPlayerName) {
+function renderPlayerCards(playerState, currentPlayerName) {
     let playersContainer = document.getElementById('players');
     playersContainer.innerHTML = ''; // Clear existing content
 

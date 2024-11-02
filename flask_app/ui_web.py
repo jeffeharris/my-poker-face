@@ -19,6 +19,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 games = {}
 messages = {}
 
+
 # Helper function to generate unique game ID
 def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
@@ -35,9 +36,11 @@ def on_join(game_id):
     print(f"User joined room: {game_id}")
     socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
+
 @app.route('/')
 def index():
     return render_template('home.html')
+
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
@@ -59,6 +62,7 @@ def new_game():
     game_id = generate_game_id()
     games[game_id] = game_data
     return redirect(url_for('game', game_id=game_id))
+
 
 @socketio.on('progress_game')
 def progress_game(game_id):
@@ -134,6 +138,7 @@ def game(game_id) -> str or Response:
                            game_id=game_id,
                            current_phase=str(state_machine.phase))
 
+
 @socketio.on('player_action')
 def handle_player_action(data):
     try:
@@ -163,44 +168,6 @@ def handle_player_action(data):
     games[game_id] = current_game_data
     update_and_emit_game_state(game_id)  # Emit updated game state
     progress_game(game_id)
-
-
-def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
-    """
-    Send a message to the specified game chat.
-
-    :param game_id: (str)
-        The unique identifier for the game.
-    :param sender: (str)
-        The sender's username or identifier.
-    :param content: (str)
-        The message content.
-    :param message_type: (str)
-        The type of the message ['ai', 'table', 'user'].
-    :param sleep: (Optional[int])
-        Optional time to sleep after sending the message, in seconds.
-    :return: (None)
-        None
-    """
-    # Load the messages from the session and append the new message then emit the full list of messages.
-    # Not the most efficient but it works for now.
-    game_data = games.get(game_id)
-    if not game_data:
-        return
-    game_messages = game_data['messages']
-    new_message = {
-        "sender": sender,
-        "content": content,
-        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-        "message_type": message_type
-    }
-    game_messages.append(new_message)
-
-    # Update the messages session state
-    game_data['messages'] = game_messages
-    games[game_id] = game_data
-    socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
-    socketio.sleep(sleep) if sleep else None
 
 
 def handle_ai_action(game_id: str) -> None:
@@ -240,39 +207,6 @@ def handle_ai_action(game_id: str) -> None:
     games[game_id] = current_game_data
     update_and_emit_game_state(game_id)
 
-@app.route('/next_round/<game_id>', methods=['POST'])
-def next_round(game_id):
-    game_state = games.get(game_id)
-    game_messages = messages.get(game_id, [])
-    if not game_state:
-        return redirect(url_for('index'))
-    games[game_id] = game_state
-    messages[game_id] = game_messages
-    return redirect(url_for('game', game_id=game_id))
-
-@app.route('/end_game/<game_id>', methods=['GET'])
-def end_game(game_id):
-    if game_id not in games:
-        return redirect(url_for('index'))
-    games.pop(game_id, None)
-    messages.pop(game_id, None)
-    return render_template('winner.html')
-
-@app.route('/settings/<game_id>')
-def settings(game_id):
-    game_state = games.get(game_id)
-    if not game_state:
-        return redirect(url_for('index'))
-    return render_template('settings.html')
-
-@app.route('/messages/<game_id>', methods=['GET'])
-def get_messages(game_id):
-    game_data = games.get(game_id)
-    if not game_data:
-        game_messages = []
-    else:
-        game_messages = game_data['messages']
-    return jsonify(game_messages)
 
 @socketio.on('send_message')
 def handle_send_message(data):
@@ -283,6 +217,71 @@ def handle_send_message(data):
     message_type = data.get('message_type', 'user')
 
     send_message(game_id, sender, content, message_type)
+
+def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
+    """
+    Send a message to the specified game chat.
+
+    :param game_id: (str)
+        The unique identifier for the game.
+    :param sender: (str)
+        The sender's username or identifier.
+    :param content: (str)
+        The message content.
+    :param message_type: (str)
+        The type of the message ['ai', 'table', 'user'].
+    :param sleep: (Optional[int])
+        Optional time to sleep after sending the message, in seconds.
+    :return: (None)
+        None
+    """
+    # Load the messages from the session and append the new message then emit the full list of messages.
+    # Not the most efficient but it works for now.
+    game_data = games.get(game_id)
+    if not game_data:
+        return
+    game_messages = game_data['messages']
+    new_message = {
+        "sender": sender,
+        "content": content,
+        "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
+        "message_type": message_type
+    }
+    game_messages.append(new_message)
+
+    # Update the messages session state
+    game_data['messages'] = game_messages
+    games[game_id] = game_data
+    socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
+    socketio.sleep(sleep) if sleep else None
+
+
+@app.route('/end_game/<game_id>', methods=['GET'])
+def end_game(game_id):
+    if game_id not in games:
+        return redirect(url_for('index'))
+    games.pop(game_id, None)
+    messages.pop(game_id, None)
+    return render_template('winner.html')
+
+
+@app.route('/settings/<game_id>')
+def settings(game_id):
+    game_state = games.get(game_id)
+    if not game_state:
+        return redirect(url_for('index'))
+    return render_template('settings.html')
+
+
+@app.route('/messages/<game_id>', methods=['GET'])
+def get_messages(game_id):
+    game_data = games.get(game_id)
+    if not game_data:
+        game_messages = []
+    else:
+        game_messages = game_data['messages']
+    return jsonify(game_messages)
+
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)

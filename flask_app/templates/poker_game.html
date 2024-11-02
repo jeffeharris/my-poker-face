@@ -44,15 +44,16 @@
                      id="player-{{ player.name }}">
                     <img src="{{ url_for('static', filename='images/kanye.jpg') }}" class="player-headshot" alt="Player picture" >
                     <h2>{{ player.name }}</h2>
-                    <p>${{ player.stack }}</p>
+                    <p id="{{ player.name }}-stack">${{ player.stack }}</p>
                     <div id="cards-player-{{ player.name }}" class="{% if player.is_folded %}player-cards--is-folded{% else %}player-cards{% endif %}">
                     {% if player.is_human %}
                         {% for card in player.hand %}
-                            <span class="card
+                            <span id="{{ player.name }}-{{ loop.index }}" class="card
                                 {% if card.suit == 'Hearts' %}hearts{% elif card.suit == 'Diamonds' %}diamonds
-                                {% elif card.suit == 'Clubs' %}clubs{% elif card.suit == 'Spades' %}spades{% endif %}
-                            ">{{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦
-                                {% elif card.suit == 'Clubs' %}♣{% elif card.suit == 'Spades' %}♠{% endif %}</span>
+                                {% elif card.suit == 'Clubs' %}clubs{% elif card.suit == 'Spades' %}spades{% endif %}">
+                                {{ card.rank }} {% if card.suit == 'Hearts' %}♥{% elif card.suit == 'Diamonds' %}♦
+                                {% elif card.suit == 'Clubs' %}♣{% elif card.suit == 'Spades' %}♠{% endif %}
+                            </span>
                         {% endfor %}
                     {% else %}
                         <span class="ai-card"></span><span class="ai-card"></span>
