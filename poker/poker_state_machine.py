@@ -144,7 +144,7 @@ class PokerStateMachine:
         print(4, self.phase, "hand is ready")
 
     def initialize_betting_round(self):
-        num_active_players = len([p.name for p in self.game_state.players if not (p.is_folded or p.is_all_in)])
+        num_active_players = len([p.name for p in self.game_state.players if not p.is_folded])
 
         if num_active_players == 1:
             self.update_phase(phase=GamePhase.SHOWDOWN)
