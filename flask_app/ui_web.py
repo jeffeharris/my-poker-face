@@ -96,11 +96,12 @@ def progress_game(game_id):
         if not game_state.current_player.is_human and game_state.awaiting_action:
             handle_ai_action(game_id)
 
+        # Check for and handle the Evaluate Hand phase outside the state machine so we can update
+        # the front end with the results.
         elif state_machine.phase == GamePhase.EVALUATING_HAND:
             winner_info = determine_winner(game_state)
             winning_player_names = winner_info['winning_player_names']
             game_state = award_pot_winnings(game_state, winning_player_names)
-            state_machine.update_phase()
 
             winning_players_string = ', '.join(winning_player_names[:-1]) + \
                               f" and {winning_player_names[-1]}" if len(
@@ -113,6 +114,8 @@ def progress_game(game_id):
             )
             send_message(game_id,"table", message_content, "table", 1)
 
+            # Update the state_machine to be ready for it's next run through the game progression
+            state_machine.update_phase()
             state_machine.game_state = game_state
             current_game_data['state_machine'] = state_machine
             games[game_id] = current_game_data
@@ -133,7 +136,7 @@ def game(game_id) -> str or Response:
         return redirect(url_for('index'))
     state_machine = current_game_data['state_machine']
 
-    progress_game(game_id)
+    # progress_game(game_id)
 
     return render_template('poker_game.html',
                            game_state=state_machine.game_state,
