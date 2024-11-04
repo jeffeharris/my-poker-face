@@ -172,6 +172,19 @@ class PokerStateMachine:
         self.update_phase()
 
     def showdown(self):
+        active_players = [p for p in self.game_state.players if not p.is_folded]
+        num_cards_dealt = len(self.game_state.community_cards)
+        num_cards_dealt_to_last_phase = {
+            0: GamePhase.PRE_FLOP,
+            3: GamePhase.FLOP,
+            4: GamePhase.TURN,
+            5: GamePhase.RIVER
+        }
+        last_phase = num_cards_dealt_to_last_phase[num_cards_dealt]
+        # if last_phase == GamePhase.RIVER and len(active_players) > 1:
+        # If only 1 player remaining, award the player without any further cards dealt
+        # If all active players are all-in, show the cards
+        # If more than 1 player is in the pot after the river round of betting, show the cards
         self.update_phase()
 
     def evaluating_hand(self):
