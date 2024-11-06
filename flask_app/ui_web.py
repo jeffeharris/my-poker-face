@@ -1,5 +1,4 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
-from asyncio import sleep
 from typing import Optional
 
 from flask import Flask, render_template, redirect, url_for, jsonify, Response
@@ -101,15 +100,15 @@ def progress_game(game_id):
         # the front end with the results.
         elif state_machine.phase == GamePhase.EVALUATING_HAND:
             winner_info = determine_winner(game_state)
-            winning_player_names = winner_info['winning_player_names']
-            game_state = award_pot_winnings(game_state, winning_player_names)
+            winning_player_names = list(winner_info['winnings'].keys())
+            game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
             winning_players_string = (', '.join(winning_player_names[:-1]) +
                                       f" and {winning_player_names[-1]}") \
                                       if len(winning_player_names) > 1 else winning_player_names[0]
 
             message_content = (
-                f"{winning_players_string} won the pot of ${winner_info['pot_total']} with {winner_info['hand_name']}. "
+                f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
                 f"Winning hand: {winner_info['winning_hand']}"
             )
             send_message(game_id,"table", message_content, "table", 1)
