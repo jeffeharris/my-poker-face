@@ -84,6 +84,9 @@ class PokerGameState:
     awaiting_action: bool = False
 
     def to_dict(self) -> Dict:
+        """
+        Converts the GameState to a dict, including some of the dynamic properties that would be useful to display.
+        """
         return {
             'players': [p.to_dict() for p in self.players],
             'deck': list(self.deck),

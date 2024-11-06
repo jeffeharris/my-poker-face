@@ -1,4 +1,5 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
+from asyncio import sleep
 from typing import Optional
 
 from flask import Flask, render_template, redirect, url_for, jsonify, Response
@@ -45,7 +46,7 @@ def index():
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:3]
+    ai_player_names = get_celebrities(shuffled=True)[:4]
     game_state = initialize_game_state(player_names=ai_player_names)
     state_machine = PokerStateMachine(game_state=game_state)
     # Create a controller for each player in the game and add to a map of name -> controller
@@ -103,10 +104,9 @@ def progress_game(game_id):
             winning_player_names = winner_info['winning_player_names']
             game_state = award_pot_winnings(game_state, winning_player_names)
 
-            winning_players_string = ', '.join(winning_player_names[:-1]) + \
-                              f" and {winning_player_names[-1]}" if len(
-                winning_player_names) > 1 \
-                else winning_player_names[0]
+            winning_players_string = (', '.join(winning_player_names[:-1]) +
+                                      f" and {winning_player_names[-1]}") \
+                                      if len(winning_player_names) > 1 else winning_player_names[0]
 
             message_content = (
                 f"{winning_players_string} won the pot of ${winner_info['pot_total']} with {winner_info['hand_name']}. "
@@ -203,8 +203,8 @@ def handle_ai_action(game_id: str) -> None:
     player_physical_description = player_response_dict['physical']
 
     table_message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
-    send_message(game_id, "table", table_message_content, "table", 1)
-    send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai")
+    send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai", 1)
+    send_message(game_id, "table", table_message_content, "table")
 
     game_state = play_turn(state_machine.game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)

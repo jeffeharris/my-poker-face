@@ -179,8 +179,10 @@ function updatePlayerInfo(playerState, currentPlayerName) {
         if (player['is_folded']) {
             const playerCardsContainer = document.getElementById(`cards-player-${player.name}`);
             playerCardsContainer.classList.add('player-cards--is-folded');
+            playerCardsContainer.classList.remove('player-cards');
         } else {
             const playerCardsContainer = document.getElementById(`cards-player-${player.name}`);
+            playerCardsContainer.classList.add('player-cards');
             playerCardsContainer.classList.remove('player-cards--is-folded');
         }
 
@@ -188,26 +190,29 @@ function updatePlayerInfo(playerState, currentPlayerName) {
             const playerCardsContainer = document.getElementById(`cards-player-${player.name}`);
             const playerHand = player['hand'];
 
-            playerCardsContainer.classList.remove('ai-cards');
+            if (playerHand.length === 0) {
+                playerCardsContainer.classList.add('hidden');
+            } else {
+                playerCardsContainer.classList.remove('hidden');
+                // Assuming playerHand.length and playerCardsContainer.children.length are the same
+                Array.from(playerCardsContainer.children).forEach((cardElement, index) => {
+                    const card = playerHand[index];
+                    const cardSpan = cardElement;
 
-            // Assuming playerHand.length and playerCardsContainer.children.length are the same
-            Array.from(playerCardsContainer.children).forEach((cardElement, index) => {
-                const card = playerHand[index];
-                const cardSpan = cardElement;
+                    // Reset classes and text content
+                    cardSpan.className = 'card';
+                    cardSpan.textContent = '';
 
-                // Reset classes and text content
-                cardSpan.className = 'card';
-                cardSpan.textContent = '';
+                    // Add suit-specific class
+                    if (card['suit'] === 'Hearts') cardSpan.classList.add('hearts');
+                    else if (card['suit'] === 'Diamonds') cardSpan.classList.add('diamonds');
+                    else if (card['suit'] === 'Clubs') cardSpan.classList.add('clubs');
+                    else if (card['suit'] === 'Spades') cardSpan.classList.add('spades');
 
-                // Add suit-specific class
-                if (card.suit === 'Hearts') cardSpan.classList.add('hearts');
-                if (card.suit === 'Diamonds') cardSpan.classList.add('diamonds');
-                if (card.suit === 'Clubs') cardSpan.classList.add('clubs');
-                if (card.suit === 'Spades') cardSpan.classList.add('spades');
-
-                // Set the card content
-                cardSpan.textContent = `${card.rank} ${getSuitSymbol(card['suit'])}`;
-            });
+                    // Set the card content
+                    cardSpan.textContent = `${card['rank']} ${getSuitSymbol(card['suit'])}`;
+                });
+            }
         }
     })
 }

@@ -95,7 +95,7 @@ class PokerStateMachine:
                 break
 
     def advance_state(self):
-        print(1, self.phase, 'at start of state machine')
+        # print(1, self.phase, 'at start of state machine')
         self.snapshots.append(self.game_state)
         if self.phase == GamePhase.INITIALIZING_GAME:
             self.initialize_game()
@@ -132,16 +132,16 @@ class PokerStateMachine:
         self.phase = phase or self.next_phase
 
     def initialize_game(self):
-        print(2, self.phase, 'game is ready')
+        # print(2, self.phase, 'game is ready')
         self.update_phase()
 
     def initialize_hand(self):
-        print(3, self.phase,
-              f"there are {len(self.game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
+        # print(3, self.phase,
+        #       f"there are {len(self.game_state.community_cards)} community cards so far, waiting for 5 to be dealt")
         self.game_state = setup_hand(self.game_state)
         self.game_state = set_betting_round_start_player(game_state=self.game_state)
         self.update_phase()
-        print(4, self.phase, "hand is ready")
+        # print(4, self.phase, "hand is ready")
 
     def initialize_betting_round(self):
         num_active_players = len([p.name for p in self.game_state.players if not p.is_folded])
@@ -149,26 +149,26 @@ class PokerStateMachine:
         if num_active_players == 1:
             self.update_phase(phase=GamePhase.SHOWDOWN)
         else:
-            print(8, self.phase, "pot is settled, dealing cards and resetting betting round")
+            # print(8, self.phase, "pot is settled, dealing cards and resetting betting round")
             self.game_state = reset_player_action_flags(self.game_state)
             self.game_state = set_betting_round_start_player(self.game_state)
             self.update_phase(phase=self.next_phase)
-        print(5, self.phase, "betting round players set ready to start")
+        # print(5, self.phase, "betting round players set ready to start")
 
     def run_betting_round(self):
         pot_is_settled = not (not are_pot_contributions_valid(self.game_state)
                               # number of players still able to bet is greater than 1  TODO: can this be moved into the same are_pot_valid... check?
                               and len([p.name for p in self.game_state.players if not p.is_folded or not p.is_all_in]) > 1)
         if not are_pot_contributions_valid(self.game_state):
-            print(7, self.phase, f"pot is not settled, {self.game_state.current_player.name} is up next")
+            # print(7, self.phase, f"pot is not settled, {self.game_state.current_player.name} is up next")
             self.game_state = self.game_state.update(awaiting_action=True)  # Expect this flag to be reset after player action has been taken in play_turn
         elif pot_is_settled and self.phase != GamePhase.EVALUATING_HAND:
             self.update_phase()
 
     def deal_cards(self):
         self.game_state = deal_community_cards(self.game_state)
-        print(6, self.phase,
-              f"{len(self.game_state.community_cards)} community cards have been dealt")
+        # print(6, self.phase,
+        #       f"{len(self.game_state.community_cards)} community cards have been dealt")
         self.update_phase()
 
     def showdown(self):

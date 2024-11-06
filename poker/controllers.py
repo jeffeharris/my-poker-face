@@ -57,8 +57,9 @@ class AIPlayerController:
             game_messages)
         print(message)
         response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.\n"
-                                                      "Use your persona response to interact with the players at the table directly! You "
-                                                      "can influence their confidence and throw them off their game. "
+                                                      "Use your persona response to interact with the players at the table directly "
+                                                      "but don't tell others what cards you have! You can use deception to try and "
+                                                      "trick other players. You can influence their confidence and throw them off their game. "
                                                       "Use emojis to express yourself, but mix it up and keep it feeling fresh! "
                                                       "Vary the length of your responses based on your mood and the pace of the game."
                                                       # "Based on your mood, confidence, and persona, you should bluff, use emojis, "
