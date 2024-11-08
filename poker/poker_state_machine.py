@@ -49,6 +49,9 @@ class PokerStateMachine:
         self.game_state = game_state
         self.phase = GamePhase.INITIALIZING_GAME
         self.snapshots = []
+        self.stats = {
+            'hand_count': 0,
+        }
 
     @property
     def next_phase(self):
@@ -195,6 +198,9 @@ class PokerStateMachine:
 
     def hand_over(self):
         self.game_state = reset_game_state_for_new_hand(self.game_state)
+        self.stats['hand_count'] += 1
+        if self.stats['hand_count'] % 5 == 0:
+            self.game_state = self.game_state.update(current_ante=self.game_state.current_ante*2)
         hand_is_reset = True    # TODO: implement a check before advancing to the next phase
         if hand_is_reset:
             self.update_phase()

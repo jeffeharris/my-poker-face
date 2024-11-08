@@ -604,8 +604,8 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     # because we reference the game state's current dealer index in order to rotate.
     new_players = [player for player in new_players if player.stack > 0]
 
-    # Create a new game state with just the properties we want to carry over (just the new players queue)
-    return PokerGameState(players=tuple(new_players))
+    # Create a new game state with just the properties we want to carry over (just the new players queue and the ante)
+    return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante)
 
 
 # TODO: refactor to only return PokerGameState, add winner info to the state
