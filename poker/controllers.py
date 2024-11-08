@@ -19,21 +19,27 @@ class ConsolePlayerController:
         return human_player_action(ui_data, player_options)
 
 
-def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[Dict[str, str]]:
+def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
     # Find the index of the last message from the Player with 'name'
     # Search the list of messages for the last message from the player
+    # Change the message to a string from a dict
     last_message_index = -1
     for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
         if messages[i]['sender'] == name:
             last_message_index = i
             break
 
-    # Send the messages since the player's last message to the assistant to be summarized
+    # Convert messages to strings with less text than the dict representation
+    converted_messages = []
+    for msg in messages:
+        converted_messages.append(f"{msg['sender']}: {msg['content']}")
+
+    # Return the messages since the player's last message
     if last_message_index >= 0:
-        messages_since_last_message = messages[last_message_index + 1:]
+        messages_since_last_message = converted_messages[last_message_index + 1:]
         return messages_since_last_message
     else:
-        return messages
+        return converted_messages
 
 
 
@@ -45,7 +51,6 @@ class AIPlayerController:
         self.assistant = AIPokerPlayer(player_name, ai_temp=ai_temp).assistant
 
     def decide_action(self, game_messages) -> Dict:
-        # message = json.dumps(prepare_ui_data(self.state_machine.game_state))
         game_state = self.state_machine.game_state
         game_messages = summarize_messages(
             game_messages,
