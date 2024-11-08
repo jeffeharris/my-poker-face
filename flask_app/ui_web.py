@@ -164,7 +164,7 @@ def handle_player_action(data):
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Generate a message to be added to the game table
-    table_message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
     send_message(game_id,"table", table_message_content, "table")
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
@@ -202,7 +202,7 @@ def handle_ai_action(game_id: str) -> None:
     player_message = player_response_dict['persona_response']
     player_physical_description = player_response_dict['physical']
 
-    table_message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
     send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai", 1)
     send_message(game_id, "table", table_message_content, "table")
 
