@@ -112,6 +112,7 @@ def progress_game(game_id):
                 f"Winning hand: {winner_info['winning_hand']}"
             )
             send_message(game_id,"table", message_content, "table", 1)
+            send_message(game_id, "table", "***   NEW HAND DEALT   ***", "table")
 
             # Update the state_machine to be ready for it's next run through the game progression
             state_machine.update_phase()
@@ -163,8 +164,8 @@ def handle_player_action(data):
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Generate a message to be added to the game table
-    message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
-    send_message(game_id,"table", message_content, "table")
+    table_message_content = f"{current_player.name} chose to {action}{(' by ' + str(amount)) if amount > 0 else ''}."
+    send_message(game_id,"table", table_message_content, "table")
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
 

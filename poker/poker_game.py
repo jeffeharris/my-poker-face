@@ -612,7 +612,6 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
 def determine_winner(game_state: PokerGameState) -> Dict:
     """
     Determine the winners and calculate the winnings for each player based on side pot contributions.
-
     :param game_state: (PokerGameState)
         The current state of the poker game, including players, community cards, and contributions.
     :return: (Dict)
@@ -624,63 +623,64 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     # Sort active players by contribution to handle side pots at showdown
     active_players = [p for p in game_state.players if not p.is_folded and p.bet > 0]
     sorted_players = sorted(active_players, key=lambda p: p.bet)
-
     # Prepare community cards for hand evaluation
     community_cards = [Card(card['rank'], card['suit']) for card in game_state.community_cards]
-
     # Track winnings for each player
     winnings = {}
-
     # Track each player's remaining contributions independently
     contributions = {p.name: p.bet for p in active_players}
+    # List to track evaluated hands for all eligible players
+    evaluated_hands = []
 
     # Award pots based on contribution tiers
     while sorted_players:
         # Minimum contribution for this tier (from the lowest all-in player, if applicable)
         tier_contribution = contributions[sorted_players[0].name]
-
         # Players eligible for this tier (all with contribution >= tier_contribution)
         eligible_players = [p for p in sorted_players if contributions[p.name] >= tier_contribution]
-
         # Calculate the pot for this tier
         tier_pot = tier_contribution * len(eligible_players)
-
         # Evaluate hands for eligible players and find the winner(s)
         hands = []
         for player in eligible_players:
             player_hand = [Card(card['rank'], card['suit']) for card in player.hand]
             full_hand = HandEvaluator(player_hand + community_cards).evaluate_hand()
             hands.append((player.name, full_hand))
-
-        # Sort hands to find the best one(s)
+        # Add evaluated hands to the tracking list
+        evaluated_hands.extend(hands)
+        # Sort hands to find the best one(s) for the current tier
         hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
         hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
         hands.sort(key=lambda x: x[1]["hand_rank"])
-
         # Determine winners for this tier
         best_hand = hands[0][1]
         tier_winners = [hand[0] for hand in hands if hand[1] == best_hand]
         split_amount = tier_pot // len(tier_winners)
-
         # Distribute winnings for this tier
         for winner_name in tier_winners:
             winnings[winner_name] = winnings.get(winner_name, 0) + split_amount
-
         # Subtract the tier contribution from each eligible player's contribution without modifying player objects
         for player in eligible_players:
             contributions[player.name] -= tier_contribution
-
         # Remove players whose remaining contributions are zero
         sorted_players = [p for p in sorted_players if contributions[p.name] > 0]
+
+    # Determine the best hand among all evaluated hands
+    evaluated_hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
+    evaluated_hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
+    evaluated_hands.sort(key=lambda x: x[1]["hand_rank"])
+    best_overall_hand = evaluated_hands[0][1]
 
     # Prepare the result to include only winnings and winning hand details
     winner_info = {
         'winnings': winnings,
-        'winning_hand': best_hand["hand_values"] + best_hand["kicker_values"],
-        'hand_name': best_hand['hand_name']
+        'winning_hand': best_overall_hand["hand_values"] + best_overall_hand["kicker_values"],
+        'hand_name': best_overall_hand['hand_name']
     }
+
     print(winner_info)
     return winner_info
+
 
 
 def award_pot_winnings(game_state, winnings):
