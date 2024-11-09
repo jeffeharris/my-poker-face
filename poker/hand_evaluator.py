@@ -44,6 +44,12 @@ class HandEvaluator:
             _check_one_pair:
                 Checks if the hand contains one pair of cards with the same rank (one pair).
     """
+    # TODO: resolve bug as described below
+    # Player goes all-in after flop
+    # Community cards are A high flush of clubs
+    # A: has 2 hearts, one an Ace
+    # B: has KC and AD
+    # Game awarded hand to the player without the KC
     def __init__(self, cards):
         self.cards = cards
         self.ranks = [card.value for card in cards]
