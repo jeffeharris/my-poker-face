@@ -660,8 +660,8 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         for winner_name in tier_winners:
             winnings[winner_name] = winnings.get(winner_name, 0) + split_amount
         # Subtract the tier contribution from each eligible player's contribution without modifying player objects
-        for player in eligible_players:
-            remaining_contributions[player.name] -= min(remaining_contributions[player.name], tier_contribution)
+        for player_name in remaining_contributions:
+            remaining_contributions[player_name] -= min(remaining_contributions[player_name], tier_contribution)
         # Remove players whose remaining contributions are zero
         active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
 
