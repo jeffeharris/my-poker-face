@@ -310,8 +310,8 @@ class AIPokerPlayer(PokerPlayer):
         persona_reminder = (f"    Remember {self.name}, you're feeling {self.attitude} and {self.confidence}.\n"
                            f"    Stay in character and keep your responses in JSON format.")
 
-        # poker_prompt = f"{persona_details}\n\n{strategy}\n\n{direction}\n\n{response_template}\n\n{sample_responses}\n\n{persona_reminder}"
-        poker_prompt = f"{persona_details}\n\n{strategy}\n\n{direction}\n\n{response_template}"
+        poker_prompt = f"{persona_details}\n\n{strategy}\n\n{direction}\n\n{response_template}\n\n{sample_responses}\n\n{persona_reminder}"
+        # poker_prompt = f"{persona_details}\n\n{strategy}\n\n{direction}\n\n{response_template}"
 
         return poker_prompt
 
