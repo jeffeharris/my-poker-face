@@ -622,24 +622,24 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     """
     # Sort active players by contribution to handle side pots at showdown
     active_players = [p for p in game_state.players if not p.is_folded and p.bet > 0]
-    sorted_players = sorted(active_players, key=lambda p: p.bet)
+    active_players_sorted = sorted(active_players, key=lambda p: p.bet)
     # Prepare community cards for hand evaluation
     community_cards = [Card(card['rank'], card['suit']) for card in game_state.community_cards]
     # Track winnings for each player
     winnings = {}
     # Track each player's remaining contributions independently
-    contributions = {p.name: p.bet for p in active_players}
+    remaining_contributions = {p.name: p.bet for p in game_state.players}
     # List to track evaluated hands for all eligible players
     evaluated_hands = []
 
     # Award pots based on contribution tiers
-    while sorted_players:
+    while active_players_sorted:
         # Minimum contribution for this tier (from the lowest all-in player, if applicable)
-        tier_contribution = contributions[sorted_players[0].name]
+        tier_contribution = remaining_contributions[active_players_sorted[0].name]
         # Players eligible for this tier (all with contribution >= tier_contribution)
-        eligible_players = [p for p in sorted_players if contributions[p.name] >= tier_contribution]
-        # Calculate the pot for this tier
-        tier_pot = tier_contribution * len(eligible_players)
+        eligible_players = [p for p in active_players_sorted if remaining_contributions[p.name] >= tier_contribution]
+        # Calculate the pot for this tier by adding all the player's actual contributions up to the tier_contribution
+        tier_pot = sum([min(remaining_contributions[p], tier_contribution) for p in remaining_contributions])
         # Evaluate hands for eligible players and find the winner(s)
         hands = []
         for player in eligible_players:
@@ -661,9 +661,9 @@ def determine_winner(game_state: PokerGameState) -> Dict:
             winnings[winner_name] = winnings.get(winner_name, 0) + split_amount
         # Subtract the tier contribution from each eligible player's contribution without modifying player objects
         for player in eligible_players:
-            contributions[player.name] -= tier_contribution
+            remaining_contributions[player.name] -= min(remaining_contributions[player.name], tier_contribution)
         # Remove players whose remaining contributions are zero
-        sorted_players = [p for p in sorted_players if contributions[p.name] > 0]
+        active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
 
     # Determine the best hand among all evaluated hands
     evaluated_hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
