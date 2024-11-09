@@ -36,7 +36,7 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
 
     # Return the messages since the player's last message
     if last_message_index >= 0:
-        messages_since_last_message = converted_messages[last_message_index + 1:]
+        messages_since_last_message = converted_messages[last_message_index:]
         return messages_since_last_message
     else:
         return converted_messages
