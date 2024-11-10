@@ -351,7 +351,6 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
 
     # Check to see if player has enough to bet, adjust the amount to the player stack to prevent
     # them from betting more than they have and set them to all-in if they have bet everything
-    # TODO: create a new pot when a player goes all in
     is_player_all_in = False
     if betting_player.stack <= amount:
         amount = betting_player.stack
@@ -608,7 +607,6 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante)
 
 
-# TODO: refactor to only return PokerGameState, add winner info to the state
 def determine_winner(game_state: PokerGameState) -> Dict:
     """
     Determine the winners and calculate the winnings for each player based on side pot contributions.
@@ -680,7 +678,6 @@ def determine_winner(game_state: PokerGameState) -> Dict:
 
     print(winner_info)
     return winner_info
-
 
 
 def award_pot_winnings(game_state, winnings):
