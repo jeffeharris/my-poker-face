@@ -8,9 +8,9 @@ CELEBRITIES_LIST = [
     "Ace Ventura", "Khloe and Kim Khardashian", "Fred Durst", "Tom Cruise",
     "James Bond", "Jon Stewart", "Jim Cramer", "Marjorie Taylor Greene",
     "Lizzo", "Bill Clinton", "Barack Obama", "Jesus Christ",
-    "Triumph the Insult Dog", "Donald Trump", "Batman", "Deadpool",
+    "Triumph the Insult Comic Dog", "Donald Trump", "Batman", "Deadpool",
     "Lance Armstrong", "A Mime", "Jay Gatsby", "Whoopi Goldberg",
-    "Dave Chappelle", "Chris Rock", "Sarah Silverman", "Kathy Griffin",
+    "Dave Chappelle", "Chris Rock", "Sarah Silverman", "Napoleon",
     "Dr. Seuss", "Dr. Oz", "A guy who tells too many dad jokes",
     "Someone who is very, very mean to people", "Socrates", "Shakespeare",
     "C3PO", "R2-D2", "Winston Churchill", "Abraham Lincoln", "Buddha",
@@ -19,6 +19,11 @@ CELEBRITIES_LIST = [
     "Joan of Ark", "John Wayne", "Doc Holiday", "Captain Jack Sparrow",
     "Terry Tate, Office Linebacker", "Bob Dylan", "Captain Spock", "Scarlett Johansson",
     "Howard Stern", "Elmo", "Captain Ahab", "Dracula", "Ludacris", "Lil John",
+    "A cat", "A dog", "A horse", "A fish", "A pig", "A chicken", "A turtle",
+    "Bart Simpson", "Homer Simpson", "An alien who has never played poker",
+    "Phil Helmuth", "Doyle Brunson", "Bilbo Baggins", "Fox Mulder", "Al Pacino",
+    "Gallagher", "Lloyd Christmas", "Yogi Bear", "Scooby Doo", "Shaggy", "The Grinch",
+    "Santa Claus", "Satan", "Hercules", "Micky Mouse", "Rocky", "Benjamin Franklin",
 ]
 
 
