@@ -200,7 +200,7 @@ class PokerStateMachine:
 
     def evaluating_hand(self):
         winner_info = determine_winner(self.game_state)
-        self.game_state = award_pot_winnings(self.game_state, winner_info['winning_player_names'])
+        self.game_state = award_pot_winnings(self.game_state, winner_info['winnings'])
         if winner_info:
             self.update_phase()
 

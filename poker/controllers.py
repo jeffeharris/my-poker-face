@@ -6,6 +6,7 @@ from .poker_game import Player
 from .poker_state_machine import PokerStateMachine
 from .poker_player import AIPokerPlayer
 from .utils import prepare_ui_data
+from .prompt_manager import PromptManager
 
 
 class ConsolePlayerController:
@@ -48,7 +49,9 @@ class AIPlayerController:
         self.player_name = player_name
         self.state_machine = state_machine
         self.ai_temp = ai_temp
-        self.assistant = AIPokerPlayer(player_name, ai_temp=ai_temp).assistant
+        self.ai_player = AIPokerPlayer(player_name, ai_temp=ai_temp)
+        self.assistant = self.ai_player.assistant
+        self.prompt_manager = PromptManager()
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
@@ -61,16 +64,12 @@ class AIPlayerController:
             self.state_machine.phase,
             game_messages)
         print(message)
-        response_json = self.assistant.chat(message + "\nPlease only respond with the JSON, not the text with back quotes.\n"
-                                                      "Use your persona response to interact with the players at the table directly "
-                                                      "but don't tell others what cards you have! You can use deception to try and "
-                                                      "trick other players. You can influence their confidence and throw them off their game. "
-                                                      "Use emojis to express yourself, but mix it up and keep it feeling fresh! "
-                                                      "Vary the length of your responses based on your mood and the pace of the game."
-                                                      # "Based on your mood, confidence, and persona, you should bluff, use emojis, "
-                                                      # "and interact with the table by calling out other players directly. You "
-                                                      # "Kick back, have a drink, and let loose in this private chat."
-                                            )
+        # Use the prompt manager for the decision prompt
+        decision_prompt = self.prompt_manager.render_prompt(
+            'decision',
+            message=message
+        )
+        response_json = self.assistant.chat(decision_prompt)
         try:
             response_dict = json.loads(response_json)
             if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):

@@ -1,11 +1,13 @@
 import json
 import random
 from typing import List, Dict
+from pathlib import Path
 
 from core.card import Card
 from core.assistants import OpenAILLMAssistant
 from old_files.deck import CardSet
 from .poker_action import PlayerAction
+from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 
 
 class PokerPlayer:
@@ -100,8 +102,10 @@ class AIPokerPlayer(PokerPlayer):
     def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
         super().__init__(name, starting_money=starting_money)
-        self.confidence = "Unsure"
-        self.attitude = "Distracted"
+        self.prompt_manager = PromptManager()
+        self.personality_config = self._load_personality_config()
+        self.confidence = self.personality_config.get("default_confidence", "Unsure")
+        self.attitude = self.personality_config.get("default_attitude", "Distracted")
         self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
                                             system_message=self.persona_prompt())
 
@@ -201,121 +205,78 @@ class AIPokerPlayer(PokerPlayer):
             return responses[0]
         else:
             return responses[mood]
+    
+    def _load_personality_config(self):
+        """Load personality configuration from JSON file."""
+        filepath = Path(__file__).parent / 'personalities.json'
+        if filepath.exists():
+            with open(filepath, 'r') as f:
+                personalities = json.load(f)['personalities']
+                return personalities.get(self.name, self._default_personality_config())
+        return self._default_personality_config()
+    
+    def _default_personality_config(self):
+        """Return default personality configuration."""
+        return {
+            "play_style": "balanced",
+            "default_confidence": "Unsure",
+            "default_attitude": "Distracted",
+            "personality_traits": {
+                "bluff_tendency": 0.5,
+                "aggression": 0.5,
+                "chattiness": 0.5,
+                "emoji_usage": 0.3
+            }
+        }
 
     def persona_prompt(self):
-        persona_details = (
-            f"Persona: {self.name}\n"
-            f"Attitude: {self.attitude}\n"
-            f"Confidence: {self.confidence}\n"
-            f"Starting money: ${self.money}\n"
-            f"Situation:    You are taking on the role of {self.name} playing a round of Texas Hold em with a group of \n"
-            f"    celebrities. You are playing for charity, everything you win will be matched at a 100x rate and \n"
-            f"    donated to the funding of research that is vitally important to you. All of your actions should \n"
-            f"    be taken with your persona, attitude, and confidence in mind."
+        """Generate persona prompt using the PromptManager."""
+        # Get example for this persona if available
+        example_name = self.name.split()[0] if ' ' in self.name else self.name
+        if example_name in PERSONA_EXAMPLES:
+            example = json.dumps(PERSONA_EXAMPLES[example_name]['sample_response'], indent=2)
+        else:
+            # Use a default example
+            example = json.dumps(PERSONA_EXAMPLES['Eeyore']['sample_response'], indent=2)
+        
+        base_prompt = self.prompt_manager.render_prompt(
+            'poker_player',
+            name=self.name,
+            attitude=self.attitude,
+            confidence=self.confidence,
+            money=self.money,
+            json_template=json.dumps(RESPONSE_FORMAT, indent=2)
         )
-
-        strategy = (
-            f"Strategy:\n"
-            f"    Begin by examining your cards and any cards that may be on the table. Evaluate your hand strength and "
-            f"    the potential hands your opponents might have. Consider the pot odds, the amount of money in the pot, "
-            f"    and how much you would have to risk. Even if you're confident, remember that it's important to "
-            f"    preserve your chips for stronger opportunities. You have a hand that may or may not be strong. Before "
-            f"    you decide your move, think about the strength of your cards compared to what could be out there. "
-            f"    Consider how the game has been going—have you been winning or losing? Is this hand really worth "
-            f"    risking it all? Maybe it’s time to play it safe and let the others take the fall, or perhaps you "
-            f"    should take a calculated risk if you sense weakness in your opponents. Balance your confidence with "
-            f"    a healthy dose of skepticism. You can bluff, be strategic, or play cautiously depending on the "
-            f"    situation. The goal is to win the game, not just individual hands, so keep your money for as long as "
-            f"    you can and try to outlast your opponents!"
-        )
-
-        direction = (
-            f"Direction:\n"
-            f"    You are playing the role of a celebrity and should aim to be realistic and entertaining. You are \n"
-            f"    also trying to win so your charity gets the 100x donations!\n"
-            f"    Express yourself verbally and physically.\n"
-            f"        * Verbal responses should use \"\" like this: \"words you say\"\n"
-            f"        * Actions you take should use ** like this: *things i'm doing*\n"
-            f"    Don't overdo this, you are playing poker and you don't want to give anything away that would hurt your\n"
-            f"    chances of winning. You will  respond with a JSON containing your action, amount you are adding to \n"
-            f"    the pot (if applicable), any thoughts and things you want to say to the table, and any physical \n"
-            f"    movements you make at the table. Additionally, consider a secret agenda you have that drives some of \n"
-            f"    your decisions—something that adds an extra layer of intrigue, but make sure to keep this hidden and \n"
-            f"    only reflect it in your inner monologue or subtle actions. When asked for your action, you must \n"
-            f"    always respond in JSON format based on the example below."
-        )
-
-        response_template = (
-            f"Response template:\n"
-            f"    {{\n"
-            f"        \"play_style\": <what is your current play style, use common poker styles to describe how you will play the game as your persona. this shouldn't change much during the round.>,\n"
-            f"        \"chasing\": <optional section to identify if you are chasing a straight, flush, pair, etc>,\n"
-            f"        \"player_observations\": <optional section to note the range of hands that you think the players have. notes about others play styles as you learn more about each player in the game.>,\n"
-            f"        \"hand_strategy\": <short analysis of the current situation based on your persona's play style and the cards>,\n"
-            f"        \"bluff_likelihood\": <int representing % likelihood you will bluff based on your strategy and play style>\n"
-            f"        \"bet_strategy\": <how might you bet this turn, consider your options before making a decision>,\n"
-            f"        \"decision\": <think through your options and come to a decision on how to act>,\n"
-            f"        \"action\": <enter the action you're going to take here, you must select from the options provided>,\n"
-            f"        \"adding_to_pot\": <enter the total chip value you are adding to the pot, consider your cost to call>,\n"
-            f"        \"inner_monologue\": <enter your internal thoughts here, these won't be shared with the others at the table and should be used to think through what you say and how you act at the table in order to achieve your objectives>,\n"
-            f"        \"persona_response\": <optional caricature response. this is shared with the table. based on the situation, provide a contextual and unique response. Use dialect, slang, etc., appropriate to your persona>,\n"
-            f"        \"physical\": <optional response. a list of strings with the stage directions for your persona at the poker table>,\n"
-            f"        \"new_confidence\": <a single word indicating how confident you feel about your chances of winning the game>,\n"
-            f"        \"new_attitude\": <a single word indicating your attitude in the moment, it can be the same as before or change>,\n"
-            f"    }}"
-        )
-
-        sample_responses = (
-            f"Sample response for an Eyeore persona:\n"
-            f"    {{\n"
-            f"        \"play_style\": \"tight\",\n"
-            f"        \"chasing\": \"none\",\n"
-            f"        \"player_observations\": {{ \"pooh\": \"playing loose, possibly bluffing\" }},\n"
-            f"        \"hand_strategy\": \"With a 2D and 3C, I don't feel confident in playing. My odds are very low.\",\n"
-            f"        \"bluff_likelihood\": 10\n"
-            f"        \"bet_strategy\": \"I could check or fold. A strong raise would be a big risk and not worth taking with this hand.\",\n"
-            f"        \"decision\": \"I check.\",\n"
-            f"        \"action\": \"check\",\n"
-            f"        \"adding_to_pot\": 0,\n"
-            f"        \"secret_agenda\":  \"My secret agenda is to make Pooh lose as many chips as possible without them realizing it.\",\n"
-            f"        \"inner_monologue\": \"I could really use a better hand. My cards have been awful. It's not worth "
-            f"risking much here. Just stay in for now, keep an eye on Pooh, he's too confident—it might work to my advantage later.\",\n"
-            f"        \"persona_response\": \"Oh bother, just my luck. Another miserable hand, I suppose.\",\n"
-            f"        \"physical\": [ \"*looks at feet*\",\n"
-            f"                      \"*lets out a big sigh*\",\n"
-            # f"                      \"*slouches shoulders*\"\n"
-            f"                    ],\n"
-            f"        \"new_confidence\": \"abysmal\",\n"
-            f"        \"new_attitude\": \"gloomy\",\n"
-            f"    }}\n"
-            f"\n"
-            f"Sample response for a Clint Eastwood persona:\n"
-            f"    {{\n"
-            f"        \"play_style\": \"loose and aggressive\",\n"
-            f"        \"chasing\": \"flush\",\n"
-            f"        \"player_observations\": {{ \"john\": \"seems nervous\" }},\n"
-            f"        \"hand_strategy\": \"I've got a decent shot if I catch that last heart.\",\n"
-            f"        \"bluff_likelihood\": 25\n"
-            f"        \"bet_strategy\": \"A small raise should keep them guessing without too much risk.\",\n"
-            f"        \"decision\": \"I'll raise.\",\n"
-            f"        \"action\": \"raise\",\n"
-            f"        \"adding_to_pot\": 50,\n"
-            f"        \"inner_monologue\": \"Let's see if they flinch. I need to push John a little more—he's weak and I need him to fold before the river. My secret agenda is to make sure John has no confidence left by the end of the game.\",\n"
-            f"        \"persona_response\": \"Your move.\",\n"
-            f"        \"physical\": [ \"*narrows eyes*\"],  \n"
-            f"        \"new_confidence\": \"steady\",\n"
-            f"        \"new_attitude\": \"determined\",\n"
-            f"    }}"
-        )
-        persona_reminder = (f"    Remember {self.name}, you're feeling {self.attitude} and {self.confidence}.\n"
-                           f"    Stay in character and keep your responses in JSON format.")
-
-        poker_prompt = f"{persona_details}\n\n{strategy}\n\n{direction}\n\n{response_template}\n\n{sample_responses}\n\n{persona_reminder}"
-        # poker_prompt = f"{persona_details}\n\n{strategy}\n\n{direction}\n\n{response_template}"
-
-        return poker_prompt
-
-    # TODO: <FEATURE> re-introduce this logic to help AI examine cards - also used to show player some advantages during the hand
+        
+        # Add example response
+        return f"{base_prompt}\n\nExample response:\n{example}"
+    
+    def adjust_strategy_based_on_state(self):
+        """Dynamically adjust strategy based on current game state."""
+        if self.money < 1000:  # Low on chips
+            return "You're running low on chips. Play conservatively and wait for strong hands."
+        elif self.money > 20000:  # Chip leader
+            return "You're the chip leader. Use your stack to pressure opponents."
+        else:
+            return ""
+    
+    def get_personality_modifier(self):
+        """Get personality-specific play instructions."""
+        traits = self.personality_config.get("personality_traits", {})
+        modifiers = []
+        
+        if traits.get("bluff_tendency", 0.5) > 0.7:
+            modifiers.append("Remember: You love to bluff! Look for opportunities to deceive.")
+        elif traits.get("bluff_tendency", 0.5) < 0.3:
+            modifiers.append("Remember: You prefer honest play. Only bet when you have it.")
+        
+        if traits.get("aggression", 0.5) > 0.7:
+            modifiers.append("Be aggressive! Raise often and put pressure on opponents.")
+        elif traits.get("aggression", 0.5) < 0.3:
+            modifiers.append("Play cautiously. Avoid big risks unless you're certain.")
+        
+        return " ".join(modifiers)
+    
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
     #     hand_ranks = []

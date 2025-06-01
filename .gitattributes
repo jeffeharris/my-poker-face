@@ -1,0 +1,17 @@
+# Ensure shell scripts always use LF endings
+*.sh text eol=lf
+
+# Python files should also use LF
+*.py text eol=lf
+
+# These files should keep their original line endings
+*.txt text=auto
+*.md text=auto
+*.html text=auto
+*.css text=auto
+*.js text=auto
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
