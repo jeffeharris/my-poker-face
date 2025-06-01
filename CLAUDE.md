@@ -31,7 +31,16 @@ python -m unittest tests.core.test_card
 
 # Run with verbose output
 python -m unittest discover -s tests -p "test*.py" -v
+
+# Run prompt management tests
+python -m pytest tests/test_prompt_management.py tests/test_prompt_golden_path.py -v
 ```
+
+#### Testing AI Players
+- Mock OpenAI API responses when testing AI behavior
+- Test personality loading from JSON
+- Verify prompt templates render correctly
+- Check that personality traits affect decisions appropriately
 
 ## Architecture Overview
 
@@ -58,6 +67,51 @@ This is a poker game application with AI players powered by OpenAI. The codebase
 ### Development Notes
 
 - When modifying game logic, maintain immutability - never mutate state objects
-- AI player personalities are defined in `poker/utils.py`
+- AI player personalities are defined in `poker/personalities.json` (externalized from code)
+- The prompt system uses `PromptManager` in `poker/prompt_manager.py`
 - The web interface uses room-based sessions for multiplayer games
 - Test coverage includes unit tests for core components and functional tests for game scenarios
+- Use relative imports (`.module_name`) within the poker package
+
+### AI and Prompt System
+
+The AI player system uses a centralized prompt management approach:
+
+1. **Personalities** (`poker/personalities.json`): External configuration for AI traits
+   - Each personality has: play_style, confidence, attitude, and personality_traits
+   - Traits include: bluff_tendency, aggression, chattiness, emoji_usage
+
+2. **Prompt Manager** (`poker/prompt_manager.py`): Handles all prompt templates
+   - `PromptTemplate` class for structured, reusable prompts
+   - `PromptManager` class for centralized template management
+   - Templates support variable substitution
+
+3. **Dynamic Behavior**: AI decisions are influenced by:
+   - Personality traits (e.g., high bluff_tendency → more bluffs)
+   - Game state (e.g., low chips → conservative play)
+   - Personality modifiers applied at runtime
+
+### Known Issues
+
+- `initialize_game_state()` always adds a human player named "Jeff" (needs to be configurable)
+- No game setup/configuration page for player selection
+- WebSocket disconnections not handled gracefully
+- Some imports may fail if not run from project root
+
+### Quick Reference
+
+#### Adding a New AI Personality
+1. Edit `poker/personalities.json`
+2. Add entry with: play_style, default_confidence, default_attitude, personality_traits
+3. Personality automatically available in game
+
+#### Modifying Prompts
+1. Edit `poker/prompt_manager.py`
+2. Update template sections in `_load_default_templates()`
+3. Test with: `python -m pytest tests/test_prompt_management.py`
+
+#### Key Files for AI System
+- `poker/personalities.json` - Personality configurations
+- `poker/prompt_manager.py` - Prompt templates and management
+- `poker/poker_player.py` - AIPokerPlayer class
+- `poker/controllers.py` - AIPlayerController for decisions
