@@ -6,11 +6,11 @@ from flask_socketio import SocketIO, join_room
 from datetime import datetime
 import time
 
-from controllers import AIPlayerController
-from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
+from poker.controllers import AIPlayerController
+from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
-from poker_state_machine import PokerStateMachine, GamePhase
-from utils import get_celebrities
+from poker.poker_state_machine import PokerStateMachine, GamePhase
+from poker.utils import get_celebrities
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions

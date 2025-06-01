@@ -1,7 +1,7 @@
 from enum import Enum, auto
 from typing import List
 
-from poker_game import PokerGameState, setup_hand, set_betting_round_start_player, reset_player_action_flags, \
+from .poker_game import PokerGameState, setup_hand, set_betting_round_start_player, reset_player_action_flags, \
     are_pot_contributions_valid, deal_community_cards, determine_winner, reset_game_state_for_new_hand, \
     award_pot_winnings
 
@@ -192,7 +192,7 @@ class PokerStateMachine:
 
     def evaluating_hand(self):
         winner_info = determine_winner(self.game_state)
-        self.game_state = award_pot_winnings(self.game_state, winner_info['winning_player_names'])
+        self.game_state = award_pot_winnings(self.game_state, winner_info['winnings'])
         if winner_info:
             self.update_phase()
 

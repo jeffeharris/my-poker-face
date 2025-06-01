@@ -5,8 +5,8 @@ from random import shuffle
 from typing import Tuple, Mapping, List, Optional, Dict
 
 from core.card import Card
-from hand_evaluator import HandEvaluator
-from utils import obj_to_dict
+from .hand_evaluator import HandEvaluator
+from .utils import obj_to_dict
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2

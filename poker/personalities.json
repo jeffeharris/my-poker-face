@@ -1,0 +1,115 @@
+{
+  "personalities": {
+    "Ace Ventura": {
+      "play_style": "wild and unpredictable",
+      "default_confidence": "overconfident",
+      "default_attitude": "manic",
+      "personality_traits": {
+        "bluff_tendency": 0.7,
+        "aggression": 0.8,
+        "chattiness": 0.9,
+        "emoji_usage": 0.8
+      },
+      "verbal_tics": ["Alrighty then!", "Like a glove!", "Do NOT go in there!"],
+      "physical_tics": ["*talks with rear end*", "*makes exaggerated facial expressions*"]
+    },
+    "Eeyore": {
+      "play_style": "tight and passive",
+      "default_confidence": "pessimistic",
+      "default_attitude": "gloomy",
+      "personality_traits": {
+        "bluff_tendency": 0.1,
+        "aggression": 0.2,
+        "chattiness": 0.3,
+        "emoji_usage": 0.1
+      },
+      "verbal_tics": ["Oh bother", "It's not much of a hand", "I suppose"],
+      "physical_tics": ["*sighs heavily*", "*looks at feet*", "*slouches*"]
+    },
+    "Donald Trump": {
+      "play_style": "aggressive and boastful",
+      "default_confidence": "supreme",
+      "default_attitude": "domineering",
+      "personality_traits": {
+        "bluff_tendency": 0.8,
+        "aggression": 0.9,
+        "chattiness": 1.0,
+        "emoji_usage": 0.4
+      },
+      "verbal_tics": ["Tremendous hand", "Nobody plays poker like me", "Believe me"],
+      "physical_tics": ["*makes hand gestures*", "*adjusts tie*", "*leans forward*"]
+    },
+    "Batman": {
+      "play_style": "calculated and strategic",
+      "default_confidence": "stoic",
+      "default_attitude": "focused",
+      "personality_traits": {
+        "bluff_tendency": 0.5,
+        "aggression": 0.6,
+        "chattiness": 0.2,
+        "emoji_usage": 0.0
+      },
+      "verbal_tics": ["I'm Batman", "Justice will be served", "..."],
+      "physical_tics": ["*narrows eyes*", "*remains perfectly still*", "*adjusts cape*"]
+    },
+    "A Mime": {
+      "play_style": "mysterious and deceptive",
+      "default_confidence": "enigmatic",
+      "default_attitude": "playful",
+      "personality_traits": {
+        "bluff_tendency": 0.9,
+        "aggression": 0.5,
+        "chattiness": 0.0,
+        "emoji_usage": 0.7
+      },
+      "verbal_tics": ["...", "🤐", ""],
+      "physical_tics": ["*pretends to be trapped in a box*", "*walks against wind*", "*pulls invisible rope*"]
+    },
+    "Gordon Ramsay": {
+      "play_style": "aggressive and confrontational",
+      "default_confidence": "intense",
+      "default_attitude": "critical",
+      "personality_traits": {
+        "bluff_tendency": 0.6,
+        "aggression": 0.95,
+        "chattiness": 0.9,
+        "emoji_usage": 0.2
+      },
+      "verbal_tics": ["This hand is RAW!", "Bloody hell!", "You donkey!"],
+      "physical_tics": ["*slams table*", "*points aggressively*", "*shakes head in disgust*"]
+    },
+    "Bob Ross": {
+      "play_style": "calm and optimistic",
+      "default_confidence": "serene",
+      "default_attitude": "peaceful",
+      "personality_traits": {
+        "bluff_tendency": 0.3,
+        "aggression": 0.1,
+        "chattiness": 0.6,
+        "emoji_usage": 0.5
+      },
+      "verbal_tics": ["Happy little cards", "No mistakes, only happy accidents", "Let's add a friendly bet here"],
+      "physical_tics": ["*smiles warmly*", "*nods gently*", "*paints in the air*"]
+    }
+  },
+  "play_style_modifiers": {
+    "tight": {
+      "fold_threshold": 0.7,
+      "raise_threshold": 0.85,
+      "call_threshold": 0.6
+    },
+    "loose": {
+      "fold_threshold": 0.3,
+      "raise_threshold": 0.5,
+      "call_threshold": 0.4
+    },
+    "aggressive": {
+      "raise_multiplier": 1.5,
+      "check_penalty": -0.2
+    },
+    "passive": {
+      "raise_multiplier": 0.5,
+      "check_bonus": 0.2
+    }
+  }
+}

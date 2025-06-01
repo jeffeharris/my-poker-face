@@ -2,12 +2,11 @@
 import os
 from dotenv import load_dotenv
 
-from card import CardRenderer
-from controllers import ConsolePlayerController, AIPlayerController
-
-from poker_game import *
-from poker_state_machine import PokerStateMachine
-from utils import get_celebrities
+from core.card import CardRenderer
+from poker.controllers import ConsolePlayerController, AIPlayerController
+from poker.poker_game import *
+from poker.poker_state_machine import PokerStateMachine
+from poker.utils import get_celebrities
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
