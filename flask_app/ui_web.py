@@ -5,12 +5,15 @@ from flask import Flask, render_template, redirect, url_for, jsonify, Response
 from flask_socketio import SocketIO, join_room
 from datetime import datetime
 import time
+import os
 
-from controllers import AIPlayerController
-from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
+from poker.controllers import AIPlayerController
+from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
-from poker_state_machine import PokerStateMachine, GamePhase
-from utils import get_celebrities
+from poker.poker_state_machine import PokerStateMachine, PokerPhase
+from poker.utils import get_celebrities
+from poker.persistence import GamePersistence
+from .game_adapter import StateMachineAdapter, GameStateAdapter
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
@@ -19,6 +22,14 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 # Dictionary to hold game states and messages for each game ID
 games = {}
 messages = {}
+
+# Initialize persistence layer
+# Use /app/data in Docker, or local path otherwise
+if os.path.exists('/app/data'):
+    db_path = '/app/data/poker_games.db'
+else:
+    db_path = os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
+persistence = GamePersistence(db_path)
 
 
 # Helper function to generate unique game ID
@@ -43,11 +54,31 @@ def index():
     return render_template('home.html')
 
 
+@app.route('/games')
+def list_games():
+    """List all saved games."""
+    saved_games = persistence.list_games(limit=50)
+    games_data = []
+    
+    for game in saved_games:
+        games_data.append({
+            'game_id': game.game_id,
+            'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
+            'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
+            'phase': game.phase,
+            'num_players': game.num_players,
+            'pot_size': game.pot_size
+        })
+    
+    return jsonify({'games': games_data})
+
+
 @app.route('/new_game', methods=['GET'])
 def new_game():
     ai_player_names = get_celebrities(shuffled=True)[:4]
     game_state = initialize_game_state(player_names=ai_player_names)
-    state_machine = PokerStateMachine(game_state=game_state)
+    base_state_machine = PokerStateMachine(game_state=game_state)
+    state_machine = StateMachineAdapter(base_state_machine)
     # Create a controller for each player in the game and add to a map of name -> controller
     ai_controllers = {}
     for player in state_machine.game_state.players:
@@ -62,6 +93,10 @@ def new_game():
     }
     game_id = generate_game_id()
     games[game_id] = game_data
+    
+    # Save the new game to database  
+    persistence.save_game(game_id, state_machine._state_machine)
+    
     return redirect(url_for('game', game_id=game_id))
 
 
@@ -74,7 +109,7 @@ def progress_game(game_id):
 
     while True:
         # Run until a player action is needed or the hand has ended
-        state_machine.run_until([GamePhase.EVALUATING_HAND])
+        state_machine.run_until([PokerPhase.EVALUATING_HAND])
         current_game_data['state_machine'] = state_machine
         games[game_id] = current_game_data
         game_state = state_machine.game_state
@@ -85,10 +120,10 @@ def progress_game(game_id):
         if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
             return redirect(url_for('end_game', game_id=game_id))
 
-        if state_machine.phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
+        if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER] and game_state.no_action_taken:
             # Send a table messages with the cards that were dealt
-            num_cards_dealt = 3 if state_machine.phase == GamePhase.FLOP else 1
-            message_content = (f"{state_machine.phase} cards dealt: "
+            num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
+            message_content = (f"{state_machine.current_phase} cards dealt: "
                                f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
             send_message(game_id, "table", message_content, "table")
 
@@ -98,7 +133,7 @@ def progress_game(game_id):
 
         # Check for and handle the Evaluate Hand phase outside the state machine so we can update
         # the front end with the results.
-        elif state_machine.phase == GamePhase.EVALUATING_HAND:
+        elif state_machine.current_phase == PokerPhase.EVALUATING_HAND:
             winner_info = determine_winner(game_state)
             winning_player_names = list(winner_info['winnings'].keys())
             game_state = award_pot_winnings(game_state, winner_info['winnings'])
@@ -132,8 +167,30 @@ def progress_game(game_id):
 @app.route('/game/<game_id>', methods=['GET'])
 def game(game_id) -> str or Response:
     current_game_data = games.get(game_id)
+    
+    # Try to load from database if not in memory
     if not current_game_data:
-        return redirect(url_for('index'))
+        base_state_machine = persistence.load_game(game_id)
+        if base_state_machine:
+            state_machine = StateMachineAdapter(base_state_machine)
+            # Recreate AI controllers for loaded game
+            ai_controllers = {}
+            for player in state_machine.game_state.players:
+                if not player.is_human:
+                    ai_controllers[player.name] = AIPlayerController(player.name, state_machine)
+            
+            # Load messages from database
+            db_messages = persistence.load_messages(game_id)
+            
+            current_game_data = {
+                'state_machine': state_machine,
+                'ai_controllers': ai_controllers,
+                'messages': db_messages
+            }
+            games[game_id] = current_game_data
+        else:
+            return redirect(url_for('index'))
+    
     state_machine = current_game_data['state_machine']
 
     # progress_game(game_id)
@@ -142,7 +199,7 @@ def game(game_id) -> str or Response:
                            game_state=state_machine.game_state,
                            player_options=state_machine.game_state.current_player_options,
                            game_id=game_id,
-                           current_phase=str(state_machine.phase))
+                           current_phase=str(state_machine.current_phase))
 
 
 @socketio.on('player_action')
@@ -172,6 +229,10 @@ def handle_player_action(data):
     # Update the game session states (global variables right now)
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
+    
+    # Save game after human action
+    persistence.save_game(game_id, state_machine._state_machine)
+    
     update_and_emit_game_state(game_id)  # Emit updated game state
     progress_game(game_id)
 
@@ -211,6 +272,10 @@ def handle_ai_action(game_id: str) -> None:
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
+    
+    # Save game after AI action
+    persistence.save_game(game_id, state_machine._state_machine)
+    
     update_and_emit_game_state(game_id)
 
 
@@ -258,6 +323,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     # Update the messages session state
     game_data['messages'] = game_messages
     games[game_id] = game_data
+    
+    # Save message to database
+    persistence.save_message(game_id, message_type, f"{sender}: {content}")
     socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
     socketio.sleep(sleep) if sleep else None
 

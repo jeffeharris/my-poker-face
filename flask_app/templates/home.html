@@ -20,7 +20,46 @@
     <div class="container">
         <h1>Welcome to My Poker Face!</h1>
         <p>Let's play some poker.</p>
-        <a href="/new_game" class="start-button">Start Game</a>
+        <a href="/new_game" class="start-button">Start New Game</a>
+        
+        <div id="saved-games" style="margin-top: 30px;">
+            <h2>Saved Games</h2>
+            <div id="games-list">Loading saved games...</div>
+        </div>
     </div>
+    
+    <script>
+        // Load saved games when page loads
+        fetch('/games')
+            .then(response => response.json())
+            .then(data => {
+                const gamesList = document.getElementById('games-list');
+                if (data.games.length === 0) {
+                    gamesList.innerHTML = '<p>No saved games found.</p>';
+                } else {
+                    let html = '<table style="width: 100%; border-collapse: collapse;">';
+                    html += '<tr><th>Game ID</th><th>Created</th><th>Last Updated</th><th>Phase</th><th>Players</th><th>Pot</th><th>Action</th></tr>';
+                    
+                    data.games.forEach(game => {
+                        html += `<tr>
+                            <td>${game.game_id}</td>
+                            <td>${game.created_at}</td>
+                            <td>${game.updated_at}</td>
+                            <td>${game.phase}</td>
+                            <td>${game.num_players}</td>
+                            <td>$${game.pot_size}</td>
+                            <td><a href="/game/${game.game_id}" class="resume-button">Resume</a></td>
+                        </tr>`;
+                    });
+                    
+                    html += '</table>';
+                    gamesList.innerHTML = html;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading games:', error);
+                document.getElementById('games-list').innerHTML = '<p>Error loading saved games.</p>';
+            });
+    </script>
 </body>
 </html>

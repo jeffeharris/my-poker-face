@@ -1,11 +1,11 @@
 import json
 from typing import List, Optional, Dict
 
-from card import Card, CardRenderer
-from poker_game import Player
-from poker_state_machine import PokerStateMachine
-from poker_player import AIPokerPlayer
-from utils import prepare_ui_data
+from core.card import Card, CardRenderer
+from .poker_game import Player
+from .poker_state_machine import PokerStateMachine
+from .poker_player import AIPokerPlayer
+from .utils import prepare_ui_data
 
 
 class ConsolePlayerController:

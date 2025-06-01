@@ -5,8 +5,8 @@ from random import shuffle
 from typing import Tuple, Mapping, List, Optional, Dict
 
 from core.card import Card
-from hand_evaluator import HandEvaluator
-from utils import obj_to_dict
+from .hand_evaluator import HandEvaluator
+from .utils import obj_to_dict
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
@@ -47,7 +47,7 @@ class Player:
             'is_folded': self.is_folded,
             'has_acted': self.has_acted,
             'bet': self.bet,
-            'hand': self.hand,
+            'hand': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.hand] if self.hand else None,
         }
 
     def update(self, **kwargs):
@@ -89,12 +89,12 @@ class PokerGameState:
         """
         return {
             'players': [p.to_dict() for p in self.players],
-            'deck': list(self.deck),
-            'discard_pile': list(self.discard_pile),
+            'deck': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.deck],
+            'discard_pile': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.discard_pile],
             'pot': {**self.pot, 'highest_bet': self.highest_bet},
             'current_player_idx': self.current_player_idx,
             'current_dealer_idx': self.current_dealer_idx,
-            'community_cards': list(self.community_cards),
+            'community_cards': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.community_cards],
             'current_ante': self.current_ante,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
