@@ -202,3 +202,215 @@ sqlite3 poker_games.db "SELECT * FROM games;"
 2. **Game Statistics**: Track win/loss records, biggest pots
 3. **Export/Import**: Allow downloading/uploading game saves
 4. **Cleanup**: Auto-delete old games after X days
+
+## Poker Engine Deep Dive (Added 2025-01-06)
+
+### Core Architecture Philosophy
+
+The poker engine follows a **functional programming paradigm** with **immutable state management**. This design choice ensures:
+- Predictable state transitions
+- Easy debugging and testing
+- Natural support for features like undo/redo and replay
+- Thread-safe operations
+
+### State Management
+
+#### PokerGameState (`poker/poker_game.py`)
+The heart of the engine - a frozen dataclass representing the complete game state:
+
+**Core Properties:**
+- `players: Tuple[Player, ...]` - Immutable tuple of players
+- `deck: Tuple[Mapping, ...]` - Remaining cards in deck
+- `community_cards: Tuple[Mapping, ...]` - Cards on the table
+- `pot: Mapping` - Pot amounts including side pots
+- `current_player_idx: int` - Index of player to act
+- `current_dealer_idx: int` - Dealer button position
+
+**Smart Properties (Computed):**
+- `highest_bet` - Maximum bet in current round
+- `current_player_options` - Valid actions for current player
+- `table_positions` - Dynamic position names (button, SB, BB, UTG, etc.)
+- `can_big_blind_take_pre_flop_action` - BB option to check/raise
+
+**Immutability Pattern:**
+```python
+# All updates create new instances
+new_state = game_state.update(pot={'total': 100})
+# Or update specific player
+new_state = game_state.update_player(player_idx=0, stack=900)
+```
+
+#### Player State
+Players are also immutable dataclasses with:
+- Basic info: `name`, `stack`, `is_human`
+- Current round: `bet`, `hand`
+- Status flags: `is_all_in`, `is_folded`, `has_acted`
+- Computed: `is_active` (can still act this round)
+
+### Game Flow Control
+
+#### PokerStateMachine (`poker/poker_state_machine.py`)
+Controls game progression through explicit phases:
+
+**Phase Transitions:**
+```
+INITIALIZING_GAME
+    ↓
+INITIALIZING_HAND (deal cards, place blinds)
+    ↓
+PRE_FLOP (betting round)
+    ↓
+DEALING_CARDS → FLOP (betting round)
+    ↓
+DEALING_CARDS → TURN (betting round)
+    ↓
+DEALING_CARDS → RIVER (betting round)
+    ↓
+SHOWDOWN/EVALUATING_HAND
+    ↓
+HAND_OVER → (back to INITIALIZING_HAND)
+```
+
+**Key Methods:**
+- `run_until_player_action()` - Advances until human/AI input needed
+- `advance_state()` - Single state transition
+- `update_phase()` - Explicit phase change
+
+### Betting Logic
+
+#### Core Betting Functions
+1. **`place_bet()`** - Foundation for all betting actions
+   - Handles stack management
+   - Sets all-in flags
+   - Updates pot
+   - Resets other players' `has_acted` if bet raised
+
+2. **Player Actions:**
+   - `player_fold()` - Mark folded, move cards to discard
+   - `player_check()` - No-op when bet matches highest
+   - `player_call()` - Match the highest bet
+   - `player_raise()` - Call + additional amount
+   - `player_all_in()` - Bet entire stack
+
+3. **`are_pot_contributions_valid()`** - Determines if betting round complete
+   - All players have acted
+   - All active players have equal bets
+   - Special case: BB pre-flop option
+
+### Position Management
+
+Dynamic position assignment based on player count:
+- 2 players: Button = SB, other = BB
+- 3+ players: Normal positions
+- 4-8 players: Adds UTG, Cutoff, MP1-3 as needed
+
+```python
+# Example for 6 players:
+{
+    "button": "Player1",
+    "small_blind_player": "Player2", 
+    "big_blind_player": "Player3",
+    "under_the_gun": "Player4",
+    "middle_position_1": "Player5",
+    "cutoff": "Player6"
+}
+```
+
+### Hand Evaluation
+
+#### HandEvaluator (`poker/hand_evaluator.py`)
+Evaluates best 5-card hand from 7 cards:
+
+**Hand Rankings (1-10):**
+1. Royal Flush
+2. Straight Flush
+3. Four of a Kind
+4. Full House
+5. Flush
+6. Straight
+7. Three of a Kind
+8. Two Pair
+9. One Pair
+10. High Card
+
+**Return Format:**
+```python
+{
+    "hand_rank": 5,  # Flush
+    "hand_values": [14, 12, 10, 8, 6],  # Ace-high flush
+    "kicker_values": [],  # Not used for flush
+    "suit": "Hearts",
+    "hand_name": "Flush with Hearts"
+}
+```
+
+### Side Pot Algorithm
+
+Sophisticated handling of multiple all-in scenarios:
+
+1. **Sort players by contribution** (lowest first)
+2. **Create tiers** based on all-in amounts
+3. **Award each tier** to best hand among eligible players
+4. **Distribute winnings** proportionally
+
+Example with 3 players:
+- Player A: All-in $100
+- Player B: All-in $300
+- Player C: Calls $300
+
+Results in:
+- Main pot: $300 (all players eligible)
+- Side pot: $400 (only B and C eligible)
+
+### Key Design Patterns
+
+1. **Immutable State Pattern**
+   - All state objects are frozen dataclasses
+   - Updates return new instances
+   - No side effects in game logic
+
+2. **State Machine Pattern**
+   - Explicit phase management
+   - Clear transitions
+   - Prevents invalid states
+
+3. **Strategy Pattern**
+   - Controllers abstract player types
+   - Same interface for human/AI
+
+4. **Functional Core, Imperative Shell**
+   - Pure functions for game logic
+   - I/O separated in controllers
+
+### Integration Points
+
+#### For AI Players
+- `convert_game_to_hand_state()` - Transforms global state to player perspective
+- Controllers handle prompt generation and response parsing
+- Game engine remains agnostic to player types
+
+#### For Persistence
+- All objects implement `to_dict()` for serialization
+- State can be fully reconstructed from dict
+- Natural save points after each action
+
+#### For UI
+- `prepare_ui_data()` - Extracts display-relevant data
+- Event-driven updates via state changes
+- Clear separation of concerns
+
+### Best Practices for Modifications
+
+1. **Always preserve immutability** - Use `update()` methods
+2. **Add new phases carefully** - Update transition maps
+3. **Test side pot logic** thoroughly - Complex edge cases
+4. **Maintain relative imports** in poker package
+5. **Keep game logic pure** - No I/O in core functions
+
+### Common Gotchas
+
+1. **Player indices change** when dealer rotates between hands
+2. **Big blind special case** in pre-flop betting
+3. **All-in players** still in hand but not active
+4. **Flush bug (fixed)** - Must return only best 5 cards
+5. **State machine loops** if phase transitions incorrect
