@@ -1,5 +1,17 @@
 # TODO List for My Poker Face
 
+## Quick Issues (for claude-worktree.sh)
+- [ ] missing-unit-tests: HandEvaluator lacks comprehensive unit tests [High]
+- [ ] kicker-handling: Inconsistent kicker value handling across methods [Medium]
+- [ ] ace-low-straight: No support for A-2-3-4-5 straight [Medium]
+- [ ] missing-error-handling: determine_winner lacks error handling [High]
+- [ ] hardcoded-secret-key: Security vulnerability in Flask app [High]
+- [ ] ai-chat-disabled: AI chat functionality commented out [Medium]
+- [ ] side-pot-tests: Test complex multi-way all-in scenarios [High]
+- [ ] websocket-error-handling: No error handling for WebSocket disconnections [Medium]
+- [x] flush-bug: Fixed flush evaluation bug [High]
+- [x] return-value-inconsistency: Fixed _check_straight return values [High]
+
 ## HandEvaluator Issues
 
 | Issue | Description | Status | Priority | Notes |
@@ -27,6 +39,10 @@
 | Hole Card Evaluation | Re-introduce for AI decisions | 🔴 Open | Medium | `poker_player.py:318` |
 | Position Tracking | Decision needed on implementation | 🔴 Open | Low | `poker_player.py:379` |
 | Assistant to_dict Bug | Uses `__name__` instead of `type` | 🔴 Open | Medium | `core/assistants.py:211` |
+| Generic Exception | Using generic Exception instead of specific error types | 🔴 Open | Low | `poker_state_machine.py:123` |
+| WebSocket Error Handling | No error handling for WebSocket disconnections | 🔴 Open | Medium | `flask_app/ui_web.py` |
+| Game State Persistence | No mechanism to save/restore game state | 🔴 Open | Low | Feature request |
+| Spectator Mode | No support for observers who don't play | 🔴 Open | Low | Feature request |
 
 ## Testing Gaps
 
