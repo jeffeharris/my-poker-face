@@ -9,8 +9,11 @@
 - [ ] ai-chat-disabled: AI chat functionality commented out [Medium]
 - [ ] side-pot-tests: Test complex multi-way all-in scenarios [High]
 - [ ] websocket-error-handling: No error handling for WebSocket disconnections [Medium]
+- [ ] remove-hardcoded-jeff: Remove hardcoded "Jeff" player from initialize_game_state [High]
+- [ ] add-game-setup-page: Add start game page for player name/configuration [High]
 - [x] flush-bug: Fixed flush evaluation bug [High]
 - [x] return-value-inconsistency: Fixed _check_straight return values [High]
+- [x] prompt-management: Implemented centralized prompt management system [High]
 
 ## HandEvaluator Issues
 
@@ -44,6 +47,21 @@
 | Game State Persistence | No mechanism to save/restore game state | 🔴 Open | Low | Feature request |
 | Spectator Mode | No support for observers who don't play | 🔴 Open | Low | Feature request |
 
+## AI/Prompt System Enhancements
+
+| Enhancement | Description | Status | Priority | Notes |
+|-------------|-------------|--------|----------|-------|
+| Dynamic Personality Loading | Load personalities from external sources (API/DB) | 🔴 Open | Low | Currently using JSON file |
+| Personality Learning | AI players adapt strategy based on game outcomes | 🔴 Open | Medium | Track win/loss per personality |
+| Custom Personalities | UI for users to create custom AI personalities | 🔴 Open | Medium | Add personality builder |
+| Prompt Templates | Additional prompt templates for different game phases | 🔴 Open | Low | Pre-flop vs river strategy |
+| Multi-language Support | Personalities speak different languages | 🔴 Open | Low | Internationalization |
+| Personality Emotions | Dynamic emotional states affecting decisions | 🔴 Open | Medium | Tilt, confidence changes |
+| Historical Context | AI remembers previous hands against opponents | 🔴 Open | High | Improve bluffing/reading |
+| Difficulty Levels | Easy/Medium/Hard AI opponents | 🔴 Open | Medium | Adjust decision quality |
+| Voice/TTS Integration | AI players speak their responses | 🔴 Open | Low | Enhanced immersion |
+| Personality Matchups | Special interactions between specific personalities | 🔴 Open | Low | Trump vs Obama banter |
+
 ## Testing Gaps
 
 | Test Area | Description | Status | Priority |
@@ -52,7 +70,8 @@
 | Side Pot Calculations | Test complex multi-way all-in scenarios | 🔴 Open | High |
 | State Machine Transitions | Test all valid/invalid state transitions | 🔴 Open | High |
 | WebSocket Integration | Test real-time game updates | 🔴 Open | Medium |
-| AI Decision Making | Test AI player logic | 🔴 Open | Medium |
+| AI Decision Making | Test AI player logic | ✅ Complete | Medium |
+| Prompt Management Tests | Test prompt templates and personality loading | ✅ Complete | High |
 | Error Recovery | Test game recovery from errors | 🔴 Open | Medium |
 
 ## Legend
