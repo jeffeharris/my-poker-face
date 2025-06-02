@@ -5,3 +5,4 @@ flask-socketio~=5.3.6
 Flask-Session~=0.8.0
 python-socketio[client]~=5.11.0
 eventlet~=0.33.3
+rich~=13.7.0

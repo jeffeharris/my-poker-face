@@ -2,6 +2,8 @@
 A poker game with LLMs where you can define who you are playing against 
 and have a conversation with them while you play.
 
+**NEW**: Check out the [Rich CLI version](README_RICH_CLI.md) for a beautiful terminal interface with visual poker table, Unicode cards, and enhanced UI! Run with `python3 working_game.py`
+
 ## tech stack
 My Poker Face uses Python, Flask, HTML, and JavaScript to host a web-based
 browser game
@@ -23,14 +25,20 @@ python interpreter, you may need to switch 'python' to 'python3' below
 Create a local `.env` file and add your `OPENAI_API_KEY` to it. 
 This will be enabled to use the AI PLayers and Assistants.
 
-Once the environment is configured and requirements installed you can run the application in either the Console or as a Flask web app
+Once the environment is configured and requirements installed you can run the application in multiple ways:
+
+### run the Rich CLI version (NEW - Beautiful Terminal UI):
+
+`python3 working_game.py`
+
+This launches the new Rich terminal interface with visual poker table, Unicode cards, and enhanced UI. See [README_RICH_CLI.md](README_RICH_CLI.md) for details.
 
 ### run the console app locally:
 
-`python -m console_app.console_app`
+`python -m console_app.ui_console`
 
 ### run the Flask app locally:
 
-`python -m flask_app.flask_app`
+`python -m flask_app.ui_web`
 
 And now you can access the local web app by going to http://127.0.0.1:5000
