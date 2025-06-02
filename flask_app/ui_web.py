@@ -1,11 +1,16 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
 from typing import Optional
 
-from flask import Flask, render_template, redirect, url_for, jsonify, Response
+from flask import Flask, render_template, redirect, url_for, jsonify, Response, request
 from flask_socketio import SocketIO, join_room
+from flask_cors import CORS
 from datetime import datetime
 import time
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv(override=True)
 
 from poker.controllers import AIPlayerController
 from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
@@ -17,6 +22,7 @@ from .game_adapter import StateMachineAdapter, GameStateAdapter
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
+CORS(app)  # Enable CORS for all routes
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Dictionary to hold game states and messages for each game ID
@@ -38,8 +44,30 @@ def generate_game_id():
 
 
 def update_and_emit_game_state(game_id):
-    game_state = games[game_id]['state_machine'].game_state  # Obtain current game state
-    socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
+    current_game_data = games.get(game_id)
+    if not current_game_data:
+        return
+        
+    game_state = current_game_data['state_machine'].game_state
+    game_state_dict = game_state.to_dict()
+    
+    # Include messages in the game state
+    messages = []
+    for msg in current_game_data.get('messages', []):
+        messages.append({
+            'id': str(msg.get('id', len(messages))),
+            'sender': msg.get('sender', 'System'),
+            'message': msg.get('content', msg.get('message', '')),
+            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
+            'type': msg.get('message_type', msg.get('type', 'system'))
+        })
+    
+    game_state_dict['messages'] = messages
+    # Ensure the dealer and blind indices are included
+    game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
+    game_state_dict['small_blind_idx'] = game_state.small_blind_idx
+    game_state_dict['big_blind_idx'] = game_state.big_blind_idx
+    socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
 @socketio.on('join_game')
@@ -71,6 +99,194 @@ def list_games():
         })
     
     return jsonify({'games': games_data})
+
+
+@app.route('/api/game-state/<game_id>')
+def api_game_state(game_id):
+    """API endpoint to get current game state for React app."""
+    current_game_data = games.get(game_id)
+    
+    if not current_game_data:
+        # Try to load from database
+        try:
+            base_state_machine = persistence.load_game(game_id)
+            if base_state_machine:
+                state_machine = StateMachineAdapter(base_state_machine)
+                # Recreate AI controllers for loaded game
+                ai_controllers = {}
+                for player in state_machine.game_state.players:
+                    if not player.is_human:
+                        ai_controllers[player.name] = AIPlayerController(player.name, state_machine)
+                
+                # Load messages from database
+                db_messages = persistence.load_messages(game_id)
+                
+                current_game_data = {
+                    'state_machine': state_machine,
+                    'ai_controllers': ai_controllers,
+                    'messages': db_messages
+                }
+                games[game_id] = current_game_data
+            else:
+                return jsonify({'error': 'Game not found'}), 404
+        except Exception as e:
+            print(f"Error loading game {game_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # For now, return a user-friendly error
+            return jsonify({
+                'error': 'Game loading is currently unavailable',
+                'message': 'This feature is under development. Please start a new game.',
+                'players': []
+            }), 200  # Return 200 so frontend can handle gracefully
+    
+    state_machine = current_game_data['state_machine']
+    game_state = state_machine.game_state
+    
+    # Convert game state to API format
+    players = []
+    for player in game_state.players:
+        players.append({
+            'name': player.name,
+            'stack': player.stack,
+            'bet': player.bet,
+            'is_folded': player.is_folded,
+            'is_all_in': player.is_all_in,
+            'is_human': player.is_human,
+            'hand': player.hand if player.is_human and player.hand else None
+        })
+    
+    # Convert community cards
+    community_cards = []
+    for card in game_state.community_cards:
+        if hasattr(card, 'to_dict'):
+            card_dict = card.to_dict()
+            community_cards.append(f"{card_dict['rank']}{card_dict['suit']}")
+        else:
+            # Already a string
+            community_cards.append(card)
+    
+    # Get messages
+    messages = []
+    for msg in current_game_data.get('messages', []):
+        messages.append({
+            'id': str(msg.get('id', len(messages))),
+            'sender': msg.get('sender', 'System'),
+            'message': msg.get('content', msg.get('message', '')),
+            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
+            'type': msg.get('type', 'system')
+        })
+    
+    response = {
+        'players': players,
+        'community_cards': community_cards,
+        'pot': game_state.pot,
+        'current_player_idx': game_state.current_player_idx,
+        'current_dealer_idx': game_state.current_dealer_idx,
+        'small_blind_idx': game_state.small_blind_idx,
+        'big_blind_idx': game_state.big_blind_idx,
+        'phase': str(state_machine.current_phase).split('.')[-1],
+        'highest_bet': game_state.highest_bet,
+        'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
+        'min_raise': game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20,
+        'big_blind': 20,  # TODO: Get from game config
+        'messages': messages,
+        'game_id': game_id
+    }
+    
+    return jsonify(response)
+
+
+@app.route('/api/new-game', methods=['POST'])
+def api_new_game():
+    """Create a new game and return the game ID."""
+    ai_player_names = get_celebrities(shuffled=True)[:3]  # 3 AI players
+    game_state = initialize_game_state(player_names=ai_player_names)
+    base_state_machine = PokerStateMachine(game_state=game_state)
+    state_machine = StateMachineAdapter(base_state_machine)
+    
+    # Create AI controllers
+    ai_controllers = {}
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            new_controller = AIPlayerController(player.name, state_machine)
+            ai_controllers[player.name] = new_controller
+
+    game_data = {
+        'state_machine': state_machine,
+        'ai_controllers': ai_controllers,
+        'messages': [{
+            'id': '1',
+            'sender': 'System',
+            'content': 'New game started! Good luck!',
+            'timestamp': datetime.now().isoformat(),
+            'type': 'system'
+        }]
+    }
+    game_id = generate_game_id()
+    games[game_id] = game_data
+    
+    # Save the new game to database  
+    persistence.save_game(game_id, state_machine._state_machine)
+    
+    # Progress the game to the first human action
+    progress_game(game_id)
+    
+    return jsonify({'game_id': game_id})
+
+
+@app.route('/api/game/<game_id>/action', methods=['POST'])
+def api_player_action(game_id):
+    """Handle player action via API."""
+    data = request.json
+    action = data.get('action')
+    amount = data.get('amount', 0)
+    
+    current_game_data = games.get(game_id)
+    if not current_game_data:
+        return jsonify({'error': 'Game not found'}), 404
+    
+    state_machine = current_game_data['state_machine']
+    
+    # Play the current player's turn
+    current_player = state_machine.game_state.current_player
+    if not current_player.is_human:
+        return jsonify({'error': 'Not human player turn'}), 400
+    
+    game_state = play_turn(state_machine.game_state, action, amount)
+    
+    # Generate a message to be added to the game table
+    table_message_content = f"{current_player.name} chose to {action}{(' $' + str(amount)) if amount > 0 else ''}."
+    send_message(game_id, "Table", table_message_content, "game")
+    
+    game_state = advance_to_next_active_player(game_state)
+    state_machine.game_state = game_state
+    
+    # Update the game session states
+    current_game_data['state_machine'] = state_machine
+    games[game_id] = current_game_data
+    
+    # Save game after human action
+    persistence.save_game(game_id, state_machine._state_machine)
+    
+    # Progress the game to handle AI turns
+    progress_game(game_id)
+    
+    return jsonify({'success': True})
+
+
+@app.route('/api/game/<game_id>/message', methods=['POST'])
+def api_send_message(game_id):
+    """Send a chat message in the game."""
+    data = request.json
+    message = data.get('message', '')
+    sender = data.get('sender', 'Jeff')
+    
+    if message.strip():
+        send_message(game_id, sender, message.strip(), 'player')
+        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': 'Empty message'})
 
 
 @app.route('/new_game', methods=['GET'])
@@ -116,6 +332,9 @@ def progress_game(game_id):
 
         # Emit the latest game state to the client
         update_and_emit_game_state(game_id)
+        
+        # Also save the updated state
+        persistence.save_game(game_id, state_machine._state_machine)
 
         if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
             return redirect(url_for('end_game', game_id=game_id))
@@ -129,6 +348,7 @@ def progress_game(game_id):
 
         # Check if it's an AI's turn to play, then handle AI actions
         if not game_state.current_player.is_human and game_state.awaiting_action:
+            print(f"AI turn: {game_state.current_player.name}")
             handle_ai_action(game_id)
 
         # Check for and handle the Evaluate Hand phase outside the state machine so we can update
@@ -142,11 +362,66 @@ def progress_game(game_id):
                                       f" and {winning_player_names[-1]}") \
                                       if len(winning_player_names) > 1 else winning_player_names[0]
 
-            message_content = (
-                f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
-                f"Winning hand: {winner_info['winning_hand']}"
-            )
+            # Check if it was a showdown (more than one active player)
+            active_players = [p for p in game_state.players if not p.is_folded]
+            is_showdown = len(active_players) > 1
+            
+            # Prepare winner announcement data
+            winner_data = {
+                'winners': winning_player_names,
+                'winnings': winner_info['winnings'],
+                'showdown': is_showdown,
+                'community_cards': []
+            }
+            
+            # Only include hand name if it's a showdown
+            if is_showdown:
+                winner_data['hand_name'] = winner_info['hand_name']
+            
+            # Include community cards
+            for card in game_state.community_cards:
+                if isinstance(card, dict):
+                    winner_data['community_cards'].append({
+                        'rank': card['rank'],
+                        'suit': card['suit']
+                    })
+                else:
+                    winner_data['community_cards'].append(card)
+            
+            # If it's a showdown, include player cards
+            if is_showdown:
+                players_cards = {}
+                for player in active_players:
+                    if player.hand:
+                        # Convert cards to backend format that Card component expects
+                        formatted_cards = []
+                        for card in player.hand:
+                            if isinstance(card, dict):
+                                formatted_cards.append({
+                                    'rank': card['rank'],
+                                    'suit': card['suit']
+                                })
+                            else:
+                                # Already formatted
+                                formatted_cards.append(card)
+                        players_cards[player.name] = formatted_cards
+                winner_data['players_cards'] = players_cards
+
+            if is_showdown:
+                message_content = (
+                    f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
+                    f"Winning hand: {winner_info['winning_hand']}"
+                )
+            else:
+                message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
+            
             send_message(game_id,"table", message_content, "table", 1)
+            
+            # Emit winner announcement event
+            socketio.emit('winner_announcement', winner_data, to=game_id)
+            
+            # Delay before dealing new hand
+            socketio.sleep(4 if is_showdown else 2)
             send_message(game_id, "table", "***   NEW HAND DEALT   ***", "table")
 
             # Update the state_machine to be ready for it's next run through the game progression
@@ -160,7 +435,9 @@ def progress_game(game_id):
         else:
             # If a human action is required, exit the loop
             cost_to_call = game_state.highest_bet - game_state.current_player.bet
-            socketio.emit('player_turn_start', { 'current_player_options': game_state.current_player_options, 'cost_to_call': cost_to_call}, to=game_id)
+            # Convert options to list if it's a set
+            player_options = list(game_state.current_player_options) if game_state.current_player_options else []
+            socketio.emit('player_turn_start', { 'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
             break
 
 
@@ -245,8 +522,10 @@ def handle_ai_action(game_id: str) -> None:
         The ID of the game for which the AI action is being handled.
     :return: (None)
     """
+    print(f"[handle_ai_action] Starting AI action for game {game_id}")
     current_game_data = games.get(game_id)
     if not current_game_data:
+        print(f"[handle_ai_action] No game data found for {game_id}")
         return
 
     state_machine = current_game_data['state_machine']
@@ -254,6 +533,7 @@ def handle_ai_action(game_id: str) -> None:
     ai_controllers = current_game_data['ai_controllers']
 
     current_player = state_machine.game_state.current_player
+    print(f"[handle_ai_action] Current AI player: {current_player.name}")
     controller = ai_controllers[current_player.name]
     player_response_dict = controller.decide_action(game_messages[-8:])
 
@@ -358,4 +638,4 @@ def get_messages(game_id):
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
