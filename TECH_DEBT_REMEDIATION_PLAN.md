@@ -185,6 +185,41 @@ def advance_state(self) -> 'PokerStateMachine':
 4. **90%+ test coverage** for critical paths
 5. **No regressions** in existing functionality
 
+## Future Architecture Considerations
+
+### Current Setup: React + Flask + SocketIO
+The current architecture works but has some limitations:
+- Two separate apps (React frontend, Flask backend)
+- Manual state synchronization
+- No type safety between frontend/backend
+- Older patterns for real-time communication
+
+### Modernization Options (Lower Priority)
+
+1. **Incremental Modernization** (Least disruption)
+   - Keep Flask but make it a pure REST/WebSocket API
+   - Add proper state management to React (Zustand/Redux)
+   - Add TypeScript interfaces matching Python models
+   - Better separation of concerns
+
+2. **Next.js + FastAPI** (Recommended for knowledge building)
+   - Full-stack TypeScript with Next.js
+   - FastAPI for Python backend (modern, async, auto-docs)
+   - Keep Python for AI integration
+   - Better developer experience
+   - Natural upgrade path from current stack
+
+3. **Phoenix LiveView** (Best for real-time at scale)
+   - Excellent for real-time games
+   - Would require Elixir rewrite
+   - Harder AI integration
+
+4. **SvelteKit** (If starting fresh)
+   - Simpler than React
+   - Smaller ecosystem
+
+**Recommendation**: When ready, consider Next.js + FastAPI to stay current with both Node.js and modern Python patterns while preserving AI capabilities.
+
 ## Next Steps After Remediation
 Once tech debt is addressed:
 1. Implement personality elasticity system
