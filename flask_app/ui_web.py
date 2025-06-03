@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from poker.controllers import AIPlayerController
+from poker.ai_resilience import get_fallback_chat_response
 from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
@@ -535,13 +536,52 @@ def handle_ai_action(game_id: str) -> None:
     current_player = state_machine.game_state.current_player
     print(f"[handle_ai_action] Current AI player: {current_player.name}")
     controller = ai_controllers[current_player.name]
-    player_response_dict = controller.decide_action(game_messages[-8:])
-
-    # Prepare variables needed for new messages
-    action = player_response_dict['action']
-    amount = player_response_dict['adding_to_pot']
-    player_message = player_response_dict['persona_response']
-    player_physical_description = player_response_dict['physical']
+    
+    try:
+        # The controller.decide_action already has resilience built in,
+        # but we wrap in try/catch as a last resort
+        player_response_dict = controller.decide_action(game_messages[-8:])
+        
+        # Prepare variables needed for new messages
+        action = player_response_dict['action']
+        amount = player_response_dict.get('adding_to_pot', 0)
+        player_message = player_response_dict.get('persona_response', '...')
+        player_physical_description = player_response_dict.get('physical', '')
+        
+    except Exception as e:
+        # This should rarely happen since controller has built-in resilience
+        print(f"[handle_ai_action] Critical error getting AI decision: {e}")
+        
+        # Use personality-aware fallback as last resort
+        valid_actions = state_machine.game_state.current_player_options
+        
+        # Get personality traits if available
+        personality_traits = getattr(controller, 'personality_traits', {})
+        aggression = personality_traits.get('aggression', 0.5)
+        
+        # Personality-based action selection
+        if 'raise' in valid_actions and aggression > 0.7:
+            action = 'raise'
+            min_bet = 10  # TODO: Get from game rules
+            amount = min(current_player.stack, int(min_bet * (1 + aggression)))
+        elif 'call' in valid_actions and aggression > 0.3:
+            action = 'call'
+            amount = state_machine.game_state.highest_bet - current_player.bet
+        elif 'check' in valid_actions:
+            action = 'check'
+            amount = 0
+        else:
+            action = 'fold'
+            amount = 0
+        
+        # Use personality-aware fallback messages
+        player_message = get_fallback_chat_response(current_player.name)
+        player_physical_description = "*pauses momentarily*"
+        
+        # Subtle notification that we're using fallback
+        send_message(game_id, "table", 
+                    f"[{current_player.name} takes a moment to consider]", 
+                    "table")
 
     table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
     send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai", 1)

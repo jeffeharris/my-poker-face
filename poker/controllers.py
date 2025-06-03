@@ -1,5 +1,6 @@
 import json
 from typing import List, Optional, Dict
+import logging
 
 from core.card import Card, CardRenderer
 from .poker_game import Player
@@ -7,6 +8,16 @@ from .poker_state_machine import PokerStateMachine
 from .poker_player import AIPokerPlayer
 from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
+from .ai_resilience import (
+    with_ai_fallback, 
+    expects_json,
+    parse_json_response,
+    validate_ai_response,
+    get_fallback_chat_response,
+    AIFallbackStrategy
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ConsolePlayerController:
@@ -52,6 +63,8 @@ class AIPlayerController:
         self.ai_player = AIPokerPlayer(player_name, ai_temp=ai_temp)
         self.assistant = self.ai_player.assistant
         self.prompt_manager = PromptManager()
+        # Store personality traits for fallback behavior
+        self.personality_traits = self.ai_player.personality_config.get('personality_traits', {})
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
@@ -64,19 +77,58 @@ class AIPlayerController:
             self.state_machine.phase,
             game_messages)
         print(message)
+        
+        # Get valid actions and context for fallback
+        player_options = game_state.current_player_options
+        cost_to_call = game_state.highest_bet - game_state.current_player.bet
+        player_stack = game_state.current_player.stack
+        
+        # Use resilient AI call
+        response_dict = self._get_ai_decision(
+            message=message,
+            valid_actions=player_options,
+            call_amount=cost_to_call,
+            min_raise=10,  # TODO: Calculate from game rules
+            max_raise=min(player_stack, game_state.pot['total'] * 2)
+        )
+        
+        print(json.dumps(response_dict, indent=4))
+        return response_dict
+    
+    @with_ai_fallback(fallback_strategy=AIFallbackStrategy.MIMIC_PERSONALITY)
+    @expects_json
+    def _get_ai_decision(self, message: str, **context) -> Dict:
+        """Get AI decision with automatic fallback on failure"""
+        # Store context for fallback
+        self._fallback_context = context
+        
         # Use the prompt manager for the decision prompt
         decision_prompt = self.prompt_manager.render_prompt(
             'decision',
             message=message
         )
+        
         response_json = self.assistant.chat(decision_prompt)
-        try:
-            response_dict = json.loads(response_json)
-            if not all(key in response_dict for key in ('action', 'adding_to_pot', 'persona_response', 'physical')):
-                raise ValueError("AI response is missing required keys.")
-        except json.JSONDecodeError:
-            raise ValueError(f"Error decoding AI response: {response_json}")
-        print(json.dumps(response_dict, indent=4))
+        response_dict = parse_json_response(response_json)
+        
+        # Validate response has required keys
+        required_keys = ('action', 'adding_to_pot', 'persona_response', 'physical')
+        if not all(key in response_dict for key in required_keys):
+            # Try to fix missing keys
+            response_dict.setdefault('action', 'fold')
+            response_dict.setdefault('adding_to_pot', 0)
+            response_dict.setdefault('persona_response', get_fallback_chat_response(self.player_name))
+            response_dict.setdefault('physical', "...")
+            logger.warning(f"AI response was missing keys, filled with defaults: {response_dict}")
+        
+        # Validate action is valid
+        valid_actions = context.get('valid_actions', [])
+        if valid_actions and response_dict['action'] not in valid_actions:
+            logger.warning(f"AI chose invalid action {response_dict['action']}, validating...")
+            validated = validate_ai_response(response_dict, valid_actions)
+            response_dict['action'] = validated['action']
+            response_dict['adding_to_pot'] = validated['amount']
+        
         return response_dict
 
 

@@ -56,6 +56,9 @@ python -m pytest tests/test_prompt_management.py tests/test_prompt_golden_path.p
 
 # Test persistence layer
 python -m pytest tests/test_persistence.py -v
+
+# Test AI resilience and error handling
+python -m pytest tests/test_ai_resilience.py -v
 ```
 
 #### Testing AI Players
