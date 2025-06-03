@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Vision & Feature Documentation
+
+Comprehensive documentation about the game's vision and planned features can be found in:
+- `/docs/vision/GAME_VISION.md` - Overall game vision and philosophy
+- `/docs/vision/PERSONALITY_ELASTICITY.md` - Dynamic personality system design
+- `/docs/vision/FEATURE_IDEAS.md` - Detailed feature brainstorming
+- `/docs/vision/QUICK_WINS.md` - High-impact, low-effort features
+- `/docs/vision/TECH_DEBT_ANALYSIS.md` - Technical debt analysis plan
+
+## Personality Testing Tools
+
+Web-based tools for testing and managing AI personalities:
+- `/tests/personality_tester/` - Test personalities with scenarios
+- `/tests/personality_tester/personality_manager.py` - Edit personalities
+- `/tests/personality_tester/AI_GENERATION_PLAN.md` - AI generation roadmap
+
 ## Commands
 
 ### Setup
