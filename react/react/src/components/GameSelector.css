@@ -1,0 +1,213 @@
+/* Game Selector Styles */
+.game-selector {
+  min-height: 100vh;
+  width: 100%;
+  background: #0a0e1b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  color: white;
+  
+  /* Force dark theme for this component */
+  color-scheme: dark;
+}
+
+.selector-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.selector-header h1 {
+  font-size: 48px;
+  margin: 0 0 10px 0;
+  background: linear-gradient(45deg, #ffd700, #ffed4e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.selector-header p {
+  font-size: 18px;
+  color: #94a3b8;
+}
+
+.game-options {
+  position: relative;
+  max-width: 800px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* New Game Button */
+.new-game-button {
+  width: 100%;
+  padding: 30px;
+  margin-bottom: 40px;
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  border: 2px solid #3b82f6;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+}
+
+.new-game-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(37, 99, 235, 0.5);
+  border-color: #60a5fa;
+}
+
+.button-icon {
+  font-size: 48px;
+  flex-shrink: 0;
+}
+
+.button-text {
+  text-align: left;
+}
+
+.button-text h3 {
+  margin: 0 0 5px 0;
+  font-size: 24px;
+  color: white;
+}
+
+.button-text p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+/* Saved Games */
+.saved-games {
+  position: relative;
+  width: 100%;
+  margin-top: 20px;
+}
+
+.saved-games h2 {
+  font-size: 24px;
+  margin: 0 0 20px 0;
+  color: #e2e8f0;
+}
+
+.games-list {
+  display: grid;
+  gap: 12px;
+}
+
+.saved-game-card {
+  position: relative;
+  display: block;
+  background: rgba(255, 255, 255, 0.1); /* Made more visible for debugging */
+  border: 2px solid rgba(255, 255, 255, 0.3); /* Made more visible */
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
+  color: white;
+  margin: 0;
+}
+
+/* Ensure button inherits styles properly */
+button.saved-game-card {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.saved-game-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateX(4px);
+}
+
+.game-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.game-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.game-phase {
+  font-size: 16px;
+  font-weight: bold;
+  color: #60a5fa;
+}
+
+.game-pot {
+  font-size: 18px;
+  font-weight: bold;
+  color: #4ade80;
+}
+
+.game-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.game-players {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Loading State */
+.game-selector.loading {
+  justify-content: center;
+}
+
+.game-selector.loading h2 {
+  color: #94a3b8;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* No Saved Games */
+.no-saved-games {
+  text-align: center;
+  padding: 40px;
+  color: #64748b;
+  font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .selector-header h1 {
+    font-size: 36px;
+  }
+  
+  .new-game-button {
+    padding: 20px;
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .button-text {
+    text-align: center;
+  }
+  
+  .button-icon {
+    font-size: 36px;
+  }
+}

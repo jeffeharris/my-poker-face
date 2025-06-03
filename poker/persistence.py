@@ -111,7 +111,16 @@ class GamePersistence:
             
             # Create state machine with the loaded state
             state_machine = PokerStateMachine(game_state)
-            state_machine.current_phase = PokerPhase(state_dict['current_phase'])
+            
+            # Set the phase - handle both int and string values
+            try:
+                phase_value = state_dict.get('current_phase', 0)
+                if isinstance(phase_value, str):
+                    phase_value = int(phase_value)
+                state_machine.current_phase = PokerPhase(phase_value)
+            except (ValueError, KeyError) as e:
+                print(f"Warning: Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
+                state_machine.current_phase = PokerPhase.INITIALIZING_HAND
             
             return state_machine
     
@@ -190,7 +199,15 @@ class GamePersistence:
             # Reconstruct hand if present
             hand = None
             if player_data.get('hand'):
-                hand = tuple(Card.from_dict(card_dict) for card_dict in player_data['hand'])
+                # Handle both dict and string formats
+                hand_cards = []
+                for card_data in player_data['hand']:
+                    if isinstance(card_data, dict):
+                        hand_cards.append(Card.from_dict(card_data))
+                    else:
+                        # Already a Card object or string, skip
+                        print(f"Warning: Unexpected card format: {card_data}")
+                hand = tuple(hand_cards) if hand_cards else None
             
             player = Player(
                 name=player_data['name'],
@@ -205,13 +222,28 @@ class GamePersistence:
             players.append(player)
         
         # Reconstruct deck
-        deck = [Card.from_dict(card_dict) for card_dict in state_dict['deck']]
+        deck = []
+        for card_data in state_dict.get('deck', []):
+            if isinstance(card_data, dict):
+                deck.append(Card.from_dict(card_data))
+            else:
+                print(f"Warning: Unexpected deck card format: {card_data}")
         
         # Reconstruct discard pile
-        discard_pile = [Card.from_dict(card_dict) for card_dict in state_dict['discard_pile']]
+        discard_pile = []
+        for card_data in state_dict.get('discard_pile', []):
+            if isinstance(card_data, dict):
+                discard_pile.append(Card.from_dict(card_data))
+            else:
+                print(f"Warning: Unexpected discard card format: {card_data}")
         
         # Reconstruct community cards
-        community_cards = [Card.from_dict(card_dict) for card_dict in state_dict['community_cards']]
+        community_cards = []
+        for card_data in state_dict.get('community_cards', []):
+            if isinstance(card_data, dict):
+                community_cards.append(Card.from_dict(card_data))
+            else:
+                print(f"Warning: Unexpected community card format: {card_data}")
         
         # Create the game state
         return PokerGameState(
