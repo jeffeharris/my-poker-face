@@ -7,7 +7,10 @@ from flask_cors import CORS
 from datetime import datetime
 import time
 import os
+import logging
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -690,6 +693,29 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     persistence.save_message(game_id, message_type, f"{sender}: {content}")
     socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
     socketio.sleep(sleep) if sleep else None
+
+
+@app.route('/game/<game_id>', methods=['DELETE'])
+def delete_game(game_id):
+    """Delete a saved game."""
+    try:
+        # Remove from in-memory games if present
+        if game_id in games:
+            del games[game_id]
+        
+        # Delete from database
+        persistence.delete_game(game_id)
+        
+        # Also need to delete AI states
+        import sqlite3
+        with sqlite3.connect(persistence.db_path) as conn:
+            conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
+        
+        return jsonify({'message': 'Game deleted successfully'}), 200
+    except Exception as e:
+        logger.error(f"Error deleting game {game_id}: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/end_game/<game_id>', methods=['GET'])

@@ -224,8 +224,11 @@ class GamePersistence:
             return games
     
     def delete_game(self, game_id: str) -> None:
-        """Delete a game and its messages."""
+        """Delete a game and all associated data."""
         with sqlite3.connect(self.db_path) as conn:
+            # Delete all associated data (order matters for foreign keys)
+            conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM game_messages WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM games WHERE game_id = ?", (game_id,))
     
