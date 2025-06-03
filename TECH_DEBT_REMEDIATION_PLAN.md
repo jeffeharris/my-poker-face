@@ -71,12 +71,14 @@ def with_ai_fallback(fallback_fn: Optional[Callable] = None, max_retries: int = 
 **Why Critical**: No persistence = no elasticity between sessions. Recent persistence work needs completion.
 
 **Tasks**:
-- [ ] Complete AI memory persistence (from PERSISTENCE_IMPROVEMENTS.md)
-- [ ] Fix card serialization inconsistencies
+- [x] Complete AI memory persistence (from PERSISTENCE_IMPROVEMENTS.md) ✅
+- [x] Fix card serialization inconsistencies ✅
 - [ ] Implement repository pattern for clean separation
-- [ ] Add personality state persistence
+- [x] Add personality state persistence ✅
 - [ ] Create migration system for schema updates
-- [ ] Add comprehensive tests for save/load cycles
+- [x] Add comprehensive tests for save/load cycles ✅
+
+**COMPLETED**: 2025-06-03 (Core functionality done, repository pattern and migrations can be added later)
 
 **New Tables** (from persistence improvements doc):
 ```sql

@@ -20,6 +20,7 @@ from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from poker.persistence import GamePersistence
 from .game_adapter import StateMachineAdapter, GameStateAdapter
+from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
@@ -42,6 +43,39 @@ persistence = GamePersistence(db_path)
 # Helper function to generate unique game ID
 def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
+
+
+def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
+    """Restore AI controllers with their saved state."""
+    ai_controllers = {}
+    ai_states = persistence.load_ai_player_states(game_id)
+    
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            controller = AIPlayerController(player.name, state_machine)
+            
+            # Restore AI state if available
+            if player.name in ai_states:
+                saved_state = ai_states[player.name]
+                
+                # Restore conversation history
+                if hasattr(controller, 'assistant') and controller.assistant:
+                    controller.assistant.messages = saved_state['messages']
+                
+                # Restore personality state
+                if 'personality_state' in saved_state:
+                    ps = saved_state['personality_state']
+                    if 'traits' in ps:
+                        controller.personality_traits = ps['traits']
+                    if hasattr(controller, 'ai_player'):
+                        controller.ai_player.confidence = ps.get('confidence', 'Normal')
+                        controller.ai_player.attitude = ps.get('attitude', 'Neutral')
+                
+                print(f"Restored AI state for {player.name} with {len(saved_state.get('messages', []))} messages")
+            
+            ai_controllers[player.name] = controller
+    
+    return ai_controllers
 
 
 def update_and_emit_game_state(game_id):
@@ -113,11 +147,8 @@ def api_game_state(game_id):
             base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
-                # Recreate AI controllers for loaded game
-                ai_controllers = {}
-                for player in state_machine.game_state.players:
-                    if not player.is_human:
-                        ai_controllers[player.name] = AIPlayerController(player.name, state_machine)
+                # Restore AI controllers with saved state
+                ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
                 
                 # Load messages from database
                 db_messages = persistence.load_messages(game_id)
@@ -451,11 +482,8 @@ def game(game_id) -> str or Response:
         base_state_machine = persistence.load_game(game_id)
         if base_state_machine:
             state_machine = StateMachineAdapter(base_state_machine)
-            # Recreate AI controllers for loaded game
-            ai_controllers = {}
-            for player in state_machine.game_state.players:
-                if not player.is_human:
-                    ai_controllers[player.name] = AIPlayerController(player.name, state_machine)
+            # Restore AI controllers with saved state
+            ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
             
             # Load messages from database
             db_messages = persistence.load_messages(game_id)
@@ -595,6 +623,20 @@ def handle_ai_action(game_id: str) -> None:
     
     # Save game after AI action
     persistence.save_game(game_id, state_machine._state_machine)
+    
+    # Save AI state
+    if hasattr(controller, 'assistant') and controller.assistant:
+        personality_state = {
+            'traits': getattr(controller, 'personality_traits', {}),
+            'confidence': getattr(controller.ai_player, 'confidence', 'Normal'),
+            'attitude': getattr(controller.ai_player, 'attitude', 'Neutral')
+        }
+        persistence.save_ai_player_state(
+            game_id, 
+            current_player.name,
+            controller.assistant.messages,
+            personality_state
+        )
     
     update_and_emit_game_state(game_id)
 
