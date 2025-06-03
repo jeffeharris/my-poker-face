@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { CommunityCard, HoleCard } from './Card';
+import { Card, CommunityCard, HoleCard } from './Card';
 import { ActionButtons } from './ActionButtons';
 import { Chat } from './Chat';
 import { LoadingIndicator } from './LoadingIndicator';
@@ -174,10 +174,23 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
           setGameState(data);
           setLoading(false);
           
-          // Initialize player positions
+          // Initialize player positions with human at bottom (position 0)
           const positions = new Map<string, number>();
+          let humanIndex = data.players.findIndex((p: Player) => p.is_human);
+          let positionIndex = 0;
+          
+          // Assign human player to position 0 (bottom)
+          if (humanIndex !== -1) {
+            positions.set(data.players[humanIndex].name, 0);
+            positionIndex = 1;
+          }
+          
+          // Assign other players to remaining positions
           data.players.forEach((player: Player, index: number) => {
-            positions.set(player.name, index);
+            if (!player.is_human) {
+              positions.set(player.name, positionIndex);
+              positionIndex++;
+            }
           });
           setPlayerPositions(positions);
           
@@ -233,10 +246,23 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         setGameState(data);
         setLoading(false);
         
-        // Initialize player positions on first load
+        // Initialize player positions with human at bottom (position 0)
         const positions = new Map<string, number>();
+        let humanIndex = data.players.findIndex((p: Player) => p.is_human);
+        let positionIndex = 0;
+        
+        // Assign human player to position 0 (bottom)
+        if (humanIndex !== -1) {
+          positions.set(data.players[humanIndex].name, 0);
+          positionIndex = 1;
+        }
+        
+        // Assign other players to remaining positions
         data.players.forEach((player: Player, index: number) => {
-          positions.set(player.name, index);
+          if (!player.is_human) {
+            positions.set(player.name, positionIndex);
+            positionIndex++;
+          }
         });
         setPlayerPositions(positions);
         
@@ -485,13 +511,13 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
                 {/* Player cards */}
                 <div className="player-cards">
                   {player.is_human && player.hand ? (
-                    // Show actual cards for human player
+                    // Show actual cards for human player (medium size)
                     <>
-                      <HoleCard card={player.hand[0]} visible={true} />
-                      <HoleCard card={player.hand[1]} visible={true} />
+                      <Card card={player.hand[0]} faceDown={false} size="medium" className="hole-card" />
+                      <Card card={player.hand[1]} faceDown={false} size="medium" className="hole-card" />
                     </>
                   ) : (
-                    // Show face-down cards for AI players
+                    // Show face-down cards for AI players (small size)
                     <>
                       <HoleCard visible={false} />
                       <HoleCard visible={false} />
@@ -553,19 +579,17 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         </div>
 
         {/* Game Info */}
-        <div className="game-info">
-          <div className="phase">Phase: {gameState.phase}</div>
-          {lastUpdate && (
+        {lastUpdate && (
+          <div className="game-info">
             <div className="update-indicator" style={{
               fontSize: '10px',
               color: '#00ff88',
-              marginTop: '5px',
               animation: 'fadeIn 0.3s ease-out'
             }}>
               ✓ Live update: {lastUpdate.toLocaleTimeString()}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* AI Thinking Indicator - Full screen overlay (optional) */}
         {aiThinking && currentPlayer && !currentPlayer.is_human && useOverlayLoading && (

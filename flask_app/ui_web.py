@@ -1,5 +1,5 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
-from typing import Optional
+from typing import Optional, Dict
 
 from flask import Flask, render_template, redirect, url_for, jsonify, Response, request
 from flask_socketio import SocketIO, join_room

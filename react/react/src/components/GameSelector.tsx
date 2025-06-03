@@ -18,9 +18,9 @@ interface GameSelectorProps {
 export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Fetch saved games
+  const fetchGames = () => {
     console.log('GameSelector: Fetching saved games...');
     fetch('http://localhost:5000/games')
       .then(res => res.json())
@@ -33,7 +33,42 @@ export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
         console.error('Failed to fetch games:', err);
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    fetchGames();
   }, []);
+
+  const handleDeleteGame = async (gameId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the game load
+    
+    if (!confirm(`Are you sure you want to delete this game?`)) {
+      return;
+    }
+
+    setDeletingGameId(gameId);
+    
+    try {
+      const response = await fetch(`http://localhost:5000/game/${gameId}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        // Remove from local state immediately for better UX
+        setSavedGames(prev => prev.filter(game => game.game_id !== gameId));
+        // Optionally refetch to ensure sync
+        fetchGames();
+      } else {
+        const error = await response.json();
+        alert(`Failed to delete game: ${error.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Error deleting game:', err);
+      alert('Failed to delete game');
+    } finally {
+      setDeletingGameId(null);
+    }
+  };
 
   const getPhaseDisplay = (phase: string) => {
     const phaseMap: { [key: string]: string } = {
@@ -84,10 +119,9 @@ export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
               {savedGames.slice(0, 10).map(game => {
                 console.log('Rendering game:', game);
                 return (
-                <button
+                <div
                   key={game.game_id}
                   className="saved-game-card"
-                  onClick={() => onSelectGame(game.game_id)}
                   style={{
                     display: 'block',
                     width: '100%',
@@ -97,19 +131,76 @@ export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
                     borderRadius: '12px',
                     color: 'white',
                     textAlign: 'left',
-                    cursor: 'pointer',
-                    marginBottom: '10px'
+                    marginBottom: '10px',
+                    position: 'relative',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    const deleteBtn = e.currentTarget.querySelector('.delete-button') as HTMLElement;
+                    if (deleteBtn) deleteBtn.style.opacity = '1';
+                  }}
+                  onMouseLeave={(e) => {
+                    const deleteBtn = e.currentTarget.querySelector('.delete-button') as HTMLElement;
+                    if (deleteBtn && deletingGameId !== game.game_id) {
+                      deleteBtn.style.opacity = '0';
+                    }
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{getPhaseDisplay(game.phase)}</span>
-                    <span style={{ color: '#4ade80', fontWeight: 'bold' }}>${game.pot_size} pot</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                    <span style={{ color: '#94a3b8' }}>{game.num_players} players</span>
-                    <span style={{ color: '#94a3b8' }}>{new Date(game.updated_at).toLocaleDateString()}</span>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => onSelectGame(game.game_id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: 0
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', paddingRight: '60px' }}>
+                      <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{getPhaseDisplay(game.phase)}</span>
+                      <span style={{ color: '#4ade80', fontWeight: 'bold' }}>${game.pot_size} pot</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', paddingRight: '60px' }}>
+                      <span style={{ color: '#94a3b8' }}>{game.num_players} players</span>
+                      <span style={{ color: '#94a3b8' }}>{new Date(game.updated_at).toLocaleDateString()}</span>
+                    </div>
+                  </button>
+                  <button
+                    className="delete-button"
+                    onClick={(e) => handleDeleteGame(game.game_id, e)}
+                    disabled={deletingGameId === game.game_id}
+                    style={{
+                      position: 'absolute',
+                      bottom: '10px',
+                      right: '10px',
+                      background: '#ef4444',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 10px',
+                      cursor: deletingGameId === game.game_id ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      opacity: 0,
+                      transition: 'all 0.2s',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (deletingGameId !== game.game_id) {
+                        e.currentTarget.style.background = '#dc2626';
+                        e.currentTarget.style.transform = 'scale(1.05)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#ef4444';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                  >
+                    {deletingGameId === game.game_id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
                 );
               })}
             </div>
