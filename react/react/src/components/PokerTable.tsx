@@ -174,25 +174,28 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
           setGameState(data);
           setLoading(false);
           
-          // Initialize player positions with human at bottom (position 0)
-          const positions = new Map<string, number>();
-          let humanIndex = data.players.findIndex((p: Player) => p.is_human);
-          let positionIndex = 0;
-          
-          // Assign human player to position 0 (bottom)
-          if (humanIndex !== -1) {
-            positions.set(data.players[humanIndex].name, 0);
-            positionIndex = 1;
-          }
-          
-          // Assign other players to remaining positions
-          data.players.forEach((player: Player, index: number) => {
-            if (!player.is_human) {
-              positions.set(player.name, positionIndex);
-              positionIndex++;
+          // Only initialize positions if they haven't been set yet
+          // This prevents positions from changing when dealer rotates
+          if (playerPositions.size === 0) {
+            const positions = new Map<string, number>();
+            let humanIndex = data.players.findIndex((p: Player) => p.is_human);
+            let positionIndex = 0;
+            
+            // Assign human player to position 0 (bottom)
+            if (humanIndex !== -1) {
+              positions.set(data.players[humanIndex].name, 0);
+              positionIndex = 1;
             }
-          });
-          setPlayerPositions(positions);
+            
+            // Assign other players to remaining positions
+            data.players.forEach((player: Player, index: number) => {
+              if (!player.is_human) {
+                positions.set(player.name, positionIndex);
+                positionIndex++;
+              }
+            });
+            setPlayerPositions(positions);
+          }
           
           // Initialize messages
           if (data.messages) {
@@ -246,25 +249,28 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         setGameState(data);
         setLoading(false);
         
-        // Initialize player positions with human at bottom (position 0)
-        const positions = new Map<string, number>();
-        let humanIndex = data.players.findIndex((p: Player) => p.is_human);
-        let positionIndex = 0;
-        
-        // Assign human player to position 0 (bottom)
-        if (humanIndex !== -1) {
-          positions.set(data.players[humanIndex].name, 0);
-          positionIndex = 1;
-        }
-        
-        // Assign other players to remaining positions
-        data.players.forEach((player: Player, index: number) => {
-          if (!player.is_human) {
-            positions.set(player.name, positionIndex);
-            positionIndex++;
+        // Only initialize positions if they haven't been set yet
+        // This prevents positions from changing when dealer rotates
+        if (playerPositions.size === 0) {
+          const positions = new Map<string, number>();
+          let humanIndex = data.players.findIndex((p: Player) => p.is_human);
+          let positionIndex = 0;
+          
+          // Assign human player to position 0 (bottom)
+          if (humanIndex !== -1) {
+            positions.set(data.players[humanIndex].name, 0);
+            positionIndex = 1;
           }
-        });
-        setPlayerPositions(positions);
+          
+          // Assign other players to remaining positions
+          data.players.forEach((player: Player, index: number) => {
+            if (!player.is_human) {
+              positions.set(player.name, positionIndex);
+              positionIndex++;
+            }
+          });
+          setPlayerPositions(positions);
+        }
         
         // Initialize messages
         if (data.messages) {

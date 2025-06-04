@@ -222,7 +222,7 @@ sqlite3 poker_games.db "SELECT * FROM games;"
 3. **Export/Import**: Allow downloading/uploading game saves
 4. **Cleanup**: Auto-delete old games after X days
 
-## Poker Engine Deep Dive (Added 2025-01-06)
+## Poker Engine Deep Dive (Added 2025-06-01)
 
 ### Core Architecture Philosophy
 
