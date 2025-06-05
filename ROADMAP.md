@@ -22,7 +22,7 @@ Choose ONE to focus on:
 
 ### Console Path:
 1. **Game Setup**
-   - [ ] Remove hardcoded "Jeff"
+   - [x] Remove hardcoded "Jeff" ✅ (Completed 2025-06-05)
    - [ ] Simple menu: Enter name → Choose opponents → Start
    - [ ] Pre-made opponent sets: "Easy", "Medium", "Chaos"
 

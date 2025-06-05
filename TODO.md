@@ -9,7 +9,7 @@
 - [ ] ai-chat-disabled: AI chat functionality commented out [Medium]
 - [ ] side-pot-tests: Test complex multi-way all-in scenarios [High]
 - [ ] websocket-error-handling: No error handling for WebSocket disconnections [Medium]
-- [ ] remove-hardcoded-jeff: Remove hardcoded "Jeff" player from initialize_game_state [High]
+- [x] remove-hardcoded-jeff: Remove hardcoded "Jeff" player from initialize_game_state [High]
 - [ ] add-game-setup-page: Add start game page for player name/configuration [High]
 - [x] flush-bug: Fixed flush evaluation bug [High]
 - [x] return-value-inconsistency: Fixed _check_straight return values [High]

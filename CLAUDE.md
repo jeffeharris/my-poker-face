@@ -176,8 +176,7 @@ The AI player system uses a centralized prompt management approach:
 
 ### Known Issues
 
-- `initialize_game_state()` always adds a human player named "Jeff" (needs to be configurable)
-- No game setup/configuration page for player selection
+- No game setup/configuration page for player selection (web interface)
 - WebSocket disconnections not handled gracefully
 - Some imports may fail if not run from project root
 
@@ -554,3 +553,25 @@ python elasticity_demo.py
 
 ### Documentation
 For detailed information, see `/docs/ELASTICITY_SYSTEM.md`
+
+## Recent Improvements (Added 2025-06-05)
+
+### Repository Pattern Implementation
+Implemented the Repository Pattern for clean separation between business logic and data storage:
+
+1. **Base Repository** (`poker/repositories/base.py`): Abstract interface for all repositories
+2. **SQLite Repositories** (`poker/repositories/sqlite_repositories.py`): Concrete implementations
+3. **Memory Repositories** (`poker/repositories/memory_repositories.py`): In-memory implementations for testing
+4. **Game Service** (`poker/services/game_service.py`): Service layer using repositories
+
+### Customizable Player Name
+- Removed hardcoded "Jeff" player name from `initialize_game_state()`
+- Now accepts optional `human_player_name` parameter
+- Web interface updated to prompt for player name
+- Defaults to "Player 1" if no name provided
+
+### Testing
+```bash
+# Test repository implementations
+python -m pytest tests/test_repositories.py -v
+```

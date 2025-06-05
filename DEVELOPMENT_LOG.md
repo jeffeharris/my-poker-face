@@ -46,11 +46,10 @@
 
 ### 📝 Known Limitations
 
-1. **Player Name**: Human player is hardcoded as "Jeff" in poker engine
-2. **Hand Evaluation**: Winner determination is simplified (random selection)
-3. **Side Pots**: Not implemented for all-in situations
-4. **New Hands**: Start new hand functionality needs work
-5. **Persistence**: No save/load game functionality
+1. **Hand Evaluation**: Winner determination is simplified (random selection)
+2. **Side Pots**: Not implemented for all-in situations
+3. **New Hands**: Start new hand functionality needs work
+4. **Persistence**: No save/load game functionality in Rich CLI (main app has it)
 
 ### 🎮 Game Status
 
@@ -64,11 +63,11 @@ The game is now **PLAYABLE**! You can:
 ### 🚀 Next Steps
 
 1. Implement proper hand evaluation using HandEvaluator
-2. Fix "Jeff" hardcoding issue
-3. Add new hand functionality
-4. Implement side pots for all-in situations
-5. Add game statistics and leaderboards
-6. Polish animations and UI transitions
+2. Add new hand functionality
+3. Implement side pots for all-in situations
+4. Add game statistics and leaderboards
+5. Polish animations and UI transitions
+6. Add player name configuration to Rich CLI interface
 
 ## Running the Game
 

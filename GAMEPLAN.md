@@ -16,7 +16,7 @@ class GameConfig:
     big_blind: int = 100
 ```
 
-- [ ] Remove hardcoded "Jeff" from `initialize_game_state()`
+- [x] Remove hardcoded "Jeff" from `initialize_game_state()` ✅ (Completed 2025-06-05)
 - [ ] Create `setup_console_game()` function
 - [ ] Menu system:
   ```
