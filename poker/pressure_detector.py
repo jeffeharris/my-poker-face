@@ -46,10 +46,11 @@ class PressureEventDetector:
         pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
         
         # Calculate pot size relative to stacks
-        avg_stack = sum(p.stack for p in game_state.players if p.stack > 0) / len(
-            [p for p in game_state.players if p.stack > 0]
-        )
-        is_big_pot = pot_total > avg_stack * 1.5
+        active_stacks = [p.stack for p in game_state.players if p.stack > 0]
+        avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
+        
+        # More reasonable threshold - pot > 0.75x average stack is considered "big"
+        is_big_pot = pot_total > avg_stack * 0.75
         
         # Get active players who showed cards
         active_players = [p for p in game_state.players if not p.is_folded]
@@ -62,12 +63,17 @@ class PressureEventDetector:
             other_players = [p.name for p in game_state.players if p.name != winner_name]
             events.append(("bluff_called", other_players))
         
-        # Detect big win/loss
-        if is_big_pot and winner_names:
-            events.append(("big_win", winner_names))
-            losers = [p.name for p in active_players if p.name not in winner_names]
-            if losers:
-                events.append(("big_loss", losers))
+        # Always track wins (not just big wins)
+        if winner_names and pot_total > 0:
+            # Track any win for stats
+            events.append(("win", winner_names))
+            
+            # Additionally track big wins/losses
+            if is_big_pot:
+                events.append(("big_win", winner_names))
+                losers = [p.name for p in active_players if p.name not in winner_names]
+                if losers:
+                    events.append(("big_loss", losers))
         
         # Detect bad beat (strong hand loses)
         if len(active_players) > 1 and winner_names:
@@ -82,7 +88,7 @@ class PressureEventDetector:
                             player_cards.append(card)
                         else:
                             # Convert dict to Card object
-                            from .card import Card
+                            from core.card import Card
                             player_cards.append(Card(card['rank'], card['suit']))
                     
                     community_cards = []
@@ -90,7 +96,7 @@ class PressureEventDetector:
                         if hasattr(card, 'to_dict'):
                             community_cards.append(card)
                         else:
-                            from .card import Card
+                            from core.card import Card
                             community_cards.append(Card(card['rank'], card['suit']))
                     
                     hand_result = HandEvaluator(

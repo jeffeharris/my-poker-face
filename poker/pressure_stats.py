@@ -26,6 +26,7 @@ class PlayerPressureStats:
     events: List[PressureEvent] = field(default_factory=list)
     
     # Event counters
+    wins: int = 0  # Total wins (any size)
     big_wins: int = 0
     big_losses: int = 0
     successful_bluffs: int = 0
@@ -47,7 +48,12 @@ class PlayerPressureStats:
         self.events.append(event)
         
         # Update counters based on event type
-        if event.event_type == "big_win":
+        if event.event_type == "win":
+            self.wins += 1
+            pot_size = event.details.get('pot_size', 0)
+            self.biggest_pot_won = max(self.biggest_pot_won, pot_size)
+            
+        elif event.event_type == "big_win":
             self.big_wins += 1
             pot_size = event.details.get('pot_size', 0)
             self.biggest_pot_won = max(self.biggest_pot_won, pot_size)
@@ -101,6 +107,7 @@ class PlayerPressureStats:
         """Get a summary of stats."""
         return {
             'total_events': len(self.events),
+            'wins': self.wins,  # Include total wins
             'big_wins': self.big_wins,
             'big_losses': self.big_losses,
             'successful_bluffs': self.successful_bluffs,
@@ -183,8 +190,8 @@ class PressureStatsTracker:
         
         return {
             'biggest_winners': sorted(
-                [{'name': p.player_name, 'wins': p.big_wins, 'biggest_pot': p.biggest_pot_won} 
-                 for p in players],
+                [{'name': p.player_name, 'wins': p.wins, 'biggest_pot': p.biggest_pot_won} 
+                 for p in players if p.wins > 0],
                 key=lambda x: x['wins'], reverse=True
             )[:3],
             
