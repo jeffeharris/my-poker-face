@@ -91,8 +91,9 @@
 
     <!-- JavaScript for Random Name and Form Submission -->
     <script>
-        // Load saved games when page loads
-        fetch('/games')
+        // Function to load saved games
+        function loadSavedGames() {
+            fetch('/games')
             .then(response => response.json())
             .then(data => {
                 const gamesList = document.getElementById('games-list');
@@ -110,7 +111,10 @@
                             <td>${game.phase}</td>
                             <td>${game.num_players}</td>
                             <td>$${game.pot_size}</td>
-                            <td><a href="/game/${game.game_id}" class="resume-button">Resume</a></td>
+                            <td>
+                                <a href="/game/${game.game_id}" class="btn btn-sm btn-primary">Resume</a>
+                                <button onclick="deleteGame('${game.game_id}')" class="btn btn-sm btn-danger">Delete</button>
+                            </td>
                         </tr>`;
                     });
                     
@@ -122,6 +126,33 @@
                 console.error('Error loading games:', error);
                 document.getElementById('games-list').innerHTML = '<p>Error loading saved games.</p>';
             });
+        }
+        
+        // Delete game function
+        function deleteGame(gameId) {
+            if (confirm(`Are you sure you want to delete game ${gameId}?`)) {
+                fetch(`/game/${gameId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Game deleted successfully');
+                        loadSavedGames(); // Reload the games list
+                    } else {
+                        return response.json().then(data => {
+                            alert(`Error deleting game: ${data.error || 'Unknown error'}`);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting game:', error);
+                    alert('Error deleting game');
+                });
+            }
+        }
+        
+        // Load saved games when page loads
+        loadSavedGames();
         
         // Add random name functionality
         document.getElementById('addRandomName').addEventListener('click', function () {

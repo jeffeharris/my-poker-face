@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { PokerTable } from './components/PokerTable'
 import { CardDemo } from './components/CardDemo'
 import { GameSelector } from './components/GameSelector'
+import { PlayerNameEntry } from './components/PlayerNameEntry'
 import './App.css'
 
 function App() {
-  const [currentView, setCurrentView] = useState<'selector' | 'table' | 'cards'>('selector')
+  const [currentView, setCurrentView] = useState<'name-entry' | 'selector' | 'table' | 'cards'>('name-entry')
   const [gameId, setGameId] = useState<string | null>(null)
+  const [playerName, setPlayerName] = useState<string>('')
 
   const handleSelectGame = (selectedGameId: string) => {
     setGameId(selectedGameId);
@@ -18,10 +20,15 @@ function App() {
     setCurrentView('table');
   };
 
+  const handleNameSubmit = (name: string) => {
+    setPlayerName(name);
+    setCurrentView('selector');
+  };
+
   return (
     <>
-      {/* Navigation - only show when not on selector */}
-      {currentView !== 'selector' && (
+      {/* Navigation - only show when not on selector or name-entry */}
+      {currentView !== 'selector' && currentView !== 'name-entry' && (
         <div style={{ 
           position: 'fixed', 
           top: 10, 
@@ -73,13 +80,16 @@ function App() {
       )}
 
       {/* Views */}
+      {currentView === 'name-entry' && (
+        <PlayerNameEntry onSubmit={handleNameSubmit} />
+      )}
       {currentView === 'selector' && (
         <GameSelector 
           onSelectGame={handleSelectGame} 
           onNewGame={handleNewGame} 
         />
       )}
-      {currentView === 'table' && <PokerTable gameId={gameId} />}
+      {currentView === 'table' && <PokerTable gameId={gameId} playerName={playerName} />}
       {currentView === 'cards' && <CardDemo />}
     </>
   )

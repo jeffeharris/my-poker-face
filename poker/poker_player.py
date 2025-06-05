@@ -8,6 +8,7 @@ from core.assistants import OpenAILLMAssistant
 from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
+from .elasticity_manager import ElasticPersonality
 
 
 class PokerPlayer:
@@ -108,6 +109,12 @@ class AIPokerPlayer(PokerPlayer):
         self.attitude = self.personality_config.get("default_attitude", "Distracted")
         self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
                                             system_message=self.persona_prompt())
+        
+        # Initialize elastic personality
+        self.elastic_personality = ElasticPersonality.from_base_personality(
+            name=self.name,
+            personality_config=self.personality_config
+        )
 
     def to_dict(self):
         return {
@@ -124,7 +131,8 @@ class AIPokerPlayer(PokerPlayer):
                 "system_message": self.assistant.system_message,
                 "messages": self.assistant.messages,
                 "model": self.assistant.ai_model,
-            } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"}
+            } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"},
+            "elastic_personality": self.elastic_personality.to_dict() if hasattr(self, 'elastic_personality') else None
         }
 
     @classmethod
@@ -152,6 +160,11 @@ class AIPokerPlayer(PokerPlayer):
             instance.confidence = confidence
             instance.attitude = attitude
             instance.assistant = assistant
+            
+            # Restore elastic personality if present
+            if 'elastic_personality' in player_dict and player_dict['elastic_personality']:
+                instance.elastic_personality = ElasticPersonality.from_dict(player_dict['elastic_personality'])
+            
             return instance
         except KeyError as e:
             raise ValueError(f"Missing key in player_dict: {e}")
@@ -261,8 +274,17 @@ class AIPokerPlayer(PokerPlayer):
             return ""
     
     def get_personality_modifier(self):
-        """Get personality-specific play instructions."""
-        traits = self.personality_config.get("personality_traits", {})
+        """Get personality-specific play instructions based on current elastic trait values."""
+        if hasattr(self, 'elastic_personality'):
+            # Use elastic trait values
+            traits = {
+                name: self.elastic_personality.get_trait_value(name)
+                for name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']
+            }
+        else:
+            # Fallback to static config
+            traits = self.personality_config.get("personality_traits", {})
+        
         modifiers = []
         
         if traits.get("bluff_tendency", 0.5) > 0.7:
@@ -276,6 +298,32 @@ class AIPokerPlayer(PokerPlayer):
             modifiers.append("Play cautiously. Avoid big risks unless you're certain.")
         
         return " ".join(modifiers)
+    
+    def update_mood_from_elasticity(self):
+        """Update confidence and attitude based on current elastic personality state."""
+        if hasattr(self, 'elastic_personality'):
+            # Get current mood from elastic personality
+            current_mood = self.elastic_personality.get_current_mood()
+            
+            # Update confidence/attitude if mood has changed
+            if current_mood != self.elastic_personality.current_mood:
+                self.confidence = current_mood
+                self.elastic_personality.current_mood = current_mood
+                
+                # Regenerate system message with new mood
+                self.assistant.system_message = self.persona_prompt()
+    
+    def apply_pressure_event(self, event_name: str):
+        """Apply a pressure event to this player's elastic personality."""
+        if hasattr(self, 'elastic_personality'):
+            self.elastic_personality.apply_pressure_event(event_name)
+            self.update_mood_from_elasticity()
+    
+    def recover_traits(self):
+        """Apply recovery to elastic traits."""
+        if hasattr(self, 'elastic_personality'):
+            self.elastic_personality.recover_all_traits()
+            self.update_mood_from_elasticity()
     
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
