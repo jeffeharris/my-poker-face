@@ -67,6 +67,11 @@ db.sqlite3-journal
 # Flask stuff:
 instance/
 .webassets-cache
+flask_session/
+
+# Application database
+poker_games.db
+*.db
 
 # Scrapy stuff:
 .scrapy
