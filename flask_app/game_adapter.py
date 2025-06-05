@@ -74,9 +74,9 @@ class StateMachineAdapter:
     def game_state(self, value):
         """Set the game state."""
         if isinstance(value, GameStateAdapter):
-            self._state_machine.game_state = value._game_state
+            self._state_machine = self._state_machine.with_game_state(value._game_state)
         else:
-            self._state_machine.game_state = value
+            self._state_machine = self._state_machine.with_game_state(value)
             self._game_state_adapter._game_state = value
     
     @property
@@ -85,41 +85,30 @@ class StateMachineAdapter:
     
     @current_phase.setter 
     def current_phase(self, value):
-        self._state_machine.current_phase = value
+        self._state_machine = self._state_machine.with_phase(value)
     
     def run_until(self, phases: List[PokerPhase]):
         """Run the state machine until one of the given phases."""
         while self._state_machine.current_phase not in phases:
-            self._state_machine.advance_state()
+            self._state_machine = self._state_machine.advance()
             
             # Break if waiting for player action
             if self._state_machine.game_state.awaiting_action:
                 break
     
+    def run_until_player_action(self):
+        """Run until player action is needed."""
+        self._state_machine = self._state_machine.run_until_player_action()
+    
     def update_phase(self):
-        """Update to the next phase."""
-        # Map current phase to next phase
-        phase_order = [
-            PokerPhase.INITIALIZING_GAME,
-            PokerPhase.INITIALIZING_HAND, 
-            PokerPhase.PRE_FLOP,
-            PokerPhase.FLOP,
-            PokerPhase.TURN,
-            PokerPhase.RIVER,
-            PokerPhase.EVALUATING_HAND,
-            PokerPhase.HAND_OVER
-        ]
-        
-        current_idx = phase_order.index(self._state_machine.current_phase)
-        if current_idx < len(phase_order) - 1:
-            self._state_machine.current_phase = phase_order[current_idx + 1]
-        else:
-            # Loop back to new hand
-            self._state_machine.current_phase = PokerPhase.INITIALIZING_HAND
+        """Update to the next phase - handled automatically by advance()."""
+        # The immutable state machine manages phase transitions internally
+        # Just advance the state
+        self._state_machine = self._state_machine.advance()
     
     def advance_state(self):
         """Advance the state machine."""
-        self._state_machine.advance_state()
+        self._state_machine = self._state_machine.advance()
     
     def __getattr__(self, name):
         # Pass through to the underlying state machine
