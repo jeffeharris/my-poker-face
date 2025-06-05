@@ -6,6 +6,9 @@ import { Chat } from './Chat';
 import { LoadingIndicator } from './LoadingIndicator';
 import { PlayerThinking } from './PlayerThinking';
 import { WinnerAnnouncement } from './WinnerAnnouncement';
+import { ElasticityDebugPanel } from './ElasticityDebugPanel';
+import { PressureStats } from './PressureStats';
+import { config } from '../config';
 import './PokerTable.css';
 
 interface Player {
@@ -60,6 +63,8 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
   const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
+  const [debugMode, setDebugMode] = useState<boolean>(false);
+  const [showStats, setShowStats] = useState<boolean>(false);
 
   // Extract socket setup to avoid duplication
   const setupSocketListeners = (socket: Socket) => {
@@ -142,7 +147,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
       setGameId(loadGameId);
       
       // Initialize WebSocket connection
-      const socket = io('http://localhost:5000');
+      const socket = io(config.SOCKET_URL);
       socketRef.current = socket;
       
       socket.on('connect', () => {
@@ -154,7 +159,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
       setupSocketListeners(socket);
       
       // Fetch the game state
-      fetch(`http://localhost:5000/api/game-state/${loadGameId}`)
+      fetch(`${config.API_URL}/api/game-state/${loadGameId}`)
         .then(res => {
           if (!res.ok) {
             throw new Error('Failed to load game');
@@ -218,7 +223,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         });
     } else {
       // Create a new game
-      fetch('http://localhost:5000/api/new-game', {
+      fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -230,7 +235,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
           setGameId(newGameId);
         
         // Initialize WebSocket connection
-        const socket = io('http://localhost:5000');
+        const socket = io(config.SOCKET_URL);
         socketRef.current = socket;
         
         socket.on('connect', () => {
@@ -242,7 +247,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         setupSocketListeners(socket);
         
         // Now fetch the initial game state
-        return fetch(`http://localhost:5000/api/game-state/${newGameId}`);
+        return fetch(`${config.API_URL}/api/game-state/${newGameId}`);
       })
       .then(res => res.json())
       .then(data => {
@@ -315,7 +320,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
     const pollInterval = setInterval(async () => {
       try {
         console.log('Polling for updates...');
-        const gameResponse = await fetch(`http://localhost:5000/api/game-state/${gId}`);
+        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gId}`);
         const data = await gameResponse.json();
         setGameState(data);
         
@@ -347,7 +352,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
     setAiThinking(true);
     
     try {
-      const response = await fetch(`http://localhost:5000/api/game/${gameId}/action`, {
+      const response = await fetch(`${config.API_URL}/api/game/${gameId}/action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -373,7 +378,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
     if (!gameId) return;
     
     try {
-      const response = await fetch(`http://localhost:5000/api/game/${gameId}/message`, {
+      const response = await fetch(`${config.API_URL}/api/game/${gameId}/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -386,7 +391,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
       
       if (response.ok) {
         // Refresh game state to get updated messages
-        const gameResponse = await fetch(`http://localhost:5000/api/game-state/${gameId}`);
+        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gameId}`);
         const data = await gameResponse.json();
         setGameState(data);
       }
@@ -435,7 +440,56 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
   if (!gameState) return <div className="error">No game state available</div>;
 
   return (
-    <div className="poker-table">
+    <>
+      {/* Control Buttons */}
+      <div style={{
+        position: 'fixed',
+        top: '10px',
+        right: '10px',
+        zIndex: 1001,
+        display: 'flex',
+        gap: '10px'
+      }}>
+        <button
+          className="stats-toggle"
+          onClick={() => setShowStats(!showStats)}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: showStats ? '#ffcc00' : '#666',
+            color: showStats ? '#000' : '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          {showStats ? 'Hide Stats' : 'Show Stats'}
+        </button>
+        
+        <button
+          className="debug-toggle"
+          onClick={() => setDebugMode(!debugMode)}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: debugMode ? '#00ff00' : '#666',
+            color: debugMode ? '#000' : '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          {debugMode ? 'Hide Debug' : 'Show Debug'}
+        </button>
+      </div>
+      
+      {/* Pressure Stats Panel */}
+      <PressureStats gameId={gameId} isOpen={showStats} />
+      
+      {/* Elasticity Debug Panel */}
+      <ElasticityDebugPanel gameId={gameId} isOpen={debugMode} socket={socketRef.current} />
+      
+      <div className="poker-table">
       <div className="table-felt">
         {/* Community Cards Area */}
         <div className="community-area">
@@ -635,5 +689,6 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         onComplete={() => setWinnerInfo(null)}
       />
     </div>
+    </>
   );
 }

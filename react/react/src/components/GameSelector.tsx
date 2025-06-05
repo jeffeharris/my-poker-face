@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { config } from '../config';
 import './GameSelector.css';
 
 interface SavedGame {
@@ -22,7 +23,7 @@ export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
 
   const fetchGames = () => {
     console.log('GameSelector: Fetching saved games...');
-    fetch('http://localhost:5000/games')
+    fetch(`${config.API_URL}/games`)
       .then(res => res.json())
       .then(data => {
         console.log('GameSelector: Received games data:', data);
@@ -49,7 +50,7 @@ export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
     setDeletingGameId(gameId);
     
     try {
-      const response = await fetch(`http://localhost:5000/game/${gameId}`, {
+      const response = await fetch(`${config.API_URL}/game/${gameId}`, {
         method: 'DELETE'
       });
       
