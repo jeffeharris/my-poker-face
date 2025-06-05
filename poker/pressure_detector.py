@@ -29,9 +29,21 @@ class PressureEventDetector:
         events = []
         
         # Extract winner details
-        winner_name = winner_info.get('winner_name')
-        winner_hand_rank = winner_info.get('hand_rank', 10)  # 1=best, 10=worst
-        pot_total = game_state.pot['total']
+        winnings = winner_info.get('winnings', {})
+        winner_names = list(winnings.keys()) if winnings else []
+        winner_name = winner_names[0] if winner_names else None
+        
+        # Get hand rank from hand evaluation if available
+        winner_hand = winner_info.get('winning_hand', [])
+        winner_hand_rank = 10  # Default to worst
+        if winner_hand:
+            # Map hand values to approximate rank (1=best, 10=worst)
+            # This is a simple heuristic based on the first value in winning_hand
+            first_val = winner_hand[0] if winner_hand else 0
+            if first_val >= 14:  # Ace high or better
+                winner_hand_rank = 8 if len(set(winner_hand[:2])) > 1 else 7  # High card vs pair
+            
+        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
         
         # Calculate pot size relative to stacks
         avg_stack = sum(p.stack for p in game_state.players if p.stack > 0) / len(
@@ -43,7 +55,7 @@ class PressureEventDetector:
         active_players = [p for p in game_state.players if not p.is_folded]
         
         # Detect successful bluff (weak hand wins big pot)
-        if winner_hand_rank >= 8 and is_big_pot and len(active_players) == 1:
+        if winner_name and winner_hand_rank >= 8 and is_big_pot and len(active_players) == 1:
             # Winner bluffed everyone out
             events.append(("successful_bluff", [winner_name]))
             # Other players feel pressure from being bluffed
@@ -51,19 +63,38 @@ class PressureEventDetector:
             events.append(("bluff_called", other_players))
         
         # Detect big win/loss
-        if is_big_pot:
-            events.append(("big_win", [winner_name]))
-            losers = [p.name for p in active_players if p.name != winner_name]
-            events.append(("big_loss", losers))
+        if is_big_pot and winner_names:
+            events.append(("big_win", winner_names))
+            losers = [p.name for p in active_players if p.name not in winner_names]
+            if losers:
+                events.append(("big_loss", losers))
         
         # Detect bad beat (strong hand loses)
-        if len(active_players) > 1:
+        if len(active_players) > 1 and winner_names:
             # Find second-best hand
             losers_with_hands = []
             for player in active_players:
-                if player.name != winner_name:
+                if player.name not in winner_names:
+                    # Convert cards to proper format for HandEvaluator
+                    player_cards = []
+                    for card in player.hand:
+                        if hasattr(card, 'to_dict'):
+                            player_cards.append(card)
+                        else:
+                            # Convert dict to Card object
+                            from .card import Card
+                            player_cards.append(Card(card['rank'], card['suit']))
+                    
+                    community_cards = []
+                    for card in game_state.community_cards:
+                        if hasattr(card, 'to_dict'):
+                            community_cards.append(card)
+                        else:
+                            from .card import Card
+                            community_cards.append(Card(card['rank'], card['suit']))
+                    
                     hand_result = HandEvaluator(
-                        list(player.hand) + list(game_state.community_cards)
+                        player_cards + community_cards
                     ).evaluate_hand()
                     losers_with_hands.append((player.name, hand_result['hand_rank']))
             
@@ -87,7 +118,7 @@ class PressureEventDetector:
         # If only one player remains after fold, check for bluff
         if len(remaining_players) == 1:
             winner = remaining_players[0]
-            pot_total = game_state.pot['total']
+            pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
             avg_stack = sum(p.stack for p in game_state.players if p.stack > 0) / len(
                 [p for p in game_state.players if p.stack > 0]
             )

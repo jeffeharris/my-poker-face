@@ -29,20 +29,24 @@ class ElasticTrait:
         """Maximum possible value for this trait."""
         return min(1.0, self.anchor + self.elasticity)
     
-    def apply_pressure(self, amount: float, pressure_threshold: float = 0.25) -> None:
+    def apply_pressure(self, amount: float, pressure_threshold: float = 0.1) -> None:
         """Apply pressure to the trait and update value if threshold exceeded."""
         self.pressure += amount
         
+        # Always apply some immediate effect for dramatic moments
+        immediate_change = amount * self.elasticity * 0.3
+        self.value = max(self.min, min(self.max, self.value + immediate_change))
+        
         if abs(self.pressure) > pressure_threshold:
-            # Calculate new value within elastic range
-            change = self.pressure * self.elasticity
+            # Calculate additional change from accumulated pressure
+            change = self.pressure * self.elasticity * 0.5
             new_value = self.anchor + change
             
             # Clamp to min/max
             self.value = max(self.min, min(self.max, new_value))
             
             # Reduce pressure after application
-            self.pressure *= 0.5
+            self.pressure *= 0.7
     
     def recover(self, recovery_rate: float = 0.1) -> None:
         """Gradually return trait to anchor value."""
@@ -92,10 +96,11 @@ class ElasticPersonality:
                 if trait_name in self.traits:
                     self.traits[trait_name].apply_pressure(pressure_amount)
     
-    def recover_all_traits(self) -> None:
+    def recover_traits(self, recovery_rate: Optional[float] = None) -> None:
         """Apply recovery to all traits."""
+        rate = recovery_rate if recovery_rate is not None else self.recovery_rate
         for trait in self.traits.values():
-            trait.recover(self.recovery_rate)
+            trait.recover(rate)
     
     def get_current_mood(self) -> str:
         """Get current mood based on trait values and pressure."""
@@ -234,6 +239,16 @@ class ElasticPersonality:
                 "aggression": -0.2,
                 "bluff_tendency": -0.3,
                 "chattiness": -0.1
+            },
+            "fold_under_pressure": {
+                "aggression": -0.15,
+                "bluff_tendency": -0.1,
+                "chattiness": -0.05
+            },
+            "aggressive_bet": {
+                "aggression": 0.25,
+                "bluff_tendency": 0.15,
+                "chattiness": 0.1
             }
         }
     
@@ -353,7 +368,7 @@ class ElasticityManager:
     def recover_all(self) -> None:
         """Apply recovery to all players."""
         for personality in self.personalities.values():
-            personality.recover_all_traits()
+            personality.recover_traits()
     
     def get_player_traits(self, player_name: str) -> Dict[str, float]:
         """Get current trait values for a player."""
@@ -370,6 +385,13 @@ class ElasticityManager:
         if player_name in self.personalities:
             return self.personalities[player_name].get_current_mood()
         return "neutral"
+    
+    def apply_pressure(self, player_name: str, trait_name: str, pressure: float) -> None:
+        """Apply pressure to a specific trait for a player."""
+        if player_name in self.personalities:
+            personality = self.personalities[player_name]
+            if trait_name in personality.traits:
+                personality.traits[trait_name].apply_pressure(pressure)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
