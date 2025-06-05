@@ -65,6 +65,15 @@ class AIPlayerController:
         self.prompt_manager = PromptManager()
         # Store personality traits for fallback behavior
         self.personality_traits = self.ai_player.personality_config.get('personality_traits', {})
+        
+    def get_current_personality_traits(self):
+        """Get current trait values from elastic personality if available."""
+        if hasattr(self.ai_player, 'elastic_personality'):
+            return {
+                name: self.ai_player.elastic_personality.get_trait_value(name)
+                for name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']
+            }
+        return self.personality_traits
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
@@ -101,6 +110,8 @@ class AIPlayerController:
         """Get AI decision with automatic fallback on failure"""
         # Store context for fallback
         self._fallback_context = context
+        # Update personality traits to current elastic values
+        self.personality_traits = self.get_current_personality_traits()
         
         # Use the prompt manager for the decision prompt
         decision_prompt = self.prompt_manager.render_prompt(

@@ -101,6 +101,61 @@ This is a poker game application with AI players powered by OpenAI. The codebase
 - Test coverage includes unit tests for core components and functional tests for game scenarios
 - Use relative imports (`.module_name`) within the poker package
 
+### Functional Programming Best Practices
+
+1. **No Mutations in Properties**
+   - Properties should never mutate state or have side effects
+   - Use list/dict comprehensions instead of imperative mutations
+   - Example pattern for conditional list building:
+   ```python
+   # Good - Functional approach
+   option_conditions = [
+       ('fold', player_cost_to_call > 0),
+       ('check', player_cost_to_call == 0),
+       ('call', player_has_enough_to_call and player_cost_to_call > 0),
+   ]
+   return [option for option, condition in option_conditions if condition]
+   
+   # Bad - Imperative mutations
+   options = ['fold', 'check', 'call']
+   if condition:
+       options.remove('fold')  # Mutation!
+   ```
+
+2. **Pure Functions Without Side Effects**
+   - Functions should not modify global state (e.g., random number generator)
+   - Use local instances for operations that would otherwise have side effects
+   - Example from `create_deck`:
+   ```python
+   # Good - Local Random instance
+   rng = random.Random(random_seed)
+   shuffled_deck = deck.copy()
+   rng.shuffle(shuffled_deck)
+   
+   # Bad - Modifies global random state
+   random.shuffle(deck)
+   ```
+
+3. **Immutable Updates**
+   - Always create new objects instead of modifying existing ones
+   - Use tuple comprehensions for updating player lists
+   - Example from `update_player`:
+   ```python
+   # Good - Functional tuple comprehension
+   updated_players = tuple(
+       player.update(**kwargs) if i == player_idx else player
+       for i, player in enumerate(self.players)
+   )
+   
+   # Bad - List mutation
+   players = list(self.players)
+   players[player_idx] = updated_player
+   ```
+
+4. **Properties Without Parameters**
+   - Properties should never take parameters (they're not methods!)
+   - If filtering is needed, create separate methods or return all data
+
 ### AI and Prompt System
 
 The AI player system uses a centralized prompt management approach:
@@ -217,12 +272,12 @@ sqlite3 poker_games.db "SELECT * FROM games;"
 - Games auto-save after each action
 
 ### Future Enhancements
-1. **AI State Persistence**: Save conversation history and personality evolution
+1. ~~**AI State Persistence**: Save conversation history and personality evolution~~ ✓ Implemented via Elasticity System
 2. **Game Statistics**: Track win/loss records, biggest pots
 3. **Export/Import**: Allow downloading/uploading game saves
 4. **Cleanup**: Auto-delete old games after X days
 
-## Poker Engine Deep Dive (Added 2025-06-01)
+## Poker Engine Deep Dive (Added 2025-06-01, Updated 2025-06-04)
 
 ### Core Architecture Philosophy
 
@@ -231,6 +286,13 @@ The poker engine follows a **functional programming paradigm** with **immutable 
 - Easy debugging and testing
 - Natural support for features like undo/redo and replay
 - Thread-safe operations
+- No side effects in game logic
+
+**Recent Improvements (2025-06-04):**
+- Removed all mutations from property methods
+- Made `create_deck` a pure function with no global state modifications
+- Converted imperative list operations to functional comprehensions
+- Fixed properties that incorrectly accepted parameters
 
 ### State Management
 
@@ -425,6 +487,9 @@ Results in:
 3. **Test side pot logic** thoroughly - Complex edge cases
 4. **Maintain relative imports** in poker package
 5. **Keep game logic pure** - No I/O in core functions
+6. **No mutations in properties** - Use comprehensions and functional patterns
+7. **Avoid global state modifications** - Use local instances for operations like shuffling
+8. **Properties should be parameterless** - Create methods if parameters are needed
 
 ### Common Gotchas
 
@@ -433,3 +498,59 @@ Results in:
 3. **All-in players** still in hand but not active
 4. **Flush bug (fixed)** - Must return only best 5 cards
 5. **State machine loops** if phase transitions incorrect
+6. **Property mutations** - Properties that modify lists/dicts break immutability
+7. **Global random state** - Using `random.shuffle()` directly affects global RNG
+8. **React UI positioning** - Player positions need to be maintained separately from game logic indices
+
+## Personality Elasticity System (Added 2025-06-04)
+
+### Overview
+The Personality Elasticity System creates dynamic AI personalities that respond to game events, making AI players more realistic and engaging.
+
+### Key Components
+
+1. **ElasticityManager** (`poker/elasticity_manager.py`):
+   - Manages elastic personalities for all AI players
+   - Handles trait changes and recovery
+   - Full serialization support
+
+2. **PressureEventDetector** (`poker/pressure_detector.py`):
+   - Detects game events (big wins/losses, bluffs, eliminations)
+   - Applies appropriate pressure to personality traits
+   - Integrates with game flow
+
+3. **Integration with AIPokerPlayer**:
+   - Each AI player has an `elastic_personality` attribute
+   - Traits change within defined elasticity bounds
+   - Moods update based on pressure levels
+
+### Usage
+
+```python
+# Initialize elasticity
+elasticity_manager = ElasticityManager()
+pressure_detector = PressureEventDetector(elasticity_manager)
+
+# Add players
+elasticity_manager.add_player(name, personality_config)
+
+# During game events
+events = pressure_detector.detect_showdown_events(game_state, winner_info)
+pressure_detector.apply_detected_events(events)
+
+# Apply recovery between hands
+pressure_detector.apply_recovery()
+```
+
+### Testing
+```bash
+# Run elasticity tests
+python -m pytest tests/test_elasticity.py -v
+
+# Run demos
+python simple_elasticity_demo.py
+python elasticity_demo.py
+```
+
+### Documentation
+For detailed information, see `/docs/ELASTICITY_SYSTEM.md`
