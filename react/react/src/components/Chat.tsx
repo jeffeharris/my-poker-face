@@ -14,9 +14,10 @@ interface ChatProps {
   onSendMessage: (message: string) => void;
   isVisible: boolean;
   onToggleVisibility: () => void;
+  playerName?: string;
 }
 
-export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility }: ChatProps) {
+export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, playerName = 'Player' }: ChatProps) {
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +51,7 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility }:
       case 'system':
         return '⚙️';
       case 'player':
-        return sender === 'Jeff' ? '👤' : '🤖';
+        return sender === playerName ? '👤' : '🤖';
       default:
         return '💬';
     }
@@ -89,7 +90,7 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility }:
               messages.map((msg) => (
                 <div 
                   key={msg.id} 
-                  className={`chat-message ${msg.type} ${msg.sender === 'Jeff' ? 'own-message' : ''}`}
+                  className={`chat-message ${msg.type} ${msg.sender === playerName ? 'own-message' : ''}`}
                 >
                   <div className="message-header">
                     <span className="message-icon">

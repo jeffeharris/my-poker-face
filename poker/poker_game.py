@@ -10,7 +10,6 @@ from .utils import obj_to_dict
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
-HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000      # player starting stack
 ANTE = 50               # starting big blind
 TEST_MODE = False
@@ -554,17 +553,20 @@ def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
     return game_state.update(current_player_idx=next_active_player_idx)
 
 
-def initialize_game_state(player_names: List[str]) -> PokerGameState:
+def initialize_game_state(player_names: List[str], human_name: str = "Player") -> PokerGameState:
     """
     Generate a new game state and prepare the game for the initial round of betting.
         - get a new deck of shuffled cards
         - deal cards to starting players
         - set dealer, current_player
+    
+    :param player_names: List of AI player names
+    :param human_name: Name of the human player (default: "Player")
     """
-    # Create a tuple of Human and AI players to be added to the game state. Using a hard-coded human name
+    # Create a tuple of Human and AI players to be added to the game state
     ai_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=True) for n in player_names)
-    new_players = (Player(name=HUMAN_NAME, stack= STACK_SIZE, is_human=True),) + (ai_players if not TEST_MODE else test_players)
+    new_players = (Player(name=human_name, stack=STACK_SIZE, is_human=True),) + (ai_players if not TEST_MODE else test_players)
     game_state = PokerGameState(players=new_players)
 
     return game_state

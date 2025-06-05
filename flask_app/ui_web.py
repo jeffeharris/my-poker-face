@@ -254,8 +254,12 @@ def api_game_state(game_id):
 @app.route('/api/new-game', methods=['POST'])
 def api_new_game():
     """Create a new game and return the game ID."""
+    # Get player name from request, default to "Player" if not provided
+    data = request.json or {}
+    player_name = data.get('playerName', 'Player')
+    
     ai_player_names = get_celebrities(shuffled=True)[:3]  # 3 AI players
-    game_state = initialize_game_state(player_names=ai_player_names)
+    game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
     
@@ -348,7 +352,7 @@ def api_send_message(game_id):
     """Send a chat message in the game."""
     data = request.json
     message = data.get('message', '')
-    sender = data.get('sender', 'Jeff')
+    sender = data.get('sender', 'Player')  # Default to 'Player' instead of 'Jeff'
     
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player')
@@ -360,7 +364,8 @@ def api_send_message(game_id):
 @app.route('/new_game', methods=['GET'])
 def new_game():
     ai_player_names = get_celebrities(shuffled=True)[:4]
-    game_state = initialize_game_state(player_names=ai_player_names)
+    # For legacy route, use default player name
+    game_state = initialize_game_state(player_names=ai_player_names, human_name="Player")
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
     # Create a controller for each player in the game and add to a map of name -> controller
@@ -858,7 +863,7 @@ def handle_send_message(data):
     # Get needed values from the data
     game_id = data.get('game_id')
     content = data.get('message')
-    sender = data.get('sender', 'Jeff')
+    sender = data.get('sender', 'Player')  # Default to 'Player' instead of 'Jeff'
     message_type = data.get('message_type', 'user')
 
     send_message(game_id, sender, content, message_type)

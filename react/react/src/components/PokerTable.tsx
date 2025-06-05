@@ -47,9 +47,10 @@ interface GameState {
 
 interface PokerTableProps {
   gameId?: string | null;
+  playerName?: string;
 }
 
-export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
+export function PokerTable({ gameId: providedGameId, playerName }: PokerTableProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [chatVisible, setChatVisible] = useState(true); // Start with chat visible for debugging
@@ -228,6 +229,9 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          playerName: playerName || 'Player'
+        }),
       })
         .then(res => res.json())
         .then(data => {
@@ -385,7 +389,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         },
         body: JSON.stringify({
           message,
-          sender: 'Jeff'
+          sender: playerName || 'Player'
         }),
       });
       
@@ -681,6 +685,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         onSendMessage={handleSendMessage}
         isVisible={chatVisible}
         onToggleVisibility={() => setChatVisible(!chatVisible)}
+        playerName={playerName}
       />
       
       {/* Winner Announcement */}
