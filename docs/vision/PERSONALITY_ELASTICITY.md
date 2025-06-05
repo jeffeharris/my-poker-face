@@ -4,6 +4,26 @@
 
 The elasticity system allows AI personalities to change dynamically during gameplay while maintaining their core identity. Each trait has a defined range of flexibility and responds to game events within those boundaries.
 
+**Status**: ✅ Fully Implemented (June 2025)
+
+## How It Works
+
+The personality elasticity system consists of four main components:
+
+1. **Elastic Traits** - Individual personality traits that can vary within bounds
+2. **Pressure Events** - Game situations that trigger trait changes
+3. **Recovery Mechanism** - Gradual return to baseline personality
+4. **Mood System** - Dynamic mood descriptions based on trait states
+
+### Quick Example
+
+When Gordon Ramsay loses a big pot:
+- His `aggression` drops from 0.9 → 0.6 (becomes less aggressive)
+- His `chattiness` drops from 0.7 → 0.5 (talks less)
+- His mood changes from "intense" → "furious"
+- Over the next few hands, traits gradually recover back to baseline
+- If he wins the next big pot, traits might swing positive beyond baseline
+
 ## Data Structure
 
 ```json
@@ -79,6 +99,26 @@ pressure_events = {
     "rivalry_trigger": {
         "aggression": +0.4,
         "bluff_tendency": +0.2
+    },
+    "fold_under_pressure": {
+        "aggression": -0.15,
+        "bluff_tendency": -0.1,
+        "chattiness": -0.05
+    },
+    "aggressive_bet": {
+        "aggression": +0.25,
+        "bluff_tendency": +0.15,
+        "chattiness": +0.1
+    },
+    "bad_beat": {
+        "aggression": -0.2,
+        "bluff_tendency": -0.3,
+        "chattiness": -0.1
+    },
+    "eliminated_opponent": {
+        "aggression": +0.3,
+        "chattiness": +0.2,
+        "bluff_tendency": +0.15
     }
 }
 ```
@@ -88,17 +128,21 @@ pressure_events = {
 def apply_pressure(trait, pressure_amount):
     trait["pressure"] += pressure_amount
     
-    # If pressure exceeds threshold, update value
-    if abs(trait["pressure"]) > 0.25:
-        # Calculate new value within elastic range
-        change = trait["pressure"] * trait["elasticity"]
+    # Always apply some immediate effect for dramatic moments
+    immediate_change = pressure_amount * trait["elasticity"] * 0.3
+    trait["value"] = max(trait["min"], min(trait["max"], trait["value"] + immediate_change))
+    
+    # If pressure exceeds threshold, apply additional effects
+    if abs(trait["pressure"]) > 0.1:  # Lower threshold for more responsive changes
+        # Calculate additional change from accumulated pressure
+        change = trait["pressure"] * trait["elasticity"] * 0.5
         new_value = trait["anchor"] + change
         
         # Clamp to min/max
         trait["value"] = max(trait["min"], min(trait["max"], new_value))
         
         # Reduce pressure after application
-        trait["pressure"] *= 0.5
+        trait["pressure"] *= 0.7
 ```
 
 ### Recovery Mechanism
@@ -202,9 +246,76 @@ Different personality archetypes have different elasticity patterns:
 - **Mood Aura**: Color/animation reflecting current state
 - **Breaking Point**: Warning when personality near dramatic shift
 
+## Implementation Details
+
+### Architecture
+
+The elasticity system is implemented across several modules:
+
+1. **`poker/elasticity_manager.py`**
+   - `ElasticTrait`: Individual trait with value, anchor, elasticity, and pressure
+   - `ElasticPersonality`: Collection of elastic traits for a player
+   - `ElasticityManager`: Manages elasticity for all AI players in a game
+
+2. **`poker/pressure_detector.py`**
+   - `PressureEventDetector`: Detects game events that should trigger pressure
+   - Analyzes showdowns, folds, bets, and chat for pressure events
+
+3. **`poker/pressure_stats.py`**
+   - `PressureStatsTracker`: Tracks statistics and creates leaderboards
+   - Generates fun facts and player signature moves
+
+### Event Detection
+
+The system detects these key moments:
+
+1. **Showdown Events**
+   - Big wins/losses (pot > 1.5x average stack)
+   - Successful bluffs (weak hand wins with others folding)
+   - Bad beats (strong hand loses to stronger hand)
+
+2. **Action Events**
+   - Fold under pressure (folding when pot > 100 chips)
+   - Aggressive betting (bet > 75% of pot)
+
+3. **Game Flow Events**
+   - Player eliminations
+   - Chat interactions (friendly or aggressive)
+
+### Integration Points
+
+1. **AI Decision Making**
+   - Elastic trait values affect AI behavior
+   - Higher aggression → more likely to bet/raise
+   - Lower bluff_tendency → more honest play
+
+2. **Chat Responses**
+   - Mood affects tone and word choice
+   - Chattiness affects message frequency
+   - Emoji usage varies with trait value
+
+3. **Real-time Updates**
+   - WebSocket events push elasticity changes
+   - Debug panel shows live trait values
+   - Stats panel tracks dramatic moments
+
+### UI Components
+
+1. **Elasticity Debug Panel** (`ElasticityDebugPanel.tsx`)
+   - Shows current trait values with color coding
+   - Displays elasticity ranges and anchor points
+   - Updates in real-time via WebSocket
+
+2. **Pressure Stats Panel** (`PressureStats.tsx`)
+   - Leaderboards for various achievements
+   - Player cards with signature moves
+   - Fun facts about dramatic moments
+
 ## Future Enhancements
 
 1. **Elastic Relationships**: How much one player affects another's elasticity
 2. **Permanent Changes**: Extreme events might shift anchor points
 3. **Elastic Memory**: Past elasticity affects future flexibility
 4. **Compound Personalities**: Multiple elastic systems interacting
+5. **Tournament Mode**: Elasticity persists across multiple games
+6. **Rivalry System**: Special elasticity between specific players
