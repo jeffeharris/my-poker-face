@@ -1,8 +1,13 @@
 #!/bin/bash
 # Launch script for React + Flask poker game
 
+# Get port from argument or use default
+BACKEND_PORT=${1:-5001}
+
 echo "🎰 My Poker Face - React Version Launcher"
 echo "========================================="
+echo "Usage: ./run_react.sh [backend_port]"
+echo "Backend port: $BACKEND_PORT"
 echo ""
 
 # Check if .env file exists
@@ -34,7 +39,7 @@ source my_poker_face_venv/bin/activate 2>/dev/null || {
     exit 1
 }
 
-python -m flask_app.ui_web &
+FLASK_RUN_PORT=$BACKEND_PORT python -m flask_app.ui_web &
 BACKEND_PID=$!
 
 # Wait for backend to start
@@ -47,7 +52,7 @@ if ! kill -0 $BACKEND_PID 2>/dev/null; then
     exit 1
 fi
 
-echo "✅ Backend running on http://localhost:5000"
+echo "✅ Backend running on http://localhost:$BACKEND_PORT"
 
 # Start frontend
 echo ""
@@ -63,16 +68,16 @@ if [ ! -d "node_modules" ]; then
     }
 fi
 
-npm run dev &
+VITE_API_URL=http://localhost:$BACKEND_PORT npm run dev &
 FRONTEND_PID=$!
 
 # Wait a moment for frontend to start
 sleep 3
 
 echo ""
-echo "✅ React app should be running on http://localhost:5173"
+echo "✅ React app should be running on http://localhost:3000"
 echo ""
-echo "🎮 Game is ready! Open your browser to http://localhost:5173"
+echo "🎮 Game is ready! Open your browser to http://localhost:3000"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 echo ""
