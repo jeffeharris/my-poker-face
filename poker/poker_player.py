@@ -322,7 +322,12 @@ class AIPokerPlayer(PokerPlayer):
             
             # Update confidence/attitude if mood has changed
             if current_mood != self.elastic_personality.current_mood:
+                # For now, use the mood for confidence
+                # In the future, we could have separate confidence and attitude moods
                 self.confidence = current_mood
+                # Keep attitude from personality config or use a variation
+                # This preserves the personality's core attitude while confidence fluctuates
+                self.attitude = self.personality_config.get("default_attitude", self.attitude)
                 self.elastic_personality.current_mood = current_mood
                 
                 # Regenerate system message with new mood
