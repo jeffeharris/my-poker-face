@@ -319,3 +319,37 @@ The system detects these key moments:
 4. **Compound Personalities**: Multiple elastic systems interacting
 5. **Tournament Mode**: Elasticity persists across multiple games
 6. **Rivalry System**: Special elasticity between specific players
+
+## Integration with Enhanced Prompt System
+
+The elasticity system forms the foundation for advanced AI behavior improvements:
+
+### Trait-Influenced Language Generation
+Elastic trait values directly influence how AI players express themselves:
+- **High aggression (0.8-1.0)**: "I'm crushing this table" / "That's a pathetic bet"
+- **Low aggression (0.0-0.3)**: "I'll just call" / "Maybe I should fold"
+- **Dynamic bluff tendency**: Affects certainty in statements
+- **Mood-based vocabulary**: Current emotional state colors word choices
+
+### Contextual Memory Integration
+Elasticity changes create memorable moments that persist:
+- Dramatic trait swings become long-term memories
+- Recovery patterns influence future elasticity
+- Personality "learns" from extreme pressure events
+- Memory of past elasticity affects current flexibility
+
+### Emotional State Evolution
+Beyond simple traits, rich emotional landscapes:
+- Multi-dimensional emotions (frustration, vengeance, desperation)
+- Emotional trajectories (tilt spirals, confidence arcs)
+- Personality-specific emotional ranges and limits
+- Emotional contagion between players at the table
+
+### Meta-Strategy Awareness
+Elastic traits adapt to game context:
+- Tournament pressure increases trait volatility
+- Stack size affects elasticity thresholds
+- Table dynamics influence recovery rates
+- Past sessions affect starting elasticity values
+
+This creates a unified system where personality elasticity drives natural language variation, memory formation, emotional evolution, and strategic adaptation.

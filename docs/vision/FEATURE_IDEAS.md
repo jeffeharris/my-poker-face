@@ -97,6 +97,21 @@ Typing while playing poker is challenging. Solutions:
    - "Thinking time" increases
    - Prevents rushed decisions
 
+### Dynamic Conversation System (Enhanced)
+Building on prompt improvements, AI conversation becomes more natural:
+
+1. **Chattiness-Based Speaking**
+   - Low chattiness (0.0-0.3): Mostly silent, speaks only when necessary
+   - Medium chattiness (0.4-0.6): Comments on big moments
+   - High chattiness (0.7-1.0): Regular table talk and banter
+   - Context modifiers: Big pots, direct addresses, table silence
+
+2. **Trait-Influenced Language**
+   - Aggression affects word strength ("maybe" vs "definitely")
+   - Bluff tendency affects certainty expressions
+   - Current mood colors vocabulary choices
+   - Personality maintains voice while traits add variation
+
 ### Rapport Building Mechanics
 
 ```python
@@ -237,6 +252,27 @@ colorful. Someone said something about money?"
 
 ## Long-Term Memory System
 
+### Enhanced Memory Architecture
+Building on prompt improvements, implement multi-layered memory:
+
+1. **Working Memory** (Current Hand)
+   - Track betting patterns within the hand
+   - Remember who showed strength/weakness
+   - Maintain consistency with stated strategy
+   - Influences immediate decisions
+
+2. **Short-Term Memory** (Current Session)
+   - Recent 10 hands for tactical adjustments
+   - Player-specific patterns and tendencies
+   - Emotional context from last 5 minutes
+   - Affects strategy and conversation
+
+3. **Long-Term Memory** (Cross-Session)
+   - Persistent relationship dynamics
+   - Memorable moments and signature moves
+   - Personality evolution tracking
+   - Deep behavioral patterns
+
 ### Markdown Memory Files
 Store relationship history in human-readable format:
 
@@ -265,7 +301,18 @@ Sherlock sees you as a worthy adversary. He's more likely to:
 - Try complex bluffs against you
 - Respect your big bets
 - Engage in psychological warfare
+
+## Pattern Recognition
+- Bluffs more on ace-high boards
+- Tightens up after losing big pots
+- More talkative when holding strong hands
 ```
+
+### Memory Decay Algorithm
+- Tactical memories fade faster than emotional ones
+- Positive experiences weighted by personality type
+- Recent events have exponentially stronger influence
+- Signature moments become permanent memories
 
 ---
 
