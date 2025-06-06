@@ -173,3 +173,4 @@ cython_debug/
 # Windows Zone Identifier files
 *.Zone.Identifier
 /my_poker_face_venv/
+/docs/screenshots/
