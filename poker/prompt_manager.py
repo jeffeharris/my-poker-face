@@ -104,20 +104,29 @@ class PromptManager:
 
 # Response format definitions
 RESPONSE_FORMAT = {
-    "play_style": "<what is your current play style>",
-    "chasing": "<optional: what you're chasing>",
-    "player_observations": "<optional: notes about other players>",
-    "hand_strategy": "<short analysis of current situation>",
-    "bluff_likelihood": "<int: % likelihood to bluff>",
-    "bet_strategy": "<how might you bet this turn>",
-    "decision": "<your decision>",
-    "action": "<action from provided options>",
-    "adding_to_pot": "<chips to add>",
-    "inner_monologue": "<internal thoughts>",
-    "persona_response": "<what you say to the table>",
-    "physical": "<list of physical actions>",
-    "new_confidence": "<single word>",
-    "new_attitude": "<single word>"
+    # ALWAYS REQUIRED
+    "action": "REQUIRED: action from provided options",
+    "adding_to_pot": "REQUIRED if raising: chips to add",
+    "inner_monologue": "REQUIRED: internal thoughts",
+    
+    # REQUIRED ON FIRST ACTION OF HAND
+    "hand_strategy": "REQUIRED on first action: analysis of current situation",
+    
+    # OPTIONAL STRATEGIC FIELDS
+    "play_style": "OPTIONAL: what is your current play style",
+    "chasing": "OPTIONAL: what you're chasing",
+    "player_observations": "OPTIONAL: notes about other players",
+    "bluff_likelihood": "OPTIONAL: % likelihood to bluff",
+    "bet_strategy": "OPTIONAL: how might you bet this turn",
+    "decision": "OPTIONAL: your decision reasoning",
+    
+    # OPTIONAL BASED ON CHATTINESS
+    "persona_response": "OPTIONAL: what you say to the table",
+    "physical": "OPTIONAL: list of physical actions",
+    
+    # OPTIONAL STATE UPDATES
+    "new_confidence": "OPTIONAL: single word",
+    "new_attitude": "OPTIONAL: single word"
 }
 
 
