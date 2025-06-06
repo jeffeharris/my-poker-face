@@ -1,0 +1,311 @@
+/* Winner Announcement Styles */
+.winner-announcement {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out;
+}
+
+.winner-announcement.show {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.winner-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.winner-content {
+  position: relative;
+  background: linear-gradient(145deg, #1a1a2e, #16213e);
+  border: 3px solid #ffd700;
+  border-radius: 20px;
+  padding: 40px 60px;
+  max-width: 80%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 
+    0 0 50px rgba(255, 215, 0, 0.5),
+    0 0 100px rgba(255, 215, 0, 0.3),
+    inset 0 0 30px rgba(255, 215, 0, 0.1);
+  animation: winnerPulse 2s ease-in-out infinite;
+}
+
+@keyframes winnerPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 
+      0 0 50px rgba(255, 215, 0, 0.5),
+      0 0 100px rgba(255, 215, 0, 0.3),
+      inset 0 0 30px rgba(255, 215, 0, 0.1);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 
+      0 0 70px rgba(255, 215, 0, 0.7),
+      0 0 120px rgba(255, 215, 0, 0.4),
+      inset 0 0 40px rgba(255, 215, 0, 0.2);
+  }
+}
+
+.winner-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.winner-title {
+  font-size: 48px;
+  margin: 0 0 20px 0;
+  color: #ffd700;
+  text-shadow: 
+    0 0 20px rgba(255, 215, 0, 0.8),
+    0 0 40px rgba(255, 215, 0, 0.5);
+  animation: titleGlow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes titleGlow {
+  from {
+    text-shadow: 
+      0 0 20px rgba(255, 215, 0, 0.8),
+      0 0 40px rgba(255, 215, 0, 0.5);
+  }
+  to {
+    text-shadow: 
+      0 0 30px rgba(255, 215, 0, 1),
+      0 0 60px rgba(255, 215, 0, 0.7);
+  }
+}
+
+.winner-name {
+  font-size: 36px;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 10px;
+  animation: slideInFromTop 0.6s ease-out;
+}
+
+@keyframes slideInFromTop {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.winner-details {
+  text-align: center;
+  margin-bottom: 30px;
+  animation: fadeIn 0.8s ease-out 0.3s both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pot-won {
+  font-size: 32px;
+  color: #4ade80;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.hand-name {
+  font-size: 24px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* Showdown Cards */
+.showdown-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  align-items: center;
+  margin-top: 40px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.6s ease-out;
+}
+
+.showdown-cards.reveal {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Community Cards Section */
+.community-cards-section {
+  text-align: center;
+  margin-bottom: 20px;
+  animation: fadeIn 0.6s ease-out both;
+}
+
+.section-label {
+  font-size: 20px;
+  color: #ffd700;
+  font-weight: bold;
+  margin-bottom: 15px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.community-cards-display {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.community-cards-display .playing-card {
+  animation: communityCardReveal 0.4s ease-out both;
+}
+
+.community-cards-display .playing-card:nth-child(1) { animation-delay: 0.1s; }
+.community-cards-display .playing-card:nth-child(2) { animation-delay: 0.2s; }
+.community-cards-display .playing-card:nth-child(3) { animation-delay: 0.3s; }
+.community-cards-display .playing-card:nth-child(4) { animation-delay: 0.4s; }
+.community-cards-display .playing-card:nth-child(5) { animation-delay: 0.5s; }
+
+@keyframes communityCardReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.5) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Players Section */
+.players-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  justify-content: center;
+}
+
+.player-showdown {
+  text-align: center;
+  animation: cardReveal 0.6s ease-out both;
+}
+
+.player-showdown:nth-child(1) { animation-delay: 0.1s; }
+.player-showdown:nth-child(2) { animation-delay: 0.2s; }
+.player-showdown:nth-child(3) { animation-delay: 0.3s; }
+.player-showdown:nth-child(4) { animation-delay: 0.4s; }
+
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.8) rotateY(90deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotateY(0);
+  }
+}
+
+.player-showdown .player-name {
+  font-size: 18px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+
+.player-showdown .player-cards {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.player-showdown .playing-card {
+  animation: flipIn 0.6s ease-out both;
+}
+
+.player-showdown .playing-card:nth-child(1) {
+  animation-delay: 0.2s;
+}
+
+.player-showdown .playing-card:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+@keyframes flipIn {
+  from {
+    transform: rotateY(-180deg) scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: rotateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* No Showdown */
+.no-showdown {
+  text-align: center;
+  margin-top: 30px;
+  animation: fadeIn 0.8s ease-out 0.5s both;
+}
+
+.no-showdown p {
+  font-size: 20px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .winner-content {
+    padding: 30px 20px;
+    max-width: 90%;
+  }
+  
+  .winner-title {
+    font-size: 36px;
+  }
+  
+  .winner-name {
+    font-size: 28px;
+  }
+  
+  .pot-won {
+    font-size: 24px;
+  }
+  
+  .hand-name {
+    font-size: 18px;
+  }
+  
+  .showdown-cards {
+    gap: 20px;
+  }
+  
+  .player-showdown .playing-card {
+    transform: scale(0.9);
+  }
+}

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Poker Personality Tester</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .view-toggle {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .view-btn {
+            padding: 8px 15px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .view-btn.active {
+            background: #007bff;
+        }
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .column-view .result-card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .debug-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .debug-toggle {
+            background: #6c757d;
+            color: white;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+        .debug-toggle:hover {
+            background: #5a6268;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f8f8;
+            border-radius: 8px;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #444;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        select[multiple] {
+            height: 120px;
+        }
+        .preset-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        .preset-btn {
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .preset-btn:hover {
+            background: #0056b3;
+        }
+        .test-btn {
+            background: #28a745;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .test-btn:hover {
+            background: #218838;
+        }
+        .test-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 30px;
+        }
+        .result-card {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+        .personality-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        .decision {
+            font-size: 18px;
+            font-weight: bold;
+            padding: 5px 15px;
+            border-radius: 4px;
+        }
+        .decision.fold { background: #dc3545; color: white; }
+        .decision.call { background: #ffc107; color: black; }
+        .decision.raise { background: #28a745; color: white; }
+        .decision.check { background: #17a2b8; color: white; }
+        .decision.bet { background: #28a745; color: white; }
+        .traits {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .trait {
+            color: #666;
+        }
+        .trait strong {
+            color: #333;
+        }
+        .quote {
+            font-style: italic;
+            color: #444;
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-left: 4px solid #007bff;
+        }
+        .physical {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .inner-thoughts {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .inner-thoughts::before {
+            content: "💭 ";
+            font-size: 16px;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+            font-style: italic;
+        }
+        .scenario-display {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+        }
+        .scenario-display h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .options-list {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .option-tag {
+            background: #e9ecef;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎰 AI Poker Personality Tester 🎰</h1>
+        <p class="subtitle">Test how different AI personalities respond to poker scenarios</p>
+        <p style="text-align: center; margin-top: -10px;">
+            <a href="http://localhost:5002" target="_blank" style="color: #007bff; text-decoration: none;">
+                ✏️ Edit Personalities
+            </a>
+        </p>
+        
+        <div class="section">
+            <h2>1. Select Personalities (up to 3)</h2>
+            <div class="form-group">
+                <label for="personalities">Hold Ctrl/Cmd to select multiple:</label>
+                <select id="personalities" multiple>
+                    {% for personality in personalities %}
+                    <option value="{{ personality }}">{{ personality }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>2. Configure Scenario</h2>
+            
+            <div class="preset-buttons">
+                {% for key, scenario in scenarios.items() %}
+                <button class="preset-btn" onclick="loadScenario('{{ key }}')">
+                    {{ scenario.name }}
+                </button>
+                {% endfor %}
+            </div>
+            
+            <div class="form-group">
+                <label for="hand">Your Hand (e.g., "A♥ A♦" or "7♥ 7♦"):</label>
+                <input type="text" id="hand" placeholder="K♠ Q♥">
+            </div>
+            
+            <div class="form-group">
+                <label for="community">Community Cards (leave empty for pre-flop):</label>
+                <input type="text" id="community" placeholder="A♠ K♦ Q♣ J♥ 10♠">
+            </div>
+            
+            <div class="form-group">
+                <label for="pot">Pot Total ($):</label>
+                <input type="number" id="pot" value="500">
+            </div>
+            
+            <div class="form-group">
+                <label for="to_call">Cost to Call ($):</label>
+                <input type="number" id="to_call" value="100">
+            </div>
+            
+            <div class="form-group">
+                <label for="options">Available Options (comma-separated):</label>
+                <input type="text" id="options" value="fold, call, raise" placeholder="fold, call, raise">
+            </div>
+            
+            <button class="test-btn" onclick="testPersonalities()">Test Selected Personalities</button>
+        </div>
+        
+        <div id="results" class="results"></div>
+    </div>
+    
+    <script>
+        // Preset scenarios
+        const scenarios = {{ scenarios | tojson }};
+        
+        function loadScenario(key) {
+            const scenario = scenarios[key];
+            document.getElementById('hand').value = scenario.hand;
+            document.getElementById('community').value = scenario.community;
+            document.getElementById('pot').value = scenario.pot;
+            document.getElementById('to_call').value = scenario.to_call;
+            document.getElementById('options').value = scenario.options.join(', ');
+        }
+        
+        async function testPersonalities() {
+            const select = document.getElementById('personalities');
+            const selected = Array.from(select.selectedOptions).map(opt => opt.value);
+            
+            if (selected.length === 0) {
+                alert('Please select at least one personality');
+                return;
+            }
+            
+            if (selected.length > 3) {
+                alert('Please select no more than 3 personalities');
+                return;
+            }
+            
+            // Get scenario data
+            const scenario = {
+                hand: document.getElementById('hand').value.trim(),
+                community: document.getElementById('community').value.trim(),
+                pot: parseInt(document.getElementById('pot').value),
+                to_call: parseInt(document.getElementById('to_call').value),
+                options: document.getElementById('options').value.split(',').map(s => s.trim())
+            };
+            
+            if (!scenario.hand) {
+                alert('Please enter your hand');
+                return;
+            }
+            
+            // Show loading
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="loading">Getting AI responses...</div>';
+            
+            try {
+                const response = await fetch('/test_multiple', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        personalities: selected,
+                        scenario: scenario
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayResults(data.results, scenario);
+                } else {
+                    resultsDiv.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+        
+        let currentView = 'stacked';
+        let debugData = null;
+        
+        function toggleView(view) {
+            currentView = view;
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === view);
+            });
+            if (debugData) {
+                displayResults(debugData.results, debugData.scenario);
+            }
+        }
+        
+        function toggleDebug() {
+            const debugSection = document.getElementById('debug-section');
+            debugSection.style.display = debugSection.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function displayResults(results, scenario) {
+            const resultsDiv = document.getElementById('results');
+            
+            // Store for view switching
+            debugData = { results, scenario };
+            
+            let html = '<h2>Results</h2>';
+            
+            // Add view toggle buttons
+            html += '<div class="view-toggle">';
+            html += `<button class="view-btn ${currentView === 'stacked' ? 'active' : ''}" data-view="stacked" onclick="toggleView('stacked')">Stacked View</button>`;
+            html += `<button class="view-btn ${currentView === 'columns' ? 'active' : ''}" data-view="columns" onclick="toggleView('columns')">Column View</button>`;
+            html += '</div>';
+            
+            // Show scenario
+            html += '<div class="scenario-display">';
+            html += '<h3>Scenario</h3>';
+            html += `<p><strong>Hand:</strong> ${scenario.hand}</p>`;
+            html += `<p><strong>Community:</strong> ${scenario.community || 'None (pre-flop)'}</p>`;
+            html += `<p><strong>Pot:</strong> $${scenario.pot} | <strong>To Call:</strong> $${scenario.to_call}</p>`;
+            html += '<div class="options-list">';
+            scenario.options.forEach(opt => {
+                html += `<span class="option-tag">${opt}</span>`;
+            });
+            html += '</div>';
+            html += '</div>';
+            
+            // Container for results
+            if (currentView === 'columns') {
+                html += '<div class="results-grid column-view">';
+            } else {
+                html += '<div class="results-stacked">';
+            }
+            
+            // Show each personality's response
+            results.forEach(result => {
+                html += '<div class="result-card">';
+                
+                // Header with name and decision
+                html += '<div class="result-header">';
+                html += `<div class="personality-name">${result.personality}</div>`;
+                let decisionText = result.decision;
+                if (result.amount > 0 && result.decision === 'RAISE') {
+                    decisionText += ` $${result.amount}`;
+                }
+                html += `<div class="decision ${result.decision.toLowerCase()}">${decisionText}</div>`;
+                html += '</div>';
+                
+                // Traits
+                html += '<div class="traits">';
+                html += `<div class="trait">Style: <strong>${result.traits.play_style}</strong></div>`;
+                html += `<div class="trait">Bluff: <strong>${result.traits.bluff_tendency}</strong></div>`;
+                html += `<div class="trait">Aggression: <strong>${result.traits.aggression}</strong></div>`;
+                html += '</div>';
+                
+                // Quote
+                html += `<div class="quote">"${result.says}"</div>`;
+                
+                // Physical actions
+                if (result.physical && result.physical.length > 0) {
+                    html += `<div class="physical"><em>${result.physical.join(', ')}</em></div>`;
+                }
+                
+                // Inner thoughts
+                if (result.thinking || result.hand_strategy) {
+                    html += '<div class="inner-thoughts">';
+                    if (result.thinking) {
+                        html += `<strong>Thinking:</strong> "${result.thinking}"`;
+                    }
+                    if (result.hand_strategy) {
+                        if (result.thinking) html += '<br><br>';
+                        html += `<strong>Strategy:</strong> ${result.hand_strategy}`;
+                    }
+                    if (result.bluff_likelihood > 0) {
+                        html += `<br><strong>Bluff likelihood:</strong> ${result.bluff_likelihood}%`;
+                    }
+                    html += '</div>';
+                }
+                
+                html += '</div>';
+            });
+            
+            html += '</div>'; // Close results container
+            
+            // Add debug section
+            html += '<button class="debug-toggle" onclick="toggleDebug()">Show Prompt Details</button>';
+            html += '<div id="debug-section" class="debug-section" style="display: none;">';
+            html += '<h3>What\'s Being Sent to OpenAI:</h3>';
+            html += '<h4>System Prompt (for each personality):</h4>';
+            html += 'Persona: {PersonalityName}\n';
+            html += 'Attitude: {from personalities.json}\n';
+            html += 'Confidence: {from personalities.json}\n';
+            html += 'Starting money: $10000\n\n';
+            html += 'Full prompt includes:\n';
+            html += '- Personality details and play style\n';
+            html += '- Strategy instructions\n';
+            html += '- Response format requirements (JSON)\n';
+            html += '- Example responses\n\n';
+            html += '<h4>User Message (the scenario):</h4>';
+            html += `You have ${scenario.hand} in your hand.\n`;
+            html += `Community Cards: ${scenario.community || 'None yet'}\n`;
+            html += `Pot Total: $${scenario.pot}\n`;
+            html += `Your cost to call: $${scenario.to_call}\n`;
+            html += `You must select from these options: ${scenario.options}\n`;
+            html += 'What is your move?\n\n';
+            html += '<h4>Personality Traits Applied:</h4>';
+            results.forEach(result => {
+                html += `\n${result.personality}:\n`;
+                html += `- Play Style: ${result.traits.play_style}\n`;
+                html += `- Bluff Tendency: ${result.traits.bluff_tendency}\n`;
+                html += `- Aggression: ${result.traits.aggression}\n`;
+            });
+            html += '</div>';
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        // Load first scenario by default
+        window.onload = function() {
+            loadScenario('medium_pair_dangerous_board');
+        };
+    </script>
+</body>
+</html>

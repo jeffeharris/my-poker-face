@@ -201,5 +201,274 @@ class TestGamePersistence(unittest.TestCase):
         self.assertEqual(len(games), 0)
 
 
+class TestCardSerialization(unittest.TestCase):
+    """Test card serialization and deserialization."""
+    
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        self.persistence = GamePersistence(self.test_db.name)
+    
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+    
+    def test_serialize_card_object(self):
+        """Test serializing a Card object."""
+        card = Card('A', 'Spades')
+        result = self.persistence._serialize_card(card)
+        # Card.to_dict() includes suit_symbol
+        self.assertEqual(result['rank'], 'A')
+        self.assertEqual(result['suit'], 'Spades')
+        self.assertIn('suit_symbol', result)
+    
+    def test_serialize_card_dict(self):
+        """Test serializing a card dict."""
+        card_dict = {'rank': 'K', 'suit': 'Hearts'}
+        result = self.persistence._serialize_card(card_dict)
+        self.assertEqual(result, card_dict)
+    
+    def test_serialize_invalid_card(self):
+        """Test serializing invalid card raises error."""
+        with self.assertRaises(ValueError):
+            self.persistence._serialize_card("not a card")
+    
+    def test_deserialize_card_dict(self):
+        """Test deserializing a card dict."""
+        card_dict = {'rank': 'Q', 'suit': 'Diamonds'}
+        result = self.persistence._deserialize_card(card_dict)
+        self.assertIsInstance(result, Card)
+        self.assertEqual(result.rank, 'Q')
+        self.assertEqual(result.suit, 'Diamonds')
+    
+    def test_deserialize_card_object(self):
+        """Test deserializing an already Card object."""
+        card = Card('J', 'Clubs')
+        result = self.persistence._deserialize_card(card)
+        self.assertEqual(result, card)
+    
+    def test_serialize_cards_collection(self):
+        """Test serializing a collection of cards."""
+        cards = [
+            Card('A', 'Spades'),
+            {'rank': 'K', 'suit': 'Hearts'},
+            Card('Q', 'Diamonds')
+        ]
+        result = self.persistence._serialize_cards(cards)
+        self.assertEqual(len(result), 3)
+        self.assertTrue(all(isinstance(c, dict) for c in result))
+    
+    def test_deserialize_cards_collection(self):
+        """Test deserializing a collection of cards."""
+        cards_data = [
+            {'rank': 'A', 'suit': 'Spades'},
+            {'rank': 'K', 'suit': 'Hearts'},
+            {'rank': 'Q', 'suit': 'Diamonds'}
+        ]
+        result = self.persistence._deserialize_cards(cards_data)
+        self.assertEqual(len(result), 3)
+        self.assertTrue(all(isinstance(c, Card) for c in result))
+
+
+class TestAIStatePersistence(unittest.TestCase):
+    """Test AI state saving and loading."""
+    
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        self.persistence = GamePersistence(self.test_db.name)
+        self.game_id = "test_game_123"
+    
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+    
+    def test_save_ai_player_state(self):
+        """Test saving AI player state."""
+        messages = [
+            {"role": "system", "content": "You are Eeyore"},
+            {"role": "user", "content": "What's your move?"},
+            {"role": "assistant", "content": "I'll call... I suppose."}
+        ]
+        
+        personality_state = {
+            "traits": {
+                "bluff_tendency": 0.2,
+                "aggression": 0.3,
+                "chattiness": 0.5
+            },
+            "confidence": "Low",
+            "attitude": "Pessimistic"
+        }
+        
+        # Save AI state
+        self.persistence.save_ai_player_state(
+            self.game_id,
+            "Eeyore",
+            messages,
+            personality_state
+        )
+        
+        # Load and verify
+        ai_states = self.persistence.load_ai_player_states(self.game_id)
+        self.assertIn("Eeyore", ai_states)
+        
+        eeyore_state = ai_states["Eeyore"]
+        self.assertEqual(eeyore_state["messages"], messages)
+        self.assertEqual(eeyore_state["personality_state"], personality_state)
+    
+    def test_save_multiple_ai_states(self):
+        """Test saving states for multiple AI players."""
+        # Save states for multiple players
+        players = ["Eeyore", "Kanye West", "Sherlock Holmes"]
+        
+        for player in players:
+            messages = [{"role": "system", "content": f"You are {player}"}]
+            personality = {"traits": {"aggression": 0.5}}
+            self.persistence.save_ai_player_state(
+                self.game_id, player, messages, personality
+            )
+        
+        # Load all states
+        ai_states = self.persistence.load_ai_player_states(self.game_id)
+        self.assertEqual(len(ai_states), 3)
+        for player in players:
+            self.assertIn(player, ai_states)
+    
+    def test_update_ai_state(self):
+        """Test updating existing AI state."""
+        # Initial save
+        initial_messages = [{"role": "system", "content": "You are Eeyore"}]
+        initial_personality = {"traits": {"aggression": 0.3}}
+        
+        self.persistence.save_ai_player_state(
+            self.game_id, "Eeyore", initial_messages, initial_personality
+        )
+        
+        # Update with more messages
+        updated_messages = initial_messages + [
+            {"role": "user", "content": "Nice hand!"},
+            {"role": "assistant", "content": "Thanks... I guess."}
+        ]
+        updated_personality = {"traits": {"aggression": 0.25}}
+        
+        self.persistence.save_ai_player_state(
+            self.game_id, "Eeyore", updated_messages, updated_personality
+        )
+        
+        # Verify update
+        ai_states = self.persistence.load_ai_player_states(self.game_id)
+        eeyore_state = ai_states["Eeyore"]
+        self.assertEqual(len(eeyore_state["messages"]), 3)
+        self.assertEqual(eeyore_state["personality_state"]["traits"]["aggression"], 0.25)
+    
+    def test_load_nonexistent_ai_states(self):
+        """Test loading AI states for non-existent game."""
+        ai_states = self.persistence.load_ai_player_states("nonexistent_game")
+        self.assertEqual(ai_states, {})
+
+
+class TestPersonalitySnapshots(unittest.TestCase):
+    """Test personality snapshot functionality."""
+    
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        self.persistence = GamePersistence(self.test_db.name)
+        self.game_id = "test_game_123"
+    
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+    
+    def test_save_personality_snapshot(self):
+        """Test saving personality snapshot."""
+        traits = {
+            "bluff_tendency": 0.8,
+            "aggression": 0.7,
+            "chattiness": 0.9,
+            "emoji_usage": 0.6
+        }
+        
+        pressure_levels = {
+            "bluff_tendency": 0.2,
+            "aggression": 0.1,
+            "chattiness": 0.0,
+            "emoji_usage": 0.0
+        }
+        
+        # Save snapshot
+        self.persistence.save_personality_snapshot(
+            self.game_id,
+            "Kanye West",
+            hand_number=5,
+            traits=traits,
+            pressure_levels=pressure_levels
+        )
+        
+        # TODO: Add load method when needed for elasticity
+        # For now, just verify it doesn't crash
+    
+    def test_save_snapshot_without_pressure(self):
+        """Test saving snapshot without pressure levels."""
+        traits = {
+            "bluff_tendency": 0.5,
+            "aggression": 0.5
+        }
+        
+        # Should not crash when pressure_levels is None
+        self.persistence.save_personality_snapshot(
+            self.game_id,
+            "Test Player",
+            hand_number=1,
+            traits=traits
+        )
+
+
+class TestDatabaseSchema(unittest.TestCase):
+    """Test database schema creation and indices."""
+    
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        self.persistence = GamePersistence(self.test_db.name)
+    
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+    
+    def test_ai_tables_created(self):
+        """Test that AI persistence tables are created."""
+        import sqlite3
+        
+        with sqlite3.connect(self.test_db.name) as conn:
+            # Check ai_player_state table
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='ai_player_state'
+            """)
+            self.assertIsNotNone(cursor.fetchone())
+            
+            # Check personality_snapshots table
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='personality_snapshots'
+            """)
+            self.assertIsNotNone(cursor.fetchone())
+    
+    def test_indices_created(self):
+        """Test that indices are created."""
+        import sqlite3
+        
+        with sqlite3.connect(self.test_db.name) as conn:
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='index' AND name='idx_ai_player_game'
+            """)
+            self.assertIsNotNone(cursor.fetchone())
+            
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='index' AND name='idx_personality_snapshots'
+            """)
+            self.assertIsNotNone(cursor.fetchone())
+
+
 if __name__ == '__main__':
     unittest.main()

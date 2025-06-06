@@ -8,6 +8,7 @@ from core.assistants import OpenAILLMAssistant
 from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
+from .elasticity_manager import ElasticPersonality
 
 
 class PokerPlayer:
@@ -108,6 +109,16 @@ class AIPokerPlayer(PokerPlayer):
         self.attitude = self.personality_config.get("default_attitude", "Distracted")
         self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
                                             system_message=self.persona_prompt())
+        
+        # Initialize elastic personality
+        self.elastic_personality = ElasticPersonality.from_base_personality(
+            name=self.name,
+            personality_config=self.personality_config
+        )
+        
+        # Hand strategy persistence
+        self.current_hand_strategy = None
+        self.hand_action_count = 0
 
     def to_dict(self):
         return {
@@ -124,7 +135,10 @@ class AIPokerPlayer(PokerPlayer):
                 "system_message": self.assistant.system_message,
                 "messages": self.assistant.messages,
                 "model": self.assistant.ai_model,
-            } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"}
+            } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"},
+            "elastic_personality": self.elastic_personality.to_dict() if hasattr(self, 'elastic_personality') else None,
+            "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
+            "hand_action_count": self.hand_action_count if hasattr(self, 'hand_action_count') else 0
         }
 
     @classmethod
@@ -152,6 +166,17 @@ class AIPokerPlayer(PokerPlayer):
             instance.confidence = confidence
             instance.attitude = attitude
             instance.assistant = assistant
+            
+            # Restore elastic personality if present
+            if 'elastic_personality' in player_dict and player_dict['elastic_personality']:
+                instance.elastic_personality = ElasticPersonality.from_dict(player_dict['elastic_personality'])
+            
+            # Restore hand strategy persistence
+            if 'current_hand_strategy' in player_dict:
+                instance.current_hand_strategy = player_dict['current_hand_strategy']
+            if 'hand_action_count' in player_dict:
+                instance.hand_action_count = player_dict['hand_action_count']
+            
             return instance
         except KeyError as e:
             raise ValueError(f"Missing key in player_dict: {e}")
@@ -171,6 +196,9 @@ class AIPokerPlayer(PokerPlayer):
         super().set_for_new_hand()
         # Reset the assistant's memory instead of directly assigning a new list.
         self.assistant.reset_memory()
+        # Reset hand strategy for new hand
+        self.current_hand_strategy = None
+        self.hand_action_count = 0
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
@@ -261,8 +289,17 @@ class AIPokerPlayer(PokerPlayer):
             return ""
     
     def get_personality_modifier(self):
-        """Get personality-specific play instructions."""
-        traits = self.personality_config.get("personality_traits", {})
+        """Get personality-specific play instructions based on current elastic trait values."""
+        if hasattr(self, 'elastic_personality'):
+            # Use elastic trait values
+            traits = {
+                name: self.elastic_personality.get_trait_value(name)
+                for name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']
+            }
+        else:
+            # Fallback to static config
+            traits = self.personality_config.get("personality_traits", {})
+        
         modifiers = []
         
         if traits.get("bluff_tendency", 0.5) > 0.7:
@@ -276,6 +313,37 @@ class AIPokerPlayer(PokerPlayer):
             modifiers.append("Play cautiously. Avoid big risks unless you're certain.")
         
         return " ".join(modifiers)
+    
+    def update_mood_from_elasticity(self):
+        """Update confidence and attitude based on current elastic personality state."""
+        if hasattr(self, 'elastic_personality'):
+            # Get current mood from elastic personality
+            current_mood = self.elastic_personality.get_current_mood()
+            
+            # Update confidence/attitude if mood has changed
+            if current_mood != self.elastic_personality.current_mood:
+                # For now, use the mood for confidence
+                # In the future, we could have separate confidence and attitude moods
+                self.confidence = current_mood
+                # Keep attitude from personality config or use a variation
+                # This preserves the personality's core attitude while confidence fluctuates
+                self.attitude = self.personality_config.get("default_attitude", self.attitude)
+                self.elastic_personality.current_mood = current_mood
+                
+                # Regenerate system message with new mood
+                self.assistant.system_message = self.persona_prompt()
+    
+    def apply_pressure_event(self, event_name: str):
+        """Apply a pressure event to this player's elastic personality."""
+        if hasattr(self, 'elastic_personality'):
+            self.elastic_personality.apply_pressure_event(event_name)
+            self.update_mood_from_elasticity()
+    
+    def recover_traits(self):
+        """Apply recovery to elastic traits."""
+        if hasattr(self, 'elastic_personality'):
+            self.elastic_personality.recover_all_traits()
+            self.update_mood_from_elasticity()
     
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength
@@ -318,7 +386,24 @@ class AIPokerPlayer(PokerPlayer):
 
     def get_player_response(self, message) -> Dict[str, str]:
         try:
+            # Increment action count before getting response
+            self.hand_action_count += 1
+            
+            # Add context about strategy requirement
+            if self.hand_action_count == 1:
+                message += "\n\nThis is your FIRST action this hand. You must set your 'hand_strategy' for the entire hand."
+            elif self.current_hand_strategy:
+                message += f"\n\nYour hand strategy remains: '{self.current_hand_strategy}'"
+            
             player_response = json.loads(self.assistant.chat(message, json_format=True))
+            
+            # Lock in hand strategy on first action
+            if self.hand_action_count == 1 and 'hand_strategy' in player_response:
+                self.current_hand_strategy = player_response['hand_strategy']
+            elif self.current_hand_strategy and 'hand_strategy' in player_response:
+                # Override any attempt to change strategy mid-hand
+                player_response['hand_strategy'] = self.current_hand_strategy
+                
         except (json.JSONDecodeError, TypeError) as e:
             print(f"Error decoding player response: {e}")
             player_response = {"error": "Invalid response from assistant"}

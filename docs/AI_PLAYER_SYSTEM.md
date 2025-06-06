@@ -249,12 +249,55 @@ Modify these files to adjust AI behavior:
 - **Token Usage**: ~500-1000 tokens per decision
 - **Persistence**: Full state can be saved/loaded
 
+## Personality Elasticity Integration (NEW)
+
+The AI Player System now includes dynamic personality traits that change during gameplay through the Elasticity System.
+
+### How Elasticity Works with AI Players
+
+1. **Trait Modification**: Each personality trait (bluff_tendency, aggression, etc.) can elastically change within defined bounds based on game events.
+
+2. **Mood Updates**: The AI's confidence and attitude update based on accumulated pressure:
+   ```python
+   # In AIPokerPlayer
+   ai_player.apply_pressure_event('big_loss')  # Reduces aggression
+   ai_player.update_mood_from_elasticity()     # Updates confidence/attitude
+   ```
+
+3. **Dynamic Decisions**: The AIPlayerController uses current elastic trait values:
+   ```python
+   # Gets current trait values, not just base values
+   traits = controller.get_current_personality_traits()
+   ```
+
+4. **Persistence**: Elastic personality state is fully serialized with the player.
+
+### Example Elasticity Flow
+
+```
+Gordon Ramsay starts with aggression = 0.95
+    ↓
+Loses big pot → "big_loss" event
+    ↓
+Pressure applied: aggression -0.3
+    ↓
+Trait changes to 0.80 (within elasticity bounds)
+    ↓
+Mood updates from "intense" to "frustrated"
+    ↓
+AI decisions reflect lower aggression
+    ↓
+Over time, trait recovers toward 0.95
+```
+
+For full details, see [ELASTICITY_SYSTEM.md](ELASTICITY_SYSTEM.md).
+
 ## Future Enhancements
 
 1. **Learning System**: Track win rates per personality
 2. **Adaptive Difficulty**: Adjust skill based on player level
 3. **Team Play**: Personalities that work together
-4. **Emotional Arcs**: Mood changes based on wins/losses
+4. ~~**Emotional Arcs**: Mood changes based on wins/losses~~ ✓ Implemented via Elasticity System
 5. **Custom Personalities**: UI for players to design their own
 
 ## Debugging

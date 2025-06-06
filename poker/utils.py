@@ -4,7 +4,20 @@ from typing import Tuple, Dict, List
 
 # Constants for configuration
 ATTRIBUTE_CONSTRAINT = "Use less than 20 words"
+# Only include celebrities that have personality configurations
+# See poker/personalities.json for the personality definitions
 CELEBRITIES_LIST = [
+    "Ace Ventura",
+    "Eeyore", 
+    "Donald Trump",
+    "Batman",
+    "A Mime",
+    "Gordon Ramsay",
+    "Bob Ross"
+]
+
+# Full list of potential celebrities for future expansion
+ALL_CELEBRITIES_LIST = [
     "Ace Ventura", "Khloe and Kim Khardashian", "Fred Durst", "Tom Cruise",
     "James Bond", "Jon Stewart", "Jim Cramer", "Marjorie Taylor Greene",
     "Lizzo", "Bill Clinton", "Barack Obama", "Jesus Christ",
