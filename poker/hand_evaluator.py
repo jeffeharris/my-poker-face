@@ -124,10 +124,17 @@ class HandEvaluator:
         sorted_values = sorted(self.ranks, reverse=True)
         if not sorted_values:
             return False, [], [], None, None
+        
+        # Check for regular straights
         for top in range(sorted_values[0], 4, -1):
             if set(range(top-4, top+1)).issubset(set(sorted_values)):
                 straight_values = list(range(top, top-5, -1))
                 return True, straight_values, [], None, f"{top} high Straight"
+        
+        # Check for Ace-low straight (A-2-3-4-5, also known as "wheel")
+        if set([14, 2, 3, 4, 5]).issubset(set(sorted_values)):
+            return True, [5, 4, 3, 2, 1], [], None, "5 high Straight (Wheel)"
+        
         return False, [], [], None, None
 
     def _check_three_of_a_kind(self):

@@ -1,11 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { CommunityCard, HoleCard } from './Card';
+import { Card, CommunityCard, HoleCard } from './Card';
 import { ActionButtons } from './ActionButtons';
 import { Chat } from './Chat';
 import { LoadingIndicator } from './LoadingIndicator';
 import { PlayerThinking } from './PlayerThinking';
 import { WinnerAnnouncement } from './WinnerAnnouncement';
+import { ElasticityDebugPanel } from './ElasticityDebugPanel';
+import { PressureStats } from './PressureStats';
+import { config } from '../config';
 import './PokerTable.css';
 
 interface Player {
@@ -44,9 +47,10 @@ interface GameState {
 
 interface PokerTableProps {
   gameId?: string | null;
+  playerName?: string;
 }
 
-export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
+export function PokerTable({ gameId: providedGameId, playerName }: PokerTableProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [chatVisible, setChatVisible] = useState(true); // Start with chat visible for debugging
@@ -60,6 +64,8 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
   const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
+  const [debugMode, setDebugMode] = useState<boolean>(false);
+  const [showStats, setShowStats] = useState<boolean>(false);
 
   // Extract socket setup to avoid duplication
   const setupSocketListeners = (socket: Socket) => {
@@ -142,7 +148,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
       setGameId(loadGameId);
       
       // Initialize WebSocket connection
-      const socket = io('http://localhost:5000');
+      const socket = io(config.SOCKET_URL);
       socketRef.current = socket;
       
       socket.on('connect', () => {
@@ -154,7 +160,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
       setupSocketListeners(socket);
       
       // Fetch the game state
-      fetch(`http://localhost:5000/api/game-state/${loadGameId}`)
+      fetch(`${config.API_URL}/api/game-state/${loadGameId}`)
         .then(res => {
           if (!res.ok) {
             throw new Error('Failed to load game');
@@ -174,12 +180,28 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
           setGameState(data);
           setLoading(false);
           
-          // Initialize player positions
-          const positions = new Map<string, number>();
-          data.players.forEach((player: Player, index: number) => {
-            positions.set(player.name, index);
-          });
-          setPlayerPositions(positions);
+          // Only initialize positions if they haven't been set yet
+          // This prevents positions from changing when dealer rotates
+          if (playerPositions.size === 0) {
+            const positions = new Map<string, number>();
+            let humanIndex = data.players.findIndex((p: Player) => p.is_human);
+            let positionIndex = 0;
+            
+            // Assign human player to position 0 (bottom)
+            if (humanIndex !== -1) {
+              positions.set(data.players[humanIndex].name, 0);
+              positionIndex = 1;
+            }
+            
+            // Assign other players to remaining positions
+            data.players.forEach((player: Player, index: number) => {
+              if (!player.is_human) {
+                positions.set(player.name, positionIndex);
+                positionIndex++;
+              }
+            });
+            setPlayerPositions(positions);
+          }
           
           // Initialize messages
           if (data.messages) {
@@ -202,11 +224,14 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         });
     } else {
       // Create a new game
-      fetch('http://localhost:5000/api/new-game', {
+      fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          playerName: playerName || 'Player'
+        }),
       })
         .then(res => res.json())
         .then(data => {
@@ -214,7 +239,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
           setGameId(newGameId);
         
         // Initialize WebSocket connection
-        const socket = io('http://localhost:5000');
+        const socket = io(config.SOCKET_URL);
         socketRef.current = socket;
         
         socket.on('connect', () => {
@@ -226,19 +251,35 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         setupSocketListeners(socket);
         
         // Now fetch the initial game state
-        return fetch(`http://localhost:5000/api/game-state/${newGameId}`);
+        return fetch(`${config.API_URL}/api/game-state/${newGameId}`);
       })
       .then(res => res.json())
       .then(data => {
         setGameState(data);
         setLoading(false);
         
-        // Initialize player positions on first load
-        const positions = new Map<string, number>();
-        data.players.forEach((player: Player, index: number) => {
-          positions.set(player.name, index);
-        });
-        setPlayerPositions(positions);
+        // Only initialize positions if they haven't been set yet
+        // This prevents positions from changing when dealer rotates
+        if (playerPositions.size === 0) {
+          const positions = new Map<string, number>();
+          let humanIndex = data.players.findIndex((p: Player) => p.is_human);
+          let positionIndex = 0;
+          
+          // Assign human player to position 0 (bottom)
+          if (humanIndex !== -1) {
+            positions.set(data.players[humanIndex].name, 0);
+            positionIndex = 1;
+          }
+          
+          // Assign other players to remaining positions
+          data.players.forEach((player: Player, index: number) => {
+            if (!player.is_human) {
+              positions.set(player.name, positionIndex);
+              positionIndex++;
+            }
+          });
+          setPlayerPositions(positions);
+        }
         
         // Initialize messages
         if (data.messages) {
@@ -283,7 +324,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
     const pollInterval = setInterval(async () => {
       try {
         console.log('Polling for updates...');
-        const gameResponse = await fetch(`http://localhost:5000/api/game-state/${gId}`);
+        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gId}`);
         const data = await gameResponse.json();
         setGameState(data);
         
@@ -315,7 +356,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
     setAiThinking(true);
     
     try {
-      const response = await fetch(`http://localhost:5000/api/game/${gameId}/action`, {
+      const response = await fetch(`${config.API_URL}/api/game/${gameId}/action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -341,20 +382,20 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
     if (!gameId) return;
     
     try {
-      const response = await fetch(`http://localhost:5000/api/game/${gameId}/message`, {
+      const response = await fetch(`${config.API_URL}/api/game/${gameId}/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           message,
-          sender: 'Jeff'
+          sender: playerName || 'Player'
         }),
       });
       
       if (response.ok) {
         // Refresh game state to get updated messages
-        const gameResponse = await fetch(`http://localhost:5000/api/game-state/${gameId}`);
+        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gameId}`);
         const data = await gameResponse.json();
         setGameState(data);
       }
@@ -403,7 +444,56 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
   if (!gameState) return <div className="error">No game state available</div>;
 
   return (
-    <div className="poker-table">
+    <>
+      {/* Control Buttons */}
+      <div style={{
+        position: 'fixed',
+        top: '10px',
+        right: '10px',
+        zIndex: 1001,
+        display: 'flex',
+        gap: '10px'
+      }}>
+        <button
+          className="stats-toggle"
+          onClick={() => setShowStats(!showStats)}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: showStats ? '#ffcc00' : '#666',
+            color: showStats ? '#000' : '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          {showStats ? 'Hide Stats' : 'Show Stats'}
+        </button>
+        
+        <button
+          className="debug-toggle"
+          onClick={() => setDebugMode(!debugMode)}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: debugMode ? '#00ff00' : '#666',
+            color: debugMode ? '#000' : '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          {debugMode ? 'Hide Debug' : 'Show Debug'}
+        </button>
+      </div>
+      
+      {/* Pressure Stats Panel */}
+      <PressureStats gameId={gameId} isOpen={showStats} />
+      
+      {/* Elasticity Debug Panel */}
+      <ElasticityDebugPanel gameId={gameId} isOpen={debugMode} socket={socketRef.current} />
+      
+      <div className="poker-table">
       <div className="table-felt">
         {/* Community Cards Area */}
         <div className="community-area">
@@ -485,13 +575,13 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
                 {/* Player cards */}
                 <div className="player-cards">
                   {player.is_human && player.hand ? (
-                    // Show actual cards for human player
+                    // Show actual cards for human player (medium size)
                     <>
-                      <HoleCard card={player.hand[0]} visible={true} />
-                      <HoleCard card={player.hand[1]} visible={true} />
+                      <Card card={player.hand[0]} faceDown={false} size="medium" className="hole-card" />
+                      <Card card={player.hand[1]} faceDown={false} size="medium" className="hole-card" />
                     </>
                   ) : (
-                    // Show face-down cards for AI players
+                    // Show face-down cards for AI players (small size)
                     <>
                       <HoleCard visible={false} />
                       <HoleCard visible={false} />
@@ -553,19 +643,17 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         </div>
 
         {/* Game Info */}
-        <div className="game-info">
-          <div className="phase">Phase: {gameState.phase}</div>
-          {lastUpdate && (
+        {lastUpdate && (
+          <div className="game-info">
             <div className="update-indicator" style={{
               fontSize: '10px',
               color: '#00ff88',
-              marginTop: '5px',
               animation: 'fadeIn 0.3s ease-out'
             }}>
               ✓ Live update: {lastUpdate.toLocaleTimeString()}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* AI Thinking Indicator - Full screen overlay (optional) */}
         {aiThinking && currentPlayer && !currentPlayer.is_human && useOverlayLoading && (
@@ -597,6 +685,7 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         onSendMessage={handleSendMessage}
         isVisible={chatVisible}
         onToggleVisibility={() => setChatVisible(!chatVisible)}
+        playerName={playerName}
       />
       
       {/* Winner Announcement */}
@@ -605,5 +694,6 @@ export function PokerTable({ gameId: providedGameId }: PokerTableProps) {
         onComplete={() => setWinnerInfo(null)}
       />
     </div>
+    </>
   );
 }

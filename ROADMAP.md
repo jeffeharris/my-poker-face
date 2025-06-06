@@ -3,6 +3,7 @@
 ## Current State (Reality Check)
 - ✅ Core poker engine works (state machine, hand evaluation)
 - ✅ AI personalities are amazing with the new prompt system
+- ✅ AI error handling and resilience (no more crashes from API failures)
 - ❌ Can't actually start and play a game easily
 - ❌ Web and console UIs are both broken/incomplete
 - ❌ Too many half-implemented features
