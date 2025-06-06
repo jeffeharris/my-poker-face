@@ -115,6 +115,10 @@ class AIPokerPlayer(PokerPlayer):
             name=self.name,
             personality_config=self.personality_config
         )
+        
+        # Hand strategy persistence
+        self.current_hand_strategy = None
+        self.hand_action_count = 0
 
     def to_dict(self):
         return {
@@ -132,7 +136,9 @@ class AIPokerPlayer(PokerPlayer):
                 "messages": self.assistant.messages,
                 "model": self.assistant.ai_model,
             } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"},
-            "elastic_personality": self.elastic_personality.to_dict() if hasattr(self, 'elastic_personality') else None
+            "elastic_personality": self.elastic_personality.to_dict() if hasattr(self, 'elastic_personality') else None,
+            "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
+            "hand_action_count": self.hand_action_count if hasattr(self, 'hand_action_count') else 0
         }
 
     @classmethod
@@ -165,6 +171,12 @@ class AIPokerPlayer(PokerPlayer):
             if 'elastic_personality' in player_dict and player_dict['elastic_personality']:
                 instance.elastic_personality = ElasticPersonality.from_dict(player_dict['elastic_personality'])
             
+            # Restore hand strategy persistence
+            if 'current_hand_strategy' in player_dict:
+                instance.current_hand_strategy = player_dict['current_hand_strategy']
+            if 'hand_action_count' in player_dict:
+                instance.hand_action_count = player_dict['hand_action_count']
+            
             return instance
         except KeyError as e:
             raise ValueError(f"Missing key in player_dict: {e}")
@@ -184,6 +196,9 @@ class AIPokerPlayer(PokerPlayer):
         super().set_for_new_hand()
         # Reset the assistant's memory instead of directly assigning a new list.
         self.assistant.reset_memory()
+        # Reset hand strategy for new hand
+        self.current_hand_strategy = None
+        self.hand_action_count = 0
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
@@ -366,7 +381,24 @@ class AIPokerPlayer(PokerPlayer):
 
     def get_player_response(self, message) -> Dict[str, str]:
         try:
+            # Increment action count before getting response
+            self.hand_action_count += 1
+            
+            # Add context about strategy requirement
+            if self.hand_action_count == 1:
+                message += "\n\nThis is your FIRST action this hand. You must set your 'hand_strategy' for the entire hand."
+            elif self.current_hand_strategy:
+                message += f"\n\nYour hand strategy remains: '{self.current_hand_strategy}'"
+            
             player_response = json.loads(self.assistant.chat(message, json_format=True))
+            
+            # Lock in hand strategy on first action
+            if self.hand_action_count == 1 and 'hand_strategy' in player_response:
+                self.current_hand_strategy = player_response['hand_strategy']
+            elif self.current_hand_strategy and 'hand_strategy' in player_response:
+                # Override any attempt to change strategy mid-hand
+                player_response['hand_strategy'] = self.current_hand_strategy
+                
         except (json.JSONDecodeError, TypeError) as e:
             print(f"Error decoding player response: {e}")
             player_response = {"error": "Invalid response from assistant"}
