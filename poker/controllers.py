@@ -8,6 +8,8 @@ from .poker_state_machine import PokerStateMachine
 from .poker_player import AIPokerPlayer
 from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
+from .chattiness_manager import ChattinessManager
+from .response_validator import ResponseValidator
 from .ai_resilience import (
     with_ai_fallback, 
     expects_json,
@@ -63,6 +65,8 @@ class AIPlayerController:
         self.ai_player = AIPokerPlayer(player_name, ai_temp=ai_temp)
         self.assistant = self.ai_player.assistant
         self.prompt_manager = PromptManager()
+        self.chattiness_manager = ChattinessManager()
+        self.response_validator = ResponseValidator()
         # Store personality traits for fallback behavior
         self.personality_traits = self.ai_player.personality_config.get('personality_traits', {})
         
@@ -80,11 +84,31 @@ class AIPlayerController:
         game_messages = summarize_messages(
             game_messages,
             self.player_name)
+        
+        # Get current chattiness and determine if should speak
+        current_traits = self.get_current_personality_traits()
+        chattiness = current_traits.get('chattiness', 0.5)
+        
+        # Build game context for chattiness decision
+        game_context = self._build_game_context(game_state)
+        should_speak = self.chattiness_manager.should_speak(
+            self.player_name, chattiness, game_context
+        )
+        speaking_context = self.chattiness_manager.get_speaking_context(self.player_name)
+        
+        # Build message with chattiness context
         message = convert_game_to_hand_state(
             game_state,
             game_state.current_player,
             self.state_machine.phase,
             game_messages)
+        
+        # Add chattiness guidance to message
+        chattiness_guidance = self._build_chattiness_guidance(
+            chattiness, should_speak, speaking_context
+        )
+        message = message + "\n\n" + chattiness_guidance
+        
         print(message)
         
         # Get valid actions and context for fallback
@@ -98,11 +122,18 @@ class AIPlayerController:
             valid_actions=player_options,
             call_amount=cost_to_call,
             min_raise=10,  # TODO: Calculate from game rules
-            max_raise=min(player_stack, game_state.pot['total'] * 2)
+            max_raise=min(player_stack, game_state.pot['total'] * 2),
+            should_speak=should_speak
         )
         
-        print(json.dumps(response_dict, indent=4))
-        return response_dict
+        # Clean response based on speaking decision
+        cleaned_response = self.response_validator.clean_response(
+            response_dict, 
+            {'should_speak': should_speak}
+        )
+        
+        print(json.dumps(cleaned_response, indent=4))
+        return cleaned_response
     
     @with_ai_fallback(fallback_strategy=AIFallbackStrategy.MIMIC_PERSONALITY)
     @expects_json
@@ -122,15 +153,16 @@ class AIPlayerController:
         response_json = self.assistant.chat(decision_prompt)
         response_dict = parse_json_response(response_json)
         
-        # Validate response has required keys
-        required_keys = ('action', 'adding_to_pot', 'persona_response', 'physical')
+        # Validate response has required keys (only action is truly required)
+        required_keys = ('action',)
         if not all(key in response_dict for key in required_keys):
             # Try to fix missing keys
             response_dict.setdefault('action', 'fold')
-            response_dict.setdefault('adding_to_pot', 0)
-            response_dict.setdefault('persona_response', get_fallback_chat_response(self.player_name))
-            response_dict.setdefault('physical', "...")
-            logger.warning(f"AI response was missing keys, filled with defaults: {response_dict}")
+            logger.warning(f"AI response was missing action, defaulted to fold")
+        
+        # Set default for adding_to_pot if not present
+        if 'adding_to_pot' not in response_dict:
+            response_dict['adding_to_pot'] = 0
         
         # Validate action is valid
         valid_actions = context.get('valid_actions', [])
@@ -141,6 +173,71 @@ class AIPlayerController:
             response_dict['adding_to_pot'] = validated['amount']
         
         return response_dict
+    
+    def _build_game_context(self, game_state) -> Dict:
+        """Build context for chattiness decisions."""
+        context = {}
+        
+        # Check pot size
+        pot_total = game_state.pot.get('total', 0)
+        if pot_total > 500:  # Arbitrary threshold
+            context['big_pot'] = True
+        
+        # Check if all-in situation
+        if any(p.is_all_in for p in game_state.players if p.is_active):
+            context['all_in'] = True
+        
+        # Check if heads-up
+        active_players = [p for p in game_state.players if p.is_active]
+        if len(active_players) == 2:
+            context['heads_up'] = True
+        elif len(active_players) > 3:
+            context['multi_way_pot'] = True
+        
+        # Add phase-specific context
+        if self.state_machine.phase == 'SHOWDOWN':
+            context['showdown'] = True
+        
+        # TODO: Add more context based on recent wins/losses, bluffs, etc.
+        
+        return context
+    
+    def _build_chattiness_guidance(self, chattiness: float, should_speak: bool, 
+                                  speaking_context: Dict) -> str:
+        """Build guidance for AI about speaking behavior."""
+        guidance = f"Your chattiness level: {chattiness:.1f}/1.0\n"
+        
+        if should_speak:
+            guidance += "You feel inclined to say something this turn.\n"
+            style = self.chattiness_manager.suggest_speaking_style(
+                self.player_name, chattiness
+            )
+            guidance += f"Speaking style: {style}\n"
+        else:
+            guidance += "You don't feel like talking this turn. Stay quiet.\n"
+            guidance += "Focus on your action and inner thoughts only.\n"
+            guidance += "DO NOT include 'persona_response' or 'physical' in your response.\n"
+        
+        # Add context about conversation flow
+        if speaking_context['turns_since_spoke'] > 3:
+            guidance += f"(You haven't spoken in {speaking_context['turns_since_spoke']} turns)\n"
+        if speaking_context['table_silent_turns'] > 2:
+            guidance += "(The table has been quiet for a while)\n"
+        
+        # Add response format based on context
+        guidance += "\nRequired response fields:\n"
+        guidance += "- action (from your available options)\n"
+        guidance += "- inner_monologue (your private thoughts)\n"
+        
+        if self.ai_player.hand_action_count == 0:
+            guidance += "- hand_strategy (your approach for this entire hand)\n"
+        
+        if should_speak:
+            guidance += "\nOptional response fields:\n"
+            guidance += "- persona_response (what you say out loud)\n"
+            guidance += "- physical (gestures or actions)\n"
+        
+        return guidance
 
 
 def human_player_action(ui_data: dict, player_options: List[str]) -> Dict:
