@@ -59,6 +59,9 @@ python -m pytest tests/test_persistence.py -v
 
 # Test AI resilience and error handling
 python -m pytest tests/test_ai_resilience.py -v
+
+# Test prompt system improvements
+python -m pytest tests/test_prompt_improvements.py -v
 ```
 
 #### Testing AI Players
