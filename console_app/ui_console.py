@@ -13,13 +13,19 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 def display_ai_player_action(player_name: str, response_dict: dict):
     player_choice = response_dict['action']
-    amount = response_dict['adding_to_pot']
-    player_message = response_dict['persona_response']
-    player_physical_description = response_dict['physical']
+    amount = response_dict.get('adding_to_pot', 0)
+    player_message = response_dict.get('persona_response', '')
+    player_physical_description = response_dict.get('physical', '')
+    
     print(f"\n{'-'*20}\n")
-    print(f"{player_name} chose to {player_choice} by {amount}")
-    print(f"\"{player_message}\"")
-    print(f"{player_physical_description}")
+    print(f"{player_name} chose to {player_choice}{' by ' + str(amount) if amount > 0 else ''}")
+    
+    # Only show message if AI actually spoke
+    if player_message and player_message != '...':
+        print(f"\"{player_message}\"")
+    if player_physical_description and player_physical_description != '...':
+        print(f"{player_physical_description}")
+    
     print(f"\n{'-'*20}\n")
 
 

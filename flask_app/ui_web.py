@@ -784,7 +784,7 @@ def handle_ai_action(game_id: str) -> None:
         # Prepare variables needed for new messages
         action = player_response_dict['action']
         amount = player_response_dict.get('adding_to_pot', 0)
-        player_message = player_response_dict.get('persona_response', '...')
+        player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
         
     except Exception as e:
@@ -823,7 +823,12 @@ def handle_ai_action(game_id: str) -> None:
                     "table")
 
     table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
-    send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai", 1)
+    
+    # Only send AI message if they actually spoke
+    if player_message and player_message != '...':
+        full_message = f"{player_message} {player_physical_description}".strip()
+        send_message(game_id, current_player.name, full_message, "ai", 1)
+    
     send_message(game_id, "table", table_message_content, "table")
     
     # Detect pressure events based on AI action
