@@ -137,6 +137,13 @@
         .btn-secondary:hover {
             background: #5a6268;
         }
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .btn-warning:hover {
+            background: #e0a800;
+        }
         .alert {
             padding: 15px;
             margin-bottom: 20px;
@@ -365,6 +372,7 @@
                 
                 <div class="button-group">
                     <button class="btn btn-primary" onclick="savePersonality()">Save Changes</button>
+                    <button class="btn btn-warning" onclick="regeneratePersonality()">Regenerate with AI</button>
                     <button class="btn btn-danger" onclick="deletePersonality()">Delete Personality</button>
                     <button class="btn btn-secondary" onclick="cancelEdit()">Cancel</button>
                 </div>
@@ -492,7 +500,61 @@
                 return;
             }
             
-            // Create with default values
+            // Ask if they want AI generation
+            if (confirm(`Would you like AI to generate a personality for "${name}"?\n\nClick OK to use AI generation, or Cancel to create manually.`)) {
+                generateWithAI(name);
+            } else {
+                // Create with default values
+                const newPersonality = {
+                    play_style: "balanced",
+                    default_confidence: "confident",
+                    default_attitude: "focused",
+                    personality_traits: {
+                        bluff_tendency: 0.5,
+                        aggression: 0.5,
+                        chattiness: 0.5,
+                        emoji_usage: 0.3
+                    },
+                    verbal_tics: [],
+                    physical_tics: []
+                };
+                
+                personalities[name] = newPersonality;
+                displayPersonalityList();
+                selectPersonality(name);
+            }
+        }
+        
+        async function generateWithAI(name) {
+            // Show loading state
+            showAlert('info', `Generating personality for ${name}...`);
+            
+            try {
+                const response = await fetch('/api/generate_personality', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    personalities[name] = data.personality;
+                    displayPersonalityList();
+                    selectPersonality(name);
+                    showAlert('success', `AI generated personality for ${name}! Review and save if you're happy with it.`);
+                } else {
+                    showAlert('error', 'Generation failed: ' + (data.message || data.error));
+                    // Fall back to manual creation
+                    createManualPersonality(name);
+                }
+            } catch (error) {
+                showAlert('error', 'Network error: ' + error.message);
+                createManualPersonality(name);
+            }
+        }
+        
+        function createManualPersonality(name) {
             const newPersonality = {
                 play_style: "balanced",
                 default_confidence: "confident",
@@ -510,6 +572,39 @@
             personalities[name] = newPersonality;
             displayPersonalityList();
             selectPersonality(name);
+        }
+        
+        async function regeneratePersonality() {
+            if (!currentPersonality) return;
+            
+            if (!confirm(`Are you sure you want to regenerate the personality for "${currentPersonality}"? This will replace the current personality with a new AI-generated one.`)) {
+                return;
+            }
+            
+            showAlert('info', `Regenerating personality for ${currentPersonality}...`);
+            
+            try {
+                const response = await fetch('/api/generate_personality', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        name: currentPersonality,
+                        force: true  // Force regeneration
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    personalities[currentPersonality] = data.personality;
+                    selectPersonality(currentPersonality);  // Refresh display
+                    showAlert('success', `Successfully regenerated personality for ${currentPersonality}!`);
+                } else {
+                    showAlert('error', 'Regeneration failed: ' + (data.message || data.error));
+                }
+            } catch (error) {
+                showAlert('error', 'Network error: ' + error.message);
+            }
         }
         
         function cancelEdit() {

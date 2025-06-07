@@ -20,7 +20,12 @@ sys.path.insert(0, str(project_root))
 # Load environment variables
 load_dotenv(override=True)
 
+from poker.personality_generator import PersonalityGenerator
+
 app = Flask(__name__, template_folder='templates', static_folder='static')
+
+# Initialize personality generator
+personality_generator = PersonalityGenerator()
 
 # Path to personalities file
 PERSONALITIES_FILE = project_root / 'poker' / 'personalities.json'
@@ -169,6 +174,44 @@ def delete_personality(name):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/generate_personality', methods=['POST'])
+def generate_personality():
+    """Generate a new personality using AI."""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'})
+        
+        # Force generation even if exists
+        force_generate = data.get('force', False)
+        
+        # Generate the personality
+        personality_config = personality_generator.get_personality(
+            name=name, 
+            force_generate=force_generate
+        )
+        
+        # Also save to personalities.json for consistency
+        personalities_data = load_personalities()
+        personalities_data['personalities'][name] = personality_config
+        save_personalities(personalities_data)
+        
+        return jsonify({
+            'success': True,
+            'personality': personality_config,
+            'name': name,
+            'message': f'Successfully generated personality for {name}'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to generate personality. Please check your OpenAI API key.'
+        })
 
 if __name__ == '__main__':
     print("Starting Personality Manager on http://localhost:5002")
