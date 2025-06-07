@@ -3,10 +3,11 @@ import { PokerTable } from './components/PokerTable'
 import { CardDemo } from './components/CardDemo'
 import { GameSelector } from './components/GameSelector'
 import { PlayerNameEntry } from './components/PlayerNameEntry'
+import { PersonalityManager } from './components/PersonalityManager'
 import './App.css'
 
 function App() {
-  const [currentView, setCurrentView] = useState<'name-entry' | 'selector' | 'table' | 'cards'>('name-entry')
+  const [currentView, setCurrentView] = useState<'name-entry' | 'selector' | 'table' | 'cards' | 'personalities'>('name-entry')
   const [gameId, setGameId] = useState<string | null>(null)
   const [playerName, setPlayerName] = useState<string>('')
 
@@ -86,11 +87,15 @@ function App() {
       {currentView === 'selector' && (
         <GameSelector 
           onSelectGame={handleSelectGame} 
-          onNewGame={handleNewGame} 
+          onNewGame={handleNewGame}
+          onManagePersonalities={() => setCurrentView('personalities')}
         />
       )}
       {currentView === 'table' && <PokerTable gameId={gameId} playerName={playerName} />}
       {currentView === 'cards' && <CardDemo />}
+      {currentView === 'personalities' && (
+        <PersonalityManager onBack={() => setCurrentView('selector')} />
+      )}
     </>
   )
 }

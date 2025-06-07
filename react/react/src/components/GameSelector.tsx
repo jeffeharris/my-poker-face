@@ -14,9 +14,10 @@ interface SavedGame {
 interface GameSelectorProps {
   onSelectGame: (gameId: string) => void;
   onNewGame: () => void;
+  onManagePersonalities?: () => void;
 }
 
-export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
+export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }: GameSelectorProps) {
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
@@ -112,6 +113,16 @@ export function GameSelector({ onSelectGame, onNewGame }: GameSelectorProps) {
             <p>Start fresh with AI opponents</p>
           </div>
         </button>
+
+        {onManagePersonalities && (
+          <button className="new-game-button" onClick={onManagePersonalities}>
+            <div className="button-icon">🎭</div>
+            <div className="button-text">
+              <h3>Manage Personalities</h3>
+              <p>Create and edit AI personalities</p>
+            </div>
+          </button>
+        )}
 
         {savedGames.length > 0 && (
           <div className="saved-games">
