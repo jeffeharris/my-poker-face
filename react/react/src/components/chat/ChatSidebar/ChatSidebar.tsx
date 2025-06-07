@@ -52,10 +52,25 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
 
   // Transform and filter messages
   const processedMessages = useMemo(() => {
+    // First, identify where new hands start in the original messages
+    const handBoundaries = new Set<string>();
+    messages.forEach((msg, index) => {
+      if (msg.message.toLowerCase().includes('new hand dealt')) {
+        // Mark the next message after "new hand dealt" as a boundary
+        const nextMsg = messages[index + 1];
+        if (nextMsg) {
+          handBoundaries.add(nextMsg.id);
+        }
+      }
+    });
+
     return messages
       .filter(msg => {
         // Filter out empty messages
         if (!msg.message || msg.message.trim() === '') return false;
+        
+        // Filter out "new hand dealt" messages since we show visual separator
+        if (msg.message.toLowerCase().includes('new hand dealt')) return false;
         
         // Apply type filter
         switch (filter) {
@@ -69,15 +84,9 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             return true;
         }
       })
-      .map((msg, index, array) => {
-        // Check if this message indicates a new hand
-        const isNewHand = msg.message.toLowerCase().includes('new hand dealt') ||
-                         msg.message.toLowerCase().includes('new game started');
-        
-        // Check if the previous message was a winner announcement
-        const prevMsg = index > 0 ? array[index - 1] : null;
-        const shouldShowSeparator = isNewHand || 
-          (prevMsg && (prevMsg.message.includes('wins') || prevMsg.message.includes('won')));
+      .map((msg) => {
+        // Check if this message should show a separator
+        const shouldShowSeparator = handBoundaries.has(msg.id);
         
         // Transform action messages
         if (msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
@@ -236,7 +245,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             const elements = [];
             
             // Add hand separator if needed
-            if (msg.showHandSeparator && msg.message.toLowerCase().includes('new hand')) {
+            if (msg.showHandSeparator) {
               elements.push(
                 <div key={`separator-${msg.id}`} className="hand-separator">
                   <div className="separator-line" />
