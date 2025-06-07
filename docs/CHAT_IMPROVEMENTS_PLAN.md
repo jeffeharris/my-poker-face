@@ -133,20 +133,47 @@ Jeff raised $100 💰
 
 ## Technical Considerations
 
+### Frontend-Only Implementation
+**No changes to backend message structure required!** The frontend will transform messages for display while keeping the original data intact.
+
+#### Message Transformation Logic
+```typescript
+// Original message from backend
+{
+  sender: "table",
+  message: "Jeff chose to raise $100.",
+  type: "game"
+}
+
+// Frontend display transformation
+if (sender.toLowerCase() === 'table' && message.includes('chose to')) {
+  // Extract player and action
+  const [player, action] = parseActionMessage(message);
+  return {
+    ...originalMessage,
+    displayType: 'action',
+    player,
+    action,
+    amount
+  };
+}
+```
+
 ### State Management
 - Store filter preferences in React state
 - Cache quick chat suggestions
 - Maintain scroll position state
+- Keep original messages untouched
 
 ### Performance
 - Use React.memo for message components
 - Virtualize long message lists
 - Debounce filter changes
 
-### API Changes
-- Endpoint for quick chat suggestions
-- Include message metadata (type, subtype)
-- Support for message grouping
+### API Changes (Optional)
+- Endpoint for quick chat suggestions (new)
+- No changes to existing message format
+- Backend remains unchanged
 
 ## Mockup Examples
 

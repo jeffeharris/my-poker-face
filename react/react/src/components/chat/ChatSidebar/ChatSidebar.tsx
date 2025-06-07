@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import './ChatSidebar.css';
 
 interface ChatMessage {
@@ -6,7 +6,7 @@ interface ChatMessage {
   sender: string;
   message: string;
   timestamp: string;
-  type: 'game' | 'player' | 'system' | 'ai';
+  type: 'game' | 'player' | 'system' | 'ai' | 'table';
 }
 
 interface ChatSidebarProps {
@@ -15,9 +15,73 @@ interface ChatSidebarProps {
   playerName?: string;
 }
 
+// Available colors for players
+const AVAILABLE_COLORS = [
+  '#4caf50',    // Green
+  '#9c27b0',    // Purple
+  '#ff9800',    // Orange
+  '#2196f3',    // Blue
+  '#f44336',    // Red
+  '#795548',    // Brown
+  '#00bcd4',    // Cyan
+  '#e91e63',    // Pink
+];
+
+type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
+
 export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
+  const [filter, setFilter] = useState<MessageFilter>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [playerColors, setPlayerColors] = useState<Record<string, string>>({});
+
+  // Parse action messages to extract player and action
+  const parseActionMessage = (message: string) => {
+    const match = message.match(/^(.+?) chose to (.+?)(?:\s+\$(\d+))?\.?$/);
+    if (match) {
+      return {
+        player: match[1],
+        action: match[2],
+        amount: match[3] ? parseInt(match[3]) : null
+      };
+    }
+    return null;
+  };
+
+  // Transform and filter messages
+  const processedMessages = useMemo(() => {
+    return messages
+      .filter(msg => {
+        // Filter out empty messages
+        if (!msg.message || msg.message.trim() === '') return false;
+        
+        // Apply type filter
+        switch (filter) {
+          case 'chat':
+            return msg.type === 'player' || msg.type === 'ai';
+          case 'actions':
+            return msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to');
+          case 'system':
+            return msg.type === 'system';
+          default:
+            return true;
+        }
+      })
+      .map(msg => {
+        // Transform action messages
+        if (msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
+          const parsed = parseActionMessage(msg.message);
+          if (parsed) {
+            return {
+              ...msg,
+              displayType: 'action',
+              parsedAction: parsed
+            };
+          }
+        }
+        return { ...msg, displayType: msg.type };
+      });
+  }, [messages, filter]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -25,7 +89,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [processedMessages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,8 +99,10 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     }
   };
 
-  const getMessageIcon = (type: string, sender: string) => {
+  const getMessageIcon = (type: string, sender?: string) => {
     switch (type) {
+      case 'action':
+        return '🎮';
       case 'game':
         return '🎲';
       case 'system':
@@ -50,6 +116,23 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     }
   };
 
+  const getPlayerColor = (name: string) => {
+    if (!name) return '#666666';
+    
+    // If player already has a color, return it
+    if (playerColors[name]) {
+      return playerColors[name];
+    }
+    
+    // Assign a new color from available colors
+    const usedColors = Object.values(playerColors);
+    const availableColor = AVAILABLE_COLORS.find(color => !usedColors.includes(color)) || 
+                          AVAILABLE_COLORS[Object.keys(playerColors).length % AVAILABLE_COLORS.length];
+    
+    setPlayerColors(prev => ({ ...prev, [name]: availableColor }));
+    return availableColor;
+  };
+
   const formatTime = (timestamp: string) => {
     try {
       const date = new Date(timestamp);
@@ -59,33 +142,116 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     }
   };
 
+  const renderActionMessage = (msg: any) => {
+    const { player, action, amount } = msg.parsedAction;
+    const actionEmoji = {
+      'fold': '🏳️',
+      'check': '✅',
+      'call': '📞',
+      'raise': '📈',
+      'all-in': '🚀',
+      'all_in': '🚀'
+    }[action.toLowerCase()] || '🎮';
+
+    return (
+      <div 
+        key={msg.id}
+        className="chat-message action-message"
+        style={{ borderLeftColor: getPlayerColor(player) }}
+      >
+        <div className="action-content">
+          <span className="action-player" style={{ color: getPlayerColor(player) }}>
+            {player}
+          </span>
+          <span className="action-emoji">{actionEmoji}</span>
+          <span className="action-text">
+            {action}{amount ? ` $${amount}` : ''}
+          </span>
+          <span className="message-time">{formatTime(msg.timestamp)}</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="chat-sidebar">
       <div className="chat-sidebar__header">
         <h3>Table Chat</h3>
-        <span className="chat-sidebar__count">{messages.length} messages</span>
+        <div className="chat-filters">
+          <button 
+            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+            onClick={() => setFilter('all')}
+            title="All messages"
+          >
+            🎯
+          </button>
+          <button 
+            className={`filter-btn ${filter === 'chat' ? 'active' : ''}`}
+            onClick={() => setFilter('chat')}
+            title="Chat only"
+          >
+            💬
+          </button>
+          <button 
+            className={`filter-btn ${filter === 'actions' ? 'active' : ''}`}
+            onClick={() => setFilter('actions')}
+            title="Actions only"
+          >
+            🎮
+          </button>
+          <button 
+            className={`filter-btn ${filter === 'system' ? 'active' : ''}`}
+            onClick={() => setFilter('system')}
+            title="System messages"
+          >
+            🔔
+          </button>
+        </div>
       </div>
       
       <div className="chat-sidebar__messages">
-        {messages.length === 0 ? (
+        {processedMessages.length === 0 ? (
           <div className="chat-sidebar__empty">
             <p>No messages yet...</p>
             <p className="chat-sidebar__tip">Say hello to the table!</p>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div 
-              key={msg.id} 
-              className={`chat-message ${msg.type} ${msg.sender === playerName ? 'own-message' : ''}`}
-            >
-              <div className="message-header">
-                <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
-                <span className="message-sender">{msg.sender}</span>
-                <span className="message-time">{formatTime(msg.timestamp)}</span>
+          processedMessages.map((msg: any) => {
+            if (msg.displayType === 'action') {
+              return renderActionMessage(msg);
+            }
+
+            const isOwnMessage = msg.sender === playerName;
+            const playerColor = getPlayerColor(msg.sender);
+
+            return (
+              <div 
+                key={msg.id} 
+                className={`chat-message ${msg.type} ${isOwnMessage ? 'own-message' : ''}`}
+                style={{ 
+                  borderLeftColor: msg.type === 'player' || msg.type === 'ai' 
+                    ? playerColor 
+                    : undefined 
+                }}
+              >
+                <div className="message-header">
+                  <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                  <span 
+                    className="message-sender"
+                    style={{ 
+                      color: msg.type === 'player' || msg.type === 'ai' 
+                        ? playerColor 
+                        : undefined 
+                    }}
+                  >
+                    {msg.sender}
+                  </span>
+                  <span className="message-time">{formatTime(msg.timestamp)}</span>
+                </div>
+                <div className="message-content">{msg.message}</div>
               </div>
-              <div className="message-content">{msg.message}</div>
-            </div>
-          ))
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>

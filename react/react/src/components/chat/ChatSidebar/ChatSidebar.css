@@ -29,6 +29,34 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* Filter buttons */
+.chat-filters {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-btn {
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.filter-btn.active {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 /* Messages area */
 .chat-sidebar__messages {
   flex: 1;
@@ -152,6 +180,38 @@
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.8);
   word-wrap: break-word;
+}
+
+/* Action messages */
+.chat-message.action-message {
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px 12px;
+}
+
+.action-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.action-player {
+  font-weight: 600;
+}
+
+.action-emoji {
+  font-size: 16px;
+}
+
+.action-text {
+  color: rgba(255, 255, 255, 0.7);
+  flex: 1;
+}
+
+.action-content .message-time {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
 }
 
 /* Input area */
