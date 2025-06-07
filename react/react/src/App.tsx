@@ -3,7 +3,7 @@ import { PokerTable } from './components/PokerTable'
 import { CardDemo } from './components/CardDemo'
 import { GameSelector } from './components/GameSelector'
 import { PlayerNameEntry } from './components/PlayerNameEntry'
-import { PersonalityManager } from './components/PersonalityManager'
+import { PersonalityManagerHTML } from './components/PersonalityManagerHTML'
 import './App.css'
 
 function App() {
@@ -94,7 +94,7 @@ function App() {
       {currentView === 'table' && <PokerTable gameId={gameId} playerName={playerName} />}
       {currentView === 'cards' && <CardDemo />}
       {currentView === 'personalities' && (
-        <PersonalityManager onBack={() => setCurrentView('selector')} />
+        <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />
       )}
     </>
   )

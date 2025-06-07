@@ -114,15 +114,16 @@ export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }:
           </div>
         </button>
 
-        {onManagePersonalities && (
-          <button className="new-game-button" onClick={onManagePersonalities}>
-            <div className="button-icon">🎭</div>
-            <div className="button-text">
-              <h3>Manage Personalities</h3>
-              <p>Create and edit AI personalities</p>
-            </div>
-          </button>
-        )}
+        <button 
+          className="new-game-button" 
+          onClick={onManagePersonalities}
+        >
+          <div className="button-icon">🎭</div>
+          <div className="button-text">
+            <h3>Manage Personalities</h3>
+            <p>Create and edit AI personalities</p>
+          </div>
+        </button>
 
         {savedGames.length > 0 && (
           <div className="saved-games">
