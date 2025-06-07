@@ -1,0 +1,239 @@
+/* Debug Panel - Bottom collapsible panel */
+.debug-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 300px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.98) 0%, rgba(10, 10, 20, 0.95) 100%);
+  color: white;
+  border-top: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+/* Header with tabs */
+.debug-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.debug-panel__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.debug-tab {
+  padding: 6px 16px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.debug-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.debug-tab.active {
+  background: rgba(0, 255, 0, 0.1);
+  color: #4caf50;
+  border-color: #4caf50;
+}
+
+/* Content area */
+.debug-panel__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  min-height: 0;
+  font-size: 14px;
+}
+
+/* Elasticity styles - using edp prefix to match ElasticityDebugPanel */
+.edp-player {
+  margin-bottom: 30px;
+  padding: 15px;
+  background: rgba(40, 40, 40, 0.6);
+  border-radius: 8px;
+  border: 1px solid #333;
+}
+
+.edp-player h4 {
+  margin: 0 0 10px 0;
+  color: #ffcc00;
+  font-size: 16px;
+}
+
+.edp-mood {
+  margin-bottom: 15px;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.edp-mood-value {
+  color: #ff69b4;
+  font-weight: bold;
+  text-transform: capitalize;
+}
+
+.edp-trait {
+  margin-bottom: 20px;
+}
+
+.edp-trait-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.edp-trait-name {
+  color: #88ccff;
+  font-weight: 500;
+}
+
+.edp-trait-value {
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.edp-trait-bar-container {
+  position: relative;
+  margin-bottom: 5px;
+}
+
+.edp-trait-bar-background {
+  position: relative;
+  height: 20px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.edp-elasticity-range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(100, 100, 100, 0.3);
+  border-left: 1px dashed #666;
+  border-right: 1px dashed #666;
+}
+
+.edp-anchor-line {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #ffff00;
+  box-shadow: 0 0 4px #ffff00;
+  z-index: 10;
+}
+
+.edp-trait-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #0088ff 0%, #00ff88 100%);
+  transition: width 0.3s ease;
+}
+
+.edp-trait-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.edp-trait-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #888;
+  margin-top: 5px;
+}
+
+.loading {
+  text-align: center;
+  color: #888;
+  padding: 20px;
+}
+
+/* Card Demo Styles */
+.card-demo-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.demo-section {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.demo-section h4 {
+  margin: 0 0 16px 0;
+  color: #4caf50;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.size-demo,
+.state-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.size-group,
+.state-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.size-group span,
+.state-group span {
+  min-width: 80px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.suits-demo,
+.hand-demo {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-demo-content .highlighted {
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.8);
+  transform: translateY(-2px);
+}
+
+/* Scrollbar */
+.debug-panel__content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.debug-panel__content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.debug-panel__content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.debug-panel__content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

@@ -1,0 +1,214 @@
+/* Standalone Elasticity Demo - Clean styling without conflicts */
+.elasticity-demo {
+  padding: 20px;
+  background: rgba(10, 10, 10, 0.95);
+  color: #fff;
+  min-height: 100vh;
+}
+
+.demo-header {
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.demo-header h2 {
+  margin: 0 0 20px 0;
+  color: #00ff00;
+  font-size: 24px;
+}
+
+.demo-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.demo-controls button {
+  padding: 8px 16px;
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+  border: 1px solid #4caf50;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.demo-controls button:hover {
+  background: rgba(76, 175, 80, 0.3);
+  transform: translateY(-1px);
+}
+
+.demo-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+/* Player sections */
+.demo-player {
+  background: rgba(40, 40, 40, 0.6);
+  border-radius: 8px;
+  border: 1px solid #333;
+  padding: 20px;
+}
+
+.demo-player h4 {
+  margin: 0 0 15px 0;
+  color: #ffcc00;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.demo-mood {
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: #aaa;
+}
+
+.demo-mood-value {
+  color: #ff69b4;
+  font-weight: bold;
+  text-transform: capitalize;
+}
+
+/* Traits */
+.demo-traits {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.demo-trait {
+  background: rgba(30, 30, 30, 0.5);
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.demo-trait-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.demo-trait-name {
+  color: #88ccff;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.demo-trait-value {
+  font-weight: bold;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  font-size: 14px;
+}
+
+/* Progress bar visualization */
+.demo-trait-bar-container {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.demo-trait-bar-background {
+  position: relative;
+  height: 24px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Elasticity range (the allowed movement area) */
+.demo-elasticity-range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(100, 100, 100, 0.3);
+  border-left: 1px dashed #666;
+  border-right: 1px dashed #666;
+}
+
+/* Anchor line (the baseline) */
+.demo-anchor-line {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #ffff00;
+  box-shadow: 0 0 6px #ffff00;
+  z-index: 2;
+}
+
+/* Current value bar */
+.demo-trait-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #0088ff 0%, #00ff88 100%);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+}
+
+/* Min/Max labels */
+.demo-trait-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+}
+
+/* Trait details */
+.demo-trait-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #888;
+  margin-top: 8px;
+}
+
+.demo-trait-details span {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .demo-content {
+    grid-template-columns: 1fr;
+  }
+  
+  .demo-player {
+    padding: 15px;
+  }
+  
+  .demo-trait {
+    padding: 12px;
+  }
+}
+
+/* Hover effects */
+.demo-trait:hover {
+  background: rgba(30, 30, 30, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.demo-trait:hover .demo-trait-name {
+  color: #aaddff;
+}
+
+/* Animation for pressure changes */
+@keyframes pressureFlash {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+.demo-trait-value {
+  animation: pressureFlash 0.3s ease-out;
+}

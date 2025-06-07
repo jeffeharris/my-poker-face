@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+my_poker_face_venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+data/*.db
+*.log
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+*.egg-info/
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore

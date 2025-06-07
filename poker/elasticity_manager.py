@@ -111,14 +111,15 @@ class ElasticPersonality:
         
         personality_moods = mood_vocab[self.name]
         
-        # Determine mood based on average pressure
-        avg_pressure = sum(t.pressure for t in self.traits.values()) / len(self.traits)
+        # Determine mood based on average pressure with more sensitive thresholds
+        avg_pressure = sum(t.pressure for t in self.traits.values()) / len(self.traits) if self.traits else 0
         
-        if avg_pressure > 0.3:
+        # Adjusted thresholds to be more sensitive to actual pressure values
+        if avg_pressure > 0.05:
             mood_type = "high_pressure"
-        elif avg_pressure < -0.3:
+        elif avg_pressure < -0.05:
             mood_type = "negative_pressure"
-        elif avg_pressure > 0.1:
+        elif avg_pressure > 0.02:
             mood_type = "positive_pressure"
         else:
             mood_type = "low_pressure"

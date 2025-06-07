@@ -1,0 +1,37 @@
+# Development overrides for docker-compose.yml
+# This file is automatically loaded by docker-compose
+
+version: '3.8'
+
+services:
+  backend:
+    # Mount source code for hot reloading
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - /app/.pytest_cache
+    # Enable Flask debug mode
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    # Use Flask's development server with reload
+    command: python -m flask run --host=0.0.0.0 --port=5000 --reload
+
+  frontend:
+    # Mount source for hot reloading
+    volumes:
+      - ./react/react:/app
+      - /app/node_modules
+      - /app/.vite
+    # Development environment
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:${BACKEND_PORT:-5000}
+      - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
+    # Ensure Vite watches for changes
+    command: npm run dev -- --host 0.0.0.0
+
+  # Don't run nginx in development
+  nginx:
+    profiles:
+      - never

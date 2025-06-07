@@ -144,6 +144,35 @@ class GamePersistence:
                 ON personality_snapshots(game_id, hand_number)
             """)
             
+            # Pressure events tracking
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pressure_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    details_json TEXT,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                )
+            """)
+            
+            # Create indices for pressure events
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pressure_events_game 
+                ON pressure_events(game_id)
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pressure_events_player 
+                ON pressure_events(player_name)
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pressure_events_type 
+                ON pressure_events(event_type)
+            """)
+            
             # Personality storage for AI-generated personalities
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personalities (

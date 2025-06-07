@@ -140,9 +140,14 @@ class PlayerPressureStats:
 
 
 class PressureStatsTracker:
-    """Tracks pressure statistics for all players in a game."""
+    """Tracks pressure statistics for all players in a game.
     
-    def __init__(self):
+    Supports optional persistence to database via event repository.
+    """
+    
+    def __init__(self, game_id: Optional[str] = None, event_repository=None):
+        self.game_id = game_id
+        self.event_repository = event_repository
         self.player_stats: Dict[str, PlayerPressureStats] = {}
         self.game_stats = {
             'total_events': 0,
@@ -150,6 +155,10 @@ class PressureStatsTracker:
             'most_dramatic_showdown': None,
             'session_start': datetime.now()
         }
+        
+        # Load existing events from database if repository provided
+        if self.event_repository and self.game_id:
+            self._load_from_database()
         
     def record_event(self, event_type: str, player_names: List[str], 
                     details: Optional[Dict[str, Any]] = None) -> None:
@@ -177,6 +186,16 @@ class PressureStatsTracker:
                     self.game_stats['biggest_pot'], 
                     details['pot_size']
                 )
+            
+            # Save to database if repository is available
+            if self.event_repository and self.game_id:
+                try:
+                    self.event_repository.save_event(
+                        self.game_id, player_name, event_type, details
+                    )
+                except Exception as e:
+                    # Log error but don't fail - maintain backward compatibility
+                    print(f"Failed to save pressure event to database: {e}")
     
     def get_player_stats(self, player_name: str) -> Dict[str, Any]:
         """Get stats for a specific player."""
@@ -261,3 +280,39 @@ class PressureStatsTracker:
             'leaderboards': self.get_leaderboard(),
             'fun_facts': self.get_fun_facts()
         }
+    
+    def _load_from_database(self) -> None:
+        """Load existing events from database and rebuild stats."""
+        if not self.event_repository or not self.game_id:
+            return
+            
+        try:
+            events = self.event_repository.get_events_for_game(self.game_id)
+            
+            for event_data in events:
+                player_name = event_data['player_name']
+                
+                # Ensure player stats exist
+                if player_name not in self.player_stats:
+                    self.player_stats[player_name] = PlayerPressureStats(player_name)
+                
+                # Recreate event and add to player stats
+                event = PressureEvent(
+                    timestamp=datetime.fromisoformat(event_data['timestamp']),
+                    event_type=event_data['event_type'],
+                    player_name=player_name,
+                    details=event_data.get('details', {})
+                )
+                
+                self.player_stats[player_name].add_event(event)
+                self.game_stats['total_events'] += 1
+                
+                # Update game-wide stats
+                if 'pot_size' in event.details:
+                    self.game_stats['biggest_pot'] = max(
+                        self.game_stats['biggest_pot'], 
+                        event.details['pot_size']
+                    )
+                    
+        except Exception as e:
+            print(f"Failed to load pressure events from database: {e}")
