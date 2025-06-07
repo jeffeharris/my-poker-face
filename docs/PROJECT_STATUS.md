@@ -54,6 +54,14 @@ My Poker Face is an AI-powered poker game where players compete against dynamic 
 - ✅ Mood system reflecting emotional state
 - ✅ Full persistence of personality state
 
+### Pressure Stats System
+- ✅ Real-time tracking of dramatic game events
+- ✅ Player statistics and leaderboards
+- ✅ Database persistence for historical data
+- ✅ Fun facts and signature move detection
+- ✅ Tilt and aggression scoring
+- ✅ Frontend stats panel with live updates
+
 ### User Interface
 - ✅ Modern React frontend with real-time updates
 - ✅ Interactive poker table visualization
@@ -105,6 +113,14 @@ Currently, no features are actively in development. The project is in a stable s
 - ✅ Created utility functions in /utils/ (api.ts, cards.ts)
 - ✅ Fixed CSS naming conflicts (e.g., .player-cards)
 - ✅ All functionality and styling preserved during migration
+
+### Pressure Stats Persistence
+- ✅ Added database schema for pressure event storage
+- ✅ Implemented PressureEventRepository following repository pattern
+- ✅ Updated PressureStatsTracker to support optional persistence
+- ✅ Stats now persist across server restarts and game sessions
+- ✅ Maintains backward compatibility for non-persistent usage
+- ✅ Added comprehensive documentation in docs/PRESSURE_STATS_SYSTEM.md
 
 ## 📊 Technical Metrics
 
