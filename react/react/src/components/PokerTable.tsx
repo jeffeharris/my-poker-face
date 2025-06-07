@@ -8,6 +8,7 @@ import { PlayerThinking } from './PlayerThinking';
 import { WinnerAnnouncement } from './WinnerAnnouncement';
 import { ElasticityDebugPanel } from './ElasticityDebugPanel';
 import { PressureStats } from './PressureStats';
+import { DebugPanel } from './DebugPanel';
 import { config } from '../config';
 import './PokerTable.css';
 
@@ -490,8 +491,19 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
       {/* Pressure Stats Panel */}
       <PressureStats gameId={gameId} isOpen={showStats} />
       
-      {/* Elasticity Debug Panel */}
-      <ElasticityDebugPanel gameId={gameId} isOpen={debugMode} socket={socketRef.current} />
+      {/* Debug Panel with Elasticity and Card Demo */}
+      {debugMode && (
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '300px',
+          zIndex: 1000
+        }}>
+          <DebugPanel gameId={gameId} socket={socketRef.current} />
+        </div>
+      )}
       
       <div className="poker-table">
       <div className="table-felt">
