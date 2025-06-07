@@ -397,21 +397,50 @@ class GamePersistence:
     
     def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated') -> None:
         """Save a personality configuration to the database."""
+        # Extract elasticity_config if present in the main config
+        elasticity_config = config.get('elasticity_config', {})
+        
+        # Remove elasticity_config from main config if it exists (to store separately)
+        config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
+        
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO personalities
-                (name, config_json, source, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            """, (name, json.dumps(config), source))
+            # Check if elasticity_config column exists
+            cursor = conn.execute("PRAGMA table_info(personalities)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'elasticity_config' in columns:
+                conn.execute("""
+                    INSERT OR REPLACE INTO personalities
+                    (name, config_json, elasticity_config, source, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (name, json.dumps(config_without_elasticity), json.dumps(elasticity_config), source))
+            else:
+                # Fallback for old schema
+                conn.execute("""
+                    INSERT OR REPLACE INTO personalities
+                    (name, config_json, source, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """, (name, json.dumps(config), source))
     
     def load_personality(self, name: str) -> Optional[Dict[str, Any]]:
         """Load a personality configuration from the database."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT config_json FROM personalities
-                WHERE name = ?
-            """, (name,))
+            
+            # Check if elasticity_config column exists
+            cursor = conn.execute("PRAGMA table_info(personalities)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'elasticity_config' in columns:
+                cursor = conn.execute("""
+                    SELECT config_json, elasticity_config FROM personalities
+                    WHERE name = ?
+                """, (name,))
+            else:
+                cursor = conn.execute("""
+                    SELECT config_json FROM personalities
+                    WHERE name = ?
+                """, (name,))
             
             row = cursor.fetchone()
             if row:
@@ -421,7 +450,14 @@ class GamePersistence:
                     SET times_used = times_used + 1 
                     WHERE name = ?
                 """, (name,))
-                return json.loads(row['config_json'])
+                
+                config = json.loads(row['config_json'])
+                
+                # Add elasticity_config if available
+                if 'elasticity_config' in columns and row['elasticity_config']:
+                    config['elasticity_config'] = json.loads(row['elasticity_config'])
+                
+                return config
             
             return None
     
@@ -457,3 +493,16 @@ class GamePersistence:
                 })
             
             return personalities
+    
+    def delete_personality(self, name: str) -> bool:
+        """Delete a personality from the database."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM personalities WHERE name = ?",
+                    (name,)
+                )
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error deleting personality {name}: {e}")
+            return False
