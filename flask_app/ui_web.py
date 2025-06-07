@@ -1,5 +1,6 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
 from typing import Optional, Dict
+from pathlib import Path
 
 from flask import Flask, render_template, redirect, url_for, jsonify, Response, request
 from flask_socketio import SocketIO, join_room
@@ -1004,6 +1005,149 @@ def get_pressure_stats(game_id):
     pressure_stats = game_data['pressure_stats']
     return jsonify(pressure_stats.get_session_summary())
 
+
+# Personality management routes
+@app.route('/personalities')
+def personalities_page():
+    """Personality manager page."""
+    return render_template('personalities.html')
+
+@app.route('/api/personalities', methods=['GET'])
+def get_personalities():
+    """Get all personalities."""
+    try:
+        # Load from personalities.json
+        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        with open(personalities_file, 'r') as f:
+            data = json.load(f)
+        
+        return jsonify({
+            'success': True,
+            'personalities': data['personalities']
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality/<name>', methods=['GET'])
+def get_personality(name):
+    """Get a specific personality."""
+    try:
+        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        with open(personalities_file, 'r') as f:
+            data = json.load(f)
+        
+        if name in data['personalities']:
+            return jsonify({
+                'success': True,
+                'personality': data['personalities'][name],
+                'name': name
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Personality not found'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality/<name>', methods=['PUT'])
+def update_personality(name):
+    """Update a personality."""
+    try:
+        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        
+        # Load current data
+        with open(personalities_file, 'r') as f:
+            data = json.load(f)
+        
+        if name not in data['personalities']:
+            return jsonify({'success': False, 'error': 'Personality not found'})
+        
+        # Update the personality
+        data['personalities'][name] = request.json
+        
+        # Save back to file
+        with open(personalities_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} updated successfully'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality/<name>', methods=['DELETE'])
+def delete_personality(name):
+    """Delete a personality."""
+    try:
+        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        
+        # Load current data
+        with open(personalities_file, 'r') as f:
+            data = json.load(f)
+        
+        if name not in data['personalities']:
+            return jsonify({'success': False, 'error': 'Personality not found'})
+        
+        # Delete the personality
+        del data['personalities'][name]
+        
+        # Save back to file
+        with open(personalities_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} deleted successfully'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/generate_personality', methods=['POST'])
+def generate_personality():
+    """Generate a new personality using AI."""
+    try:
+        from poker.personality_generator import PersonalityGenerator
+        
+        data = request.json
+        name = data.get('name', '').strip()
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'})
+        
+        # Force generation even if exists
+        force_generate = data.get('force', False)
+        
+        # Use the shared generator if available, or create a new one
+        generator = PersonalityGenerator()
+        
+        # Generate the personality
+        personality_config = generator.get_personality(
+            name=name, 
+            force_generate=force_generate
+        )
+        
+        # Also save to personalities.json for consistency
+        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        with open(personalities_file, 'r') as f:
+            personalities_data = json.load(f)
+        
+        personalities_data['personalities'][name] = personality_config
+        
+        with open(personalities_file, 'w') as f:
+            json.dump(personalities_data, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'personality': personality_config,
+            'name': name,
+            'message': f'Successfully generated personality for {name}'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to generate personality. Please check your OpenAI API key.'
+        })
 
 if __name__ == '__main__':
     import os
