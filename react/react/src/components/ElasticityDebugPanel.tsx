@@ -94,29 +94,29 @@ export function ElasticityDebugPanel({ gameId, isOpen, socket }: ElasticityDebug
       {loading && <div className="loading">Loading...</div>}
       
       {Object.entries(elasticityData).map(([playerName, playerData]) => (
-        <div key={playerName} className="player-elasticity">
+        <div key={playerName} className="edp-player">
           <h4>{playerName}</h4>
-          <div className="mood">Mood: <span className="mood-value">{playerData.mood}</span></div>
+          <div className="edp-mood">Mood: <span className="edp-mood-value">{playerData.mood}</span></div>
           
-          <div className="traits">
+          <div className="edp-traits">
             {Object.entries(playerData.traits).map(([traitName, trait]) => {
               const percentage = ((trait.current - trait.min) / (trait.max - trait.min)) * 100;
               const anchorPercentage = ((trait.anchor - trait.min) / (trait.max - trait.min)) * 100;
               
               return (
-                <div key={traitName} className="trait">
-                  <div className="trait-header">
-                    <span className="trait-name">{formatTraitName(traitName)}</span>
-                    <span className="trait-value" style={{ color: getTraitColor(trait) }}>
+                <div key={traitName} className="edp-trait">
+                  <div className="edp-trait-header">
+                    <span className="edp-trait-name">{formatTraitName(traitName)}</span>
+                    <span className="edp-trait-value" style={{ color: getTraitColor(trait) }}>
                       {trait.current.toFixed(2)}
                     </span>
                   </div>
                   
-                  <div className="trait-bar-container">
-                    <div className="trait-bar-background">
+                  <div className="edp-trait-bar-container">
+                    <div className="edp-trait-bar-background">
                       {/* Elasticity range */}
                       <div 
-                        className="elasticity-range"
+                        className="edp-elasticity-range"
                         style={{
                           left: `${((trait.anchor - trait.elasticity - trait.min) / (trait.max - trait.min)) * 100}%`,
                           width: `${(trait.elasticity * 2 / (trait.max - trait.min)) * 100}%`
@@ -125,24 +125,24 @@ export function ElasticityDebugPanel({ gameId, isOpen, socket }: ElasticityDebug
                       
                       {/* Anchor line */}
                       <div 
-                        className="anchor-line"
+                        className="edp-anchor-line"
                         style={{ left: `${anchorPercentage}%` }}
                       />
                       
                       {/* Current value */}
                       <div 
-                        className="trait-bar"
+                        className="edp-trait-bar"
                         style={{ width: `${percentage}%` }}
                       />
                     </div>
                     
-                    <div className="trait-labels">
+                    <div className="edp-trait-labels">
                       <span className="min-label">{trait.min.toFixed(1)}</span>
                       <span className="max-label">{trait.max.toFixed(1)}</span>
                     </div>
                   </div>
                   
-                  <div className="trait-details">
+                  <div className="edp-trait-details">
                     <span>Pressure: {trait.pressure > 0 ? '+' : ''}{trait.pressure.toFixed(2)}</span>
                     <span>Anchor: {trait.anchor.toFixed(2)}</span>
                   </div>

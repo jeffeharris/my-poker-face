@@ -64,9 +64,9 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const getTraitBar = (value: number) => {
     const percentage = value * 100;
     return (
-      <div className="trait-bar">
+      <div className="cgc-trait-bar">
         <div 
-          className="trait-fill" 
+          className="cgc-trait-fill" 
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -147,11 +147,11 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                   <p className="play-style">{personality.play_style}</p>
                   
                   <div className="traits">
-                    <div className="trait">
+                    <div className="cgc-personality-trait">
                       <span>Bluff</span>
                       {getTraitBar(personality.personality_traits.bluff_tendency)}
                     </div>
-                    <div className="trait">
+                    <div className="cgc-personality-trait">
                       <span>Aggro</span>
                       {getTraitBar(personality.personality_traits.aggression)}
                     </div>

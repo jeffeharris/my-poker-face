@@ -249,19 +249,19 @@
   gap: 6px;
 }
 
-.custom-game-config .trait {
+.cgc-personality-trait {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.custom-game-config .trait span {
+.cgc-personality-trait span {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
   min-width: 35px;
 }
 
-.custom-game-config .trait-bar {
+.cgc-trait-bar {
   flex: 1;
   height: 4px;
   background: rgba(255, 255, 255, 0.1);
@@ -269,7 +269,7 @@
   overflow: hidden;
 }
 
-.custom-game-config .trait-fill {
+.cgc-trait-fill {
   height: 100%;
   background: linear-gradient(90deg, #2196f3, #4caf50);
   border-radius: 2px;

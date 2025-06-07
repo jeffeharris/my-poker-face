@@ -56,8 +56,8 @@
   font-size: 14px;
 }
 
-/* Elasticity styles from main branch */
-.player-elasticity {
+/* Elasticity styles - using edp prefix to match ElasticityDebugPanel */
+.edp-player {
   margin-bottom: 30px;
   padding: 15px;
   background: rgba(40, 40, 40, 0.6);
@@ -65,50 +65,50 @@
   border: 1px solid #333;
 }
 
-.player-elasticity h4 {
+.edp-player h4 {
   margin: 0 0 10px 0;
   color: #ffcc00;
   font-size: 16px;
 }
 
-.mood {
+.edp-mood {
   margin-bottom: 15px;
   font-size: 13px;
   color: #aaa;
 }
 
-.mood-value {
+.edp-mood-value {
   color: #ff69b4;
   font-weight: bold;
   text-transform: capitalize;
 }
 
-.trait {
+.edp-trait {
   margin-bottom: 20px;
 }
 
-.trait-header {
+.edp-trait-header {
   display: flex;
   justify-content: space-between;
   margin-bottom: 5px;
 }
 
-.trait-name {
+.edp-trait-name {
   color: #88ccff;
   font-weight: 500;
 }
 
-.trait-value {
+.edp-trait-value {
   font-weight: bold;
   font-family: monospace;
 }
 
-.trait-bar-container {
+.edp-trait-bar-container {
   position: relative;
   margin-bottom: 5px;
 }
 
-.trait-bar-background {
+.edp-trait-bar-background {
   position: relative;
   height: 20px;
   background: #222;
@@ -117,7 +117,7 @@
   overflow: hidden;
 }
 
-.elasticity-range {
+.edp-elasticity-range {
   position: absolute;
   top: 0;
   height: 100%;
@@ -126,7 +126,7 @@
   border-right: 1px dashed #666;
 }
 
-.anchor-line {
+.edp-anchor-line {
   position: absolute;
   top: 0;
   width: 2px;
@@ -136,7 +136,7 @@
   z-index: 10;
 }
 
-.debug-panel .trait-bar {
+.edp-trait-bar {
   position: absolute;
   top: 0;
   left: 0;
@@ -145,7 +145,7 @@
   transition: width 0.3s ease;
 }
 
-.trait-labels {
+.edp-trait-labels {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
@@ -153,7 +153,7 @@
   margin-top: 2px;
 }
 
-.trait-details {
+.edp-trait-details {
   display: flex;
   justify-content: space-between;
   font-size: 12px;

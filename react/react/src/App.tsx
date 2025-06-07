@@ -247,11 +247,11 @@ function App() {
               
               // Check specific elements
               const elements = {
-                'player-elasticity': panel.querySelectorAll('.player-elasticity').length,
-                'trait': panel.querySelectorAll('.trait').length,
-                'anchor-line': panel.querySelectorAll('.anchor-line').length,
-                'trait-bar': panel.querySelectorAll('.trait-bar').length,
-                'elasticity-range': panel.querySelectorAll('.elasticity-range').length
+                'edp-player': panel.querySelectorAll('.edp-player').length,
+                'edp-trait': panel.querySelectorAll('.edp-trait').length,
+                'edp-anchor-line': panel.querySelectorAll('.edp-anchor-line').length,
+                'edp-trait-bar': panel.querySelectorAll('.edp-trait-bar').length,
+                'edp-elasticity-range': panel.querySelectorAll('.edp-elasticity-range').length
               };
               console.log('Element counts:', elements);
             }
@@ -260,10 +260,10 @@ function App() {
           </button>
           <button onClick={() => {
             // Check computed styles
-            const firstBar = document.querySelector('.trait-bar-background');
-            const anchorLine = document.querySelector('.anchor-line');
-            const elasticityRange = document.querySelector('.elasticity-range');
-            const traitBar = document.querySelector('.trait-bar');
+            const firstBar = document.querySelector('.edp-trait-bar-background');
+            const anchorLine = document.querySelector('.edp-anchor-line');
+            const elasticityRange = document.querySelector('.edp-elasticity-range');
+            const traitBar = document.querySelector('.edp-trait-bar');
             
             if (firstBar) {
               console.log('=== trait-bar-background ===');
