@@ -178,3 +178,4 @@ cython_debug/
 poker_games.db
 /data/poker_games.db
 /docs/screenshots/
+/poker/personality_backups/
