@@ -5,24 +5,33 @@ from random import shuffle
 from typing import Tuple, Mapping, List, Optional, Dict
 
 from core.card import Card
-from hand_evaluator import HandEvaluator
-from utils import obj_to_dict
+from .hand_evaluator import HandEvaluator
+from .utils import obj_to_dict
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
-HUMAN_NAME = "Jeff"
 STACK_SIZE = 10000      # player starting stack
 ANTE = 50               # starting big blind
 TEST_MODE = False
 
-def create_deck(shuffled: bool = True):
+def create_deck(shuffled: bool = True, random_seed: Optional[int] = None):
     """
-    Deck created as a tuple to be used immediately in a new game. Set shuffled = False to return an ordered deck.
+    Create a deck as a tuple. If shuffled=True, uses the provided random_seed
+    or current random state. Pure function with no side effects.
     """
     ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
     suits = ['Spades', 'Diamonds', 'Clubs', 'Hearts']
     deck = [{'rank': rank, 'suit': suit} for rank in ranks for suit in suits]
-    shuffle(deck) if shuffled else None
+    
+    if shuffled:
+        # Create a new Random instance to avoid modifying global state
+        import random
+        rng = random.Random(random_seed)
+        # Create a copy and shuffle it
+        shuffled_deck = deck.copy()
+        rng.shuffle(shuffled_deck)
+        return tuple(shuffled_deck)
+    
     return tuple(deck)
 
 
@@ -47,7 +56,7 @@ class Player:
             'is_folded': self.is_folded,
             'has_acted': self.has_acted,
             'bet': self.bet,
-            'hand': self.hand,
+            'hand': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.hand] if self.hand else None,
         }
 
     def update(self, **kwargs):
@@ -89,12 +98,12 @@ class PokerGameState:
         """
         return {
             'players': [p.to_dict() for p in self.players],
-            'deck': list(self.deck),
-            'discard_pile': list(self.discard_pile),
+            'deck': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.deck],
+            'discard_pile': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.discard_pile],
             'pot': {**self.pot, 'highest_bet': self.highest_bet},
             'current_player_idx': self.current_player_idx,
             'current_dealer_idx': self.current_dealer_idx,
-            'community_cards': list(self.community_cards),
+            'community_cards': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.community_cards],
             'current_ante': self.current_ante,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
@@ -165,6 +174,7 @@ class PokerGameState:
     def current_player_options(self) -> List[str]:
         """
         Used when the player's turn comes up to display the available actions.
+        Build the list functionally without mutations.
         """
         player = self.current_player
         # How much is it to call the bet for the player?
@@ -174,22 +184,19 @@ class PokerGameState:
 
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if self.can_big_blind_take_pre_flop_action:
-            player_options = ['check', 'raise', 'all_in', 'chat']
-        else:
-            player_options = ['fold', 'check', 'call', 'raise', 'all_in', 'chat']
-            if player_cost_to_call == 0:
-                player_options.remove('fold')
-            if player_cost_to_call > 0:
-                player_options.remove('check')
-            if not player_has_enough_to_call or player_cost_to_call == 0:
-                player_options.remove('call')
-            if player.stack - player_cost_to_call <= 0:
-                player_options.remove('raise')
-            # if player['stack'] == 0:
-            #     player_options.remove('all_in')
-            if True:                                    # TODO: implement ai chat and then fix this check
-                player_options.remove('chat')
-        return player_options
+            return ['check', 'raise', 'all_in']
+        
+        # Build options based on game state using list comprehension
+        option_conditions = [
+            ('fold', player_cost_to_call > 0),
+            ('check', player_cost_to_call == 0),
+            ('call', player_has_enough_to_call and player_cost_to_call > 0),
+            ('raise', player.stack - player_cost_to_call > 0),
+            ('all_in', player.stack > 0),
+            # ('chat', False),  # Not implemented yet
+        ]
+        
+        return [option for option, condition in option_conditions if condition]
 
     @property
     def table_positions(self) -> Dict:
@@ -205,52 +212,54 @@ class PokerGameState:
                 "big_blind_player": self.players[(current_dealer_idx + 1) % num_players].name,
             }
 
-        # Define the base positions in order: Button, Small Blind, Big Blind
-        positions = ["button", "small_blind_player", "big_blind_player"]
-
-        # Dynamically add positions based on the number of players
-        if num_players >= 4:
-            positions.append("under_the_gun")
-        if num_players >= 5:
-            positions.append("cutoff")
-        if num_players >= 6:
-            positions.insert(-1, "middle_position_1")
-        if num_players >= 7:
-            positions.insert(-1, "middle_position_2")
-        if num_players == 8:
-            positions.insert(-1, "middle_position_3")
+        # Build positions list functionally based on player count
+        base_positions = ["button", "small_blind_player", "big_blind_player"]
+        
+        # Define position mapping based on player count
+        position_configs = {
+            4: base_positions + ["under_the_gun"],
+            5: base_positions + ["under_the_gun", "cutoff"],
+            6: base_positions + ["under_the_gun", "middle_position_1", "cutoff"],
+            7: base_positions + ["under_the_gun", "middle_position_1", "middle_position_2", "cutoff"],
+            8: base_positions + ["under_the_gun", "middle_position_1", "middle_position_2", "middle_position_3", "cutoff"],
+        }
+        
+        # Get positions for current player count (default to base if not in mapping)
+        all_positions = position_configs.get(num_players, base_positions)
 
         # Create the dictionary to map each position to the corresponding player
-        current_positions = {}
-        for i, position in enumerate(positions):
-            player_index = (current_dealer_idx + i) % num_players
-            current_positions[position] = self.players[player_index].name
-
-        return current_positions
+        return {
+            position: self.players[(current_dealer_idx + i) % num_players].name
+            for i, position in enumerate(all_positions)
+            if i < num_players  # Only include positions we have players for
+        }
 
     @property
-    def opponent_status(self, requesting_player=None) -> List[str]:
-        opponent_positions = []
-        for player in self.players:
-            if player != requesting_player:
-                position = f'{player.name} has ${player.stack}'
-                position += ' and they have folded' if player.is_folded else ''
-                position += '.\n'
-                opponent_positions.append(position)
-        return opponent_positions
+    def opponent_status(self) -> List[str]:
+        """
+        Get status of all players. Properties shouldn't take parameters,
+        so this returns status for all players.
+        """
+        return [
+            f'{player.name} has ${player.stack}'
+            + (' and they have folded' if player.is_folded else '')
+            + '.\n'
+            for player in self.players
+        ]
 
     def update(self, **kwargs) -> 'PokerGameState':
         return replace(self, **kwargs)
 
     def update_player(self, player_idx: int, **kwargs) -> 'PokerGameState':
         """
-        Update a specific player's state with the provided kwargs within a player tuple
+        Update a specific player's state with the provided kwargs within a player tuple.
+        Uses functional approach without list mutations.
         """
-        players: List[Player] = list(self.players)
-        player = players[player_idx]
-        updated_player = player.update(**kwargs)
-        players[player_idx] = updated_player
-        return self.update(players=tuple(players))
+        updated_players = tuple(
+            player.update(**kwargs) if i == player_idx else player
+            for i, player in enumerate(self.players)
+        )
+        return self.update(players=updated_players)
 
     def get_player_by_name(self, search_name: str) -> Optional[Tuple[Player, int]]:
         for idx, player in enumerate(self.players):
@@ -544,17 +553,20 @@ def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
     return game_state.update(current_player_idx=next_active_player_idx)
 
 
-def initialize_game_state(player_names: List[str]) -> PokerGameState:
+def initialize_game_state(player_names: List[str], human_name: str = "Player") -> PokerGameState:
     """
     Generate a new game state and prepare the game for the initial round of betting.
         - get a new deck of shuffled cards
         - deal cards to starting players
         - set dealer, current_player
+    
+    :param player_names: List of AI player names
+    :param human_name: Name of the human player (default: "Player")
     """
-    # Create a tuple of Human and AI players to be added to the game state. Using a hard-coded human name
+    # Create a tuple of Human and AI players to be added to the game state
     ai_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=True) for n in player_names)
-    new_players = (Player(name=HUMAN_NAME, stack= STACK_SIZE, is_human=True),) + (ai_players if not TEST_MODE else test_players)
+    new_players = (Player(name=human_name, stack=STACK_SIZE, is_human=True),) + (ai_players if not TEST_MODE else test_players)
     game_state = PokerGameState(players=new_players)
 
     return game_state

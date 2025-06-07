@@ -4,13 +4,66 @@ from typing import Tuple, Dict, List
 
 # Constants for configuration
 ATTRIBUTE_CONSTRAINT = "Use less than 20 words"
+# Only include celebrities that have personality configurations
+# See poker/personalities.json for the personality definitions
+# This list is automatically updated when personalities are generated
 CELEBRITIES_LIST = [
+    "A Mime",
+    "A guy who tells too many dad jokes",
+    "Abraham Lincoln",
+    "Ace Ventura",
+    "Barack Obama",
+    "Batman",
+    "Bill Clinton",
+    "Bob Ross",
+    "Buddha",
+    "C3PO",
+    "Chris Rock",
+    "Crocodile Dundee",
+    "Dave Chappelle",
+    "Deadpool",
+    "Donald Trump",
+    "Dr. Oz",
+    "Dr. Seuss",
+    "Eeyore",
+    "Fred Durst",
+    "Gordon Ramsay",
+    "Hulk Hogan",
+    "James Bond",
+    "Jay Gatsby",
+    "Jesus Christ",
+    "Jim Cramer",
+    "Jon Stewart",
+    "Khloe and Kim Khardashian",
+    "King Henry VIII",
+    "Lance Armstrong",
+    "Lizzo",
+    "Louis XIV",
+    "Marjorie Taylor Greene",
+    "Napoleon",
+    "R2-D2",
+    "Sarah Silverman",
+    "Shakespeare",
+    "Sherlock Holmes",
+    "Socrates",
+    "Someone who is very, very mean to people",
+    "The Hulk",
+    "The Rock",
+    "Tom Cruise",
+    "Triumph the Insult Comic Dog",
+    "Tyler Durden",
+    "Whoopi Goldberg",
+    "Winston Churchill"
+]
+
+# Full list of potential celebrities for future expansion
+ALL_CELEBRITIES_LIST = [
     "Ace Ventura", "Khloe and Kim Khardashian", "Fred Durst", "Tom Cruise",
     "James Bond", "Jon Stewart", "Jim Cramer", "Marjorie Taylor Greene",
     "Lizzo", "Bill Clinton", "Barack Obama", "Jesus Christ",
-    "Triumph the Insult Dog", "Donald Trump", "Batman", "Deadpool",
+    "Triumph the Insult Comic Dog", "Donald Trump", "Batman", "Deadpool",
     "Lance Armstrong", "A Mime", "Jay Gatsby", "Whoopi Goldberg",
-    "Dave Chappelle", "Chris Rock", "Sarah Silverman", "Kathy Griffin",
+    "Dave Chappelle", "Chris Rock", "Sarah Silverman", "Napoleon",
     "Dr. Seuss", "Dr. Oz", "A guy who tells too many dad jokes",
     "Someone who is very, very mean to people", "Socrates", "Shakespeare",
     "C3PO", "R2-D2", "Winston Churchill", "Abraham Lincoln", "Buddha",
@@ -19,6 +72,11 @@ CELEBRITIES_LIST = [
     "Joan of Ark", "John Wayne", "Doc Holiday", "Captain Jack Sparrow",
     "Terry Tate, Office Linebacker", "Bob Dylan", "Captain Spock", "Scarlett Johansson",
     "Howard Stern", "Elmo", "Captain Ahab", "Dracula", "Ludacris", "Lil John",
+    "A cat", "A dog", "A horse", "A fish", "A pig", "A chicken", "A turtle",
+    "Bart Simpson", "Homer Simpson", "An alien who has never played poker",
+    "Phil Helmuth", "Doyle Brunson", "Bilbo Baggins", "Fox Mulder", "Al Pacino",
+    "Gallagher", "Lloyd Christmas", "Yogi Bear", "Scooby Doo", "Shaggy", "The Grinch",
+    "Santa Claus", "Satan", "Hercules", "Micky Mouse", "Rocky", "Benjamin Franklin",
 ]
 
 

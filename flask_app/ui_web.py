@@ -1,24 +1,51 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
-from typing import Optional
+from typing import Optional, Dict
+from pathlib import Path
 
-from flask import Flask, render_template, redirect, url_for, jsonify, Response
+from flask import Flask, render_template, redirect, url_for, jsonify, Response, request
 from flask_socketio import SocketIO, join_room
+from flask_cors import CORS
 from datetime import datetime
 import time
+import os
+import json
+import logging
+from dotenv import load_dotenv
 
-from controllers import AIPlayerController
-from poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
+logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+load_dotenv(override=True)
+
+from poker.controllers import AIPlayerController
+from poker.ai_resilience import get_fallback_chat_response
+from poker.elasticity_manager import ElasticityManager
+from poker.pressure_detector import PressureEventDetector
+from poker.pressure_stats import PressureStatsTracker
+from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
-from poker_state_machine import PokerStateMachine, GamePhase
-from utils import get_celebrities
+from poker.poker_state_machine import PokerStateMachine, PokerPhase
+from poker.utils import get_celebrities
+from poker.persistence import GamePersistence
+from .game_adapter import StateMachineAdapter, GameStateAdapter
+from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
+CORS(app)  # Enable CORS for all routes
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Dictionary to hold game states and messages for each game ID
 games = {}
 messages = {}
+
+# Initialize persistence layer
+# Use /app/data in Docker, or local path otherwise
+if os.path.exists('/app/data'):
+    db_path = '/app/data/poker_games.db'
+else:
+    db_path = os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
+persistence = GamePersistence(db_path)
 
 
 # Helper function to generate unique game ID
@@ -26,9 +53,64 @@ def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
 
 
+def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
+    """Restore AI controllers with their saved state."""
+    ai_controllers = {}
+    ai_states = persistence.load_ai_player_states(game_id)
+    
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            controller = AIPlayerController(player.name, state_machine)
+            
+            # Restore AI state if available
+            if player.name in ai_states:
+                saved_state = ai_states[player.name]
+                
+                # Restore conversation history
+                if hasattr(controller, 'assistant') and controller.assistant:
+                    controller.assistant.messages = saved_state['messages']
+                
+                # Restore personality state
+                if 'personality_state' in saved_state:
+                    ps = saved_state['personality_state']
+                    if 'traits' in ps:
+                        controller.personality_traits = ps['traits']
+                    if hasattr(controller, 'ai_player'):
+                        controller.ai_player.confidence = ps.get('confidence', 'Normal')
+                        controller.ai_player.attitude = ps.get('attitude', 'Neutral')
+                
+                print(f"Restored AI state for {player.name} with {len(saved_state.get('messages', []))} messages")
+            
+            ai_controllers[player.name] = controller
+    
+    return ai_controllers
+
+
 def update_and_emit_game_state(game_id):
-    game_state = games[game_id]['state_machine'].game_state  # Obtain current game state
-    socketio.emit('update_game_state', {'game_state': game_state.to_dict()}, to=game_id)
+    current_game_data = games.get(game_id)
+    if not current_game_data:
+        return
+        
+    game_state = current_game_data['state_machine'].game_state
+    game_state_dict = game_state.to_dict()
+    
+    # Include messages in the game state
+    messages = []
+    for msg in current_game_data.get('messages', []):
+        messages.append({
+            'id': str(msg.get('id', len(messages))),
+            'sender': msg.get('sender', 'System'),
+            'message': msg.get('content', msg.get('message', '')),
+            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
+            'type': msg.get('message_type', msg.get('type', 'system'))
+        })
+    
+    game_state_dict['messages'] = messages
+    # Ensure the dealer and blind indices are included
+    game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
+    game_state_dict['small_blind_idx'] = game_state.small_blind_idx
+    game_state_dict['big_blind_idx'] = game_state.big_blind_idx
+    socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
 @socketio.on('join_game')
@@ -43,11 +125,251 @@ def index():
     return render_template('home.html')
 
 
+@app.route('/games')
+def list_games():
+    """List all saved games."""
+    saved_games = persistence.list_games(limit=50)
+    games_data = []
+    
+    for game in saved_games:
+        games_data.append({
+            'game_id': game.game_id,
+            'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
+            'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
+            'phase': game.phase,
+            'num_players': game.num_players,
+            'pot_size': game.pot_size
+        })
+    
+    return jsonify({'games': games_data})
+
+
+@app.route('/api/game-state/<game_id>')
+def api_game_state(game_id):
+    """API endpoint to get current game state for React app."""
+    current_game_data = games.get(game_id)
+    
+    if not current_game_data:
+        # Try to load from database
+        try:
+            base_state_machine = persistence.load_game(game_id)
+            if base_state_machine:
+                state_machine = StateMachineAdapter(base_state_machine)
+                # Restore AI controllers with saved state
+                ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
+                
+                # Load messages from database
+                db_messages = persistence.load_messages(game_id)
+                
+                # Initialize elasticity tracking for loaded games
+                elasticity_manager = ElasticityManager()
+                for player in state_machine.game_state.players:
+                    if not player.is_human and player.name in ai_controllers:
+                        controller = ai_controllers[player.name]
+                        elasticity_manager.add_player(
+                            player.name,
+                            controller.ai_player.personality_config
+                        )
+                
+                pressure_detector = PressureEventDetector(elasticity_manager)
+                pressure_stats = PressureStatsTracker()
+                
+                current_game_data = {
+                    'state_machine': state_machine,
+                    'ai_controllers': ai_controllers,
+                    'elasticity_manager': elasticity_manager,
+                    'pressure_detector': pressure_detector,
+                    'pressure_stats': pressure_stats,
+                    'messages': db_messages
+                }
+                games[game_id] = current_game_data
+            else:
+                return jsonify({'error': 'Game not found'}), 404
+        except Exception as e:
+            print(f"Error loading game {game_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # For now, return a user-friendly error
+            return jsonify({
+                'error': 'Game loading is currently unavailable',
+                'message': 'This feature is under development. Please start a new game.',
+                'players': []
+            }), 200  # Return 200 so frontend can handle gracefully
+    
+    state_machine = current_game_data['state_machine']
+    game_state = state_machine.game_state
+    
+    # Convert game state to API format
+    players = []
+    for player in game_state.players:
+        players.append({
+            'name': player.name,
+            'stack': player.stack,
+            'bet': player.bet,
+            'is_folded': player.is_folded,
+            'is_all_in': player.is_all_in,
+            'is_human': player.is_human,
+            'hand': player.hand if player.is_human and player.hand else None
+        })
+    
+    # Convert community cards
+    community_cards = []
+    for card in game_state.community_cards:
+        if hasattr(card, 'to_dict'):
+            card_dict = card.to_dict()
+            community_cards.append(f"{card_dict['rank']}{card_dict['suit']}")
+        else:
+            # Already a string
+            community_cards.append(card)
+    
+    # Get messages
+    messages = []
+    for msg in current_game_data.get('messages', []):
+        messages.append({
+            'id': str(msg.get('id', len(messages))),
+            'sender': msg.get('sender', 'System'),
+            'message': msg.get('content', msg.get('message', '')),
+            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
+            'type': msg.get('type', 'system')
+        })
+    
+    response = {
+        'players': players,
+        'community_cards': community_cards,
+        'pot': game_state.pot,
+        'current_player_idx': game_state.current_player_idx,
+        'current_dealer_idx': game_state.current_dealer_idx,
+        'small_blind_idx': game_state.small_blind_idx,
+        'big_blind_idx': game_state.big_blind_idx,
+        'phase': str(state_machine.current_phase).split('.')[-1],
+        'highest_bet': game_state.highest_bet,
+        'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
+        'min_raise': game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20,
+        'big_blind': 20,  # TODO: Get from game config
+        'messages': messages,
+        'game_id': game_id
+    }
+    
+    return jsonify(response)
+
+
+@app.route('/api/new-game', methods=['POST'])
+def api_new_game():
+    """Create a new game and return the game ID."""
+    # Get player name from request, default to "Player" if not provided
+    data = request.json or {}
+    player_name = data.get('playerName', 'Player')
+    
+    ai_player_names = get_celebrities(shuffled=True)[:3]  # 3 AI players
+    game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
+    base_state_machine = PokerStateMachine(game_state=game_state)
+    state_machine = StateMachineAdapter(base_state_machine)
+    
+    # Create AI controllers and elasticity tracking
+    ai_controllers = {}
+    elasticity_manager = ElasticityManager()
+    
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            new_controller = AIPlayerController(player.name, state_machine)
+            ai_controllers[player.name] = new_controller
+            
+            # Add to elasticity manager
+            elasticity_manager.add_player(
+                player.name,
+                new_controller.ai_player.personality_config
+            )
+    
+    pressure_detector = PressureEventDetector(elasticity_manager)
+    pressure_stats = PressureStatsTracker()
+
+    game_data = {
+        'state_machine': state_machine,
+        'ai_controllers': ai_controllers,
+        'elasticity_manager': elasticity_manager,
+        'pressure_detector': pressure_detector,
+        'pressure_stats': pressure_stats,
+        'messages': [{
+            'id': '1',
+            'sender': 'System',
+            'content': 'New game started! Good luck!',
+            'timestamp': datetime.now().isoformat(),
+            'type': 'system'
+        }]
+    }
+    game_id = generate_game_id()
+    games[game_id] = game_data
+    
+    # Save the new game to database  
+    persistence.save_game(game_id, state_machine._state_machine)
+    
+    # Progress the game to the first human action
+    progress_game(game_id)
+    
+    return jsonify({'game_id': game_id})
+
+
+@app.route('/api/game/<game_id>/action', methods=['POST'])
+def api_player_action(game_id):
+    """Handle player action via API."""
+    data = request.json
+    action = data.get('action')
+    amount = data.get('amount', 0)
+    
+    current_game_data = games.get(game_id)
+    if not current_game_data:
+        return jsonify({'error': 'Game not found'}), 404
+    
+    state_machine = current_game_data['state_machine']
+    
+    # Play the current player's turn
+    current_player = state_machine.game_state.current_player
+    if not current_player.is_human:
+        return jsonify({'error': 'Not human player turn'}), 400
+    
+    game_state = play_turn(state_machine.game_state, action, amount)
+    
+    # Generate a message to be added to the game table
+    table_message_content = f"{current_player.name} chose to {action}{(' $' + str(amount)) if amount > 0 else ''}."
+    send_message(game_id, "Table", table_message_content, "game")
+    
+    game_state = advance_to_next_active_player(game_state)
+    state_machine.game_state = game_state
+    
+    # Update the game session states
+    current_game_data['state_machine'] = state_machine
+    games[game_id] = current_game_data
+    
+    # Save game after human action
+    persistence.save_game(game_id, state_machine._state_machine)
+    
+    # Progress the game to handle AI turns
+    progress_game(game_id)
+    
+    return jsonify({'success': True})
+
+
+@app.route('/api/game/<game_id>/message', methods=['POST'])
+def api_send_message(game_id):
+    """Send a chat message in the game."""
+    data = request.json
+    message = data.get('message', '')
+    sender = data.get('sender', 'Player')  # Default to 'Player' instead of 'Jeff'
+    
+    if message.strip():
+        send_message(game_id, sender, message.strip(), 'player')
+        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': 'Empty message'})
+
+
 @app.route('/new_game', methods=['GET'])
 def new_game():
     ai_player_names = get_celebrities(shuffled=True)[:4]
-    game_state = initialize_game_state(player_names=ai_player_names)
-    state_machine = PokerStateMachine(game_state=game_state)
+    # For legacy route, use default player name
+    game_state = initialize_game_state(player_names=ai_player_names, human_name="Player")
+    base_state_machine = PokerStateMachine(game_state=game_state)
+    state_machine = StateMachineAdapter(base_state_machine)
     # Create a controller for each player in the game and add to a map of name -> controller
     ai_controllers = {}
     for player in state_machine.game_state.players:
@@ -62,6 +384,10 @@ def new_game():
     }
     game_id = generate_game_id()
     games[game_id] = game_data
+    
+    # Save the new game to database  
+    persistence.save_game(game_id, state_machine._state_machine)
+    
     return redirect(url_for('game', game_id=game_id))
 
 
@@ -74,44 +400,167 @@ def progress_game(game_id):
 
     while True:
         # Run until a player action is needed or the hand has ended
-        state_machine.run_until([GamePhase.EVALUATING_HAND])
+        state_machine.run_until([PokerPhase.EVALUATING_HAND])
         current_game_data['state_machine'] = state_machine
         games[game_id] = current_game_data
         game_state = state_machine.game_state
 
         # Emit the latest game state to the client
         update_and_emit_game_state(game_id)
+        
+        # Also save the updated state
+        persistence.save_game(game_id, state_machine._state_machine)
 
         if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
             return redirect(url_for('end_game', game_id=game_id))
 
-        if state_machine.phase in [GamePhase.FLOP, GamePhase.TURN, GamePhase.RIVER] and game_state.no_action_taken:
+        if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER] and game_state.no_action_taken:
             # Send a table messages with the cards that were dealt
-            num_cards_dealt = 3 if state_machine.phase == GamePhase.FLOP else 1
-            message_content = (f"{state_machine.phase} cards dealt: "
+            num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
+            message_content = (f"{state_machine.current_phase} cards dealt: "
                                f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
             send_message(game_id, "table", message_content, "table")
 
         # Check if it's an AI's turn to play, then handle AI actions
         if not game_state.current_player.is_human and game_state.awaiting_action:
+            print(f"AI turn: {game_state.current_player.name}")
             handle_ai_action(game_id)
 
         # Check for and handle the Evaluate Hand phase outside the state machine so we can update
         # the front end with the results.
-        elif state_machine.phase == GamePhase.EVALUATING_HAND:
+        elif state_machine.current_phase == PokerPhase.EVALUATING_HAND:
             winner_info = determine_winner(game_state)
             winning_player_names = list(winner_info['winnings'].keys())
+            
+            # Get pot size BEFORE awarding winnings (important!)
+            pot_size_before_award = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+            
+            # Apply elasticity pressure events if elasticity is enabled
+            if 'pressure_detector' in current_game_data:
+                pressure_detector = current_game_data['pressure_detector']
+                # Detect and apply pressure events from showdown
+                events = pressure_detector.detect_showdown_events(game_state, winner_info)
+                pressure_detector.apply_detected_events(events)
+                
+                # Log events for debugging and record stats
+                if events:
+                    event_names = [e[0] for e in events]
+                    send_message(game_id, "System", f"[Debug] Pressure events: {', '.join(event_names)}", "system")
+                    
+                    # Record events in stats tracker
+                    if 'pressure_stats' in current_game_data:
+                        pressure_stats = current_game_data['pressure_stats']
+                        pot_size = pot_size_before_award
+                        
+                        for event_name, affected_players in events:
+                            details = {
+                                'pot_size': pot_size,
+                                'hand_rank': winner_info.get('hand_rank'),
+                                'hand_name': winner_info.get('hand_name')
+                            }
+                            pressure_stats.record_event(event_name, affected_players, details)
+                    
+                    # Update AI controllers with new elasticity values
+                    elasticity_manager = current_game_data['elasticity_manager']
+                    ai_controllers = current_game_data.get('ai_controllers', {})
+                    
+                    for name, personality in elasticity_manager.personalities.items():
+                        if name in ai_controllers:
+                            controller = ai_controllers[name]
+                            # Update the AI player's elastic personality
+                            if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
+                                controller.ai_player.elastic_personality = personality
+                                # Update mood
+                                controller.ai_player.update_mood_from_elasticity()
+                    
+                    # Emit elasticity update via WebSocket
+                    elasticity_data = {}
+                    for name, personality in elasticity_manager.personalities.items():
+                        traits_data = {}
+                        for trait_name, trait in personality.traits.items():
+                            traits_data[trait_name] = {
+                                'current': trait.value,
+                                'anchor': trait.anchor,
+                                'elasticity': trait.elasticity,
+                                'pressure': trait.pressure,
+                                'min': trait.min,
+                                'max': trait.max
+                            }
+                        
+                        elasticity_data[name] = {
+                            'traits': traits_data,
+                            'mood': personality.get_current_mood()
+                        }
+                    
+                    socketio.emit('elasticity_update', elasticity_data, to=game_id)
+            
+            # Now award the pot winnings
             game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
             winning_players_string = (', '.join(winning_player_names[:-1]) +
                                       f" and {winning_player_names[-1]}") \
                                       if len(winning_player_names) > 1 else winning_player_names[0]
 
-            message_content = (
-                f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
-                f"Winning hand: {winner_info['winning_hand']}"
-            )
+            # Check if it was a showdown (more than one active player)
+            active_players = [p for p in game_state.players if not p.is_folded]
+            is_showdown = len(active_players) > 1
+            
+            # Prepare winner announcement data
+            winner_data = {
+                'winners': winning_player_names,
+                'winnings': winner_info['winnings'],
+                'showdown': is_showdown,
+                'community_cards': []
+            }
+            
+            # Only include hand name if it's a showdown
+            if is_showdown:
+                winner_data['hand_name'] = winner_info['hand_name']
+            
+            # Include community cards
+            for card in game_state.community_cards:
+                if isinstance(card, dict):
+                    winner_data['community_cards'].append({
+                        'rank': card['rank'],
+                        'suit': card['suit']
+                    })
+                else:
+                    winner_data['community_cards'].append(card)
+            
+            # If it's a showdown, include player cards
+            if is_showdown:
+                players_cards = {}
+                for player in active_players:
+                    if player.hand:
+                        # Convert cards to backend format that Card component expects
+                        formatted_cards = []
+                        for card in player.hand:
+                            if isinstance(card, dict):
+                                formatted_cards.append({
+                                    'rank': card['rank'],
+                                    'suit': card['suit']
+                                })
+                            else:
+                                # Already formatted
+                                formatted_cards.append(card)
+                        players_cards[player.name] = formatted_cards
+                winner_data['players_cards'] = players_cards
+
+            if is_showdown:
+                message_content = (
+                    f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
+                    f"Winning hand: {winner_info['winning_hand']}"
+                )
+            else:
+                message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
+            
             send_message(game_id,"table", message_content, "table", 1)
+            
+            # Emit winner announcement event
+            socketio.emit('winner_announcement', winner_data, to=game_id)
+            
+            # Delay before dealing new hand
+            socketio.sleep(4 if is_showdown else 2)
             send_message(game_id, "table", "***   NEW HAND DEALT   ***", "table")
 
             # Update the state_machine to be ready for it's next run through the game progression
@@ -125,15 +574,79 @@ def progress_game(game_id):
         else:
             # If a human action is required, exit the loop
             cost_to_call = game_state.highest_bet - game_state.current_player.bet
-            socketio.emit('player_turn_start', { 'current_player_options': game_state.current_player_options, 'cost_to_call': cost_to_call}, to=game_id)
+            # Convert options to list if it's a set
+            player_options = list(game_state.current_player_options) if game_state.current_player_options else []
+            socketio.emit('player_turn_start', { 'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
+            
+            # Apply trait recovery while waiting for human action
+            if 'elasticity_manager' in current_game_data:
+                elasticity_manager = current_game_data['elasticity_manager']
+                elasticity_manager.recover_all()
+                
+                # Emit updated elasticity data
+                elasticity_data = {}
+                for name, personality in elasticity_manager.personalities.items():
+                    traits_data = {}
+                    for trait_name, trait in personality.traits.items():
+                        traits_data[trait_name] = {
+                            'current': trait.value,
+                            'anchor': trait.anchor,
+                            'elasticity': trait.elasticity,
+                            'pressure': trait.pressure,
+                            'min': trait.min,
+                            'max': trait.max
+                        }
+                    
+                    elasticity_data[name] = {
+                        'traits': traits_data,
+                        'mood': personality.get_current_mood()
+                    }
+                
+                socketio.emit('elasticity_update', elasticity_data, to=game_id)
+            
             break
 
 
 @app.route('/game/<game_id>', methods=['GET'])
 def game(game_id) -> str or Response:
     current_game_data = games.get(game_id)
+    
+    # Try to load from database if not in memory
     if not current_game_data:
-        return redirect(url_for('index'))
+        base_state_machine = persistence.load_game(game_id)
+        if base_state_machine:
+            state_machine = StateMachineAdapter(base_state_machine)
+            # Restore AI controllers with saved state
+            ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
+            
+            # Load messages from database
+            db_messages = persistence.load_messages(game_id)
+            
+            # Initialize elasticity tracking for loaded games
+            elasticity_manager = ElasticityManager()
+            for player in state_machine.game_state.players:
+                if not player.is_human and player.name in ai_controllers:
+                    controller = ai_controllers[player.name]
+                    elasticity_manager.add_player(
+                        player.name,
+                        controller.ai_player.personality_config
+                    )
+            
+            pressure_detector = PressureEventDetector(elasticity_manager)
+            pressure_stats = PressureStatsTracker()
+            
+            current_game_data = {
+                'state_machine': state_machine,
+                'ai_controllers': ai_controllers,
+                'elasticity_manager': elasticity_manager,
+                'pressure_detector': pressure_detector,
+                'pressure_stats': pressure_stats,
+                'messages': db_messages
+            }
+            games[game_id] = current_game_data
+        else:
+            return redirect(url_for('index'))
+    
     state_machine = current_game_data['state_machine']
 
     # progress_game(game_id)
@@ -142,7 +655,7 @@ def game(game_id) -> str or Response:
                            game_state=state_machine.game_state,
                            player_options=state_machine.game_state.current_player_options,
                            game_id=game_id,
-                           current_phase=str(state_machine.phase))
+                           current_phase=str(state_machine.current_phase))
 
 
 @socketio.on('player_action')
@@ -172,8 +685,75 @@ def handle_player_action(data):
     # Update the game session states (global variables right now)
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
+    
+    # Save game after human action
+    persistence.save_game(game_id, state_machine._state_machine)
+    
     update_and_emit_game_state(game_id)  # Emit updated game state
     progress_game(game_id)
+
+
+def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
+    """Helper function to detect and apply pressure events."""
+    current_game_data = games.get(game_id)
+    if not current_game_data or 'pressure_detector' not in current_game_data:
+        return
+    
+    pressure_detector = current_game_data['pressure_detector']
+    elasticity_manager = current_game_data['elasticity_manager']
+    game_state = current_game_data['state_machine'].game_state
+    
+    events = []
+    
+    if event_type == 'fold':
+        # Detect fold pressure events
+        folding_player = kwargs.get('player_name')
+        pot_size = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        
+        # Folding to aggression when pot is large
+        if pot_size > 100:  # Significant pot
+            events.append(('fold_under_pressure', [folding_player]))
+            
+    elif event_type == 'big_bet':
+        # Detect aggressive betting
+        betting_player = kwargs.get('player_name')
+        bet_size = kwargs.get('bet_size', 0)
+        pot_size = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        
+        if bet_size > pot_size * 0.75:  # Large bet relative to pot
+            events.append(('aggressive_bet', [betting_player]))
+    
+    # Apply detected events
+    if events:
+        pressure_detector.apply_detected_events(events)
+        
+        # Record events in stats
+        if 'pressure_stats' in current_game_data:
+            pressure_stats = current_game_data['pressure_stats']
+            for event_name, affected_players in events:
+                details = kwargs.copy()  # Include all passed details
+                pressure_stats.record_event(event_name, affected_players, details)
+        
+        # Emit elasticity update via WebSocket
+        elasticity_data = {}
+        for name, personality in elasticity_manager.personalities.items():
+            traits_data = {}
+            for trait_name, trait in personality.traits.items():
+                traits_data[trait_name] = {
+                    'current': trait.value,
+                    'anchor': trait.anchor,
+                    'elasticity': trait.elasticity,
+                    'pressure': trait.pressure,
+                    'min': trait.min,
+                    'max': trait.max
+                }
+            
+            elasticity_data[name] = {
+                'traits': traits_data,
+                'mood': personality.get_current_mood()
+            }
+        
+        socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
 def handle_ai_action(game_id: str) -> None:
@@ -184,8 +764,10 @@ def handle_ai_action(game_id: str) -> None:
         The ID of the game for which the AI action is being handled.
     :return: (None)
     """
+    print(f"[handle_ai_action] Starting AI action for game {game_id}")
     current_game_data = games.get(game_id)
     if not current_game_data:
+        print(f"[handle_ai_action] No game data found for {game_id}")
         return
 
     state_machine = current_game_data['state_machine']
@@ -193,24 +775,93 @@ def handle_ai_action(game_id: str) -> None:
     ai_controllers = current_game_data['ai_controllers']
 
     current_player = state_machine.game_state.current_player
+    print(f"[handle_ai_action] Current AI player: {current_player.name}")
     controller = ai_controllers[current_player.name]
-    player_response_dict = controller.decide_action(game_messages[-8:])
-
-    # Prepare variables needed for new messages
-    action = player_response_dict['action']
-    amount = player_response_dict['adding_to_pot']
-    player_message = player_response_dict['persona_response']
-    player_physical_description = player_response_dict['physical']
+    
+    try:
+        # The controller.decide_action already has resilience built in,
+        # but we wrap in try/catch as a last resort
+        player_response_dict = controller.decide_action(game_messages[-8:])
+        
+        # Prepare variables needed for new messages
+        action = player_response_dict['action']
+        amount = player_response_dict.get('adding_to_pot', 0)
+        player_message = player_response_dict.get('persona_response', '')
+        player_physical_description = player_response_dict.get('physical', '')
+        
+    except Exception as e:
+        # This should rarely happen since controller has built-in resilience
+        print(f"[handle_ai_action] Critical error getting AI decision: {e}")
+        
+        # Use personality-aware fallback as last resort
+        valid_actions = state_machine.game_state.current_player_options
+        
+        # Get personality traits if available
+        personality_traits = getattr(controller, 'personality_traits', {})
+        aggression = personality_traits.get('aggression', 0.5)
+        
+        # Personality-based action selection
+        if 'raise' in valid_actions and aggression > 0.7:
+            action = 'raise'
+            min_bet = 10  # TODO: Get from game rules
+            amount = min(current_player.stack, int(min_bet * (1 + aggression)))
+        elif 'call' in valid_actions and aggression > 0.3:
+            action = 'call'
+            amount = state_machine.game_state.highest_bet - current_player.bet
+        elif 'check' in valid_actions:
+            action = 'check'
+            amount = 0
+        else:
+            action = 'fold'
+            amount = 0
+        
+        # Use personality-aware fallback messages
+        player_message = get_fallback_chat_response(current_player.name)
+        player_physical_description = "*pauses momentarily*"
+        
+        # Subtle notification that we're using fallback
+        send_message(game_id, "table", 
+                    f"[{current_player.name} takes a moment to consider]", 
+                    "table")
 
     table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
-    send_message(game_id, current_player.name, f"{player_message} {player_physical_description}", "ai", 1)
+    
+    # Only send AI message if they actually spoke
+    if player_message and player_message != '...':
+        full_message = f"{player_message} {player_physical_description}".strip()
+        send_message(game_id, current_player.name, full_message, "ai", 1)
+    
     send_message(game_id, "table", table_message_content, "table")
+    
+    # Detect pressure events based on AI action
+    if action == 'fold':
+        detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
+    elif action in ['raise', 'all_in'] and amount > 0:
+        detect_and_apply_pressure(game_id, 'big_bet', player_name=current_player.name, bet_size=amount)
 
     game_state = play_turn(state_machine.game_state, action, amount)
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
+    
+    # Save game after AI action
+    persistence.save_game(game_id, state_machine._state_machine)
+    
+    # Save AI state
+    if hasattr(controller, 'assistant') and controller.assistant:
+        personality_state = {
+            'traits': getattr(controller, 'personality_traits', {}),
+            'confidence': getattr(controller.ai_player, 'confidence', 'Normal'),
+            'attitude': getattr(controller.ai_player, 'attitude', 'Neutral')
+        }
+        persistence.save_ai_player_state(
+            game_id, 
+            current_player.name,
+            controller.assistant.messages,
+            personality_state
+        )
+    
     update_and_emit_game_state(game_id)
 
 
@@ -219,7 +870,7 @@ def handle_send_message(data):
     # Get needed values from the data
     game_id = data.get('game_id')
     content = data.get('message')
-    sender = data.get('sender', 'Jeff')
+    sender = data.get('sender', 'Player')  # Default to 'Player' instead of 'Jeff'
     message_type = data.get('message_type', 'user')
 
     send_message(game_id, sender, content, message_type)
@@ -258,8 +909,34 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     # Update the messages session state
     game_data['messages'] = game_messages
     games[game_id] = game_data
+    
+    # Save message to database
+    persistence.save_message(game_id, message_type, f"{sender}: {content}")
     socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
     socketio.sleep(sleep) if sleep else None
+
+
+@app.route('/game/<game_id>', methods=['DELETE'])
+def delete_game(game_id):
+    """Delete a saved game."""
+    try:
+        # Remove from in-memory games if present
+        if game_id in games:
+            del games[game_id]
+        
+        # Delete from database
+        persistence.delete_game(game_id)
+        
+        # Also need to delete AI states
+        import sqlite3
+        with sqlite3.connect(persistence.db_path) as conn:
+            conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
+        
+        return jsonify({'message': 'Game deleted successfully'}), 200
+    except Exception as e:
+        logger.error(f"Error deleting game {game_id}: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/end_game/<game_id>', methods=['GET'])
@@ -289,5 +966,275 @@ def get_messages(game_id):
     return jsonify(game_messages)
 
 
+@app.route('/api/game/<game_id>/elasticity', methods=['GET'])
+def get_elasticity_data(game_id):
+    """Get current elasticity data for all AI players."""
+    game_data = games.get(game_id)
+    if not game_data or 'elasticity_manager' not in game_data:
+        return jsonify({'error': 'Game not found or elasticity not enabled'}), 404
+    
+    elasticity_manager = game_data['elasticity_manager']
+    elasticity_data = {}
+    
+    for name, personality in elasticity_manager.personalities.items():
+        traits_data = {}
+        for trait_name, trait in personality.traits.items():
+            traits_data[trait_name] = {
+                'current': trait.value,
+                'anchor': trait.anchor,
+                'elasticity': trait.elasticity,
+                'pressure': trait.pressure,
+                'min': trait.min,
+                'max': trait.max
+            }
+        
+        elasticity_data[name] = {
+            'traits': traits_data,
+            'mood': personality.get_current_mood()
+        }
+    
+    return jsonify(elasticity_data)
+
+
+@app.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
+def get_pressure_stats(game_id):
+    """Get pressure event statistics for the game."""
+    game_data = games.get(game_id)
+    if not game_data or 'pressure_stats' not in game_data:
+        return jsonify({'error': 'Game not found or stats not available'}), 404
+    
+    pressure_stats = game_data['pressure_stats']
+    return jsonify(pressure_stats.get_session_summary())
+
+
+# Personality management routes
+@app.route('/personalities')
+def personalities_page():
+    """Personality manager page."""
+    return render_template('personalities.html')
+
+@app.route('/api/personalities', methods=['GET'])
+def get_personalities():
+    """Get all personalities."""
+    try:
+        # First, get personalities from database
+        db_personalities = persistence.list_personalities(limit=200)
+        
+        # Convert to expected format
+        personalities = {}
+        for p in db_personalities:
+            # Load the full config for each personality
+            name = p['name']
+            config = persistence.load_personality(name)
+            if config:
+                personalities[name] = config
+        
+        # Also load from personalities.json as fallback for any not in DB
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            with open(personalities_file, 'r') as f:
+                data = json.load(f)
+                # Add any from JSON that aren't in DB
+                for name, config in data.get('personalities', {}).items():
+                    if name not in personalities:
+                        personalities[name] = config
+        except:
+            pass  # JSON file might not exist
+        
+        return jsonify({
+            'success': True,
+            'personalities': personalities
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality/<name>', methods=['GET'])
+def get_personality(name):
+    """Get a specific personality."""
+    try:
+        # First try database
+        db_personality = persistence.load_personality(name)
+        if db_personality:
+            return jsonify({
+                'success': True,
+                'personality': db_personality,
+                'name': name
+            })
+        
+        # Fallback to personalities.json
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            with open(personalities_file, 'r') as f:
+                data = json.load(f)
+            
+            if name in data['personalities']:
+                return jsonify({
+                    'success': True,
+                    'personality': data['personalities'][name],
+                    'name': name
+                })
+        except:
+            pass
+        
+        return jsonify({'success': False, 'error': 'Personality not found'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality', methods=['POST'])
+def create_personality():
+    """Create a new personality."""
+    try:
+        data = request.json
+        name = data.get('name')
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'})
+        
+        # Remove name from config (it's the key, not part of the value)
+        personality_config = {k: v for k, v in data.items() if k != 'name'}
+        
+        # Add default traits if missing
+        if 'personality_traits' not in personality_config:
+            personality_config['personality_traits'] = {
+                "bluff_tendency": 0.5,
+                "aggression": 0.5,
+                "chattiness": 0.5,
+                "emoji_usage": 0.3
+            }
+        
+        # Save to database
+        persistence.save_personality(name, personality_config, source='user_created')
+        
+        # Also save to personalities.json for backward compatibility
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            if personalities_file.exists():
+                with open(personalities_file, 'r') as f:
+                    data = json.load(f)
+                data['personalities'][name] = personality_config
+                with open(personalities_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+        except:
+            pass  # JSON update is optional
+        
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} created successfully'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality/<name>', methods=['PUT'])
+def update_personality(name):
+    """Update a personality."""
+    try:
+        personality_config = request.json
+        
+        # Save to database
+        persistence.save_personality(name, personality_config, source='user_edited')
+        
+        # Also update personalities.json for backward compatibility
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            if personalities_file.exists():
+                with open(personalities_file, 'r') as f:
+                    data = json.load(f)
+                data['personalities'][name] = personality_config
+                with open(personalities_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+        except:
+            pass  # JSON update is optional
+        
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} updated successfully'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality/<name>', methods=['DELETE'])
+def delete_personality(name):
+    """Delete a personality."""
+    try:
+        # Delete from database
+        deleted = persistence.delete_personality(name)
+        
+        if not deleted:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found'
+            })
+        
+        # Also remove from personalities.json for backward compatibility
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            if personalities_file.exists():
+                with open(personalities_file, 'r') as f:
+                    data = json.load(f)
+                
+                if name in data['personalities']:
+                    del data['personalities'][name]
+                    with open(personalities_file, 'w') as f:
+                        json.dump(data, f, indent=2)
+        except:
+            pass  # JSON update is optional
+        
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} deleted successfully'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/generate_personality', methods=['POST'])
+def generate_personality():
+    """Generate a new personality using AI."""
+    try:
+        from poker.personality_generator import PersonalityGenerator
+        
+        data = request.json
+        name = data.get('name', '').strip()
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'})
+        
+        # Force generation even if exists
+        force_generate = data.get('force', False)
+        
+        # Use the shared generator if available, or create a new one
+        generator = PersonalityGenerator()
+        
+        # Generate the personality
+        personality_config = generator.get_personality(
+            name=name, 
+            force_generate=force_generate
+        )
+        
+        # Also save to personalities.json for consistency
+        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        with open(personalities_file, 'r') as f:
+            personalities_data = json.load(f)
+        
+        personalities_data['personalities'][name] = personality_config
+        
+        with open(personalities_file, 'w') as f:
+            json.dump(personalities_data, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'personality': personality_config,
+            'name': name,
+            'message': f'Successfully generated personality for {name}'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to generate personality. Please check your OpenAI API key.'
+        })
+
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    import os
+    port = int(os.environ.get('FLASK_RUN_PORT', 5000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)

@@ -44,12 +44,10 @@ class HandEvaluator:
             _check_one_pair:
                 Checks if the hand contains one pair of cards with the same rank (one pair).
     """
-    # TODO: resolve bug as described below
-    # Player goes all-in after flop
-    # Community cards are A high flush of clubs
-    # A: has 2 hearts, one an Ace
-    # B: has KC and AD
-    # Game awarded hand to the player without the KC
+    # Bug fixed: flush evaluation now correctly returns only the best 5 cards
+    # Previously, when more than 5 cards of the same suit were available,
+    # all flush cards were returned instead of just the best 5, causing
+    # incorrect hand comparisons
     def __init__(self, cards):
         self.cards = cards
         self.ranks = [card.value for card in cards]
@@ -89,7 +87,7 @@ class HandEvaluator:
         has_flush, flush_values, _, flush_suit, _ = self._check_flush()
         if has_flush:
             flush_cards = [card for card in self.cards if card.suit == flush_suit]
-            has_straight, straight_values, _ = HandEvaluator(flush_cards)._check_straight()
+            has_straight, straight_values, _, _, _ = HandEvaluator(flush_cards)._check_straight()
             if has_straight:
                 return True, straight_values, [], flush_suit, f"{straight_values[0]} high Straight Flush with {flush_suit}"
         return False, [], [], None, None
@@ -117,18 +115,27 @@ class HandEvaluator:
         for suit, count in self.suit_counts.items():
             if count >= 5:
                 flush_cards = sorted([card.value for card in self.cards if card.suit == suit], reverse=True)
-                return True, flush_cards, [], suit, f"Flush with {suit}"
+                # Only return the best 5 cards for the flush
+                best_five = flush_cards[:5]
+                return True, best_five, [], suit, f"Flush with {suit}"
         return False, [], [], None, None
 
     def _check_straight(self):
         sorted_values = sorted(self.ranks, reverse=True)
         if not sorted_values:
-            return False, [], []
+            return False, [], [], None, None
+        
+        # Check for regular straights
         for top in range(sorted_values[0], 4, -1):
             if set(range(top-4, top+1)).issubset(set(sorted_values)):
                 straight_values = list(range(top, top-5, -1))
                 return True, straight_values, [], None, f"{top} high Straight"
-        return False, [], []
+        
+        # Check for Ace-low straight (A-2-3-4-5, also known as "wheel")
+        if set([14, 2, 3, 4, 5]).issubset(set(sorted_values)):
+            return True, [5, 4, 3, 2, 1], [], None, "5 high Straight (Wheel)"
+        
+        return False, [], [], None, None
 
     def _check_three_of_a_kind(self):
         for rank, count in self.rank_counts.items():

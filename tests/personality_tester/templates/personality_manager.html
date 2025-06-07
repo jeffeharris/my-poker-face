@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Poker Personality Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .personality-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            min-height: 600px;
+        }
+        .personality-list {
+            background: #f8f8f8;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+        .personality-item {
+            padding: 10px 15px;
+            margin-bottom: 5px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .personality-item:hover {
+            background: #e8f4ff;
+            border-color: #007bff;
+        }
+        .personality-item.active {
+            background: #007bff;
+            color: white;
+            border-color: #0056b3;
+        }
+        .editor-panel {
+            background: #f8f8f8;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], textarea, select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+        .trait-slider {
+            margin-bottom: 15px;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="range"] {
+            flex: 1;
+        }
+        .slider-value {
+            width: 50px;
+            text-align: center;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            display: none;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .traits-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .array-input {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .array-item {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        .array-item input {
+            flex: 1;
+        }
+        .array-item button {
+            padding: 5px 10px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .add-item-btn {
+            padding: 5px 15px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        .no-selection {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+        }
+        .new-personality-btn {
+            width: 100%;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎰 AI Poker Personality Manager 🎰</h1>
+        
+        <div id="alert" class="alert"></div>
+        
+        <div class="personality-grid">
+            <div class="personality-list">
+                <button class="btn btn-success new-personality-btn" onclick="createNewPersonality()">
+                    + Create New Personality
+                </button>
+                <div id="personality-list"></div>
+            </div>
+            
+            <div class="editor-panel">
+                <div id="editor-content">
+                    <div class="no-selection">
+                        Select a personality to edit or create a new one
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentPersonality = null;
+        let personalities = {};
+        
+        // Load personalities on page load
+        window.onload = async function() {
+            await loadPersonalities();
+        };
+        
+        async function loadPersonalities() {
+            try {
+                const response = await fetch('/api/personalities');
+                const data = await response.json();
+                
+                if (data.success) {
+                    personalities = data.personalities;
+                    displayPersonalityList();
+                } else {
+                    showAlert('error', 'Failed to load personalities: ' + data.error);
+                }
+            } catch (error) {
+                showAlert('error', 'Error loading personalities: ' + error.message);
+            }
+        }
+        
+        function displayPersonalityList() {
+            const listDiv = document.getElementById('personality-list');
+            const names = Object.keys(personalities).sort();
+            
+            listDiv.innerHTML = names.map(name => `
+                <div class="personality-item ${currentPersonality === name ? 'active' : ''}" 
+                     onclick="selectPersonality('${name}')">
+                    ${name}
+                </div>
+            `).join('');
+        }
+        
+        function selectPersonality(name) {
+            currentPersonality = name;
+            displayPersonalityList();
+            displayEditor(name, personalities[name]);
+        }
+        
+        function displayEditor(name, data) {
+            const editorDiv = document.getElementById('editor-content');
+            
+            let html = `
+                <h2>Editing: ${name}</h2>
+                
+                <div class="form-group">
+                    <label for="play_style">Play Style</label>
+                    <input type="text" id="play_style" value="${data.play_style || ''}" 
+                           placeholder="e.g., aggressive and boastful">
+                </div>
+                
+                <div class="traits-grid">
+                    <div class="form-group">
+                        <label for="default_confidence">Default Confidence</label>
+                        <input type="text" id="default_confidence" value="${data.default_confidence || ''}" 
+                               placeholder="e.g., supreme">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="default_attitude">Default Attitude</label>
+                        <input type="text" id="default_attitude" value="${data.default_attitude || ''}" 
+                               placeholder="e.g., domineering">
+                    </div>
+                </div>
+                
+                <h3>Personality Traits</h3>
+                <div class="trait-slider">
+                    <label>Bluff Tendency</label>
+                    <div class="slider-container">
+                        <input type="range" id="bluff_tendency" min="0" max="100" 
+                               value="${(data.personality_traits?.bluff_tendency || 0.5) * 100}"
+                               oninput="updateSliderValue('bluff_tendency')">
+                        <span class="slider-value" id="bluff_tendency_value">
+                            ${Math.round((data.personality_traits?.bluff_tendency || 0.5) * 100)}%
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="trait-slider">
+                    <label>Aggression</label>
+                    <div class="slider-container">
+                        <input type="range" id="aggression" min="0" max="100" 
+                               value="${(data.personality_traits?.aggression || 0.5) * 100}"
+                               oninput="updateSliderValue('aggression')">
+                        <span class="slider-value" id="aggression_value">
+                            ${Math.round((data.personality_traits?.aggression || 0.5) * 100)}%
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="trait-slider">
+                    <label>Chattiness</label>
+                    <div class="slider-container">
+                        <input type="range" id="chattiness" min="0" max="100" 
+                               value="${(data.personality_traits?.chattiness || 0.5) * 100}"
+                               oninput="updateSliderValue('chattiness')">
+                        <span class="slider-value" id="chattiness_value">
+                            ${Math.round((data.personality_traits?.chattiness || 0.5) * 100)}%
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="trait-slider">
+                    <label>Emoji Usage</label>
+                    <div class="slider-container">
+                        <input type="range" id="emoji_usage" min="0" max="100" 
+                               value="${(data.personality_traits?.emoji_usage || 0.3) * 100}"
+                               oninput="updateSliderValue('emoji_usage')">
+                        <span class="slider-value" id="emoji_usage_value">
+                            ${Math.round((data.personality_traits?.emoji_usage || 0.3) * 100)}%
+                        </span>
+                    </div>
+                </div>
+                
+                <h3>Verbal Tics</h3>
+                <div class="array-input" id="verbal_tics">
+                    ${(data.verbal_tics || []).map((tic, i) => `
+                        <div class="array-item">
+                            <input type="text" value="${tic}" onchange="updateArrayItem('verbal_tics', ${i}, this.value)">
+                            <button onclick="removeArrayItem('verbal_tics', ${i})">×</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <button class="add-item-btn" onclick="addArrayItem('verbal_tics')">+ Add Verbal Tic</button>
+                
+                <h3>Physical Tics</h3>
+                <div class="array-input" id="physical_tics">
+                    ${(data.physical_tics || []).map((tic, i) => `
+                        <div class="array-item">
+                            <input type="text" value="${tic}" onchange="updateArrayItem('physical_tics', ${i}, this.value)">
+                            <button onclick="removeArrayItem('physical_tics', ${i})">×</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <button class="add-item-btn" onclick="addArrayItem('physical_tics')">+ Add Physical Tic</button>
+                
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="savePersonality()">Save Changes</button>
+                    <button class="btn btn-warning" onclick="regeneratePersonality()">Regenerate with AI</button>
+                    <button class="btn btn-danger" onclick="deletePersonality()">Delete Personality</button>
+                    <button class="btn btn-secondary" onclick="cancelEdit()">Cancel</button>
+                </div>
+            `;
+            
+            editorDiv.innerHTML = html;
+        }
+        
+        function updateSliderValue(trait) {
+            const slider = document.getElementById(trait);
+            const valueSpan = document.getElementById(trait + '_value');
+            valueSpan.textContent = slider.value + '%';
+        }
+        
+        let arrayData = {};
+        
+        function updateArrayItem(arrayName, index, value) {
+            if (!arrayData[arrayName]) {
+                arrayData[arrayName] = personalities[currentPersonality][arrayName] || [];
+            }
+            arrayData[arrayName][index] = value;
+        }
+        
+        function removeArrayItem(arrayName, index) {
+            if (!arrayData[arrayName]) {
+                arrayData[arrayName] = [...(personalities[currentPersonality][arrayName] || [])];
+            }
+            arrayData[arrayName].splice(index, 1);
+            selectPersonality(currentPersonality); // Refresh display
+        }
+        
+        function addArrayItem(arrayName) {
+            if (!arrayData[arrayName]) {
+                arrayData[arrayName] = [...(personalities[currentPersonality][arrayName] || [])];
+            }
+            arrayData[arrayName].push('');
+            
+            // Update the stored data
+            personalities[currentPersonality][arrayName] = arrayData[arrayName];
+            selectPersonality(currentPersonality); // Refresh display
+        }
+        
+        async function savePersonality() {
+            if (!currentPersonality) return;
+            
+            const updatedData = {
+                play_style: document.getElementById('play_style').value,
+                default_confidence: document.getElementById('default_confidence').value,
+                default_attitude: document.getElementById('default_attitude').value,
+                personality_traits: {
+                    bluff_tendency: document.getElementById('bluff_tendency').value / 100,
+                    aggression: document.getElementById('aggression').value / 100,
+                    chattiness: document.getElementById('chattiness').value / 100,
+                    emoji_usage: document.getElementById('emoji_usage').value / 100
+                },
+                verbal_tics: getArrayValues('verbal_tics'),
+                physical_tics: getArrayValues('physical_tics')
+            };
+            
+            try {
+                const response = await fetch(`/api/personality/${currentPersonality}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(updatedData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('success', data.message);
+                    personalities[currentPersonality] = updatedData;
+                    arrayData = {}; // Clear temporary array data
+                } else {
+                    showAlert('error', 'Failed to save: ' + data.error);
+                }
+            } catch (error) {
+                showAlert('error', 'Error saving personality: ' + error.message);
+            }
+        }
+        
+        function getArrayValues(arrayName) {
+            const container = document.getElementById(arrayName);
+            const inputs = container.querySelectorAll('input');
+            return Array.from(inputs).map(input => input.value).filter(v => v);
+        }
+        
+        async function deletePersonality() {
+            if (!currentPersonality) return;
+            
+            if (!confirm(`Are you sure you want to delete ${currentPersonality}? This cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/personality/${currentPersonality}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('success', data.message);
+                    delete personalities[currentPersonality];
+                    currentPersonality = null;
+                    displayPersonalityList();
+                    document.getElementById('editor-content').innerHTML = `
+                        <div class="no-selection">
+                            Select a personality to edit or create a new one
+                        </div>
+                    `;
+                } else {
+                    showAlert('error', 'Failed to delete: ' + data.error);
+                }
+            } catch (error) {
+                showAlert('error', 'Error deleting personality: ' + error.message);
+            }
+        }
+        
+        function createNewPersonality() {
+            const name = prompt('Enter name for new personality:');
+            if (!name) return;
+            
+            if (personalities[name]) {
+                showAlert('error', 'Personality already exists!');
+                return;
+            }
+            
+            // Ask if they want AI generation
+            if (confirm(`Would you like AI to generate a personality for "${name}"?\n\nClick OK to use AI generation, or Cancel to create manually.`)) {
+                generateWithAI(name);
+            } else {
+                // Create with default values
+                const newPersonality = {
+                    play_style: "balanced",
+                    default_confidence: "confident",
+                    default_attitude: "focused",
+                    personality_traits: {
+                        bluff_tendency: 0.5,
+                        aggression: 0.5,
+                        chattiness: 0.5,
+                        emoji_usage: 0.3
+                    },
+                    verbal_tics: [],
+                    physical_tics: []
+                };
+                
+                personalities[name] = newPersonality;
+                displayPersonalityList();
+                selectPersonality(name);
+            }
+        }
+        
+        async function generateWithAI(name) {
+            // Show loading state
+            showAlert('info', `Generating personality for ${name}...`);
+            
+            try {
+                const response = await fetch('/api/generate_personality', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    personalities[name] = data.personality;
+                    displayPersonalityList();
+                    selectPersonality(name);
+                    showAlert('success', `AI generated personality for ${name}! Review and save if you're happy with it.`);
+                } else {
+                    showAlert('error', 'Generation failed: ' + (data.message || data.error));
+                    // Fall back to manual creation
+                    createManualPersonality(name);
+                }
+            } catch (error) {
+                showAlert('error', 'Network error: ' + error.message);
+                createManualPersonality(name);
+            }
+        }
+        
+        function createManualPersonality(name) {
+            const newPersonality = {
+                play_style: "balanced",
+                default_confidence: "confident",
+                default_attitude: "focused",
+                personality_traits: {
+                    bluff_tendency: 0.5,
+                    aggression: 0.5,
+                    chattiness: 0.5,
+                    emoji_usage: 0.3
+                },
+                verbal_tics: [],
+                physical_tics: []
+            };
+            
+            personalities[name] = newPersonality;
+            displayPersonalityList();
+            selectPersonality(name);
+        }
+        
+        async function regeneratePersonality() {
+            if (!currentPersonality) return;
+            
+            if (!confirm(`Are you sure you want to regenerate the personality for "${currentPersonality}"? This will replace the current personality with a new AI-generated one.`)) {
+                return;
+            }
+            
+            showAlert('info', `Regenerating personality for ${currentPersonality}...`);
+            
+            try {
+                const response = await fetch('/api/generate_personality', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        name: currentPersonality,
+                        force: true  // Force regeneration
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    personalities[currentPersonality] = data.personality;
+                    selectPersonality(currentPersonality);  // Refresh display
+                    showAlert('success', `Successfully regenerated personality for ${currentPersonality}!`);
+                } else {
+                    showAlert('error', 'Regeneration failed: ' + (data.message || data.error));
+                }
+            } catch (error) {
+                showAlert('error', 'Network error: ' + error.message);
+            }
+        }
+        
+        function cancelEdit() {
+            currentPersonality = null;
+            arrayData = {};
+            displayPersonalityList();
+            document.getElementById('editor-content').innerHTML = `
+                <div class="no-selection">
+                    Select a personality to edit or create a new one
+                </div>
+            `;
+        }
+        
+        function showAlert(type, message) {
+            const alertDiv = document.getElementById('alert');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            alertDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                alertDiv.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

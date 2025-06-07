@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional
+import os
 
 from openai import OpenAI
 
@@ -124,7 +125,10 @@ class OpenAILLMAssistant(LLMAssistant):
         super().__init__(ai_temp, ai_model, system_message, memory)
         if memory is None:
             self.memory = []
-        self.client = OpenAI()
+        # Initialize OpenAI client with just the API key from environment
+        self.client = OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY")
+        )
         self.functions = functions
 
     def get_response(self, messages: List[Dict[str, str]]):
