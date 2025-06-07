@@ -34,36 +34,52 @@ python interpreter, you may need to switch 'python' to 'python3' below
 Create a local `.env` file and add your `OPENAI_API_KEY` to it. 
 This will be enabled to use the AI PLayers and Assistants.
 
-Once the environment is configured and requirements installed:
+Once the environment is configured:
 
-### Option 1: Docker Compose (Recommended)
+### Running with Docker Compose (Recommended)
 
 ```bash
 # Start all services
 make up
 
-# Or with custom ports (if defaults are in use)
+# Stop all services
+make down
+
+# View logs
+make logs
+
+# With custom ports (if defaults are in use)
 FRONTEND_PORT=3173 BACKEND_PORT=5001 make up
 ```
 
-Access the game at:
-- Frontend: http://localhost:5173 (or your custom port)
-- API: http://localhost:5000 (or your custom port)
+Access the game at http://localhost:5173
 
-### Option 2: Manual Setup
+The Docker setup includes:
+- React frontend (port 5173)
+- Flask API backend (port 5000)
+- Redis for session management (port 6379)
+- Hot-reloading for development
 
-1. Start the Flask API backend:
+### Development Setup (Manual)
+
+For developers who need to run services independently:
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
+
+1. **Backend API**:
 ```bash
 python -m flask_app.ui_web
 ```
 
-2. In a new terminal, start the React frontend:
+2. **Frontend** (in a new terminal):
 ```bash
 cd react/react
 npm install
 npm run dev
 ```
 
-Access the game at:
+3. **Access**:
 - Frontend: http://localhost:5173
 - API: http://localhost:5000
+</details>
