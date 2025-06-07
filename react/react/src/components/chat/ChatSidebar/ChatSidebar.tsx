@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { useFeatureFlags } from '../../debug/FeatureFlags';
 import './ChatSidebar.css';
 
 interface ChatMessage {
@@ -32,9 +33,24 @@ type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
 export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<MessageFilter>('all');
+  const [selectedPlayer, setSelectedPlayer] = useState<string>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
   const [colorUpdateTrigger, setColorUpdateTrigger] = useState(0);
+  const featureFlags = useFeatureFlags();
+
+  // Get all unique players from messages
+  const allPlayers = useMemo(() => {
+    const players = new Set<string>();
+    messages.forEach(msg => {
+      if (msg.sender && 
+          msg.sender.toLowerCase() !== 'table' && 
+          msg.sender.toLowerCase() !== 'system') {
+        players.add(msg.sender);
+      }
+    });
+    return Array.from(players).sort();
+  }, [messages]);
 
   // Parse action messages to extract player and action
   const parseActionMessage = (message: string) => {
@@ -56,6 +72,18 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
       .filter(msg => {
         // Filter out empty messages
         if (!msg.message || msg.message.trim() === '') return false;
+        
+        // Apply player filter if feature is enabled
+        if (featureFlags.playerFilter && selectedPlayer !== 'all') {
+          // For action messages, check if the player is mentioned
+          if (msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
+            const parsed = parseActionMessage(msg.message);
+            if (!parsed || parsed.player !== selectedPlayer) return false;
+          } else {
+            // For regular messages, check sender
+            if (msg.sender !== selectedPlayer) return false;
+          }
+        }
         
         // Apply type filter
         switch (filter) {
@@ -99,7 +127,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
           displayType: msg.type
         };
       });
-  }, [messages, filter]);
+  }, [messages, filter, selectedPlayer, featureFlags.playerFilter]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -202,7 +230,23 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     <div className="chat-sidebar">
       <div className="chat-sidebar__header">
         <h3>Table Chat</h3>
-        <div className="chat-filters">
+        <div className="chat-filters-container">
+          {featureFlags.playerFilter && allPlayers.length > 0 && (
+            <select 
+              className="player-filter-dropdown"
+              value={selectedPlayer}
+              onChange={(e) => setSelectedPlayer(e.target.value)}
+              title="Filter by player"
+            >
+              <option value="all">All Players</option>
+              {allPlayers.map(player => (
+                <option key={player} value={player} style={{ color: getPlayerColor(player) }}>
+                  {player}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="chat-filters">
           <button 
             className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
             onClick={() => setFilter('all')}
@@ -231,6 +275,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
           >
             🔔
           </button>
+          </div>
         </div>
       </div>
       

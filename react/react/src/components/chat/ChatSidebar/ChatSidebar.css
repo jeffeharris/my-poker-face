@@ -29,6 +29,41 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* Filters container */
+.chat-filters-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Player filter dropdown */
+.player-filter-dropdown {
+  padding: 0.25rem 0.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.25rem;
+  color: white;
+  font-size: 0.75rem;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.player-filter-dropdown:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.player-filter-dropdown:focus {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+.player-filter-dropdown option {
+  background: #1a1a1a;
+  color: white;
+}
+
 /* Filter buttons */
 .chat-filters {
   display: flex;
