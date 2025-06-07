@@ -7,11 +7,11 @@ import { ChatSidebar } from '../../chat/ChatSidebar';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
-import { ElasticityDebugPanel } from '../../ElasticityDebugPanel';
+import { ElasticityDebugPanel } from '../../debug/ElasticityDebugPanel';
 import { PressureStats } from '../../stats';
 import { PokerTableLayout } from '../PokerTableLayout';
-import { DebugPanel } from '../../DebugPanel';
-import { CSSDebugger } from '../../CSSDebugger';
+import { DebugPanel } from '../../debug/DebugPanel';
+import { CSSDebugger } from '../../debug/CSSDebugger';
 import { config } from '../../../config';
 import './PokerTable.css';
 
@@ -636,10 +636,10 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
                 {/* Player cards */}
                 <div className="player-cards">
                   {player.is_human && player.hand ? (
-                    // Show actual cards for human player (medium size)
+                    // Show actual cards for human player (large size)
                     <>
-                      <Card card={player.hand[0]} faceDown={false} size="medium" className="hole-card" />
-                      <Card card={player.hand[1]} faceDown={false} size="medium" className="hole-card" />
+                      <Card card={player.hand[0]} faceDown={false} size="large" className="hole-card" />
+                      <Card card={player.hand[1]} faceDown={false} size="large" className="hole-card" />
                     </>
                   ) : (
                     // Show face-down cards for AI players (small size)
