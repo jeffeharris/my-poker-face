@@ -52,25 +52,10 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
 
   // Transform and filter messages
   const processedMessages = useMemo(() => {
-    // First, identify where new hands start in the original messages
-    const handBoundaries = new Set<string>();
-    messages.forEach((msg, index) => {
-      if (msg.message.toLowerCase().includes('new hand dealt')) {
-        // Mark the next message after "new hand dealt" as a boundary
-        const nextMsg = messages[index + 1];
-        if (nextMsg) {
-          handBoundaries.add(nextMsg.id);
-        }
-      }
-    });
-
     return messages
       .filter(msg => {
         // Filter out empty messages
         if (!msg.message || msg.message.trim() === '') return false;
-        
-        // Filter out "new hand dealt" messages since we show visual separator
-        if (msg.message.toLowerCase().includes('new hand dealt')) return false;
         
         // Apply type filter
         switch (filter) {
@@ -85,8 +70,9 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
         }
       })
       .map((msg) => {
-        // Check if this message should show a separator
-        const shouldShowSeparator = handBoundaries.has(msg.id);
+        // Check if this message is a hand separator
+        const isHandSeparator = msg.message.toLowerCase().includes('new hand dealt') ||
+                               msg.message.toLowerCase().includes('new game started');
         
         // Transform action messages
         if (msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
@@ -95,15 +81,22 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             return {
               ...msg,
               displayType: 'action',
-              parsedAction: parsed,
-              showHandSeparator: shouldShowSeparator
+              parsedAction: parsed
             };
           }
         }
+        
+        // Mark hand separator messages
+        if (isHandSeparator) {
+          return {
+            ...msg,
+            displayType: 'separator'
+          };
+        }
+        
         return { 
           ...msg, 
-          displayType: msg.type,
-          showHandSeparator: shouldShowSeparator
+          displayType: msg.type
         };
       });
   }, [messages, filter]);
@@ -242,56 +235,54 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
           </div>
         ) : (
           processedMessages.map((msg: any) => {
-            const elements = [];
-            
-            // Add hand separator if needed
-            if (msg.showHandSeparator) {
-              elements.push(
-                <div key={`separator-${msg.id}`} className="hand-separator">
+            // Display as separator
+            if (msg.displayType === 'separator') {
+              return (
+                <div key={msg.id} className="hand-separator">
                   <div className="separator-line" />
-                  <span className="separator-text">New Hand</span>
+                  <span className="separator-text">{msg.message}</span>
                   <div className="separator-line" />
                 </div>
               );
             }
             
+            // Display as action message
             if (msg.displayType === 'action') {
-              elements.push(renderActionMessage(msg));
-            } else {
-              const isOwnMessage = msg.sender === playerName;
-              const playerColor = getPlayerColor(msg.sender);
-
-              elements.push(
-                <div 
-                  key={msg.id} 
-                  className={`chat-message ${msg.type} ${isOwnMessage ? 'own-message' : ''}`}
-                  style={{ 
-                    borderLeftColor: msg.type === 'player' || msg.type === 'ai' 
-                      ? playerColor 
-                      : undefined 
-                  }}
-                >
-                  <div className="message-header">
-                    <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
-                    <span 
-                      className="message-sender"
-                      style={{ 
-                        color: msg.type === 'player' || msg.type === 'ai' 
-                          ? playerColor 
-                          : undefined 
-                      }}
-                    >
-                      {msg.sender}
-                    </span>
-                    <span className="message-time">{formatTime(msg.timestamp)}</span>
-                  </div>
-                  <div className="message-content">{msg.message}</div>
-                </div>
-              );
+              return renderActionMessage(msg);
             }
             
-            return elements;
-          }).flat()
+            // Display as regular message
+            const isOwnMessage = msg.sender === playerName;
+            const playerColor = getPlayerColor(msg.sender);
+
+            return (
+              <div 
+                key={msg.id} 
+                className={`chat-message ${msg.type} ${isOwnMessage ? 'own-message' : ''}`}
+                style={{ 
+                  borderLeftColor: msg.type === 'player' || msg.type === 'ai' 
+                    ? playerColor 
+                    : undefined 
+                }}
+              >
+                <div className="message-header">
+                  <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                  <span 
+                    className="message-sender"
+                    style={{ 
+                      color: msg.type === 'player' || msg.type === 'ai' 
+                        ? playerColor 
+                        : undefined 
+                    }}
+                  >
+                    {msg.sender}
+                  </span>
+                  <span className="message-time">{formatTime(msg.timestamp)}</span>
+                </div>
+                <div className="message-content">{msg.message}</div>
+              </div>
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>
