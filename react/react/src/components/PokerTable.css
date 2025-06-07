@@ -1,20 +1,19 @@
-/* Poker Table Styling */
+/* Poker Table Styling - Use full available space */
 .poker-table {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  width: 100%;
+  height: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px;
-  font-family: 'Arial', sans-serif;
+  position: relative;
 }
 
 .table-felt {
-  width: 800px;
-  height: 500px;
+  width: calc(100% - 40px);
+  height: calc(100% - 40px);
   background: radial-gradient(ellipse at center, #0d5016 0%, #0a4012 70%, #08350f 100%);
   border: 8px solid #8b4513;
-  border-radius: 50%;
+  border-radius: 300px / 200px; /* Elliptical border radius for wider table */
   position: relative;
   box-shadow: 
     0 0 30px rgba(0, 0, 0, 0.5),
