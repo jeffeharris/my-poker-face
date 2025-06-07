@@ -130,18 +130,31 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     
     // Apply message grouping if feature is enabled
     if (featureFlags.messageGrouping) {
-      return filtered.map((msg, index) => {
+      const grouped = filtered.map((msg, index) => {
         const prevMsg = index > 0 ? filtered[index - 1] : null;
         const nextMsg = index < filtered.length - 1 ? filtered[index + 1] : null;
         
+        // For action messages, check the parsed player name
+        const currentSender = msg.displayType === 'action' && msg.parsedAction 
+          ? msg.parsedAction.player 
+          : msg.sender;
+        
+        const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsg.parsedAction
+          ? prevMsg.parsedAction.player
+          : prevMsg?.sender;
+          
+        const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsg.parsedAction
+          ? nextMsg.parsedAction.player
+          : nextMsg?.sender;
+        
         // Check if this message is part of a group
         const isFirstInGroup = !prevMsg || 
-          prevMsg.sender !== msg.sender || 
+          prevSender !== currentSender || 
           prevMsg.displayType === 'separator' ||
           msg.displayType === 'separator';
           
         const isLastInGroup = !nextMsg || 
-          nextMsg.sender !== msg.sender || 
+          nextSender !== currentSender || 
           nextMsg.displayType === 'separator' ||
           msg.displayType === 'separator';
         
@@ -152,6 +165,8 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
           showHeader: isFirstInGroup
         };
       });
+      
+      return grouped;
     }
     
     return filtered;
@@ -216,7 +231,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     }
   };
 
-  const renderActionMessage = (msg: any) => {
+  const renderActionMessage = (msg: any, index: number) => {
     const { player, action, amount } = msg.parsedAction;
     const actionEmoji = {
       'fold': '🏳️',
@@ -245,7 +260,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
 
     return (
       <div 
-        key={msg.id}
+        key={`action-${index}-${msg.id}`}
         className={actionClasses}
         style={{ borderLeftColor: getPlayerColor(player) }}
       >
@@ -324,11 +339,11 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             <p className="chat-sidebar__tip">Say hello to the table!</p>
           </div>
         ) : (
-          processedMessages.map((msg: any) => {
+          processedMessages.map((msg: any, index: number) => {
             // Display as separator
             if (msg.displayType === 'separator') {
               return (
-                <div key={msg.id} className="hand-separator">
+                <div key={`sep-${index}-${msg.id}`} className="hand-separator">
                   <div className="separator-line" />
                   <span className="separator-text">{msg.message}</span>
                   <div className="separator-line" />
@@ -338,7 +353,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             
             // Display as action message
             if (msg.displayType === 'action') {
-              return renderActionMessage(msg);
+              return renderActionMessage(msg, index);
             }
             
             // Display as regular message
@@ -355,7 +370,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
 
             return (
               <div 
-                key={msg.id} 
+                key={`msg-${index}-${msg.id}`} 
                 className={messageClasses}
                 style={{ 
                   borderLeftColor: msg.type === 'player' || msg.type === 'ai' 

@@ -117,9 +117,13 @@ POST /api/game/{gameId}/chat-suggestions
 
 - [x] Feature flags system
 - [x] Player filter dropdown
+- [x] Message grouping
 - [ ] Quick chat suggestions
-- [ ] Message grouping
 - [ ] Event indicators
+
+## Known Limitations
+
+- **Message Grouping**: Currently groups consecutive chat messages from the same player. Action messages may not group consistently due to their different sender structure. This is acceptable for now as actions are important events that benefit from standing out.
 
 ## Next Steps
 
