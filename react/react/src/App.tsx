@@ -137,24 +137,6 @@ function App() {
 
   return (
     <>
-      {/* Temporary button for elasticity demo */}
-      <button 
-        onClick={() => setCurrentView('elasticity-demo')}
-        style={{
-          position: 'fixed',
-          bottom: 10,
-          right: 10,
-          zIndex: 9999,
-          padding: '10px',
-          backgroundColor: '#4caf50',
-          color: 'white',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: 'pointer'
-        }}
-      >
-        Test Elasticity Demo
-      </button>
 
       {/* Navigation - only show when in table view */}
       {currentView === 'table' && (
@@ -220,96 +202,6 @@ function App() {
         <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />
       )}
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
-      
-      {/* Debug info overlay */}
-      {currentView === 'table' && (
-        <div style={{
-          position: 'fixed',
-          bottom: 60,
-          right: 10,
-          background: 'rgba(0,0,0,0.9)',
-          color: '#0f0',
-          padding: '10px',
-          fontSize: '12px',
-          fontFamily: 'monospace',
-          maxWidth: '300px',
-          border: '1px solid #0f0',
-          zIndex: 10000
-        }}>
-          <div>Debug Info:</div>
-          <button onClick={() => {
-            const panel = document.querySelector('.debug-panel__content');
-            if (panel) {
-              const elasticityContent = panel.querySelector('.elasticity-panel-wrapper');
-              console.log('Debug Panel HTML:', panel.innerHTML);
-              console.log('Has elasticity wrapper:', !!elasticityContent);
-              console.log('Elasticity content:', elasticityContent?.innerHTML);
-              
-              // Check specific elements
-              const elements = {
-                'edp-player': panel.querySelectorAll('.edp-player').length,
-                'edp-trait': panel.querySelectorAll('.edp-trait').length,
-                'edp-anchor-line': panel.querySelectorAll('.edp-anchor-line').length,
-                'edp-trait-bar': panel.querySelectorAll('.edp-trait-bar').length,
-                'edp-elasticity-range': panel.querySelectorAll('.edp-elasticity-range').length
-              };
-              console.log('Element counts:', elements);
-            }
-          }}>
-            Inspect Debug Panel
-          </button>
-          <button onClick={() => {
-            // Test 1: Check elasticity panel styles
-            console.log('=== TESTING ELASTICITY PANEL STYLES ===');
-            const edpBar = document.querySelector('.edp-trait-bar');
-            const edpAnchor = document.querySelector('.edp-anchor-line');
-            
-            if (edpBar) {
-              const styles = window.getComputedStyle(edpBar);
-              console.log('✓ .edp-trait-bar found');
-              console.log('  - background:', styles.background);
-              console.log('  - height:', styles.height);
-              console.log('  - Expected: gradient background, ~20px height');
-            } else {
-              console.log('✗ .edp-trait-bar NOT FOUND');
-            }
-            
-            if (edpAnchor) {
-              const styles = window.getComputedStyle(edpAnchor);
-              console.log('✓ .edp-anchor-line found');
-              console.log('  - background:', styles.background);
-              console.log('  - Expected: yellow (#ffff00)');
-            } else {
-              console.log('✗ .edp-anchor-line NOT FOUND');
-            }
-            
-            // Test 2: Check for old class names (should not exist)
-            console.log('\n=== CHECKING FOR OLD CLASS NAMES ===');
-            const oldClasses = ['.trait-bar', '.anchor-line', '.trait', '.player-elasticity'];
-            oldClasses.forEach(cls => {
-              const found = document.querySelector(cls);
-              if (found) {
-                console.log(`✗ OLD CLASS ${cls} STILL EXISTS!`);
-              } else {
-                console.log(`✓ Old class ${cls} removed`);
-              }
-            });
-            
-            // Test 3: Verify no CSS conflicts
-            console.log('\n=== CHECKING FOR CSS CONFLICTS ===');
-            const cgcBar = document.querySelector('.cgc-trait-bar');
-            if (cgcBar && edpBar) {
-              const cgcStyles = window.getComputedStyle(cgcBar);
-              const edpStyles = window.getComputedStyle(edpBar);
-              console.log('CustomGameConfig bar height:', cgcStyles.height);
-              console.log('ElasticityPanel bar height:', edpStyles.height);
-              console.log('✓ Both components have separate styles');
-            }
-          }}>
-            Test CSS Changes
-          </button>
-        </div>
-      )}
     </>
   )
 }
