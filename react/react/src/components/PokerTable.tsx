@@ -3,11 +3,14 @@ import { io, Socket } from 'socket.io-client';
 import { Card, CommunityCard, HoleCard } from './Card';
 import { ActionButtons } from './ActionButtons';
 import { Chat } from './Chat';
+import { ChatSidebar } from './ChatSidebar';
 import { LoadingIndicator } from './LoadingIndicator';
 import { PlayerThinking } from './PlayerThinking';
 import { WinnerAnnouncement } from './WinnerAnnouncement';
 import { ElasticityDebugPanel } from './ElasticityDebugPanel';
 import { PressureStats } from './PressureStats';
+import { PokerTableLayout } from './PokerTableLayout';
+import { DebugPanel } from './DebugPanel';
 import { config } from '../config';
 import './PokerTable.css';
 
@@ -53,7 +56,6 @@ interface PokerTableProps {
 export function PokerTable({ gameId: providedGameId, playerName }: PokerTableProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [chatVisible, setChatVisible] = useState(true); // Start with chat visible for debugging
   const [gameId, setGameId] = useState<string | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const [useOverlayLoading, setUseOverlayLoading] = useState(false); // Toggle between loading styles
@@ -64,8 +66,9 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
   const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
-  const [debugMode, setDebugMode] = useState<boolean>(false);
-  const [showStats, setShowStats] = useState<boolean>(false);
+  const [debugMode, setDebugMode] = useState<boolean>(config.ENABLE_DEBUG);
+  const [showStats, setShowStats] = useState<boolean>(true); // Default to showing stats
+  const [showElasticityPanel, setShowElasticityPanel] = useState<boolean>(false); // For comparison
 
   // Extract socket setup to avoid duplication
   const setupSocketListeners = (socket: Socket) => {
@@ -445,55 +448,109 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
 
   return (
     <>
-      {/* Control Buttons */}
+      {/* Control buttons - bottom left */}
       <div style={{
         position: 'fixed',
-        top: '10px',
-        right: '10px',
+        bottom: '10px',
+        left: '10px',
         zIndex: 1001,
         display: 'flex',
-        gap: '10px'
+        flexDirection: 'column',
+        gap: '8px'
       }}>
+        {/* Stats toggle button */}
         <button
           className="stats-toggle"
           onClick={() => setShowStats(!showStats)}
           style={{
             padding: '8px 16px',
-            backgroundColor: showStats ? '#ffcc00' : '#666',
-            color: showStats ? '#000' : '#fff',
+            backgroundColor: showStats ? '#ff9800' : '#666',
+            color: '#fff',
             border: 'none',
             borderRadius: '4px',
             cursor: 'pointer',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            transition: 'all 0.3s ease'
           }}
         >
-          {showStats ? 'Hide Stats' : 'Show Stats'}
+          {showStats ? '📊 Hide Stats' : '📊 Show Stats'}
         </button>
         
+        {/* Show Debug button (original elasticity panel) */}
         <button
-          className="debug-toggle"
-          onClick={() => setDebugMode(!debugMode)}
+          onClick={() => setShowElasticityPanel(!showElasticityPanel)}
           style={{
             padding: '8px 16px',
-            backgroundColor: debugMode ? '#00ff00' : '#666',
-            color: debugMode ? '#000' : '#fff',
+            backgroundColor: showElasticityPanel ? '#4caf50' : '#666',
+            color: '#fff',
             border: 'none',
             borderRadius: '4px',
             cursor: 'pointer',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            transition: 'all 0.3s ease'
           }}
         >
-          {debugMode ? 'Hide Debug' : 'Show Debug'}
+          {showElasticityPanel ? 'Hide Debug' : 'Show Debug'}
         </button>
+        
+        {/* Debug toggle button - only show if debug is enabled in config */}
+        {config.ENABLE_DEBUG && (
+          <button
+            className="debug-toggle"
+            onClick={() => setDebugMode(!debugMode)}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: debugMode ? '#4caf50' : '#666',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            {debugMode ? '🐛 Hide Debug' : '🐛 Show Debug'}
+          </button>
+        )}
       </div>
       
-      {/* Pressure Stats Panel */}
-      <PressureStats gameId={gameId} isOpen={showStats} />
+      {/* Pressure Stats Panel - positioned as overlay */}
+      <PressureStats gameId={gameId} isOpen={showStats} socket={socketRef.current} />
       
-      {/* Elasticity Debug Panel */}
-      <ElasticityDebugPanel gameId={gameId} isOpen={debugMode} socket={socketRef.current} />
-      
-      <div className="poker-table">
+      <PokerTableLayout
+        chatPanel={
+          <ChatSidebar 
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            playerName={playerName}
+          />
+        }
+        debugPanel={
+          <DebugPanel 
+            gameId={gameId}
+            socket={socketRef.current}
+          />
+        }
+        actionButtons={
+          showActionButtons && (
+            <ActionButtons
+              playerOptions={gameState.player_options}
+              currentPlayerStack={currentPlayer.stack}
+              highestBet={gameState.highest_bet}
+              currentPlayerBet={currentPlayer.bet}
+              minRaise={gameState.min_raise}
+              bigBlind={gameState.big_blind}
+              potSize={gameState.pot.total}
+              onAction={handlePlayerAction}
+            />
+          )
+        }
+        showDebug={debugMode}
+      >
+        <div className="poker-table">
       <div className="table-felt">
         {/* Community Cards Area */}
         <div className="community-area">
@@ -665,35 +722,20 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
         )}
       </div>
 
-      {/* Action Buttons (only show for human player on their turn) */}
-      {showActionButtons && (
-        <ActionButtons
-          playerOptions={gameState.player_options}
-          currentPlayerStack={currentPlayer.stack}
-          highestBet={gameState.highest_bet}
-          currentPlayerBet={currentPlayer.bet}
-          minRaise={gameState.min_raise}
-          bigBlind={gameState.big_blind}
-          potSize={gameState.pot.total}
-          onAction={handlePlayerAction}
+        {/* Winner Announcement */}
+        <WinnerAnnouncement
+          winnerInfo={winnerInfo}
+          onComplete={() => setWinnerInfo(null)}
         />
-      )}
+      </div>
+      </PokerTableLayout>
 
-      {/* Chat Panel */}
-      <Chat
-        messages={messages}
-        onSendMessage={handleSendMessage}
-        isVisible={chatVisible}
-        onToggleVisibility={() => setChatVisible(!chatVisible)}
-        playerName={playerName}
+      {/* Original Elasticity Debug Panel for comparison */}
+      <ElasticityDebugPanel 
+        gameId={gameId} 
+        isOpen={showElasticityPanel} 
+        socket={socketRef.current} 
       />
-      
-      {/* Winner Announcement */}
-      <WinnerAnnouncement
-        winnerInfo={winnerInfo}
-        onComplete={() => setWinnerInfo(null)}
-      />
-    </div>
     </>
   );
 }

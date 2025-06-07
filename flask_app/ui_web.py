@@ -266,7 +266,16 @@ def api_new_game():
     data = request.json or {}
     player_name = data.get('playerName', 'Player')
     
-    ai_player_names = get_celebrities(shuffled=True)[:3]  # 3 AI players
+    # Check if specific personalities were requested
+    requested_personalities = data.get('personalities', [])
+    
+    if requested_personalities:
+        # Use the specific personalities requested
+        ai_player_names = requested_personalities
+    else:
+        # Default to 3 random AI players
+        ai_player_names = get_celebrities(shuffled=True)[:3]
+    
     game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
@@ -1191,6 +1200,101 @@ def delete_personality(name):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/generate-theme', methods=['POST'])
+def generate_theme():
+    """Generate a themed game with appropriate personalities."""
+    try:
+        data = request.json
+        theme = data.get('theme')
+        theme_name = data.get('themeName')
+        description = data.get('description')
+        
+        if not theme:
+            return jsonify({'error': 'Theme is required'}), 400
+        
+        # Get a sample of personalities to send to OpenAI
+        all_personalities = list(get_celebrities())
+        sample_size = min(100, len(all_personalities))
+        import random
+        personality_sample = random.sample(all_personalities, sample_size)
+        
+        # Create prompt for OpenAI
+        prompt = f"""Given these available personalities: {', '.join(personality_sample)}
+
+Please select 3-5 personalities that would fit the theme: "{theme_name}" - {description}
+
+Selection criteria:
+- Choose personalities that match the theme
+- Create an interesting mix of personalities that would have fun dynamics
+- For "surprise" theme, pick an eclectic, unexpected mix
+- Ensure good variety in play styles
+
+Return ONLY a JSON array of personality names, like:
+["Name1", "Name2", "Name3", "Name4"]
+
+No other text or explanation."""
+
+        # Call OpenAI
+        from core.assistants import OpenAILLMAssistant
+        assistant = OpenAILLMAssistant(
+            system_prompt="You are a game designer selecting personalities for themed poker games.",
+            model="gpt-4o-mini"
+        )
+        
+        response = assistant.get_response(prompt)
+        
+        # Parse the response
+        import json
+        try:
+            # Clean up the response in case it has extra text
+            response_text = response.strip()
+            if response_text.startswith('```'):
+                # Remove code blocks if present
+                response_text = response_text.split('```')[1]
+                if response_text.startswith('json'):
+                    response_text = response_text[4:]
+            
+            personalities = json.loads(response_text)
+            
+            # Validate that all personalities exist
+            valid_personalities = []
+            for name in personalities:
+                if name in personality_sample:
+                    valid_personalities.append(name)
+            
+            # Ensure we have at least 3
+            if len(valid_personalities) < 3:
+                # Fallback to random selection
+                valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+            
+            return jsonify({
+                'success': True,
+                'personalities': valid_personalities[:5]  # Max 5 AI players
+            })
+            
+        except json.JSONDecodeError:
+            # Fallback to random selection
+            personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+            return jsonify({
+                'success': True,
+                'personalities': personalities,
+                'fallback': True
+            })
+            
+    except Exception as e:
+        logger.error(f"Error generating theme: {e}")
+        # Fallback to random selection
+        try:
+            all_personalities = list(get_celebrities())
+            personalities = random.sample(all_personalities, min(4, len(all_personalities)))
+            return jsonify({
+                'success': True,
+                'personalities': personalities,
+                'fallback': True
+            })
+        except:
+            return jsonify({'error': 'Failed to generate theme'}), 500
 
 @app.route('/api/generate_personality', methods=['POST'])
 def generate_personality():

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Socket } from 'socket.io-client';
 import { config } from '../config';
 import './PressureStats.css';
 
@@ -40,9 +41,10 @@ interface SessionSummary {
 interface PressureStatsProps {
   gameId: string | null;
   isOpen: boolean;
+  socket?: Socket | null;
 }
 
-export function PressureStats({ gameId, isOpen }: PressureStatsProps) {
+export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
   const [stats, setStats] = useState<SessionSummary | null>(null);
   const [loading, setLoading] = useState(false);
 

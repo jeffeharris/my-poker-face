@@ -41,13 +41,14 @@ services:
       dockerfile: Dockerfile.dev
     container_name: poker-frontend
     ports:
-      - "${FRONTEND_PORT:-5173}:5173"
+      - "${FRONTEND_PORT:-5173}:3000"
     volumes:
       - ./react/react:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
       - VITE_API_URL=http://localhost:${BACKEND_PORT:-5000}
+      - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
     depends_on:
       - backend
     command: npm run dev -- --host 0.0.0.0
