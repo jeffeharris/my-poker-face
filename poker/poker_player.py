@@ -9,6 +9,7 @@ from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .elasticity_manager import ElasticPersonality
+from .personality_generator import PersonalityGenerator
 
 
 class PokerPlayer:
@@ -99,6 +100,9 @@ class AIPokerPlayer(PokerPlayer):
 
     # Constraints used for initializing the AI PLayer attitude and confidence
     DEFAULT_CONSTRAINTS = "Use less than 50 words."
+    
+    # Shared personality generator instance
+    _personality_generator = None
 
     def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
         # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
@@ -235,13 +239,17 @@ class AIPokerPlayer(PokerPlayer):
             return responses[mood]
     
     def _load_personality_config(self):
-        """Load personality configuration from JSON file."""
-        filepath = Path(__file__).parent / 'personalities.json'
-        if filepath.exists():
-            with open(filepath, 'r') as f:
-                personalities = json.load(f)['personalities']
-                return personalities.get(self.name, self._default_personality_config())
-        return self._default_personality_config()
+        """Load personality configuration using the personality generator."""
+        # Initialize the shared generator if not already created
+        if AIPokerPlayer._personality_generator is None:
+            AIPokerPlayer._personality_generator = PersonalityGenerator()
+        
+        # Use the generator which handles the hierarchy:
+        # 1. Memory cache
+        # 2. Database
+        # 3. personalities.json
+        # 4. AI generation
+        return AIPokerPlayer._personality_generator.get_personality(self.name)
     
     def _default_personality_config(self):
         """Return default personality configuration."""
