@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Elasticity Render</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #4caf50;
+            margin-bottom: 20px;
+        }
+
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .test-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(40, 40, 40, 0.8);
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .test-section h2 {
+            color: #00ff00;
+            margin-bottom: 15px;
+        }
+
+        /* Single trait visualization */
+        .trait-demo {
+            background: rgba(30, 30, 30, 0.6);
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .trait-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .trait-name {
+            color: #88ccff;
+            font-weight: 500;
+        }
+
+        .trait-value {
+            font-weight: bold;
+            font-family: monospace;
+            color: #44ff44;
+        }
+
+        .trait-bar-container {
+            position: relative;
+            margin-bottom: 8px;
+        }
+
+        .trait-bar-background {
+            position: relative;
+            height: 24px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .elasticity-range {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            background: rgba(100, 100, 100, 0.3);
+            border-left: 1px dashed #666;
+            border-right: 1px dashed #666;
+        }
+
+        .anchor-line {
+            position: absolute;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background: #ffff00;
+            box-shadow: 0 0 4px #ffff00;
+            z-index: 2;
+        }
+
+        .trait-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: linear-gradient(90deg, #0088ff 0%, #00ff88 100%);
+            transition: width 0.3s ease;
+        }
+
+        .trait-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .trait-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        .code-block {
+            background: #111;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: monospace;
+            font-size: 13px;
+            color: #0f0;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Elasticity Trait Visualization Test</h1>
+
+        <div class="test-section">
+            <h2>Single Trait Example</h2>
+            <div class="trait-demo">
+                <div class="trait-header">
+                    <span class="trait-name">Aggression</span>
+                    <span class="trait-value">0.72</span>
+                </div>
+                <div class="trait-bar-container">
+                    <div class="trait-bar-background">
+                        <!-- Elasticity range: 40% wide, centered at anchor -->
+                        <div class="elasticity-range" style="left: 50%; width: 40%;"></div>
+                        <!-- Anchor line at 70% -->
+                        <div class="anchor-line" style="left: 70%;"></div>
+                        <!-- Current value bar at 72% -->
+                        <div class="trait-bar" style="width: 72%;"></div>
+                    </div>
+                </div>
+                <div class="trait-labels">
+                    <span>0.0</span>
+                    <span>1.0</span>
+                </div>
+                <div class="trait-details">
+                    <span>Pressure: +0.02</span>
+                    <span>Anchor: 0.70</span>
+                </div>
+            </div>
+
+            <div class="code-block">
+                Trait Data:
+                - Current: 0.72 (72% of range)
+                - Anchor: 0.70 (70% of range) 
+                - Elasticity: 0.20 (±20% from anchor)
+                - Pressure: +0.02 (slight positive pressure)
+                - Range: 0.0 to 1.0
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>Multiple States Example</h2>
+            
+            <!-- Low pressure -->
+            <div class="trait-demo">
+                <div class="trait-header">
+                    <span class="trait-name">Bluff Tendency (Low Pressure)</span>
+                    <span class="trait-value" style="color: #44ff44;">0.52</span>
+                </div>
+                <div class="trait-bar-container">
+                    <div class="trait-bar-background">
+                        <div class="elasticity-range" style="left: 30%; width: 40%;"></div>
+                        <div class="anchor-line" style="left: 50%;"></div>
+                        <div class="trait-bar" style="width: 52%;"></div>
+                    </div>
+                </div>
+                <div class="trait-details">
+                    <span>Pressure: +0.02</span>
+                    <span>Anchor: 0.50</span>
+                </div>
+            </div>
+
+            <!-- Medium pressure -->
+            <div class="trait-demo">
+                <div class="trait-header">
+                    <span class="trait-name">Bluff Tendency (Medium Pressure)</span>
+                    <span class="trait-value" style="color: #ffaa44;">0.60</span>
+                </div>
+                <div class="trait-bar-container">
+                    <div class="trait-bar-background">
+                        <div class="elasticity-range" style="left: 30%; width: 40%;"></div>
+                        <div class="anchor-line" style="left: 50%;"></div>
+                        <div class="trait-bar" style="width: 60%;"></div>
+                    </div>
+                </div>
+                <div class="trait-details">
+                    <span>Pressure: +0.10</span>
+                    <span>Anchor: 0.50</span>
+                </div>
+            </div>
+
+            <!-- High pressure -->
+            <div class="trait-demo">
+                <div class="trait-header">
+                    <span class="trait-name">Bluff Tendency (High Pressure)</span>
+                    <span class="trait-value" style="color: #ff4444;">0.68</span>
+                </div>
+                <div class="trait-bar-container">
+                    <div class="trait-bar-background">
+                        <div class="elasticity-range" style="left: 30%; width: 40%;"></div>
+                        <div class="anchor-line" style="left: 50%;"></div>
+                        <div class="trait-bar" style="width: 68%;"></div>
+                    </div>
+                </div>
+                <div class="trait-details">
+                    <span>Pressure: +0.18</span>
+                    <span>Anchor: 0.50</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>Visual Elements Explained</h2>
+            <div class="trait-demo">
+                <div class="trait-header">
+                    <span class="trait-name">Example Trait</span>
+                    <span class="trait-value">0.65</span>
+                </div>
+                <div class="trait-bar-container">
+                    <div class="trait-bar-background">
+                        <div class="elasticity-range" style="left: 20%; width: 60%;"></div>
+                        <div class="anchor-line" style="left: 50%;"></div>
+                        <div class="trait-bar" style="width: 65%;"></div>
+                    </div>
+                </div>
+            </div>
+            <ul style="color: #aaa; line-height: 1.8;">
+                <li><span style="color: #ffff00;">Yellow Line</span> - The anchor/baseline value (personality default)</li>
+                <li><span style="color: #666;">Gray Area</span> - The elasticity range (how far the trait can deviate)</li>
+                <li><span style="color: #00ff88;">Blue-Green Bar</span> - Current trait value</li>
+                <li><span style="color: #44ff44;">Green Value</span> - Low deviation from anchor</li>
+                <li><span style="color: #ffaa44;">Orange Value</span> - Medium deviation from anchor</li>
+                <li><span style="color: #ff4444;">Red Value</span> - High deviation from anchor</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Simple animation to show the bars are dynamic
+        function animateBar() {
+            const bars = document.querySelectorAll('.trait-bar');
+            bars.forEach(bar => {
+                const currentWidth = parseFloat(bar.style.width);
+                const variation = (Math.random() - 0.5) * 4; // ±2%
+                const newWidth = Math.max(0, Math.min(100, currentWidth + variation));
+                bar.style.width = newWidth + '%';
+            });
+        }
+
+        // Animate every 2 seconds
+        setInterval(animateBar, 2000);
+    </script>
+</body>
+</html>

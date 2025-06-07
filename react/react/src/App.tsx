@@ -6,10 +6,11 @@ import { PersonalityManagerHTML } from './components/PersonalityManagerHTML'
 import { GameMenu } from './components/GameMenu'
 import { ThemedGameSelector } from './components/ThemedGameSelector'
 import { CustomGameConfig } from './components/CustomGameConfig'
+import { ElasticityDemo } from './components/ElasticityDemo'
 import { config } from './config'
 import './App.css'
 
-type ViewType = 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game'
+type ViewType = 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo'
 
 interface Theme {
   id: string;
@@ -136,6 +137,25 @@ function App() {
 
   return (
     <>
+      {/* Temporary button for elasticity demo */}
+      <button 
+        onClick={() => setCurrentView('elasticity-demo')}
+        style={{
+          position: 'fixed',
+          bottom: 10,
+          right: 10,
+          zIndex: 9999,
+          padding: '10px',
+          backgroundColor: '#4caf50',
+          color: 'white',
+          border: 'none',
+          borderRadius: '5px',
+          cursor: 'pointer'
+        }}
+      >
+        Test Elasticity Demo
+      </button>
+
       {/* Navigation - only show when in table view */}
       {currentView === 'table' && (
         <div style={{ 
@@ -198,6 +218,102 @@ function App() {
       {currentView === 'table' && <PokerTable gameId={gameId} playerName={playerName} />}
       {currentView === 'personalities' && (
         <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />
+      )}
+      {currentView === 'elasticity-demo' && <ElasticityDemo />}
+      
+      {/* Debug info overlay */}
+      {currentView === 'table' && (
+        <div style={{
+          position: 'fixed',
+          bottom: 60,
+          right: 10,
+          background: 'rgba(0,0,0,0.9)',
+          color: '#0f0',
+          padding: '10px',
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          maxWidth: '300px',
+          border: '1px solid #0f0',
+          zIndex: 10000
+        }}>
+          <div>Debug Info:</div>
+          <button onClick={() => {
+            const panel = document.querySelector('.debug-panel__content');
+            if (panel) {
+              const elasticityContent = panel.querySelector('.elasticity-panel-wrapper');
+              console.log('Debug Panel HTML:', panel.innerHTML);
+              console.log('Has elasticity wrapper:', !!elasticityContent);
+              console.log('Elasticity content:', elasticityContent?.innerHTML);
+              
+              // Check specific elements
+              const elements = {
+                'player-elasticity': panel.querySelectorAll('.player-elasticity').length,
+                'trait': panel.querySelectorAll('.trait').length,
+                'anchor-line': panel.querySelectorAll('.anchor-line').length,
+                'trait-bar': panel.querySelectorAll('.trait-bar').length,
+                'elasticity-range': panel.querySelectorAll('.elasticity-range').length
+              };
+              console.log('Element counts:', elements);
+            }
+          }}>
+            Inspect Debug Panel
+          </button>
+          <button onClick={() => {
+            // Check computed styles
+            const firstBar = document.querySelector('.trait-bar-background');
+            const anchorLine = document.querySelector('.anchor-line');
+            const elasticityRange = document.querySelector('.elasticity-range');
+            const traitBar = document.querySelector('.trait-bar');
+            
+            if (firstBar) {
+              console.log('=== trait-bar-background ===');
+              const styles = window.getComputedStyle(firstBar);
+              console.log('height:', styles.height);
+              console.log('background:', styles.background);
+              console.log('position:', styles.position);
+              console.log('overflow:', styles.overflow);
+            }
+            
+            if (anchorLine) {
+              console.log('=== anchor-line ===');
+              const styles = window.getComputedStyle(anchorLine);
+              console.log('background:', styles.background);
+              console.log('width:', styles.width);
+              console.log('height:', styles.height);
+              console.log('z-index:', styles.zIndex);
+              console.log('box-shadow:', styles.boxShadow);
+            }
+            
+            if (traitBar) {
+              console.log('=== trait-bar ===');
+              const styles = window.getComputedStyle(traitBar);
+              console.log('background:', styles.background);
+              console.log('height:', styles.height);
+              console.log('position:', styles.position);
+              console.log('top:', styles.top);
+              console.log('left:', styles.left);
+              
+              // Check which stylesheets are affecting this element
+              const sheets = document.styleSheets;
+              console.log('=== Styles affecting .trait-bar ===');
+              for (let i = 0; i < sheets.length; i++) {
+                try {
+                  const rules = sheets[i].cssRules || sheets[i].rules;
+                  for (let j = 0; j < rules.length; j++) {
+                    if (rules[j].selectorText && rules[j].selectorText.includes('trait-bar')) {
+                      console.log('From:', sheets[i].href || 'inline styles');
+                      console.log('Rule:', rules[j].cssText);
+                    }
+                  }
+                } catch (e) {
+                  // Cross-origin stylesheets
+                }
+              }
+            }
+          }}>
+            Check Styles
+          </button>
+        </div>
       )}
     </>
   )
