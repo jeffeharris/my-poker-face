@@ -170,7 +170,11 @@ class ElasticPersonality:
     def from_base_personality(cls, name: str, personality_config: Dict[str, Any],
                             elasticity_config: Optional[Dict[str, Any]] = None) -> 'ElasticPersonality':
         """Create elastic personality from base personality configuration."""
-        # Default elasticity values
+        # Check if elasticity config is embedded in personality config
+        if not elasticity_config and 'elasticity_config' in personality_config:
+            elasticity_config = personality_config['elasticity_config']
+        
+        # Default elasticity values (fallback for old personalities)
         default_elasticities = {
             'bluff_tendency': 0.3,
             'aggression': 0.5,
@@ -180,7 +184,10 @@ class ElasticPersonality:
         
         # Override with personality-specific elasticity if provided
         if elasticity_config:
-            default_elasticities.update(elasticity_config.get('trait_elasticity', {}))
+            trait_elasticity = elasticity_config.get('trait_elasticity', {})
+            # Update defaults with personality-specific values
+            for trait, value in trait_elasticity.items():
+                default_elasticities[trait] = value
         
         personality = cls(
             name=name,
