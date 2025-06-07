@@ -91,25 +91,5 @@
       "verbal_tics": ["Happy little cards", "No mistakes, only happy accidents", "Let's add a friendly bet here"],
       "physical_tics": ["*smiles warmly*", "*nods gently*", "*paints in the air*"]
     }
-  },
-  "play_style_modifiers": {
-    "tight": {
-      "fold_threshold": 0.7,
-      "raise_threshold": 0.85,
-      "call_threshold": 0.6
-    },
-    "loose": {
-      "fold_threshold": 0.3,
-      "raise_threshold": 0.5,
-      "call_threshold": 0.4
-    },
-    "aggressive": {
-      "raise_multiplier": 1.5,
-      "check_penalty": -0.2
-    },
-    "passive": {
-      "raise_multiplier": 0.5,
-      "check_bonus": 0.2
-    }
   }
 }

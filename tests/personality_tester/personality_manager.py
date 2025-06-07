@@ -59,8 +59,7 @@ def get_personalities():
         data = load_personalities()
         return jsonify({
             'success': True,
-            'personalities': data['personalities'],
-            'play_style_modifiers': data.get('play_style_modifiers', {})
+            'personalities': data['personalities']
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

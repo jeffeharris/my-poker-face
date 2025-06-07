@@ -143,6 +143,20 @@ class GamePersistence:
                 CREATE INDEX IF NOT EXISTS idx_personality_snapshots 
                 ON personality_snapshots(game_id, hand_number)
             """)
+            
+            # Personality storage for AI-generated personalities
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS personalities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    config_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_generated BOOLEAN DEFAULT 1,
+                    source TEXT DEFAULT 'ai_generated',
+                    times_used INTEGER DEFAULT 0
+                )
+            """)
     
     def save_game(self, game_id: str, state_machine: PokerStateMachine) -> None:
         """Save a game state to the database."""
@@ -380,3 +394,66 @@ class GamePersistence:
                 json.dumps(traits),
                 json.dumps(pressure_levels or {})
             ))
+    
+    def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated') -> None:
+        """Save a personality configuration to the database."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO personalities
+                (name, config_json, source, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """, (name, json.dumps(config), source))
+    
+    def load_personality(self, name: str) -> Optional[Dict[str, Any]]:
+        """Load a personality configuration from the database."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT config_json FROM personalities
+                WHERE name = ?
+            """, (name,))
+            
+            row = cursor.fetchone()
+            if row:
+                # Increment usage counter
+                conn.execute("""
+                    UPDATE personalities 
+                    SET times_used = times_used + 1 
+                    WHERE name = ?
+                """, (name,))
+                return json.loads(row['config_json'])
+            
+            return None
+    
+    def increment_personality_usage(self, name: str) -> None:
+        """Increment the usage counter for a personality."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE personalities 
+                SET times_used = times_used + 1 
+                WHERE name = ?
+            """, (name,))
+    
+    def list_personalities(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List all personalities with metadata."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT name, source, created_at, updated_at, times_used, is_generated
+                FROM personalities
+                ORDER BY times_used DESC, updated_at DESC
+                LIMIT ?
+            """, (limit,))
+            
+            personalities = []
+            for row in cursor:
+                personalities.append({
+                    'name': row['name'],
+                    'source': row['source'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                    'times_used': row['times_used'],
+                    'is_generated': bool(row['is_generated'])
+                })
+            
+            return personalities
