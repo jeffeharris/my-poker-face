@@ -27,6 +27,7 @@ from poker.poker_game import PokerGameState, initialize_game_state, determine_wi
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from poker.persistence import GamePersistence
+from poker.repositories.sqlite_repositories import PressureEventRepository
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
 
@@ -46,6 +47,7 @@ if os.path.exists('/app/data'):
 else:
     db_path = os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
 persistence = GamePersistence(db_path)
+event_repository = PressureEventRepository(db_path)
 
 
 # Helper function to generate unique game ID
@@ -296,7 +298,8 @@ def api_new_game():
             )
     
     pressure_detector = PressureEventDetector(elasticity_manager)
-    pressure_stats = PressureStatsTracker()
+    game_id = generate_game_id()
+    pressure_stats = PressureStatsTracker(game_id, event_repository)
 
     game_data = {
         'state_machine': state_machine,
@@ -312,7 +315,6 @@ def api_new_game():
             'type': 'system'
         }]
     }
-    game_id = generate_game_id()
     games[game_id] = game_data
     
     # Save the new game to database  
@@ -648,7 +650,7 @@ def game(game_id) -> str or Response:
                     )
             
             pressure_detector = PressureEventDetector(elasticity_manager)
-            pressure_stats = PressureStatsTracker()
+            pressure_stats = PressureStatsTracker(game_id, event_repository)
             
             current_game_data = {
                 'state_machine': state_machine,
