@@ -1,0 +1,38 @@
+# Production configuration for docker-compose
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+version: '3.8'
+
+services:
+  backend:
+    # Production optimizations
+    restart: unless-stopped
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+    # Use gunicorn for production
+    command: gunicorn --bind 0.0.0.0:5000 --workers 4 --worker-class eventlet flask_app.ui_web:app
+    # No source code mounting in production
+    volumes:
+      - ./data:/app/data
+
+  frontend:
+    # Use production build
+    build:
+      context: ./react/react
+      dockerfile: Dockerfile
+    # No hot reloading needed
+    volumes: []
+    # Serve static files with nginx
+    command: nginx -g 'daemon off;'
+    
+  # Enable nginx in production
+  nginx:
+    profiles:
+      - production
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+    # Persist Redis data
+    command: redis-server --appendonly yes --save 60 1 --save 300 10 --save 900 100

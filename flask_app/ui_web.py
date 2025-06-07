@@ -125,6 +125,12 @@ def index():
     return render_template('home.html')
 
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return jsonify({'status': 'healthy', 'service': 'poker-backend'}), 200
+
+
 @app.route('/games')
 def list_games():
     """List all saved games."""
