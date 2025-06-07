@@ -68,7 +68,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
 
   // Transform and filter messages
   const processedMessages = useMemo(() => {
-    return messages
+    const filtered = messages
       .filter(msg => {
         // Filter out empty messages
         if (!msg.message || msg.message.trim() === '') return false;
@@ -127,7 +127,35 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
           displayType: msg.type
         };
       });
-  }, [messages, filter, selectedPlayer, featureFlags.playerFilter]);
+    
+    // Apply message grouping if feature is enabled
+    if (featureFlags.messageGrouping) {
+      return filtered.map((msg, index) => {
+        const prevMsg = index > 0 ? filtered[index - 1] : null;
+        const nextMsg = index < filtered.length - 1 ? filtered[index + 1] : null;
+        
+        // Check if this message is part of a group
+        const isFirstInGroup = !prevMsg || 
+          prevMsg.sender !== msg.sender || 
+          prevMsg.displayType === 'separator' ||
+          msg.displayType === 'separator';
+          
+        const isLastInGroup = !nextMsg || 
+          nextMsg.sender !== msg.sender || 
+          nextMsg.displayType === 'separator' ||
+          msg.displayType === 'separator';
+        
+        return {
+          ...msg,
+          isFirstInGroup,
+          isLastInGroup,
+          showHeader: isFirstInGroup
+        };
+      });
+    }
+    
+    return filtered;
+  }, [messages, filter, selectedPlayer, featureFlags.playerFilter, featureFlags.messageGrouping]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -208,10 +236,17 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
       'all_in': 'went all-in!'
     }[action.toLowerCase()] || action;
 
+    const actionClasses = [
+      'chat-message',
+      'action-message',
+      featureFlags.messageGrouping && !msg.isFirstInGroup ? 'grouped' : '',
+      featureFlags.messageGrouping && !msg.isLastInGroup ? 'grouped-with-next' : ''
+    ].filter(Boolean).join(' ');
+
     return (
       <div 
         key={msg.id}
-        className="chat-message action-message"
+        className={actionClasses}
         style={{ borderLeftColor: getPlayerColor(player) }}
       >
         <div className="action-content">
@@ -231,21 +266,6 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
       <div className="chat-sidebar__header">
         <h3>Table Chat</h3>
         <div className="chat-filters-container">
-          {featureFlags.playerFilter && allPlayers.length > 0 && (
-            <select 
-              className="player-filter-dropdown"
-              value={selectedPlayer}
-              onChange={(e) => setSelectedPlayer(e.target.value)}
-              title="Filter by player"
-            >
-              <option value="all">All Players</option>
-              {allPlayers.map(player => (
-                <option key={player} value={player} style={{ color: getPlayerColor(player) }}>
-                  {player}
-                </option>
-              ))}
-            </select>
-          )}
           <div className="chat-filters">
           <button 
             className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
@@ -276,6 +296,24 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             🔔
           </button>
           </div>
+          {featureFlags.playerFilter && allPlayers.length > 0 && (
+            <>
+              <div className="filter-divider">|</div>
+              <select 
+                className="player-filter-dropdown"
+                value={selectedPlayer}
+                onChange={(e) => setSelectedPlayer(e.target.value)}
+                title="Filter by player"
+              >
+                <option value="all">👥 All Players</option>
+                {allPlayers.map(player => (
+                  <option key={player} value={player}>
+                    {player}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
       </div>
       
@@ -307,30 +345,40 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
             const isOwnMessage = msg.sender === playerName;
             const playerColor = getPlayerColor(msg.sender);
 
+            const messageClasses = [
+              'chat-message',
+              msg.type,
+              isOwnMessage ? 'own-message' : '',
+              featureFlags.messageGrouping && !msg.isFirstInGroup ? 'grouped' : '',
+              featureFlags.messageGrouping && !msg.isLastInGroup ? 'grouped-with-next' : ''
+            ].filter(Boolean).join(' ');
+
             return (
               <div 
                 key={msg.id} 
-                className={`chat-message ${msg.type} ${isOwnMessage ? 'own-message' : ''}`}
+                className={messageClasses}
                 style={{ 
                   borderLeftColor: msg.type === 'player' || msg.type === 'ai' 
                     ? playerColor 
                     : undefined 
                 }}
               >
-                <div className="message-header">
-                  <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
-                  <span 
-                    className="message-sender"
-                    style={{ 
-                      color: msg.type === 'player' || msg.type === 'ai' 
-                        ? playerColor 
-                        : undefined 
-                    }}
-                  >
-                    {msg.sender}
-                  </span>
-                  <span className="message-time">{formatTime(msg.timestamp)}</span>
-                </div>
+                {(!featureFlags.messageGrouping || msg.showHeader) && (
+                  <div className="message-header">
+                    <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                    <span 
+                      className="message-sender"
+                      style={{ 
+                        color: msg.type === 'player' || msg.type === 'ai' 
+                          ? playerColor 
+                          : undefined 
+                      }}
+                    >
+                      {msg.sender}
+                    </span>
+                    <span className="message-time">{formatTime(msg.timestamp)}</span>
+                  </div>
+                )}
                 <div className="message-content">{msg.message}</div>
               </div>
             );

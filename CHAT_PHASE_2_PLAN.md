@@ -67,26 +67,26 @@ POST /api/game/{gameId}/chat-suggestions
 [Type a message...]
 ```
 
-### 3. Message Grouping (TODO)
-**Status**: Planning
+### 3. Message Grouping ✅ (Implemented)
+**Status**: Complete
 
-**Design**:
-- Consecutive messages from same player grouped
-- Show timestamp only on first message
+**Implementation**:
+- Consecutive messages from same player are visually grouped
+- Header (sender name, icon, timestamp) only shown on first message
 - Reduced spacing between grouped messages
-- Visual indicator showing grouped messages
+- Softer border radius for middle messages
+- Works with both regular messages and action messages
 
-**Example**:
-```
-Jeff (2:34 PM)
-  Anyone want to play?
-  I'm feeling lucky today
-  Let's raise the stakes!
+**Visual Changes**:
+- First message in group: Normal styling
+- Middle messages: Reduced top padding, squared corners
+- Last message in group: Reduced bottom margin
+- Single message: Normal styling (not grouped)
 
-Eeyore (2:35 PM)
-  I suppose I could play...
-  Though I'll probably lose
-```
+**Usage**:
+1. Enable "Message Grouping" in Debug > Feature Flags
+2. Send multiple messages in a row
+3. Messages will automatically group with cleaner appearance
 
 ### 4. Event Indicators (TODO)
 **Status**: Planning
