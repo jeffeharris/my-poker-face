@@ -214,6 +214,35 @@
   font-size: 11px;
 }
 
+/* Hand separator */
+.hand-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  opacity: 0.5;
+}
+
+.separator-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.2) 20%, 
+    rgba(255, 255, 255, 0.2) 80%, 
+    transparent 100%
+  );
+}
+
+.separator-text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* Input area */
 .chat-sidebar__input {
   padding: 16px;
