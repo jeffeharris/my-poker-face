@@ -1,5 +1,29 @@
 # Personality Elasticity System
 
+## Recent Updates (2025-01-06)
+
+### Personality-Specific Elasticity
+The elasticity system now supports personality-specific elasticity configurations:
+
+1. **Database Integration**: 
+   - Added `elasticity_config` column to personalities table
+   - Each personality can have custom elasticity values for traits
+
+2. **UI Support**:
+   - Personality Manager shows elasticity ranges for each trait
+   - Visual indicators display min/max bounds based on elasticity
+   - Sliders to adjust elasticity per trait
+
+3. **Automatic Generation**:
+   - AI personality generator includes elasticity in output
+   - Script to generate elasticity for existing personalities
+   - Smart defaults based on trait extremeness
+
+4. **ElasticityManager Updates**:
+   - Now reads elasticity from personality config
+   - No more hardcoded values for all personalities
+   - Proper integration with persistence layer
+
 ## Overview
 
 The Personality Elasticity System allows AI personalities in My Poker Face to dynamically change during gameplay while maintaining their core identity. Each personality trait has a defined range of flexibility and responds to game events within those boundaries, creating more realistic and engaging AI opponents.
