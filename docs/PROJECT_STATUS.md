@@ -13,7 +13,9 @@ My Poker Face is an AI-powered poker game where players compete against dynamic 
 - **Build Tool**: Vite
 - **Real-time**: Socket.IO client
 - **UI Components**: Custom poker table visualization
-- **Status**: ✅ Production-ready
+- **Component Organization**: Feature-based folder structure (cards/, game/, chat/, stats/, menus/, debug/, admin/)
+- **State Management**: React Context with custom hooks
+- **Status**: ✅ Production-ready (reorganized June 2025)
 
 ### Backend
 - **API**: Flask (Python) - pure API, no templates
@@ -92,14 +94,26 @@ Currently, no features are actively in development. The project is in a stable s
 3. **Voice Integration** - Text-to-speech for AI players
 4. **Multi-Model Support** - Different AI providers
 
+## 📅 Recent Updates (June 2025)
+
+### Frontend Reorganization
+- ✅ Migrated from flat component structure to feature-based organization
+- ✅ Components now organized by domain: cards/, game/, chat/, stats/, menus/, debug/, admin/
+- ✅ Added TypeScript interfaces in centralized /types/ directory
+- ✅ Created custom React hooks (useSocket, useGameState, usePolling)
+- ✅ Added GameContext for centralized state management
+- ✅ Created utility functions in /utils/ (api.ts, cards.ts)
+- ✅ Fixed CSS naming conflicts (e.g., .player-cards)
+- ✅ All functionality and styling preserved during migration
+
 ## 📊 Technical Metrics
 
 ### Codebase
 - **Languages**: TypeScript, Python, CSS
-- **React Components**: 15+
+- **React Components**: 15+ (now organized by feature)
 - **Python Modules**: 20+
 - **Test Coverage**: Core engine fully tested
-- **Documentation**: Comprehensive
+- **Documentation**: Comprehensive (including architecture docs)
 
 ### Performance
 - **Game State Updates**: Real-time via WebSocket
