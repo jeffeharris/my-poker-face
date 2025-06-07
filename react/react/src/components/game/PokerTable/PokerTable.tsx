@@ -1,18 +1,18 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Card, CommunityCard, HoleCard } from './Card';
-import { ActionButtons } from './ActionButtons';
-import { Chat } from './Chat';
-import { ChatSidebar } from './ChatSidebar';
-import { LoadingIndicator } from './LoadingIndicator';
-import { PlayerThinking } from './PlayerThinking';
-import { WinnerAnnouncement } from './WinnerAnnouncement';
-import { ElasticityDebugPanel } from './ElasticityDebugPanel';
-import { PressureStats } from './PressureStats';
-import { PokerTableLayout } from './PokerTableLayout';
-import { DebugPanel } from './DebugPanel';
-import { CSSDebugger } from './CSSDebugger';
-import { config } from '../config';
+import { Card, CommunityCard, HoleCard } from '../../cards';
+import { ActionButtons } from '../ActionButtons';
+import { Chat } from '../../chat/Chat';
+import { ChatSidebar } from '../../chat/ChatSidebar';
+import { LoadingIndicator } from '../LoadingIndicator';
+import { PlayerThinking } from '../PlayerThinking';
+import { WinnerAnnouncement } from '../WinnerAnnouncement';
+import { ElasticityDebugPanel } from '../../ElasticityDebugPanel';
+import { PressureStats } from '../../stats';
+import { PokerTableLayout } from '../PokerTableLayout';
+import { DebugPanel } from '../../DebugPanel';
+import { CSSDebugger } from '../../CSSDebugger';
+import { config } from '../../../config';
 import './PokerTable.css';
 
 interface Player {

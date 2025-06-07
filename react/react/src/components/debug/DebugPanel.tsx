@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
-import { Card } from './cards';
-import { config } from '../config';
+import { Card } from '../cards';
+import { config } from '../../config';
 import './DebugPanel.css';
 
 interface DebugPanelProps {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
-import { config } from '../config';
+import { config } from '../../config';
 import './PressureStats.css';
 
 interface PlayerSummary {
@@ -158,7 +158,7 @@ export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
       </div>
 
       {/* Player Cards */}
-      <div className="player-cards">
+      <div className="pressure-player-cards">
         {Object.entries(stats.player_summaries).map(([name, playerStats]) => (
           <div key={name} className="player-card">
             <h5>{name}</h5>

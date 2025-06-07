@@ -100,7 +100,7 @@
 }
 
 /* Player Cards */
-.player-cards {
+.pressure-player-cards {
   display: grid;
   grid-template-columns: 1fr;
   gap: 15px;

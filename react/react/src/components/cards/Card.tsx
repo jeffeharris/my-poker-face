@@ -1,4 +1,4 @@
-import { type Card as CardType, parseCard } from '../utils/cards';
+import { type Card as CardType, parseCard } from '../../utils/cards';
 import './Card.css';
 
 interface CardProps {

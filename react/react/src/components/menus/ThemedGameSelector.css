@@ -1,0 +1,250 @@
+/* Themed Game Selector */
+.themed-selector {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.themed-selector__container {
+  width: 100%;
+  max-width: 800px;
+  animation: fadeInUp 0.5s ease-out;
+}
+
+/* Header */
+.themed-selector__header {
+  text-align: center;
+  margin-bottom: 40px;
+  color: white;
+  position: relative;
+}
+
+.back-button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.back-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateX(-4px);
+}
+
+.themed-selector__header h2 {
+  font-size: 32px;
+  margin: 0 0 8px 0;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ff9800, #ff5722);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.themed-selector__header p {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+}
+
+/* Error message */
+.error-message {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  color: #ff5252;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* Theme Grid */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.theme-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 24px 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.theme-card:hover::before {
+  opacity: 1;
+}
+
+.theme-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.theme-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-card:disabled:hover {
+  transform: none;
+}
+
+/* Theme content */
+.theme-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  animation: iconFloat 3s ease-in-out infinite;
+}
+
+@keyframes iconFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.theme-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: white;
+}
+
+.theme-card p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.4;
+}
+
+/* Theme-specific colors */
+.science:hover { border-color: #4caf50; }
+.hollywood:hover { border-color: #e91e63; }
+.sports:hover { border-color: #ff9800; }
+.history:hover { border-color: #9c27b0; }
+.music:hover { border-color: #2196f3; }
+.comedy:hover { border-color: #ffeb3b; }
+.villains:hover { border-color: #f44336; }
+.surprise:hover { border-color: #00bcd4; }
+
+/* Surprise badge */
+.surprise-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 20px;
+  animation: spin 4s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Generating overlay */
+.generating-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.generating-content {
+  text-align: center;
+  color: white;
+}
+
+.generating-spinner {
+  font-size: 64px;
+  animation: slotMachine 0.5s ease-in-out infinite;
+  margin-bottom: 24px;
+}
+
+@keyframes slotMachine {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.generating-content h3 {
+  font-size: 24px;
+  margin: 0 0 8px 0;
+  color: white;
+}
+
+.generating-content p {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+}
+
+/* Footer */
+.themed-selector__footer {
+  text-align: center;
+}
+
+.hint {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .theme-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  
+  .theme-icon {
+    font-size: 36px;
+  }
+  
+  .theme-card h3 {
+    font-size: 16px;
+  }
+  
+  .theme-card p {
+    font-size: 12px;
+  }
+}

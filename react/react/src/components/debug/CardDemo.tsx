@@ -1,5 +1,5 @@
-import { createDeck, shuffleDeck } from '../utils/cards';
-import { Card } from './cards';
+import { createDeck, shuffleDeck } from '../../utils/cards';
+import { Card } from '../cards';
 import './Card.css';
 
 export function CardDemo() {
