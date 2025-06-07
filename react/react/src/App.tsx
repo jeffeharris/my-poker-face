@@ -259,59 +259,54 @@ function App() {
             Inspect Debug Panel
           </button>
           <button onClick={() => {
-            // Check computed styles
-            const firstBar = document.querySelector('.edp-trait-bar-background');
-            const anchorLine = document.querySelector('.edp-anchor-line');
-            const elasticityRange = document.querySelector('.edp-elasticity-range');
-            const traitBar = document.querySelector('.edp-trait-bar');
+            // Test 1: Check elasticity panel styles
+            console.log('=== TESTING ELASTICITY PANEL STYLES ===');
+            const edpBar = document.querySelector('.edp-trait-bar');
+            const edpAnchor = document.querySelector('.edp-anchor-line');
             
-            if (firstBar) {
-              console.log('=== trait-bar-background ===');
-              const styles = window.getComputedStyle(firstBar);
-              console.log('height:', styles.height);
-              console.log('background:', styles.background);
-              console.log('position:', styles.position);
-              console.log('overflow:', styles.overflow);
+            if (edpBar) {
+              const styles = window.getComputedStyle(edpBar);
+              console.log('✓ .edp-trait-bar found');
+              console.log('  - background:', styles.background);
+              console.log('  - height:', styles.height);
+              console.log('  - Expected: gradient background, ~20px height');
+            } else {
+              console.log('✗ .edp-trait-bar NOT FOUND');
             }
             
-            if (anchorLine) {
-              console.log('=== anchor-line ===');
-              const styles = window.getComputedStyle(anchorLine);
-              console.log('background:', styles.background);
-              console.log('width:', styles.width);
-              console.log('height:', styles.height);
-              console.log('z-index:', styles.zIndex);
-              console.log('box-shadow:', styles.boxShadow);
+            if (edpAnchor) {
+              const styles = window.getComputedStyle(edpAnchor);
+              console.log('✓ .edp-anchor-line found');
+              console.log('  - background:', styles.background);
+              console.log('  - Expected: yellow (#ffff00)');
+            } else {
+              console.log('✗ .edp-anchor-line NOT FOUND');
             }
             
-            if (traitBar) {
-              console.log('=== trait-bar ===');
-              const styles = window.getComputedStyle(traitBar);
-              console.log('background:', styles.background);
-              console.log('height:', styles.height);
-              console.log('position:', styles.position);
-              console.log('top:', styles.top);
-              console.log('left:', styles.left);
-              
-              // Check which stylesheets are affecting this element
-              const sheets = document.styleSheets;
-              console.log('=== Styles affecting .trait-bar ===');
-              for (let i = 0; i < sheets.length; i++) {
-                try {
-                  const rules = sheets[i].cssRules || sheets[i].rules;
-                  for (let j = 0; j < rules.length; j++) {
-                    if (rules[j].selectorText && rules[j].selectorText.includes('trait-bar')) {
-                      console.log('From:', sheets[i].href || 'inline styles');
-                      console.log('Rule:', rules[j].cssText);
-                    }
-                  }
-                } catch (e) {
-                  // Cross-origin stylesheets
-                }
+            // Test 2: Check for old class names (should not exist)
+            console.log('\n=== CHECKING FOR OLD CLASS NAMES ===');
+            const oldClasses = ['.trait-bar', '.anchor-line', '.trait', '.player-elasticity'];
+            oldClasses.forEach(cls => {
+              const found = document.querySelector(cls);
+              if (found) {
+                console.log(`✗ OLD CLASS ${cls} STILL EXISTS!`);
+              } else {
+                console.log(`✓ Old class ${cls} removed`);
               }
+            });
+            
+            // Test 3: Verify no CSS conflicts
+            console.log('\n=== CHECKING FOR CSS CONFLICTS ===');
+            const cgcBar = document.querySelector('.cgc-trait-bar');
+            if (cgcBar && edpBar) {
+              const cgcStyles = window.getComputedStyle(cgcBar);
+              const edpStyles = window.getComputedStyle(edpBar);
+              console.log('CustomGameConfig bar height:', cgcStyles.height);
+              console.log('ElasticityPanel bar height:', edpStyles.height);
+              console.log('✓ Both components have separate styles');
             }
           }}>
-            Check Styles
+            Test CSS Changes
           </button>
         </div>
       )}
