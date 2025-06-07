@@ -127,7 +127,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
         return '⚙️';
       case 'ai':
       case 'player':
-        return sender === playerName ? '👤' : '👥';
+        return sender === playerName ? '👤' : '💬';
       default:
         return '💬';
     }
@@ -171,6 +171,15 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
       'all_in': '🚀'
     }[action.toLowerCase()] || '🎮';
 
+    const actionText = {
+      'fold': 'folded',
+      'check': 'checked',
+      'call': amount ? `called $${amount}` : 'called',
+      'raise': amount ? `raised to $${amount}` : 'raised',
+      'all-in': 'went all-in!',
+      'all_in': 'went all-in!'
+    }[action.toLowerCase()] || action;
+
     return (
       <div 
         key={msg.id}
@@ -178,13 +187,11 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
         style={{ borderLeftColor: getPlayerColor(player) }}
       >
         <div className="action-content">
+          <span className="action-emoji">{actionEmoji}</span>
           <span className="action-player" style={{ color: getPlayerColor(player) }}>
             {player}
           </span>
-          <span className="action-emoji">{actionEmoji}</span>
-          <span className="action-text">
-            {action}{amount ? ` $${amount}` : ''}
-          </span>
+          <span className="action-text">{actionText}</span>
           <span className="message-time">{formatTime(msg.timestamp)}</span>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 import { Card } from '../cards';
+import { CSSDebugger } from './CSSDebugger';
 import { config } from '../../config';
 import './DebugPanel.css';
 
@@ -30,7 +31,7 @@ interface ElasticityData {
 }
 
 export function DebugPanel({ gameId, socket }: DebugPanelProps) {
-  const [activeTab, setActiveTab] = useState<'elasticity' | 'cards'>('elasticity');
+  const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css'>('elasticity');
   const [elasticityData, setElasticityData] = useState<ElasticityData>({});
   const [loading, setLoading] = useState(false);
 
@@ -107,6 +108,12 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
             onClick={() => setActiveTab('cards')}
           >
             Card Demo
+          </button>
+          <button 
+            className={`debug-tab ${activeTab === 'css' ? 'active' : ''}`}
+            onClick={() => setActiveTab('css')}
+          >
+            CSS Debug
           </button>
         </div>
       </div>
@@ -233,6 +240,12 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'css' && (
+          <div className="css-debug-content">
+            <CSSDebugger standalone={false} />
           </div>
         )}
       </div>

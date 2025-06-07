@@ -13,7 +13,11 @@ interface ElementInfo {
   boxSizing: string;
 }
 
-export function CSSDebugger() {
+interface CSSDebuggerProps {
+  standalone?: boolean;
+}
+
+export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
   const [elementInfo, setElementInfo] = useState<ElementInfo[]>([]);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -99,7 +103,7 @@ export function CSSDebugger() {
     };
   }, []);
 
-  if (isMinimized) {
+  if (standalone && isMinimized) {
     return (
       <div
         style={{
@@ -122,39 +126,49 @@ export function CSSDebugger() {
     );
   }
 
+  const containerStyle = standalone ? {
+    position: 'fixed' as const,
+    top: '10px',
+    right: '10px',
+    background: 'rgba(0, 0, 0, 0.9)',
+    color: '#0f0',
+    padding: '10px',
+    fontSize: '11px',
+    fontFamily: 'monospace',
+    maxWidth: '400px',
+    maxHeight: '80vh',
+    overflow: 'auto',
+    border: '1px solid #0f0',
+    zIndex: 99999
+  } : {
+    color: '#0f0',
+    padding: '10px',
+    fontSize: '11px',
+    fontFamily: 'monospace',
+    height: '100%',
+    overflow: 'auto',
+    background: 'rgba(0, 0, 0, 0.5)'
+  };
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: '10px',
-        right: '10px',
-        background: 'rgba(0, 0, 0, 0.9)',
-        color: '#0f0',
-        padding: '10px',
-        fontSize: '11px',
-        fontFamily: 'monospace',
-        maxWidth: '400px',
-        maxHeight: '80vh',
-        overflow: 'auto',
-        border: '1px solid #0f0',
-        zIndex: 99999
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-        <strong>CSS Debug Info</strong>
-        <button
-          onClick={() => setIsMinimized(true)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#0f0',
-            cursor: 'pointer',
-            fontSize: '16px'
-          }}
-        >
-          [-]
-        </button>
-      </div>
+    <div style={containerStyle}>
+      {standalone && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <strong>CSS Debug Info</strong>
+          <button
+            onClick={() => setIsMinimized(true)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#0f0',
+              cursor: 'pointer',
+              fontSize: '16px'
+            }}
+          >
+            [-]
+          </button>
+        </div>
+      )}
       
       <div style={{ marginBottom: '10px' }}>
         <strong>Viewport:</strong> {window.innerWidth} x {window.innerHeight}

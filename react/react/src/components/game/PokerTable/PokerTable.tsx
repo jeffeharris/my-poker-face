@@ -11,7 +11,6 @@ import { ElasticityDebugPanel } from '../../debug/ElasticityDebugPanel';
 import { PressureStats } from '../../stats';
 import { PokerTableLayout } from '../PokerTableLayout';
 import { DebugPanel } from '../../debug/DebugPanel';
-import { CSSDebugger } from '../../debug/CSSDebugger';
 import { config } from '../../../config';
 import './PokerTable.css';
 
@@ -518,8 +517,6 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
         )}
       </div>
       
-      {/* CSS Debugger - only in development */}
-      {process.env.NODE_ENV === 'development' && <CSSDebugger />}
       
       {/* Pressure Stats Panel - positioned as overlay */}
       <PressureStats gameId={gameId} isOpen={showStats} socket={socketRef.current} />
