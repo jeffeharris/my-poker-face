@@ -66,6 +66,39 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     return null;
   };
 
+  // Detect special event messages
+  const detectEventType = (msg: ChatMessage) => {
+    const message = msg.message.toLowerCase();
+    
+    // Win detection
+    if (message.includes('won') && message.includes('$')) {
+      return 'win';
+    }
+    
+    // All-in detection
+    if (message.includes('all-in') || message.includes('all in')) {
+      return 'all-in';
+    }
+    
+    // Big pot detection (over $500)
+    const potMatch = msg.message.match(/\$(\d+)/);
+    if (potMatch && parseInt(potMatch[1]) >= 500) {
+      return 'big-pot';
+    }
+    
+    // Showdown/reveal detection
+    if (message.includes('shows') || message.includes('revealed')) {
+      return 'showdown';
+    }
+    
+    // Elimination detection
+    if (message.includes('eliminated') || message.includes('busted out')) {
+      return 'elimination';
+    }
+    
+    return null;
+  };
+
   // Transform and filter messages
   const processedMessages = useMemo(() => {
     const filtered = messages
@@ -122,9 +155,13 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
           };
         }
         
+        // Check for special events if feature is enabled
+        const eventType = featureFlags.eventIndicators ? detectEventType(msg) : null;
+        
         return { 
           ...msg, 
-          displayType: msg.type
+          displayType: msg.type,
+          eventType
         };
       });
     
@@ -170,7 +207,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
     }
     
     return filtered;
-  }, [messages, filter, selectedPlayer, featureFlags.playerFilter, featureFlags.messageGrouping]);
+  }, [messages, filter, selectedPlayer, featureFlags.playerFilter, featureFlags.messageGrouping, featureFlags.eventIndicators]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -365,8 +402,17 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
               msg.type,
               isOwnMessage ? 'own-message' : '',
               featureFlags.messageGrouping && !msg.isFirstInGroup ? 'grouped' : '',
-              featureFlags.messageGrouping && !msg.isLastInGroup ? 'grouped-with-next' : ''
+              featureFlags.messageGrouping && !msg.isLastInGroup ? 'grouped-with-next' : '',
+              msg.eventType ? `event-${msg.eventType}` : ''
             ].filter(Boolean).join(' ');
+            
+            const eventEmoji = msg.eventType ? {
+              'win': '🏆',
+              'all-in': '📢',
+              'big-pot': '💰',
+              'showdown': '🎭',
+              'elimination': '💀'
+            }[msg.eventType] : null;
 
             return (
               <div 
@@ -394,7 +440,10 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
                     <span className="message-time">{formatTime(msg.timestamp)}</span>
                   </div>
                 )}
-                <div className="message-content">{msg.message}</div>
+                <div className="message-content">
+                  {eventEmoji && <span className="event-emoji">{eventEmoji}</span>}
+                  {msg.message}
+                </div>
               </div>
             );
           })

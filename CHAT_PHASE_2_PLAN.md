@@ -88,22 +88,28 @@ POST /api/game/{gameId}/chat-suggestions
 2. Send multiple messages in a row
 3. Messages will automatically group with cleaner appearance
 
-### 4. Event Indicators (TODO)
-**Status**: Planning
+### 4. Event Indicators ✅ (Implemented)
+**Status**: Complete
 
-**Design**:
-- Special messages for significant events:
-  - 🏆 "{player} won ${amount}!"
-  - 📢 "{player} went all-in!"
-  - 💔 "{player} lost with {hand}!"
-  - 🎭 "{player}'s bluff was called!"
-- Animated entrance for these messages
-- Different background color/style
+**Implementation**:
+- Detects and highlights special game events:
+  - 🏆 **Wins** - Gold gradient background with pulse animation
+  - 📢 **All-ins** - Orange gradient with pulse animation  
+  - 💰 **Big pots** ($500+) - Green gradient with pulse
+  - 🎭 **Showdowns** - Purple gradient background
+  - 💀 **Eliminations** - Red gradient with shake animation
 
-**Implementation Notes**:
-- Hook into existing winner announcement system
-- Detect all-ins from action messages
-- Track showdown results for bad beats
+**Visual Effects**:
+- Event-specific emoji appears before message
+- Gradient backgrounds matching event type
+- Border color override for emphasis
+- Animations: pulse, bounce, and shake effects
+- Works with existing message types (system, table, etc.)
+
+**Usage**:
+1. Enable "Special Event Indicators" in Debug > Feature Flags
+2. Events are automatically detected from message content
+3. Visual effects highlight important moments
 
 ## Testing Instructions
 
@@ -118,8 +124,8 @@ POST /api/game/{gameId}/chat-suggestions
 - [x] Feature flags system
 - [x] Player filter dropdown
 - [x] Message grouping
+- [x] Event indicators
 - [ ] Quick chat suggestions
-- [ ] Event indicators
 
 ## Known Limitations
 
