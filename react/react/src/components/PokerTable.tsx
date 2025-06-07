@@ -11,6 +11,7 @@ import { ElasticityDebugPanel } from './ElasticityDebugPanel';
 import { PressureStats } from './PressureStats';
 import { PokerTableLayout } from './PokerTableLayout';
 import { DebugPanel } from './DebugPanel';
+import { CSSDebugger } from './CSSDebugger';
 import { config } from '../config';
 import './PokerTable.css';
 
@@ -517,6 +518,9 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
         )}
       </div>
       
+      {/* CSS Debugger - only in development */}
+      {process.env.NODE_ENV === 'development' && <CSSDebugger />}
+      
       {/* Pressure Stats Panel - positioned as overlay */}
       <PressureStats gameId={gameId} isOpen={showStats} socket={socketRef.current} />
       
@@ -699,18 +703,6 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
           })}
         </div>
 
-        {/* Game Info */}
-        {lastUpdate && (
-          <div className="game-info">
-            <div className="update-indicator" style={{
-              fontSize: '10px',
-              color: '#00ff88',
-              animation: 'fadeIn 0.3s ease-out'
-            }}>
-              ✓ Live update: {lastUpdate.toLocaleTimeString()}
-            </div>
-          </div>
-        )}
 
         {/* AI Thinking Indicator - Full screen overlay (optional) */}
         {aiThinking && currentPlayer && !currentPlayer.is_human && useOverlayLoading && (

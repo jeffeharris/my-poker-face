@@ -9,11 +9,12 @@
 }
 
 .table-felt {
-  width: calc(100% - 40px);
-  height: calc(100% - 40px);
+  width: 70%;
+  height: 70%;
+  max-width: 900px;
   background: radial-gradient(ellipse at center, #0d5016 0%, #0a4012 70%, #08350f 100%);
   border: 8px solid #8b4513;
-  border-radius: 300px / 200px; /* Elliptical border radius for wider table */
+  border-radius: 50%;
   position: relative;
   box-shadow: 
     0 0 30px rgba(0, 0, 0, 0.5),

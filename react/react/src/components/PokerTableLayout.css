@@ -1,11 +1,13 @@
 /* Modern grid-based layout for poker game */
 .poker-layout {
   display: grid;
-  grid-template-columns: 1fr 320px; /* Main area + chat sidebar */
+  grid-template-columns: 1fr; /* Full width for main area */
   grid-template-rows: 1fr auto; /* Main area + optional debug panel */
+  width: 100vw;
   height: 100vh;
   background: linear-gradient(135deg, #1a1a2e, #16213e);
   gap: 0;
+  position: relative;
 }
 
 /* Main game area */
@@ -39,13 +41,17 @@
 
 /* Chat sidebar */
 .poker-layout__sidebar {
-  grid-column: 2;
-  grid-row: 1;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 320px;
+  height: 100%;
   background: rgba(0, 0, 0, 0.8);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  z-index: 10;
 }
 
 /* Debug panel - spans full width at bottom */
