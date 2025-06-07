@@ -27,8 +27,15 @@ Generate a unique personality configuration that includes:
    - aggression: How aggressive their betting is (0=passive, 1=very aggressive)
    - chattiness: How much they talk/emote (0=silent, 1=very talkative)
    - emoji_usage: How often they use emojis (0=never, 1=frequently)
-5. verbal_tics: List of 3-5 characteristic phrases they might say
-6. physical_tics: List of 2-4 physical actions/gestures they might do (in *asterisks*)
+5. elasticity_config: How flexible each trait is:
+   - trait_elasticity: How much each trait can vary during play (0.0-1.0)
+     * For extreme personality traits (near 0 or 1), use lower elasticity (0.1-0.3)
+     * For moderate traits (around 0.5), use higher elasticity (0.3-0.6)
+     * Consider character consistency - rigid personalities get lower values
+   - mood_elasticity: How reactive their mood is (typically 0.2-0.6)
+   - recovery_rate: How fast they return to baseline (typically 0.05-0.2)
+6. verbal_tics: List of 3-5 characteristic phrases they might say
+7. physical_tics: List of 2-4 physical actions/gestures they might do (in *asterisks*)
 
 Consider the character's name and any cultural/fictional associations. Make the personality feel authentic and interesting.
 
@@ -42,6 +49,16 @@ Respond with ONLY a JSON object in this exact format:
         "aggression": 0.5,
         "chattiness": 0.5,
         "emoji_usage": 0.3
+    }},
+    "elasticity_config": {{
+        "trait_elasticity": {{
+            "bluff_tendency": 0.4,
+            "aggression": 0.3,
+            "chattiness": 0.5,
+            "emoji_usage": 0.4
+        }},
+        "mood_elasticity": 0.4,
+        "recovery_rate": 0.1
     }},
     "verbal_tics": ["phrase 1", "phrase 2", "phrase 3"],
     "physical_tics": ["*action 1*", "*action 2*"]
