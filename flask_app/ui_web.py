@@ -8,6 +8,7 @@ from flask_cors import CORS
 from datetime import datetime
 import time
 import os
+import json
 import logging
 from dotenv import load_dotenv
 
@@ -1016,14 +1017,33 @@ def personalities_page():
 def get_personalities():
     """Get all personalities."""
     try:
-        # Load from personalities.json
-        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
-        with open(personalities_file, 'r') as f:
-            data = json.load(f)
+        # First, get personalities from database
+        db_personalities = persistence.list_personalities(limit=200)
+        
+        # Convert to expected format
+        personalities = {}
+        for p in db_personalities:
+            # Load the full config for each personality
+            name = p['name']
+            config = persistence.load_personality(name)
+            if config:
+                personalities[name] = config
+        
+        # Also load from personalities.json as fallback for any not in DB
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            with open(personalities_file, 'r') as f:
+                data = json.load(f)
+                # Add any from JSON that aren't in DB
+                for name, config in data.get('personalities', {}).items():
+                    if name not in personalities:
+                        personalities[name] = config
+        except:
+            pass  # JSON file might not exist
         
         return jsonify({
             'success': True,
-            'personalities': data['personalities']
+            'personalities': personalities
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -1032,18 +1052,75 @@ def get_personalities():
 def get_personality(name):
     """Get a specific personality."""
     try:
-        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
-        with open(personalities_file, 'r') as f:
-            data = json.load(f)
-        
-        if name in data['personalities']:
+        # First try database
+        db_personality = persistence.load_personality(name)
+        if db_personality:
             return jsonify({
                 'success': True,
-                'personality': data['personalities'][name],
+                'personality': db_personality,
                 'name': name
             })
-        else:
-            return jsonify({'success': False, 'error': 'Personality not found'})
+        
+        # Fallback to personalities.json
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            with open(personalities_file, 'r') as f:
+                data = json.load(f)
+            
+            if name in data['personalities']:
+                return jsonify({
+                    'success': True,
+                    'personality': data['personalities'][name],
+                    'name': name
+                })
+        except:
+            pass
+        
+        return jsonify({'success': False, 'error': 'Personality not found'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/personality', methods=['POST'])
+def create_personality():
+    """Create a new personality."""
+    try:
+        data = request.json
+        name = data.get('name')
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'})
+        
+        # Remove name from config (it's the key, not part of the value)
+        personality_config = {k: v for k, v in data.items() if k != 'name'}
+        
+        # Add default traits if missing
+        if 'personality_traits' not in personality_config:
+            personality_config['personality_traits'] = {
+                "bluff_tendency": 0.5,
+                "aggression": 0.5,
+                "chattiness": 0.5,
+                "emoji_usage": 0.3
+            }
+        
+        # Save to database
+        persistence.save_personality(name, personality_config, source='user_created')
+        
+        # Also save to personalities.json for backward compatibility
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            if personalities_file.exists():
+                with open(personalities_file, 'r') as f:
+                    data = json.load(f)
+                data['personalities'][name] = personality_config
+                with open(personalities_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+        except:
+            pass  # JSON update is optional
+        
+        return jsonify({
+            'success': True,
+            'message': f'Personality {name} created successfully'
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1051,21 +1128,22 @@ def get_personality(name):
 def update_personality(name):
     """Update a personality."""
     try:
-        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        personality_config = request.json
         
-        # Load current data
-        with open(personalities_file, 'r') as f:
-            data = json.load(f)
+        # Save to database
+        persistence.save_personality(name, personality_config, source='user_edited')
         
-        if name not in data['personalities']:
-            return jsonify({'success': False, 'error': 'Personality not found'})
-        
-        # Update the personality
-        data['personalities'][name] = request.json
-        
-        # Save back to file
-        with open(personalities_file, 'w') as f:
-            json.dump(data, f, indent=2)
+        # Also update personalities.json for backward compatibility
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            if personalities_file.exists():
+                with open(personalities_file, 'r') as f:
+                    data = json.load(f)
+                data['personalities'][name] = personality_config
+                with open(personalities_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+        except:
+            pass  # JSON update is optional
         
         return jsonify({
             'success': True,
@@ -1078,21 +1156,28 @@ def update_personality(name):
 def delete_personality(name):
     """Delete a personality."""
     try:
-        personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        # Delete from database
+        deleted = persistence.delete_personality(name)
         
-        # Load current data
-        with open(personalities_file, 'r') as f:
-            data = json.load(f)
+        if not deleted:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found'
+            })
         
-        if name not in data['personalities']:
-            return jsonify({'success': False, 'error': 'Personality not found'})
-        
-        # Delete the personality
-        del data['personalities'][name]
-        
-        # Save back to file
-        with open(personalities_file, 'w') as f:
-            json.dump(data, f, indent=2)
+        # Also remove from personalities.json for backward compatibility
+        try:
+            personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+            if personalities_file.exists():
+                with open(personalities_file, 'r') as f:
+                    data = json.load(f)
+                
+                if name in data['personalities']:
+                    del data['personalities'][name]
+                    with open(personalities_file, 'w') as f:
+                        json.dump(data, f, indent=2)
+        except:
+            pass  # JSON update is optional
         
         return jsonify({
             'success': True,
