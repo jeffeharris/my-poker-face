@@ -105,8 +105,10 @@
 
 /* Betting Interface */
 .betting-interface {
-  min-width: 550px;
+  min-width: 500px;
+  max-width: 600px;
   animation: slideUp 0.3s ease-out;
+  overflow: visible;
 }
 
 @keyframes slideUp {
@@ -247,6 +249,7 @@
 /* Custom Input */
 .custom-bet {
   margin-bottom: 15px;
+  position: relative;
 }
 
 .custom-bet-input {
@@ -258,6 +261,7 @@
   color: white;
   font-size: 14px;
   outline: none;
+  box-sizing: border-box;
 }
 
 .custom-bet-input:focus {
@@ -413,20 +417,63 @@
 /* Smart Suggestions */
 .smart-suggestions {
   margin-bottom: 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 10px;
 }
 
 .suggestions-header {
   color: #ccc;
   font-size: 12px;
   text-transform: uppercase;
-  margin-bottom: 8px;
   letter-spacing: 1px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
+  padding: 5px 0;
+}
+
+.suggestions-header:hover {
+  color: #fff;
+}
+
+.header-text {
+  flex: 1;
+  text-align: center;
+}
+
+.toggle-icon {
+  font-size: 16px;
+  font-weight: bold;
+  color: #666;
+  width: 20px;
+  text-align: center;
 }
 
 .suggestion-buttons {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #333;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .suggestion-button {

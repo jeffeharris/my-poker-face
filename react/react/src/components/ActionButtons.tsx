@@ -26,6 +26,7 @@ export function ActionButtons({
   const [betAmount, setBetAmount] = useState(minRaise || 0);
   const [selectedQuickBet, setSelectedQuickBet] = useState<string | null>(null);
   const [recentBets, setRecentBets] = useState<number[]>([]);
+  const [showSmartBets, setShowSmartBets] = useState(true);
 
   // Ensure all values are valid numbers
   const safeMinRaise = Math.max(1, minRaise || bigBlind || 20);
@@ -161,20 +162,28 @@ export function ActionButtons({
         {/* Smart Bet Suggestions */}
         {smartSuggestions.length > 0 && (
           <div className="smart-suggestions">
-            <div className="suggestions-header">Smart Bets</div>
-            <div className="suggestion-buttons">
-              {smartSuggestions.map((suggestion, index) => (
-                <button
-                  key={index}
-                  className={`suggestion-button ${suggestion.type} ${betAmount === suggestion.amount ? 'selected' : ''}`}
-                  onClick={() => selectBetAmount(suggestion.amount, `smart-${index}`)}
-                  disabled={suggestion.amount > safeStack}
-                >
-                  <span className="suggestion-label">{suggestion.label}</span>
-                  <span className="suggestion-amount">${suggestion.amount}</span>
-                </button>
-              ))}
+            <div 
+              className="suggestions-header"
+              onClick={() => setShowSmartBets(!showSmartBets)}
+            >
+              <span className="header-text">Smart Bets</span>
+              <span className="toggle-icon">{showSmartBets ? '−' : '+'}</span>
             </div>
+            {showSmartBets && (
+              <div className="suggestion-buttons">
+                {smartSuggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    className={`suggestion-button ${suggestion.type} ${betAmount === suggestion.amount ? 'selected' : ''}`}
+                    onClick={() => selectBetAmount(suggestion.amount, `smart-${index}`)}
+                    disabled={suggestion.amount > safeStack}
+                  >
+                    <span className="suggestion-label">{suggestion.label}</span>
+                    <span className="suggestion-amount">${suggestion.amount}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         
