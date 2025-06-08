@@ -22,5 +22,11 @@ export const config = {
     
     // Enable special event indicators (wins, all-ins, etc.)
     EVENT_INDICATORS: import.meta.env.VITE_ENABLE_EVENT_INDICATORS === 'true' || false
+  },
+  
+  // Betting UI Feature Flags
+  BETTING_FEATURES: {
+    // Enable smart bet suggestions (C-Bet, Value, Overbet)
+    SMART_BET_SUGGESTIONS: import.meta.env.VITE_ENABLE_SMART_BETS === 'true' || false
   }
 };

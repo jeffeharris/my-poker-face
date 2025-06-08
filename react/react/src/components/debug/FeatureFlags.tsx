@@ -2,25 +2,29 @@ import { useState, useEffect } from 'react';
 import { config } from '../../config';
 
 // Feature flag state stored in localStorage for persistence
-const FEATURE_FLAGS_KEY = 'poker-chat-features';
+const FEATURE_FLAGS_KEY = 'poker-features';
 
-export interface ChatFeatureFlags {
+export interface FeatureFlags {
+  // Chat features
   quickSuggestions: boolean;
   playerFilter: boolean;
   messageGrouping: boolean;
   eventIndicators: boolean;
+  // Betting features
+  smartBetSuggestions: boolean;
 }
 
 // Default to config values or false
-const defaultFlags: ChatFeatureFlags = {
+const defaultFlags: FeatureFlags = {
   quickSuggestions: config.CHAT_FEATURES.QUICK_SUGGESTIONS,
   playerFilter: config.CHAT_FEATURES.PLAYER_FILTER,
   messageGrouping: config.CHAT_FEATURES.MESSAGE_GROUPING,
-  eventIndicators: config.CHAT_FEATURES.EVENT_INDICATORS
+  eventIndicators: config.CHAT_FEATURES.EVENT_INDICATORS,
+  smartBetSuggestions: config.BETTING_FEATURES.SMART_BET_SUGGESTIONS
 };
 
 // Get feature flags from localStorage or defaults
-export function getFeatureFlags(): ChatFeatureFlags {
+export function getFeatureFlags(): FeatureFlags {
   try {
     const stored = localStorage.getItem(FEATURE_FLAGS_KEY);
     if (stored) {
@@ -33,7 +37,7 @@ export function getFeatureFlags(): ChatFeatureFlags {
 }
 
 // Save feature flags to localStorage
-export function saveFeatureFlags(flags: ChatFeatureFlags) {
+export function saveFeatureFlags(flags: FeatureFlags) {
   try {
     localStorage.setItem(FEATURE_FLAGS_KEY, JSON.stringify(flags));
     // Dispatch custom event so other components can react
@@ -45,7 +49,7 @@ export function saveFeatureFlags(flags: ChatFeatureFlags) {
 
 // Hook to use feature flags in components
 export function useFeatureFlags() {
-  const [flags, setFlags] = useState<ChatFeatureFlags>(getFeatureFlags());
+  const [flags, setFlags] = useState<FeatureFlags>(getFeatureFlags());
 
   useEffect(() => {
     const handleFlagsChange = (e: CustomEvent) => {
@@ -63,10 +67,10 @@ export function useFeatureFlags() {
 
 // Feature Flags UI Component
 export function FeatureFlags() {
-  const [flags, setFlags] = useState<ChatFeatureFlags>(getFeatureFlags());
+  const [flags, setFlags] = useState<FeatureFlags>(getFeatureFlags());
   const [showSaved, setShowSaved] = useState(false);
 
-  const handleToggle = (key: keyof ChatFeatureFlags) => {
+  const handleToggle = (key: keyof FeatureFlags) => {
     const newFlags = { ...flags, [key]: !flags[key] };
     setFlags(newFlags);
     saveFeatureFlags(newFlags);
@@ -97,7 +101,7 @@ export function FeatureFlags() {
         alignItems: 'center',
         marginBottom: '1rem' 
       }}>
-        <h4 style={{ margin: 0 }}>Chat Feature Flags</h4>
+        <h4 style={{ margin: 0 }}>Feature Flags</h4>
         {showSaved && (
           <span style={{ 
             color: '#4caf50', 
@@ -107,6 +111,10 @@ export function FeatureFlags() {
             ✓ Saved
           </span>
         )}
+      </div>
+
+      <div style={{ marginBottom: '1rem' }}>
+        <h5 style={{ margin: '0 0 0.5rem 0', opacity: 0.7 }}>Chat Features</h5>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -166,6 +174,27 @@ export function FeatureFlags() {
             <div style={{ fontWeight: 'bold' }}>Special Event Indicators</div>
             <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>
               Visual indicators for wins, all-ins, etc.
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>
+        <h5 style={{ margin: '0 0 0.5rem 0', opacity: 0.7 }}>Betting Features</h5>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={flags.smartBetSuggestions}
+            onChange={() => handleToggle('smartBetSuggestions')}
+            style={{ cursor: 'pointer' }}
+          />
+          <div>
+            <div style={{ fontWeight: 'bold' }}>Smart Bet Suggestions</div>
+            <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>
+              Context-aware bet sizing (C-Bet, Value, Overbet)
             </div>
           </div>
         </label>

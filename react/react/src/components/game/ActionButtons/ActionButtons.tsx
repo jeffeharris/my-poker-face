@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useFeatureFlags } from '../../debug/FeatureFlags';
 import './ActionButtons.css';
 
 interface ActionButtonsProps {
@@ -27,6 +28,7 @@ export function ActionButtons({
   const [selectedQuickBet, setSelectedQuickBet] = useState<string | null>(null);
   const [recentBets, setRecentBets] = useState<number[]>([]);
   const [showSmartBets, setShowSmartBets] = useState(true);
+  const featureFlags = useFeatureFlags();
 
   // Ensure all values are valid numbers
   const safeMinRaise = Math.max(1, minRaise || bigBlind || 20);
@@ -160,7 +162,7 @@ export function ActionButtons({
         </div>
         
         {/* Smart Bet Suggestions */}
-        {smartSuggestions.length > 0 && (
+        {featureFlags.smartBetSuggestions && smartSuggestions.length > 0 && (
           <div className="smart-suggestions">
             <div 
               className="suggestions-header"
