@@ -4,6 +4,12 @@ and have a conversation with them while you play.
 
 **NEW**: Check out the [Rich CLI version](README_RICH_CLI.md) for a beautiful terminal interface with visual poker table, Unicode cards, and enhanced UI! Run with `python3 working_game.py`
 
+## 🚀 Quick Start
+
+**First time playing?** Check out our **[Quick Start Guide](QUICK_START.md)** - get playing in under 5 minutes!
+
+For the v1.0 release notes and known issues, see [RELEASE_NOTES_v1.0.md](RELEASE_NOTES_v1.0.md).
+
 ## Key Features
 
 - **AI-Powered Personalities**: Play against famous personalities (Gordon Ramsay, Eeyore, Batman, etc.) powered by OpenAI
