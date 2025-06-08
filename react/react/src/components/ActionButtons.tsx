@@ -49,24 +49,24 @@ export function ActionButtons({
     const suggestions = [];
     
     // Standard continuation bet (60-70% pot)
-    const cBetSize = Math.floor(safePotSize * 0.65);
+    const cBetSize = roundToSnap(Math.floor(safePotSize * 0.65));
     if (cBetSize >= safeMinRaise && cBetSize <= safeStack) {
       suggestions.push({ label: 'C-Bet', amount: cBetSize, type: 'strategic' });
     }
     
     // Value bet (30-40% pot for thin value)
-    const valueBet = Math.floor(safePotSize * 0.35);
+    const valueBet = roundToSnap(Math.floor(safePotSize * 0.35));
     if (valueBet >= safeMinRaise && valueBet <= safeStack) {
       suggestions.push({ label: 'Value', amount: valueBet, type: 'value' });
     }
     
     // Overbet (1.2x pot for polarized range)
-    const overbet = Math.floor(safePotSize * 1.2);
+    const overbet = roundToSnap(Math.floor(safePotSize * 1.2));
     if (overbet <= safeStack && safePotSize > 0) {
       suggestions.push({ label: 'Overbet', amount: overbet, type: 'aggressive' });
     }
     
-    // Recent bets (if any)
+    // Recent bets (if any) - already snapped when stored
     recentBets.slice(0, 2).forEach((amount, index) => {
       if (amount >= safeMinRaise && amount <= safeStack) {
         suggestions.push({ label: `Recent ${index + 1}`, amount, type: 'history' });
@@ -76,9 +76,26 @@ export function ActionButtons({
     return suggestions.slice(0, 3); // Return top 3 suggestions
   };
 
+  // Calculate snap increment based on big blind
+  const getSnapIncrement = () => {
+    if (bigBlind <= 2) return 1;      // $1 increments for micro stakes
+    if (bigBlind <= 10) return 5;     // $5 increments for small stakes
+    if (bigBlind <= 50) return 10;    // $10 increments for mid stakes
+    if (bigBlind <= 200) return 25;   // $25 increments for higher stakes
+    if (bigBlind <= 1000) return 50;  // $50 increments for high stakes
+    return 100;                        // $100 increments for nosebleeds
+  };
+
+  const snapIncrement = getSnapIncrement();
+
+  // Round to nearest snap increment
+  const roundToSnap = (value: number) => {
+    return Math.round(value / snapIncrement) * snapIncrement;
+  };
+
   const handleBetRaise = () => {
     setShowBetInterface(true);
-    setBetAmount(defaultRaise);
+    setBetAmount(roundToSnap(defaultRaise));
   };
 
   const submitBet = () => {
@@ -98,7 +115,9 @@ export function ActionButtons({
 
   // Update bet amount and track which button was selected
   const selectBetAmount = (amount: number, buttonId: string | null = null) => {
-    setBetAmount(amount);
+    // Always round to snap increment except for all-in
+    const snappedAmount = buttonId === 'all-in' ? amount : roundToSnap(amount);
+    setBetAmount(snappedAmount);
     setSelectedQuickBet(buttonId);
   };
 
@@ -133,6 +152,9 @@ export function ActionButtons({
           )}
           <div className="stack-after">
             Stack after: ${safeStack - betAmount}
+          </div>
+          <div className="snap-info">
+            Increments: ${snapIncrement}
           </div>
         </div>
         
@@ -220,29 +242,29 @@ export function ActionButtons({
               onChange={(e) => {
                 const value = parseInt(e.target.value);
                 if (!isNaN(value)) {
-                  // Find nearest snap point
-                  const snapPoints = [
-                    safeMinRaise,
+                  // Round to snap increment for smooth sliding
+                  const snappedValue = roundToSnap(value);
+                  
+                  // Also check for pot-based snap points
+                  const potSnapPoints = [
                     oneThirdPot,
                     halfPot,
                     twoThirdsPot,
-                    fullPot,
-                    safeStack
+                    fullPot
                   ].filter(v => v >= safeMinRaise && v <= safeStack);
                   
-                  // Snap to nearest point if within 5% of range
-                  const range = safeStack - safeMinRaise;
-                  const snapThreshold = range * 0.05;
+                  // If we're very close to a pot-based snap point, use it instead
+                  const snapThreshold = snapIncrement * 2;
+                  let finalValue = snappedValue;
                   
-                  let snappedValue = value;
-                  for (const snapPoint of snapPoints) {
+                  for (const snapPoint of potSnapPoints) {
                     if (Math.abs(value - snapPoint) < snapThreshold) {
-                      snappedValue = snapPoint;
+                      finalValue = snapPoint;
                       break;
                     }
                   }
                   
-                  setBetAmount(snappedValue);
+                  setBetAmount(finalValue);
                   setSelectedQuickBet(null);
                 }
               }}
@@ -266,10 +288,18 @@ export function ActionButtons({
               onChange={(e) => {
                 const val = parseInt(e.target.value);
                 if (!isNaN(val)) {
+                  // Don't snap while typing, just enforce min/max
                   setBetAmount(Math.min(safeStack, Math.max(safeMinRaise, val)));
                   setSelectedQuickBet(null);
                 } else if (e.target.value === '') {
                   setBetAmount(safeMinRaise);
+                }
+              }}
+              onBlur={(e) => {
+                // Snap to increment when user finishes typing
+                const val = parseInt(e.target.value);
+                if (!isNaN(val)) {
+                  setBetAmount(Math.min(safeStack, Math.max(safeMinRaise, roundToSnap(val))));
                 }
               }}
               onFocus={(e) => e.target.select()}
@@ -279,16 +309,46 @@ export function ActionButtons({
             <div className="input-shortcuts">
               <button 
                 className="shortcut-btn"
-                onClick={() => setBetAmount(Math.min(safeStack, betAmount * 2))}
+                onClick={() => {
+                  const doubled = betAmount * 2;
+                  setBetAmount(Math.min(safeStack, roundToSnap(doubled)));
+                  setSelectedQuickBet(null);
+                }}
                 disabled={betAmount * 2 > safeStack}
               >
                 2x
               </button>
               <button 
                 className="shortcut-btn"
-                onClick={() => setBetAmount(Math.max(safeMinRaise, Math.floor(betAmount / 2)))}
+                onClick={() => {
+                  const halved = betAmount / 2;
+                  setBetAmount(Math.max(safeMinRaise, roundToSnap(halved)));
+                  setSelectedQuickBet(null);
+                }}
               >
                 ½x
+              </button>
+              <button 
+                className="shortcut-btn"
+                onClick={() => {
+                  const increased = betAmount + snapIncrement;
+                  setBetAmount(Math.min(safeStack, increased));
+                  setSelectedQuickBet(null);
+                }}
+                disabled={betAmount + snapIncrement > safeStack}
+              >
+                +${snapIncrement}
+              </button>
+              <button 
+                className="shortcut-btn"
+                onClick={() => {
+                  const decreased = betAmount - snapIncrement;
+                  setBetAmount(Math.max(safeMinRaise, decreased));
+                  setSelectedQuickBet(null);
+                }}
+                disabled={betAmount - snapIncrement < safeMinRaise}
+              >
+                -${snapIncrement}
               </button>
             </div>
           </div>

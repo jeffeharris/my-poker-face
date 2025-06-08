@@ -402,6 +402,14 @@
   color: #999;
 }
 
+.snap-info {
+  font-size: 10px;
+  color: #666;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* Smart Suggestions */
 .smart-suggestions {
   margin-bottom: 15px;
@@ -535,19 +543,20 @@
 
 /* Input Shortcuts */
 .input-shortcuts {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
   margin-top: 8px;
 }
 
 .shortcut-btn {
-  flex: 1;
-  padding: 6px 12px;
+  padding: 8px 10px;
   border: 1px solid #666;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.05);
   color: white;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -555,9 +564,15 @@
 .shortcut-btn:hover:not(:disabled) {
   border-color: #00ff00;
   background: rgba(0, 255, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.shortcut-btn:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .shortcut-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
 }
