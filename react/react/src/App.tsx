@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { PokerTable } from './components/PokerTable'
 import { CardDemo } from './components/CardDemo'
 import { GameSelector } from './components/GameSelector'
@@ -7,9 +7,26 @@ import { PersonalityManagerHTML } from './components/PersonalityManagerHTML'
 import './App.css'
 
 function App() {
-  const [currentView, setCurrentView] = useState<'name-entry' | 'selector' | 'table' | 'cards' | 'personalities'>('name-entry')
-  const [gameId, setGameId] = useState<string | null>(null)
-  const [playerName, setPlayerName] = useState<string>('')
+  // Check localStorage for saved state on initial load
+  const savedState = localStorage.getItem('pokerGameState');
+  const parsedState = savedState ? JSON.parse(savedState) : null;
+  
+  const [currentView, setCurrentView] = useState<'name-entry' | 'selector' | 'table' | 'cards' | 'personalities'>(
+    parsedState?.currentView || 'name-entry'
+  )
+  const [gameId, setGameId] = useState<string | null>(parsedState?.gameId || null)
+  const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
+  
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    const stateToSave = {
+      currentView,
+      gameId,
+      playerName,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('pokerGameState', JSON.stringify(stateToSave));
+  }, [currentView, gameId, playerName]);
 
   const handleSelectGame = (selectedGameId: string) => {
     setGameId(selectedGameId);
@@ -39,7 +56,11 @@ function App() {
           gap: '10px'
         }}>
           <button 
-            onClick={() => setCurrentView('selector')}
+            onClick={() => {
+              // Clear the saved game when going back to menu
+              setGameId(null);
+              setCurrentView('selector');
+            }}
             style={{
               padding: '8px 16px',
               backgroundColor: '#666',
@@ -91,7 +112,13 @@ function App() {
           onManagePersonalities={() => setCurrentView('personalities')}
         />
       )}
-      {currentView === 'table' && <PokerTable gameId={gameId} playerName={playerName} />}
+      {currentView === 'table' && (
+        <PokerTable 
+          gameId={gameId} 
+          playerName={playerName}
+          onGameCreated={(newGameId) => setGameId(newGameId)}
+        />
+      )}
       {currentView === 'cards' && <CardDemo />}
       {currentView === 'personalities' && (
         <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />

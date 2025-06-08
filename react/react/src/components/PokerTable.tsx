@@ -48,9 +48,10 @@ interface GameState {
 interface PokerTableProps {
   gameId?: string | null;
   playerName?: string;
+  onGameCreated?: (gameId: string) => void;
 }
 
-export function PokerTable({ gameId: providedGameId, playerName }: PokerTableProps) {
+export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [chatVisible, setChatVisible] = useState(true); // Start with chat visible for debugging
@@ -237,6 +238,11 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
         .then(data => {
           const newGameId = data.game_id;
           setGameId(newGameId);
+          
+          // Notify parent component of the new game ID
+          if (onGameCreated) {
+            onGameCreated(newGameId);
+          }
         
         // Initialize WebSocket connection
         const socket = io(config.SOCKET_URL);

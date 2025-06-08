@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a secure random key in production
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 
 # TODO: <REFACTOR> integrate the Deck and Card and CardSet classes here
 # Define card ranks and suits

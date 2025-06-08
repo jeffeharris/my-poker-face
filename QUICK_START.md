@@ -2,60 +2,80 @@
 
 Get playing in under 5 minutes! This guide will help you start your first poker game.
 
-## Option 1: Quick Play (No AI Chat) - Recommended! ⭐
+## Option 1: Docker Setup (Recommended) 🐳
 
-This is the fastest way to start playing. You'll face AI opponents that make smart decisions but don't chat.
+The easiest way to play is using Docker, which handles all the setup for you.
+
+### Prerequisites
+- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- Get an OpenAI API key from [OpenAI](https://platform.openai.com/api-keys) (optional - for AI chat)
 
 ### Step 1: Download and Extract
 1. Download the My Poker Face zip file
 2. Extract it to a folder on your computer
 
-### Step 2: Install Python (if needed)
-- **Windows**: Download from [python.org](https://python.org) (version 3.8 or newer)
-- **Mac**: Python usually pre-installed, or use `brew install python3`
-- **Linux**: Use your package manager, e.g., `sudo apt install python3`
-
-### Step 3: Open Terminal/Command Prompt
-- **Windows**: Right-click in the game folder → "Open in Terminal" or "Open PowerShell window here"
-- **Mac**: Open Terminal, type `cd ` (with space), drag the game folder in, press Enter
-- **Linux**: Open terminal and navigate to the game folder
-
-### Step 4: Set Up (One Time Only)
+### Step 2: Set Up Environment
 ```bash
-# Windows
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key (optional)
+# OPENAI_API_KEY=your-key-here
+```
+
+### Step 3: Start the Game
+```bash
+# Start all services
+docker-compose up -d
+
+# Or use the Makefile
+make up
+```
+
+### Step 4: Play!
+Open your web browser and go to: **http://localhost:5173**
+
+You'll see a modern poker interface where you can play against AI personalities!
+
+## Option 2: Manual Setup (For Developers) 💻
+
+If you prefer to run without Docker or need to modify the code:
+
+### Prerequisites
+- Python 3.8+ installed
+- Node.js 16+ installed
+- OpenAI API key (optional)
+
+### Backend Setup
+```bash
+# Create virtual environment
 python -m venv my_poker_face_venv
-my_poker_face_venv\Scripts\activate
+source my_poker_face_venv/bin/activate  # On Windows: my_poker_face_venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
 
-# Mac/Linux
-python3 -m venv my_poker_face_venv
-source my_poker_face_venv/bin/activate
-pip install -r requirements.txt
+# Create .env file
+echo "OPENAI_API_KEY=your-key-here" > .env
+
+# Start the backend
+python -m flask_app.ui_web
 ```
 
-### Step 5: Play!
+### Frontend Setup (New Terminal)
 ```bash
-python working_game.py
+# Navigate to React app
+cd react/react
+
+# Install dependencies
+npm install
+
+# Start the frontend
+npm run dev
 ```
 
-You'll see a beautiful poker table in your terminal. Use number keys to make your choices!
-
-## Option 2: Full AI Experience (With Personality Chat) 🤖
-
-Want the full experience with AI opponents that chat and taunt? You'll need an OpenAI API key.
-
-### Additional Step: Set Up OpenAI
-1. Get an API key from [OpenAI](https://platform.openai.com/api-keys)
-2. Create a `.env` file in the game folder:
-   ```bash
-   echo "OPENAI_API_KEY=your-key-here" > .env
-   ```
-   Replace `your-key-here` with your actual API key
-
-Then run the same command:
-```bash
-python working_game.py
-```
+### Play!
+Open your browser to: **http://localhost:5173**
 
 ## Game Controls 🎮
 

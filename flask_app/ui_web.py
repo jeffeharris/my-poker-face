@@ -31,7 +31,7 @@ from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
-app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 CORS(app)  # Enable CORS for all routes
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
