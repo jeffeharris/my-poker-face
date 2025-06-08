@@ -1083,12 +1083,16 @@ Return as JSON with this format:
         ]
         
         response = assistant.get_json_response(messages)
+        print(f"AI Response: {response}")  # Debug log
         result = json.loads(response.choices[0].message.content)
+        print(f"Parsed suggestions: {result}")  # Debug log
         
         return jsonify(result)
         
     except Exception as e:
         print(f"Error generating chat suggestions: {str(e)}")
+        import traceback
+        traceback.print_exc()  # Print full stack trace
         # Return fallback suggestions if AI fails
         return jsonify({
             "suggestions": [
