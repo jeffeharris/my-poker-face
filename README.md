@@ -63,8 +63,9 @@ Access the game at http://localhost:5173
 The Docker setup includes:
 - React frontend (port 5173)
 - Flask API backend (port 5000)
-- Redis for session management (port 6379)
+- Redis for session management and rate limiting (port 6379)
 - Hot-reloading for development
+- API rate limiting for cost control
 
 ### Development Setup (Manual)
 

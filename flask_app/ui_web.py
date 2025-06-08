@@ -5,6 +5,8 @@ from pathlib import Path
 from flask import Flask, redirect, url_for, jsonify, Response, request
 from flask_socketio import SocketIO, join_room
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from datetime import datetime
 import time
 import os
@@ -34,11 +36,38 @@ from core.assistants import OpenAILLMAssistant
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 CORS(app)  # Enable CORS for all routes
+
+# Initialize rate limiter
+# Use 'redis' hostname when running in Docker, 'localhost' otherwise
+redis_host = 'redis' if os.path.exists('/.dockerenv') else 'localhost'
+redis_port = os.environ.get('REDIS_PORT', '6379')
+redis_url = os.environ.get('REDIS_URL', f'redis://{redis_host}:{redis_port}')
+
+# Get rate limits from environment or use defaults
+default_limits = os.environ.get('RATE_LIMIT_DEFAULT', '200 per day, 50 per hour').split(',')
+default_limits = [limit.strip() for limit in default_limits]
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=default_limits,
+    storage_uri=redis_url
+)
+
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Dictionary to hold game states and messages for each game ID
 games = {}
 messages = {}
+
+# Custom error handler for rate limit exceeded
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({
+        'error': 'Rate limit exceeded',
+        'message': str(e.description),
+        'retry_after': e.retry_after if hasattr(e, 'retry_after') else None
+    }), 429
 
 # Initialize persistence layer
 # Use /app/data in Docker, or local path otherwise
@@ -274,6 +303,7 @@ def api_game_state(game_id):
 
 
 @app.route('/api/new-game', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour'))
 def api_new_game():
     """Create a new game and return the game ID."""
     # Get player name from request, default to "Player" if not provided
@@ -339,6 +369,7 @@ def api_new_game():
 
 
 @app.route('/api/game/<game_id>/action', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute'))
 def api_player_action(game_id):
     """Handle player action via API."""
     data = request.json
@@ -961,6 +992,7 @@ def get_elasticity_data(game_id):
 
 
 @app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour'))
 def get_chat_suggestions(game_id):
     """Generate smart chat suggestions based on game context."""
     if game_id not in games:
@@ -1336,6 +1368,7 @@ No other text or explanation."""
             return jsonify({'error': 'Failed to generate theme'}), 500
 
 @app.route('/api/generate_personality', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_GENERATE_PERSONALITY', '15 per hour'))
 def generate_personality():
     """Generate a new personality using AI."""
     try:

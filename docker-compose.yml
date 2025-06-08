@@ -21,9 +21,12 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - FLASK_APP=flask_app.ui_web
       - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379
     env_file:
       - .env
     command: python -m flask_app.ui_web
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s

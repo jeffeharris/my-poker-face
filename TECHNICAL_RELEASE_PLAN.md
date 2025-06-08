@@ -116,18 +116,21 @@ class Config:
 ```
 
 ```python
-# 2. Add rate limiting
+# 2. Add rate limiting ✅ COMPLETED
+# Rate limits are now configurable via environment variables
+# See docs/RATE_LIMITING.md for full configuration details
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 limiter = Limiter(
     app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri=os.environ.get('REDIS_URL')
 )
 
 @app.route('/api/game/action', methods=['POST'])
-@limiter.limit("5 per minute")
+@limiter.limit(os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute'))
 def game_action():
     # Game action logic
 ```
