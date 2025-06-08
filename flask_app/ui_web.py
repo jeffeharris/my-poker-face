@@ -27,6 +27,7 @@ from poker.poker_game import PokerGameState, initialize_game_state, determine_wi
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from poker.persistence import GamePersistence
+from poker.repositories.sqlite_repositories import PressureEventRepository
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
 
@@ -46,6 +47,7 @@ if os.path.exists('/app/data'):
 else:
     db_path = os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
 persistence = GamePersistence(db_path)
+event_repository = PressureEventRepository(db_path)
 
 
 # Helper function to generate unique game ID
@@ -123,6 +125,12 @@ def on_join(game_id):
 @app.route('/')
 def index():
     return render_template('home.html')
+
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return jsonify({'status': 'healthy', 'service': 'poker-backend'}), 200
 
 
 @app.route('/games')
@@ -260,7 +268,16 @@ def api_new_game():
     data = request.json or {}
     player_name = data.get('playerName', 'Player')
     
-    ai_player_names = get_celebrities(shuffled=True)[:3]  # 3 AI players
+    # Check if specific personalities were requested
+    requested_personalities = data.get('personalities', [])
+    
+    if requested_personalities:
+        # Use the specific personalities requested
+        ai_player_names = requested_personalities
+    else:
+        # Default to 3 random AI players
+        ai_player_names = get_celebrities(shuffled=True)[:3]
+    
     game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
@@ -281,7 +298,8 @@ def api_new_game():
             )
     
     pressure_detector = PressureEventDetector(elasticity_manager)
-    pressure_stats = PressureStatsTracker()
+    game_id = generate_game_id()
+    pressure_stats = PressureStatsTracker(game_id, event_repository)
 
     game_data = {
         'state_machine': state_machine,
@@ -297,7 +315,6 @@ def api_new_game():
             'type': 'system'
         }]
     }
-    game_id = generate_game_id()
     games[game_id] = game_data
     
     # Save the new game to database  
@@ -633,7 +650,7 @@ def game(game_id) -> str or Response:
                     )
             
             pressure_detector = PressureEventDetector(elasticity_manager)
-            pressure_stats = PressureStatsTracker()
+            pressure_stats = PressureStatsTracker(game_id, event_repository)
             
             current_game_data = {
                 'state_machine': state_machine,
@@ -996,6 +1013,96 @@ def get_elasticity_data(game_id):
     return jsonify(elasticity_data)
 
 
+@app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])
+def get_chat_suggestions(game_id):
+    """Generate smart chat suggestions based on game context."""
+    if game_id not in games:
+        return jsonify({"error": "Game not found"}), 404
+    
+    try:
+        data = request.get_json()
+        game_data = games[game_id]
+        state_machine = game_data['state_machine']
+        game_state = state_machine.game_state
+        
+        # Build context for the AI
+        context_parts = []
+        
+        # Get player info
+        player_name = data.get('playerName', 'Player')
+        
+        # Get recent action if provided
+        last_action = data.get('lastAction')
+        if last_action:
+            action_text = f"{last_action['player']} just {last_action['type']}"
+            if last_action.get('amount'):
+                action_text += f" ${last_action['amount']}"
+            context_parts.append(action_text)
+        
+        # Get game phase and pot
+        context_parts.append(f"Game phase: {str(state_machine.current_phase).split('.')[-1]}")
+        context_parts.append(f"Pot size: ${game_state.pot['total']}")
+        
+        # Get player's chip position if provided
+        chip_position = data.get('chipPosition', '')
+        if chip_position:
+            context_parts.append(f"You are {chip_position}")
+        
+        # Build the prompt
+        context_str = ". ".join(context_parts)
+        
+        prompt = f"""Generate exactly 3 short poker table chat messages for player "{player_name}".
+Context: {context_str}
+
+Requirements:
+- Each message should be 2-4 words max
+- Make them fun, casual, and appropriate for online poker
+- Include one reaction, one strategic comment, and one social/fun message
+- Keep them varied and natural
+- No profanity or negativity
+
+Return as JSON with this format:
+{{
+    "suggestions": [
+        {{"text": "message here", "type": "reaction"}},
+        {{"text": "message here", "type": "strategic"}},
+        {{"text": "message here", "type": "social"}}
+    ]
+}}"""
+
+        # Check if OpenAI API key is available
+        if not os.environ.get("OPENAI_API_KEY"):
+            print("Warning: No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+        
+        # Use the OpenAI assistant
+        assistant = OpenAILLMAssistant(
+            ai_model="gpt-3.5-turbo",  # Faster model for quick suggestions
+            ai_temp=0.8,  # Slightly creative but not too random
+            system_message="You are a friendly poker player giving brief chat suggestions."
+        )
+        
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = assistant.get_json_response(messages)
+        result = json.loads(response.choices[0].message.content)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Error generating chat suggestions: {str(e)}")
+        # Return fallback suggestions if AI fails
+        return jsonify({
+            "suggestions": [
+                {"text": "Nice play!", "type": "reaction"},
+                {"text": "Interesting move", "type": "strategic"},
+                {"text": "Let's go!", "type": "social"}
+            ]
+        })
+
 @app.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
 def get_pressure_stats(game_id):
     """Get pressure event statistics for the game."""
@@ -1185,6 +1292,101 @@ def delete_personality(name):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/generate-theme', methods=['POST'])
+def generate_theme():
+    """Generate a themed game with appropriate personalities."""
+    try:
+        data = request.json
+        theme = data.get('theme')
+        theme_name = data.get('themeName')
+        description = data.get('description')
+        
+        if not theme:
+            return jsonify({'error': 'Theme is required'}), 400
+        
+        # Get a sample of personalities to send to OpenAI
+        all_personalities = list(get_celebrities())
+        sample_size = min(100, len(all_personalities))
+        import random
+        personality_sample = random.sample(all_personalities, sample_size)
+        
+        # Create prompt for OpenAI
+        prompt = f"""Given these available personalities: {', '.join(personality_sample)}
+
+Please select 3-5 personalities that would fit the theme: "{theme_name}" - {description}
+
+Selection criteria:
+- Choose personalities that match the theme
+- Create an interesting mix of personalities that would have fun dynamics
+- For "surprise" theme, pick an eclectic, unexpected mix
+- Ensure good variety in play styles
+
+Return ONLY a JSON array of personality names, like:
+["Name1", "Name2", "Name3", "Name4"]
+
+No other text or explanation."""
+
+        # Call OpenAI
+        from core.assistants import OpenAILLMAssistant
+        assistant = OpenAILLMAssistant(
+            system_prompt="You are a game designer selecting personalities for themed poker games.",
+            model="gpt-4o-mini"
+        )
+        
+        response = assistant.get_response(prompt)
+        
+        # Parse the response
+        import json
+        try:
+            # Clean up the response in case it has extra text
+            response_text = response.strip()
+            if response_text.startswith('```'):
+                # Remove code blocks if present
+                response_text = response_text.split('```')[1]
+                if response_text.startswith('json'):
+                    response_text = response_text[4:]
+            
+            personalities = json.loads(response_text)
+            
+            # Validate that all personalities exist
+            valid_personalities = []
+            for name in personalities:
+                if name in personality_sample:
+                    valid_personalities.append(name)
+            
+            # Ensure we have at least 3
+            if len(valid_personalities) < 3:
+                # Fallback to random selection
+                valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+            
+            return jsonify({
+                'success': True,
+                'personalities': valid_personalities[:5]  # Max 5 AI players
+            })
+            
+        except json.JSONDecodeError:
+            # Fallback to random selection
+            personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+            return jsonify({
+                'success': True,
+                'personalities': personalities,
+                'fallback': True
+            })
+            
+    except Exception as e:
+        logger.error(f"Error generating theme: {e}")
+        # Fallback to random selection
+        try:
+            all_personalities = list(get_celebrities())
+            personalities = random.sample(all_personalities, min(4, len(all_personalities)))
+            return jsonify({
+                'success': True,
+                'personalities': personalities,
+                'fallback': True
+            })
+        except:
+            return jsonify({'error': 'Failed to generate theme'}), 500
 
 @app.route('/api/generate_personality', methods=['POST'])
 def generate_personality():

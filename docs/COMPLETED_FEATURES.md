@@ -104,13 +104,184 @@ While the core system is complete, potential enhancements include:
 
 ---
 
+## React Frontend & Architecture Streamlining (Completed: 2025-06-07)
+
+### Overview
+Consolidated the project architecture around a modern React frontend with Flask API backend, archiving deprecated UI components to streamline development and maintenance.
+
+### What Was Built
+
+#### React Frontend
+1. **Modern UI Components**
+   - Responsive poker table visualization
+   - Real-time game state updates via Socket.IO
+   - Interactive player cards and actions
+   - Chat system with AI personality messages
+   - Elasticity visualization for trait changes
+
+2. **Key Features**
+   - TypeScript for type safety
+   - Vite for fast development
+   - Socket.IO client for real-time updates
+   - Mobile-responsive design
+   - Component-based architecture
+
+#### Flask API Backend
+1. **Pure API Design**
+   - Removed all template rendering
+   - JSON responses for all endpoints
+   - WebSocket support via Socket.IO
+   - RESTful API design
+
+2. **API Endpoints**
+   - `/api/new-game` - Create new games
+   - `/api/game-state/<id>` - Get game state
+   - `/api/game/<id>/action` - Player actions
+   - `/api/personalities` - Manage AI personalities
+   - `/api/game/<id>/elasticity` - Get trait elasticity data
+
+#### Docker Compose Setup
+1. **Multi-Service Architecture**
+   - React frontend container
+   - Flask backend container
+   - Redis for session management
+   - Nginx for production (optional)
+
+2. **Development Features**
+   - Hot module replacement
+   - Volume mounts for live editing
+   - Environment variable configuration
+   - Health checks for all services
+
+### Architectural Changes
+
+#### Deprecated Components (Archived)
+- **Console UI** → `archive/deprecated_ui/console_ui/`
+- **Rich CLI** → `archive/deprecated_ui/rich_cli/`
+- **Flask Templates** → `archive/deprecated_ui/flask_ui/`
+- **Demo Scripts** → `archive/deprecated_ui/demo_scripts/`
+
+#### Streamlined Structure
+```
+my-poker-face/
+├── react/          # React frontend
+├── flask_app/      # Flask API backend
+├── poker/          # Core game engine
+├── archive/        # Deprecated components
+└── docker-compose.yml
+```
+
+### Key Features Delivered
+- ✅ Modern React UI with TypeScript
+- ✅ Real-time multiplayer via Socket.IO
+- ✅ Flask converted to pure API backend
+- ✅ Docker Compose for easy deployment
+- ✅ Archived deprecated UI components
+- ✅ Updated documentation for new architecture
+- ✅ Personality manager in React
+- ✅ Elasticity visualization
+
+### Technical Implementation
+
+#### Docker Configuration
+```yaml
+services:
+  frontend:
+    ports: ["5173:5173"]
+    volumes: ["./react/react:/app"]
+    environment: ["VITE_API_URL=http://localhost:5000"]
+  
+  backend:
+    ports: ["5000:5000"]
+    volumes: ["./poker:/app/poker", "./flask_app:/app/flask_app"]
+    environment: ["OPENAI_API_KEY=${OPENAI_API_KEY}"]
+```
+
+#### React Components
+- `PokerTable` - Main game visualization
+- `PlayerCard` - Individual player display
+- `ActionButtons` - Game action interface
+- `Chat` - Real-time messaging
+- `ElasticityDebugPanel` - Trait visualization
+- `PersonalityManagerHTML` - Personality CRUD
+
+### Documentation Updates
+- README.md focused on Docker Compose setup
+- CLAUDE.md updated for new architecture
+- Archive README explaining deprecated components
+- Removed references to old UIs
+
+### Impact
+This architectural update:
+- Modernizes the tech stack
+- Improves developer experience
+- Enables better UI/UX possibilities
+- Simplifies deployment with Docker
+- Reduces maintenance burden
+
+---
+
+## Personality-Specific Elasticity Configuration (Completed: 2025-06-06)
+
+### Overview
+Extended the elasticity system to support per-personality configuration, allowing each AI personality to have unique elasticity characteristics.
+
+### What Was Built
+
+#### Database Support
+1. **Schema Updates**
+   - Added `elasticity_config` column to personalities table
+   - JSON storage for trait-specific elasticity values
+   - Default configurations for all personalities
+
+2. **ElasticityManager Enhancements**
+   - Uses personality-specific elasticity values
+   - Fallback to defaults when not specified
+   - Full backward compatibility
+
+#### Personality Manager Integration
+1. **UI Components**
+   - Elasticity range visualization in personality editor
+   - Sliders showing trait flexibility bounds
+   - Visual indicators for elastic ranges
+
+2. **CRUD Operations**
+   - Create personalities with elasticity config
+   - Edit elasticity values per trait
+   - AI generation includes elasticity settings
+
+### Key Features Delivered
+- ✅ Per-personality elasticity configuration
+- ✅ Database persistence of elasticity settings
+- ✅ UI for managing elasticity values
+- ✅ Backward compatibility with existing personalities
+- ✅ AI-generated personalities include elasticity
+
+### Example Configuration
+```json
+{
+  "elasticity_config": {
+    "trait_elasticity": {
+      "bluff_tendency": 0.3,
+      "aggression": 0.2,
+      "chattiness": 0.4,
+      "emoji_usage": 0.5
+    },
+    "mood_elasticity": 0.4,
+    "recovery_rate": 0.1
+  }
+}
+```
+
+---
+
 ## Previous Completed Features
 
 ### Rich CLI Interface (Completed: 2025-05)
 - Beautiful terminal UI with visual poker table
 - Unicode card rendering
 - Enhanced player information display
-- See `README_RICH_CLI.md` for details
+- See `archive/deprecated_ui/rich_cli/README_RICH_CLI.md`
 
 ### Game Persistence System (Completed: 2025-06-01)
 - SQLite-based game saving
