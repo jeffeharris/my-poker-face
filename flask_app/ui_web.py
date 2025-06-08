@@ -1013,6 +1013,91 @@ def get_elasticity_data(game_id):
     return jsonify(elasticity_data)
 
 
+@app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])
+def get_chat_suggestions(game_id):
+    """Generate smart chat suggestions based on game context."""
+    if game_id not in games:
+        return jsonify({"error": "Game not found"}), 404
+    
+    try:
+        data = request.get_json()
+        game_data = games[game_id]
+        state_machine = game_data['state_machine']
+        game_state = state_machine._state_machine
+        
+        # Build context for the AI
+        context_parts = []
+        
+        # Get player info
+        player_name = data.get('playerName', 'Player')
+        
+        # Get recent action if provided
+        last_action = data.get('lastAction')
+        if last_action:
+            action_text = f"{last_action['player']} just {last_action['type']}"
+            if last_action.get('amount'):
+                action_text += f" ${last_action['amount']}"
+            context_parts.append(action_text)
+        
+        # Get game phase and pot
+        context_parts.append(f"Game phase: {game_state.phase}")
+        context_parts.append(f"Pot size: ${game_state.pot.get('total', 0)}")
+        
+        # Get player's chip position if provided
+        chip_position = data.get('chipPosition', '')
+        if chip_position:
+            context_parts.append(f"You are {chip_position}")
+        
+        # Build the prompt
+        context_str = ". ".join(context_parts)
+        
+        prompt = f"""Generate exactly 3 short poker table chat messages for player "{player_name}".
+Context: {context_str}
+
+Requirements:
+- Each message should be 2-4 words max
+- Make them fun, casual, and appropriate for online poker
+- Include one reaction, one strategic comment, and one social/fun message
+- Keep them varied and natural
+- No profanity or negativity
+
+Return as JSON with this format:
+{{
+    "suggestions": [
+        {{"text": "message here", "type": "reaction"}},
+        {{"text": "message here", "type": "strategic"}},
+        {{"text": "message here", "type": "social"}}
+    ]
+}}"""
+
+        # Use the OpenAI assistant
+        assistant = OpenAILLMAssistant(
+            ai_model="gpt-3.5-turbo",  # Faster model for quick suggestions
+            ai_temp=0.8,  # Slightly creative but not too random
+            system_message="You are a friendly poker player giving brief chat suggestions."
+        )
+        
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = assistant.get_json_response(messages)
+        result = json.loads(response.choices[0].message.content)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Error generating chat suggestions: {str(e)}")
+        # Return fallback suggestions if AI fails
+        return jsonify({
+            "suggestions": [
+                {"text": "Nice play!", "type": "reaction"},
+                {"text": "Interesting move", "type": "strategic"},
+                {"text": "Let's go!", "type": "social"}
+            ]
+        })
+
 @app.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
 def get_pressure_stats(game_id):
     """Get pressure event statistics for the game."""

@@ -527,6 +527,8 @@ export function PokerTable({ gameId: providedGameId, playerName }: PokerTablePro
             messages={messages}
             onSendMessage={handleSendMessage}
             playerName={playerName}
+            gameId={gameId}
+            isPlayerTurn={gameState && gameState.players[gameState.current_player_idx]?.name === playerName}
           />
         }
         debugPanel={

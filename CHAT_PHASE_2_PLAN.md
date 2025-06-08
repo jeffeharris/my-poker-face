@@ -39,33 +39,42 @@ if (featureFlags.playerFilter) {
 2. Select a player from the dropdown
 3. Only messages from that player will be shown
 
-### 2. Quick Chat Suggestions (TODO)
-**Status**: Planning
+### 2. Quick Chat Suggestions ✅ (Implemented)
+**Status**: Complete
 
-**Design**:
-- Show 3-4 context-aware suggestions above chat input
-- Use AI to generate suggestions based on:
-  - Current game state (winning/losing)
-  - Recent actions (someone raised big)
-  - Player personality
-  - Chat history
+**Implementation**:
+- AI-powered context-aware suggestions using OpenAILLMAssistant
+- Shows 3 suggestions when it's player's turn
+- Categories: reaction, strategic, social
+- Refreshes based on game events (raises, all-ins)
+- 30-second cooldown to prevent API spam
+- Fallback suggestions if AI fails
 
-**API Endpoint Needed**:
+**Backend API**:
 ```
 POST /api/game/{gameId}/chat-suggestions
 {
   "playerName": "Jeff",
-  "gameState": {...},
-  "recentMessages": [...],
-  "context": "opponent_raised_big"
+  "lastAction": {
+    "type": "raise",
+    "player": "Mike",
+    "amount": 200
+  },
+  "chipPosition": "chip leader"
 }
 ```
 
-**UI Mockup**:
-```
-[😎 Nice raise!] [🤔 Interesting...] [💪 I'm all in!] [😅 Lucky hand]
-[Type a message...]
-```
+**Features**:
+- Click suggestion to populate input field
+- Refresh button for new suggestions
+- Type-specific styling (reaction/strategic/social)
+- Loading state while fetching
+- Only shows during player's turn
+
+**Usage**:
+1. Enable "Quick Chat Suggestions" in Debug > Feature Flags
+2. Suggestions appear automatically on your turn
+3. Click to use or refresh for new ones
 
 ### 3. Message Grouping ✅ (Implemented)
 **Status**: Complete
@@ -123,9 +132,11 @@ POST /api/game/{gameId}/chat-suggestions
 
 - [x] Feature flags system
 - [x] Player filter dropdown
+- [x] Quick chat suggestions
 - [x] Message grouping
 - [x] Event indicators
-- [ ] Quick chat suggestions
+
+All Phase 2 features are now complete! 🎉
 
 ## Known Limitations
 

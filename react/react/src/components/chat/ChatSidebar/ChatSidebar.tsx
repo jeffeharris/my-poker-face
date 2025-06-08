@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
+import { QuickChatSuggestions } from './QuickChatSuggestions';
 import './ChatSidebar.css';
 
 interface ChatMessage {
@@ -14,6 +15,8 @@ interface ChatSidebarProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   playerName?: string;
+  gameId?: string;
+  isPlayerTurn?: boolean;
 }
 
 // Available colors for players
@@ -30,13 +33,14 @@ const AVAILABLE_COLORS = [
 
 type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
 
-export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: ChatSidebarProps) {
+export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, isPlayerTurn }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<MessageFilter>('all');
   const [selectedPlayer, setSelectedPlayer] = useState<string>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
   const [colorUpdateTrigger, setColorUpdateTrigger] = useState(0);
+  const [lastAction, setLastAction] = useState<any>(null);
   const featureFlags = useFeatureFlags();
 
   // Get all unique players from messages
@@ -216,6 +220,24 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
   useEffect(() => {
     scrollToBottom();
   }, [processedMessages]);
+
+  // Track last action
+  useEffect(() => {
+    const lastActionMessage = messages
+      .filter(msg => msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to'))
+      .pop();
+    
+    if (lastActionMessage) {
+      const parsed = parseActionMessage(lastActionMessage.message);
+      if (parsed) {
+        setLastAction({
+          type: parsed.action,
+          player: parsed.player,
+          amount: parsed.amount
+        });
+      }
+    }
+  }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -450,6 +472,20 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player' }: 
         )}
         <div ref={messagesEndRef} />
       </div>
+      
+      {featureFlags.quickSuggestions && gameId && (
+        <QuickChatSuggestions
+          gameId={gameId}
+          playerName={playerName}
+          isPlayerTurn={isPlayerTurn || false}
+          lastAction={lastAction}
+          onSelectSuggestion={(text) => {
+            setInputValue(text);
+            // Optionally auto-send
+            // onSendMessage(text);
+          }}
+        />
+      )}
       
       <form className="chat-sidebar__input" onSubmit={handleSubmit}>
         <input
