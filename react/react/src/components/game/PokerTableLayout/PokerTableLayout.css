@@ -1,0 +1,188 @@
+/* Modern grid-based layout for poker game */
+.poker-layout {
+  display: grid;
+  grid-template-columns: 1fr; /* Full width for main area */
+  grid-template-rows: 1fr auto; /* Main area + optional debug panel */
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  gap: 0;
+  position: relative;
+}
+
+/* Main game area */
+.poker-layout__main {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px; /* Reduced padding to give more space to table */
+  overflow: hidden;
+}
+
+/* Table container - takes up most space */
+.poker-layout__table-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 0; /* Important for flex children */
+  padding: 0; /* Remove any padding that constrains the table */
+}
+
+/* Action buttons - fixed at bottom */
+.poker-layout__actions {
+  flex-shrink: 0;
+  padding: 20px 0 0 0;
+  display: flex;
+  justify-content: center;
+}
+
+/* Chat sidebar */
+.poker-layout__sidebar {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 320px;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 10;
+}
+
+/* Debug panel - spans full width at bottom */
+.poker-layout__debug {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  background: rgba(0, 0, 0, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  max-height: 300px;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Responsive breakpoints */
+@media (max-width: 1200px) {
+  .poker-layout {
+    grid-template-columns: 1fr 280px;
+  }
+}
+
+@media (max-width: 900px) {
+  .poker-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto auto;
+  }
+  
+  .poker-layout__sidebar {
+    grid-column: 1;
+    grid-row: 2;
+    max-height: 250px;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .poker-layout__debug {
+    grid-row: 3;
+  }
+}
+
+/* Remove redundant improved table styling - using main styles instead */
+
+/* Player positions with more space */
+.player-seat-improved {
+  position: absolute;
+  width: 140px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid #333;
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  transition: all 0.3s ease;
+}
+
+/* Positions for up to 6 players - distributed around oval table */
+.seat-improved-0 {
+  bottom: -80px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.seat-improved-1 {
+  bottom: 10%;
+  left: -90px;
+  transform: rotate(30deg);
+}
+
+.seat-improved-2 {
+  top: 10%;
+  left: -90px;
+  transform: rotate(-30deg);
+}
+
+.seat-improved-3 {
+  top: -80px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.seat-improved-4 {
+  top: 10%;
+  right: -90px;
+  transform: rotate(30deg);
+}
+
+.seat-improved-5 {
+  bottom: 10%;
+  right: -90px;
+  transform: rotate(-30deg);
+}
+
+/* Debug mode control - now in top left */
+.debug-controls {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+}
+
+.debug-controls button {
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.debug-controls button:hover {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.debug-controls button.active {
+  background: rgba(0, 255, 0, 0.2);
+  border-color: rgba(0, 255, 0, 0.5);
+}
+
+/* Environment-based debug visibility */
+.poker-layout[data-debug-enabled="false"] .debug-controls {
+  display: none;
+}

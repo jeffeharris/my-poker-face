@@ -1,0 +1,1 @@
+export { QuickChatSuggestions } from '../QuickChatSuggestions';
