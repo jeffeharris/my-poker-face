@@ -4,13 +4,14 @@
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.95);
   border: 2px solid #333;
   border-radius: 12px;
-  padding: 15px;
+  padding: 20px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   z-index: 1000;
-  min-width: 400px;
+  min-width: 450px;
+  max-width: 600px;
 }
 
 .action-buttons {
@@ -343,4 +344,220 @@
   .action-button {
     min-width: auto;
   }
+}
+
+/* New Unified Bet Display */
+.unified-bet-display {
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid #00ff00;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.bet-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.bet-label {
+  color: #999;
+  font-size: 14px;
+}
+
+.bet-total {
+  color: #00ff00;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.bet-breakdown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #ccc;
+  margin-bottom: 8px;
+}
+
+.call-portion {
+  color: #ffa500;
+}
+
+.plus {
+  color: #666;
+}
+
+.raise-portion {
+  color: #00ff00;
+}
+
+.stack-after {
+  font-size: 12px;
+  color: #999;
+}
+
+/* Smart Suggestions */
+.smart-suggestions {
+  margin-bottom: 15px;
+}
+
+.suggestions-header {
+  color: #ccc;
+  font-size: 12px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+
+.suggestion-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.suggestion-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid #666;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.suggestion-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #00ff00;
+  background: rgba(0, 255, 0, 0.1);
+}
+
+.suggestion-button.selected {
+  border-color: #00ff00;
+  background: rgba(0, 255, 0, 0.2);
+}
+
+.suggestion-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.suggestion-button.strategic {
+  border-color: #2196f3;
+}
+
+.suggestion-button.strategic:hover:not(:disabled) {
+  border-color: #2196f3;
+  background: rgba(33, 150, 243, 0.2);
+}
+
+.suggestion-button.value {
+  border-color: #4caf50;
+}
+
+.suggestion-button.value:hover:not(:disabled) {
+  border-color: #4caf50;
+  background: rgba(76, 175, 80, 0.2);
+}
+
+.suggestion-button.aggressive {
+  border-color: #f44336;
+}
+
+.suggestion-button.aggressive:hover:not(:disabled) {
+  border-color: #f44336;
+  background: rgba(244, 67, 54, 0.2);
+}
+
+.suggestion-button.history {
+  border-color: #ff9800;
+}
+
+.suggestion-button.history:hover:not(:disabled) {
+  border-color: #ff9800;
+  background: rgba(255, 152, 0, 0.2);
+}
+
+.suggestion-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+}
+
+.suggestion-amount {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* Enhanced Slider */
+.bet-slider-container {
+  position: relative;
+  margin: 20px 0;
+}
+
+.slider-snap-points {
+  position: absolute;
+  width: 100%;
+  height: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.snap-point {
+  position: absolute;
+  width: 2px;
+  height: 10px;
+  background: #666;
+  top: -2px;
+}
+
+.slider-labels {
+  position: relative;
+  margin-top: 10px;
+}
+
+.pot-marker {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #999;
+}
+
+/* Input Shortcuts */
+.input-shortcuts {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.shortcut-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid #666;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.shortcut-btn:hover:not(:disabled) {
+  border-color: #00ff00;
+  background: rgba(0, 255, 0, 0.1);
+}
+
+.shortcut-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
