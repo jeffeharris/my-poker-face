@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: poker-frontend
     ports:
-      - "${FRONTEND_PORT:-5173}:3000"
+      - "${FRONTEND_PORT:-5173}:5173"
     volumes:
       - ./react/react:/app
       - /app/node_modules
