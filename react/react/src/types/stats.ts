@@ -1,5 +1,6 @@
 export interface PlayerSummary {
   total_events: number;
+  wins: number;
   big_wins: number;
   big_losses: number;
   successful_bluffs: number;

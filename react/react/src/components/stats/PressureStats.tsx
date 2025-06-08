@@ -168,12 +168,12 @@ export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
               <div className="stat">
                 <span className="emoji">🏆</span>
                 <span className="value">{playerStats.big_wins}</span>
-                <span className="label">Wins</span>
+                <span className="label">Big Wins</span>
               </div>
               <div className="stat">
                 <span className="emoji">😭</span>
                 <span className="value">{playerStats.big_losses}</span>
-                <span className="label">Losses</span>
+                <span className="label">Big Losses</span>
               </div>
               <div className="stat">
                 <span className="emoji">🎭</span>
