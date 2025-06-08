@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
-import { QuickChatSuggestions } from './QuickChatSuggestions';
+import { QuickChatSuggestions } from '../QuickChatSuggestions';
 import './ChatSidebar.css';
 
 interface ChatMessage {
