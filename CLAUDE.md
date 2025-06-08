@@ -30,14 +30,15 @@ echo "OPENAI_API_KEY=your_key_here" > .env
 
 ### Run Applications
 ```bash
-# Console version
-python -m console_app.ui_console
-
-# Web version
-python -m flask_app.ui_web
-
-# Docker version (recommended for web)
+# Docker version (recommended)
 docker compose up -d --build
+
+# Or using make
+make up
+
+# Manual setup
+python -m flask_app.ui_web  # Backend API
+cd react/react && npm run dev  # Frontend
 ```
 
 ### Testing
@@ -84,7 +85,7 @@ This is a poker game application with AI players powered by OpenAI. The codebase
    - `ConsolePlayerController`: Human input in terminal
    - `AIPlayerController`: OpenAI-powered AI players with celebrity personalities
 
-4. **Multiple UIs**: The same game engine supports both console (`console_app/`) and web (`flask_app/`) interfaces. The web app uses Flask-SocketIO for real-time multiplayer.
+4. **Modern Architecture**: React frontend (`react/`) communicates with Flask API backend (`flask_app/ui_web.py`) via REST and Socket.IO for real-time updates.
 
 5. **Persistence Layer** (`poker/persistence.py`): SQLite-based game storage with automatic saving after each action.
 

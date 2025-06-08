@@ -8,3 +8,5 @@ python-socketio[client]~=5.11.0
 eventlet~=0.33.3
 rich~=13.7.0
 pytest~=8.4.0
+gunicorn~=21.2.0
+redis~=5.0.1

@@ -2,7 +2,7 @@
 from typing import Optional, Dict
 from pathlib import Path
 
-from flask import Flask, render_template, redirect, url_for, jsonify, Response, request
+from flask import Flask, redirect, url_for, jsonify, Response, request
 from flask_socketio import SocketIO, join_room
 from flask_cors import CORS
 from datetime import datetime
@@ -122,7 +122,25 @@ def on_join(game_id):
 
 @app.route('/')
 def index():
-    return render_template('home.html')
+    # Deprecated: Flask UI has been replaced by React
+    # Redirect to API documentation or return API info
+    return jsonify({
+        'message': 'My Poker Face API',
+        'version': '1.0',
+        'frontend': 'Please use the React app on port 3173',
+        'endpoints': {
+            'games': '/games',
+            'new_game': '/api/new-game',
+            'game_state': '/api/game-state/<game_id>',
+            'personalities': '/api/personalities'
+        }
+    })
+
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return jsonify({'status': 'healthy', 'service': 'poker-backend'}), 200
 
 
 @app.route('/games')
@@ -365,30 +383,8 @@ def api_send_message(game_id):
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:4]
-    # For legacy route, use default player name
-    game_state = initialize_game_state(player_names=ai_player_names, human_name="Player")
-    base_state_machine = PokerStateMachine(game_state=game_state)
-    state_machine = StateMachineAdapter(base_state_machine)
-    # Create a controller for each player in the game and add to a map of name -> controller
-    ai_controllers = {}
-    for player in state_machine.game_state.players:
-        if not player.is_human:
-            new_controller = AIPlayerController(player.name, state_machine)
-            ai_controllers[player.name] = new_controller
-
-    game_data = {
-        'state_machine': state_machine,
-        'ai_controllers': ai_controllers,
-        'messages': []
-    }
-    game_id = generate_game_id()
-    games[game_id] = game_data
-    
-    # Save the new game to database  
-    persistence.save_game(game_id, state_machine._state_machine)
-    
-    return redirect(url_for('game', game_id=game_id))
+    # Deprecated: Use /api/new-game POST endpoint instead
+    return redirect('/api/new-game')
 
 
 @socketio.on('progress_game')
@@ -608,54 +604,10 @@ def progress_game(game_id):
 
 
 @app.route('/game/<game_id>', methods=['GET'])
-def game(game_id) -> str or Response:
-    current_game_data = games.get(game_id)
-    
-    # Try to load from database if not in memory
-    if not current_game_data:
-        base_state_machine = persistence.load_game(game_id)
-        if base_state_machine:
-            state_machine = StateMachineAdapter(base_state_machine)
-            # Restore AI controllers with saved state
-            ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
-            
-            # Load messages from database
-            db_messages = persistence.load_messages(game_id)
-            
-            # Initialize elasticity tracking for loaded games
-            elasticity_manager = ElasticityManager()
-            for player in state_machine.game_state.players:
-                if not player.is_human and player.name in ai_controllers:
-                    controller = ai_controllers[player.name]
-                    elasticity_manager.add_player(
-                        player.name,
-                        controller.ai_player.personality_config
-                    )
-            
-            pressure_detector = PressureEventDetector(elasticity_manager)
-            pressure_stats = PressureStatsTracker()
-            
-            current_game_data = {
-                'state_machine': state_machine,
-                'ai_controllers': ai_controllers,
-                'elasticity_manager': elasticity_manager,
-                'pressure_detector': pressure_detector,
-                'pressure_stats': pressure_stats,
-                'messages': db_messages
-            }
-            games[game_id] = current_game_data
-        else:
-            return redirect(url_for('index'))
-    
-    state_machine = current_game_data['state_machine']
-
-    # progress_game(game_id)
-
-    return render_template('poker_game.html',
-                           game_state=state_machine.game_state,
-                           player_options=state_machine.game_state.current_player_options,
-                           game_id=game_id,
-                           current_phase=str(state_machine.current_phase))
+def game(game_id) -> Response:
+    # Deprecated: This route previously rendered a template
+    # Now redirect to the API endpoint
+    return redirect(f'/api/game-state/{game_id}')
 
 
 @socketio.on('player_action')
@@ -942,18 +894,19 @@ def delete_game(game_id):
 @app.route('/end_game/<game_id>', methods=['GET'])
 def end_game(game_id):
     if game_id not in games:
-        return redirect(url_for('index'))
+        return jsonify({'error': 'Game not found'}), 404
     games.pop(game_id, None)
     messages.pop(game_id, None)
-    return render_template('winner.html')
+    return jsonify({'message': 'Game ended successfully'})
 
 
 @app.route('/settings/<game_id>')
 def settings(game_id):
+    # Deprecated: Settings are now handled in React
     game_state = games.get(game_id)
     if not game_state:
-        return redirect(url_for('index'))
-    return render_template('settings.html')
+        return jsonify({'error': 'Game not found'}), 404
+    return jsonify({'message': 'Settings should be accessed through the React app'})
 
 
 @app.route('/messages/<game_id>', methods=['GET'])
@@ -1010,8 +963,8 @@ def get_pressure_stats(game_id):
 # Personality management routes
 @app.route('/personalities')
 def personalities_page():
-    """Personality manager page."""
-    return render_template('personalities.html')
+    """Deprecated: Personality manager page now in React."""
+    return redirect('/api/personalities')
 
 @app.route('/api/personalities', methods=['GET'])
 def get_personalities():
