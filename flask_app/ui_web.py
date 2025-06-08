@@ -1023,7 +1023,7 @@ def get_chat_suggestions(game_id):
         data = request.get_json()
         game_data = games[game_id]
         state_machine = game_data['state_machine']
-        game_state = state_machine._state_machine
+        game_state = state_machine.game_state
         
         # Build context for the AI
         context_parts = []
@@ -1041,7 +1041,7 @@ def get_chat_suggestions(game_id):
         
         # Get game phase and pot
         context_parts.append(f"Game phase: {game_state.phase}")
-        context_parts.append(f"Pot size: ${game_state.pot.get('total', 0)}")
+        context_parts.append(f"Pot size: ${game_state.pot['total']}")
         
         # Get player's chip position if provided
         chip_position = data.get('chipPosition', '')
