@@ -43,7 +43,6 @@ export function QuickChatSuggestions({
         chipPosition: 'mid-stack', // TODO: Calculate based on game state
         // Add more context as needed
       };
-      console.log('Requesting chat suggestions with:', payload);
       
       const response = await fetch(`${config.API_URL}/api/game/${gameId}/chat-suggestions`, {
         method: 'POST',
@@ -55,11 +54,8 @@ export function QuickChatSuggestions({
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Chat suggestions response:', data);
         setSuggestions(data.suggestions || []);
         setLastFetchTime(now);
-      } else {
-        console.error('Chat suggestions failed:', response.status, await response.text());
       }
     } catch (error) {
       console.error('Failed to fetch chat suggestions:', error);
