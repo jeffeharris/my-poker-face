@@ -72,6 +72,8 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
 
   // Detect special event messages
   const detectEventType = (msg: ChatMessage) => {
+    if (!msg.message) return null;
+    
     const message = msg.message.toLowerCase();
     
     // Win detection
@@ -136,11 +138,11 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
       })
       .map((msg) => {
         // Check if this message is a hand separator
-        const isHandSeparator = msg.message.toLowerCase().includes('new hand dealt') ||
-                               msg.message.toLowerCase().includes('new game started');
+        const isHandSeparator = msg.message && (msg.message.toLowerCase().includes('new hand dealt') ||
+                               msg.message.toLowerCase().includes('new game started'));
         
         // Transform action messages
-        if (msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
+        if (msg.sender && msg.message && msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
           const parsed = parseActionMessage(msg.message);
           if (parsed) {
             return {
@@ -224,7 +226,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
   // Track last action
   useEffect(() => {
     const lastActionMessage = messages
-      .filter(msg => msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to'))
+      .filter(msg => msg.sender && msg.message && msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to'))
       .pop();
     
     if (lastActionMessage) {
