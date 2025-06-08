@@ -1040,7 +1040,7 @@ def get_chat_suggestions(game_id):
             context_parts.append(action_text)
         
         # Get game phase and pot
-        context_parts.append(f"Game phase: {game_state.phase}")
+        context_parts.append(f"Game phase: {str(state_machine.current_phase).split('.')[-1]}")
         context_parts.append(f"Pot size: ${game_state.pot['total']}")
         
         # Get player's chip position if provided
@@ -1070,6 +1070,11 @@ Return as JSON with this format:
     ]
 }}"""
 
+        # Check if OpenAI API key is available
+        if not os.environ.get("OPENAI_API_KEY"):
+            print("Warning: No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+        
         # Use the OpenAI assistant
         assistant = OpenAILLMAssistant(
             ai_model="gpt-3.5-turbo",  # Faster model for quick suggestions
