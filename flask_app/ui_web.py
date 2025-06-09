@@ -2,7 +2,7 @@
 from typing import Optional, Dict
 from pathlib import Path
 
-from flask import Flask, redirect, url_for, jsonify, Response, request
+from flask import Flask, redirect, url_for, jsonify, Response, request, send_from_directory
 from flask_socketio import SocketIO, join_room
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -187,19 +187,28 @@ def on_join(game_id):
     socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
 
-@app.route('/')
-def index():
-    # Deprecated: Flask UI has been replaced by React
-    # Redirect to API documentation or return API info
+# Serve static files (React build)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    static_path = Path(__file__).parent.parent / 'static'
+    if path != "" and (static_path / path).exists():
+        return send_from_directory(str(static_path), path)
+    else:
+        # Always return index.html for React Router to handle
+        if (static_path / 'index.html').exists():
+            return send_from_directory(str(static_path), 'index.html')
+    
+    # If no static files, return API info
     return jsonify({
         'message': 'My Poker Face API',
         'version': '1.0',
-        'frontend': 'Please use the React app on port 3173',
+        'frontend': 'React app not built',
         'endpoints': {
-            'games': '/games',
-            'new_game': '/api/new-game',
-            'game_state': '/api/game-state/<game_id>',
-            'personalities': '/api/personalities'
+            'games': '/api/pokergame',
+            'new_game': '/api/pokergame/new/<num_players>',
+            'game_state': '/api/pokergame/<game_id>',
+            'health': '/health'
         }
     })
 

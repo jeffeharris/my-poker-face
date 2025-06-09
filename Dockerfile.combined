@@ -1,0 +1,41 @@
+# Build stage for React
+FROM node:18-alpine as frontend-build
+WORKDIR /app/react
+COPY react/react/package*.json ./
+RUN npm ci
+COPY react/react/ ./
+RUN npm run build
+
+# Python backend with React static files
+FROM python:3.11-slim
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir gunicorn[eventlet]
+
+# Copy backend code
+COPY . .
+
+# Copy built React app from build stage
+COPY --from=frontend-build /app/react/dist /app/static
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+# Start Flask backend with static file serving\n\
+export FLASK_APP=flask_app.ui_web\n\
+exec gunicorn --bind 0.0.0.0:$PORT \
+    --workers 1 \
+    --worker-class eventlet \
+    --timeout 120 \
+    flask_app.ui_web:app' > /app/start.sh && chmod +x /app/start.sh
+
+EXPOSE 5000
+
+CMD ["/app/start.sh"]
