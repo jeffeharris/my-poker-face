@@ -30,6 +30,7 @@ from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from poker.persistence import GamePersistence
 from poker.repositories.sqlite_repositories import PressureEventRepository
+from poker.auth import AuthManager
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
 
@@ -77,6 +78,9 @@ else:
     db_path = os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
 persistence = GamePersistence(db_path)
 event_repository = PressureEventRepository(db_path)
+
+# Initialize authentication
+auth_manager = AuthManager(app, persistence)
 
 
 # Helper function to generate unique game ID
@@ -176,21 +180,56 @@ def health_check():
 
 @app.route('/games')
 def list_games():
-    """List all saved games."""
+    """List all saved games, optionally filtered by current user."""
+    current_user = auth_manager.get_current_user()
     saved_games = persistence.list_games(limit=50)
     games_data = []
     
     for game in saved_games:
+        # Check if game belongs to current user (if authenticated)
+        game_data_entry = games.get(game.game_id, {})
+        is_owner = False
+        if current_user and game_data_entry:
+            is_owner = game_data_entry.get('owner_id') == current_user.get('id')
+        
         games_data.append({
             'game_id': game.game_id,
             'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
             'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
             'phase': game.phase,
             'num_players': game.num_players,
-            'pot_size': game.pot_size
+            'pot_size': game.pot_size,
+            'is_owner': is_owner
         })
     
     return jsonify({'games': games_data})
+
+@app.route('/api/my-games')
+@auth_manager.require_auth
+def my_games():
+    """List games owned by the authenticated user."""
+    current_user = auth_manager.get_current_user()
+    user_id = current_user.get('id')
+    
+    # Filter games by owner
+    my_games_list = []
+    for game_id, game_data in games.items():
+        if game_data.get('owner_id') == user_id:
+            # Get game info from persistence
+            saved_games = persistence.list_games(limit=1000)
+            for saved_game in saved_games:
+                if saved_game.game_id == game_id:
+                    my_games_list.append({
+                        'game_id': game_id,
+                        'created_at': saved_game.created_at.strftime("%Y-%m-%d %H:%M"),
+                        'updated_at': saved_game.updated_at.strftime("%Y-%m-%d %H:%M"),
+                        'phase': saved_game.phase,
+                        'num_players': saved_game.num_players,
+                        'pot_size': saved_game.pot_size
+                    })
+                    break
+    
+    return jsonify({'games': my_games_list})
 
 
 @app.route('/api/game-state/<game_id>')
@@ -308,7 +347,14 @@ def api_new_game():
     """Create a new game and return the game ID."""
     # Get player name from request, default to "Player" if not provided
     data = request.json or {}
-    player_name = data.get('playerName', 'Player')
+    
+    # Check if user is authenticated
+    current_user = auth_manager.get_current_user()
+    if current_user:
+        # Use authenticated user's name by default
+        player_name = data.get('playerName', current_user.get('name', 'Player'))
+    else:
+        player_name = data.get('playerName', 'Player')
     
     # Check if specific personalities were requested
     requested_personalities = data.get('personalities', [])
@@ -349,6 +395,7 @@ def api_new_game():
         'elasticity_manager': elasticity_manager,
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
+        'owner_id': current_user.get('id') if current_user else None,
         'messages': [{
             'id': '1',
             'sender': 'System',

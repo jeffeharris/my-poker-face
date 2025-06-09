@@ -7,10 +7,12 @@ import { GameMenu } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
+import { LoginForm } from './components/auth/LoginForm'
+import { useAuth } from './hooks/useAuth'
 import { config } from './config'
 import './App.css'
 
-type ViewType = 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo'
+type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo'
 
 interface Theme {
   id: string;
@@ -21,12 +23,14 @@ interface Theme {
 }
 
 function App() {
+  const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
+  
   // Check localStorage for saved state on initial load
   const savedState = localStorage.getItem('pokerGameState');
   const parsedState = savedState ? JSON.parse(savedState) : null;
   
   const [currentView, setCurrentView] = useState<ViewType>(
-    parsedState?.currentView || 'name-entry'
+    parsedState?.currentView || 'login'
   )
   const [gameId, setGameId] = useState<string | null>(parsedState?.gameId || null)
   const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
@@ -42,6 +46,14 @@ function App() {
     };
     localStorage.setItem('pokerGameState', JSON.stringify(stateToSave));
   }, [currentView, gameId, playerName]);
+
+  // Update view based on auth state
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && currentView === 'login') {
+      setPlayerName(user?.name || '');
+      setCurrentView('game-menu');
+    }
+  }, [authLoading, isAuthenticated, user, currentView]);
 
   useEffect(() => {
     fetchSavedGamesCount();
@@ -70,6 +82,14 @@ function App() {
   const handleNameSubmit = (name: string) => {
     setPlayerName(name);
     setCurrentView('game-menu');
+  };
+
+  const handleLogin = async (name: string, isGuest: boolean) => {
+    const result = await login(name, isGuest);
+    if (result.success) {
+      setPlayerName(name);
+      setCurrentView('game-menu');
+    }
   };
 
   const handleQuickPlay = async () => {
@@ -185,7 +205,48 @@ function App() {
         </div>
       )}
 
+      {/* User info - show when authenticated */}
+      {isAuthenticated && user && currentView !== 'login' && (
+        <div style={{
+          position: 'fixed',
+          top: 10,
+          right: 10,
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '8px 16px',
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          borderRadius: '20px',
+          color: '#fff',
+          fontSize: '14px'
+        }}>
+          <span>{user.name} {user.is_guest && '(Guest)'}</span>
+          <button
+            onClick={async () => {
+              await logout();
+              setCurrentView('login');
+              setGameId(null);
+            }}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#dc3545',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '12px'
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      )}
+
       {/* Views */}
+      {currentView === 'login' && (
+        <LoginForm onLogin={handleLogin} />
+      )}
       {currentView === 'name-entry' && (
         <PlayerNameEntry onSubmit={handleNameSubmit} />
       )}

@@ -156,30 +156,35 @@ class RedisGameStore:
         return json.loads(data) if data else None
 ```
 
-### Phase 2: User System (Week 2)
+### Phase 2: User System (Week 2) 🚧 IN PROGRESS
+
+Basic authentication system implemented:
+- ✅ Guest login with session management
+- ✅ JWT token generation for API auth
+- ✅ Game ownership tracking
+- ✅ Protected endpoints for user's games
+- ✅ React authentication hook and UI
+- 🔄 Google OAuth integration (prepared but not active)
+
+See `docs/AUTHENTICATION.md` for full details.
 
 ```python
-# Simple JWT-based auth
-from flask_jwt_extended import JWTManager, create_access_token
+# Current implementation in poker/auth.py
+from poker.auth import AuthManager
 
-@app.route('/api/auth/guest', methods=['POST'])
-def create_guest():
-    # Generate guest account
-    user_id = str(uuid.uuid4())
-    username = request.json.get('username', f'Player_{random.randint(1000,9999)}')
+auth_manager = AuthManager(app, persistence)
+
+# Guest login endpoint
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    # Handles guest and future OAuth login
     
-    # Store in database
-    user = User(id=user_id, username=username, is_guest=True)
-    db.session.add(user)
-    db.session.commit()
-    
-    # Create JWT
-    access_token = create_access_token(
-        identity=user_id,
-        additional_claims={'username': username}
-    )
-    
-    return jsonify(access_token=access_token, username=username)
+# Protected endpoint example
+@app.route('/api/my-games')
+@auth_manager.require_auth
+def my_games():
+    user = auth_manager.get_current_user()
+    # Returns games owned by authenticated user
 ```
 
 ### Phase 3: Analytics Integration (Week 3)
