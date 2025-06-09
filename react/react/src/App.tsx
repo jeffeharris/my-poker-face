@@ -60,6 +60,23 @@ function App() {
     fetchSavedGamesCount();
   }, []);
 
+  // Update page title based on current view
+  useEffect(() => {
+    const titles: Record<ViewType, string> = {
+      'login': 'Login - My Poker Face',
+      'name-entry': 'Choose Your Name - My Poker Face',
+      'game-menu': 'Game Menu - My Poker Face',
+      'selector': 'Select Game - My Poker Face',
+      'table': gameId ? 'Playing - My Poker Face' : 'New Game - My Poker Face',
+      'personalities': 'Manage Personalities - My Poker Face',
+      'themed-game': 'Themed Game - My Poker Face',
+      'custom-game': 'Custom Game - My Poker Face',
+      'elasticity-demo': 'Elasticity Demo - My Poker Face'
+    };
+    
+    document.title = titles[currentView] || 'My Poker Face';
+  }, [currentView, gameId]);
+
   const fetchSavedGamesCount = async () => {
     try {
       const response = await fetch(`${config.API_URL}/games`);

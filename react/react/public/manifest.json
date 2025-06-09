@@ -1,0 +1,17 @@
+{
+  "name": "My Poker Face",
+  "short_name": "Poker Face",
+  "description": "Play poker against AI personalities with unique playing styles",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#dc2626",
+  "background_color": "#1a202c",
+  "icons": [
+    {
+      "src": "/poker-favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
