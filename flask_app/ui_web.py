@@ -38,6 +38,15 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 CORS(app)  # Enable CORS for all routes
 
+# Custom key function that exempts Docker internal IPs
+def get_rate_limit_key():
+    """Get IP address for rate limiting, exempting Docker internal IPs."""
+    remote_addr = get_remote_address()
+    # Exempt Docker internal network IPs (172.x.x.x)
+    if remote_addr and remote_addr.startswith('172.'):
+        return None  # No rate limiting for internal Docker traffic
+    return remote_addr
+
 # Initialize rate limiter
 # Use 'redis' hostname when running in Docker, 'localhost' otherwise
 redis_host = 'redis' if os.path.exists('/.dockerenv') else 'localhost'
@@ -50,7 +59,7 @@ default_limits = [limit.strip() for limit in default_limits]
 
 limiter = Limiter(
     app=app,
-    key_func=get_remote_address,
+    key_func=get_rate_limit_key,
     default_limits=default_limits,
     storage_uri=redis_url
 )
