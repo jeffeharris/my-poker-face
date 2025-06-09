@@ -13,7 +13,6 @@ services:
       - ./data:/app/data
       - ./poker:/app/poker
       - ./flask_app:/app/flask_app
-      - ./console_app:/app/console_app
       - ./core:/app/core
     environment:
       - FLASK_ENV=development
