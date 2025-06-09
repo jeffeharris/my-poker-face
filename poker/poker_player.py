@@ -474,6 +474,8 @@ class AIPokerPlayer(PokerPlayer):
             f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
             f"You cannot bet more than you have, ${player_money}.\n"
             f"You must select from these options: {player_options}\n"
+            f"IMPORTANT: If raising, 'adding_to_pot' is the amount to raise BY (above the call), not the total bet.\n"
+            f"Example: Cost to call is ${cost_to_call}. To raise to $300 total, set adding_to_pot to ${300 - cost_to_call}.\n"
             f"What is your move, {persona}?\n\n"
         )
 

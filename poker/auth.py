@@ -50,11 +50,23 @@ class AuthManager:
                 # Guest login
                 guest_name = data.get('name', 'Guest')
                 user_data = self.create_guest_user(guest_name)
-                return jsonify({
+                
+                response = jsonify({
                     'success': True,
                     'user': user_data,
                     'token': self.generate_token(user_data)
                 })
+                
+                # Set a long-lived cookie for guest ID (30 days)
+                response.set_cookie(
+                    'guest_id', 
+                    user_data['id'],
+                    max_age=30*24*60*60,  # 30 days
+                    httponly=True,
+                    samesite='Lax'
+                )
+                
+                return response
             
             # Username/password login (for future implementation)
             username = data.get('username')
@@ -88,13 +100,41 @@ class AuthManager:
         @self.app.route('/api/auth/logout', methods=['POST'])
         def logout():
             """Logout the current user."""
+            # Get user before removing from session
+            user = session.get('user')
             session.pop('user', None)
-            return jsonify({'success': True})
+            
+            response = jsonify({'success': True})
+            
+            # Clear guest_id cookie if logging out a guest
+            if user and user.get('is_guest'):
+                response.set_cookie('guest_id', '', expires=0)
+            
+            return response
         
         @self.app.route('/api/auth/me', methods=['GET'])
         def get_current_user():
             """Get the current authenticated user."""
             user = self.get_current_user()
+            
+            # If no user in session, check for guest_id cookie
+            if not user:
+                guest_id = request.cookies.get('guest_id')
+                if guest_id and guest_id.startswith('guest_'):
+                    # Check if this guest has saved games
+                    if self.persistence:
+                        games = self.persistence.list_games_for_owner(guest_id)
+                        if games:
+                            # Restore guest session from cookie
+                            user = {
+                                'id': guest_id,
+                                'name': 'Guest',  # Default name, will be updated on next login
+                                'is_guest': True,
+                                'created_at': datetime.utcnow().isoformat()
+                            }
+                            session['user'] = user
+                            session.permanent = True
+            
             if user:
                 return jsonify({'user': user})
             return jsonify({'user': None})
@@ -111,6 +151,32 @@ class AuthManager:
     
     def create_guest_user(self, name: str) -> Dict[str, Any]:
         """Create a guest user session."""
+        # Check if there's an existing guest ID in cookies
+        existing_guest_id = request.cookies.get('guest_id')
+        
+        if existing_guest_id and existing_guest_id.startswith('guest_'):
+            # Try to retrieve existing user from session or database
+            if 'user' in session and session['user']['id'] == existing_guest_id:
+                # Update name if changed
+                session['user']['name'] = name
+                return session['user']
+            
+            # Check if this guest has saved games in the database
+            if self.persistence:
+                games = self.persistence.list_games_for_owner(existing_guest_id)
+                if games:
+                    # Restore the guest user with the same ID
+                    user_data = {
+                        'id': existing_guest_id,
+                        'name': name,
+                        'is_guest': True,
+                        'created_at': datetime.utcnow().isoformat()
+                    }
+                    session['user'] = user_data
+                    session.permanent = True
+                    return user_data
+        
+        # Create new guest user
         user_data = {
             'id': f'guest_{secrets.token_hex(8)}',
             'name': name,

@@ -82,6 +82,9 @@ class PromptManager:
                 'instruction': (
                     "{message}\n"
                     "Please only respond with the JSON, not the text with back quotes.\n"
+                    "CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.\n"
+                    "Example: If you say 'I raise by $500', then adding_to_pot should be 500.\n"
+                    "Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.\n"
                     "Use your persona response to interact with the players at the table directly "
                     "but don't tell others what cards you have! You can use deception to try and "
                     "trick other players. Use emojis to express yourself, but mix it up! "
@@ -106,7 +109,7 @@ class PromptManager:
 RESPONSE_FORMAT = {
     # ALWAYS REQUIRED
     "action": "REQUIRED: action from provided options",
-    "adding_to_pot": "REQUIRED if raising: chips to add",
+    "adding_to_pot": "REQUIRED if raising: amount to raise BY (not total bet, just the raise above the call)",
     "inner_monologue": "REQUIRED: internal thoughts",
     
     # REQUIRED ON FIRST ACTION OF HAND
@@ -162,7 +165,7 @@ PERSONA_EXAMPLES = {
             "bet_strategy": "A small raise should keep them guessing.",
             "decision": "I'll raise.",
             "action": "raise",
-            "adding_to_pot": 50,
+            "adding_to_pot": 50,  # This is raise BY $50, not raise TO $50
             "inner_monologue": "Let's see if they flinch. Push John a little more.",
             "persona_response": "Your move.",
             "physical": ["*narrows eyes*"],

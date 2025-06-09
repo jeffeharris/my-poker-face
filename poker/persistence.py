@@ -27,6 +27,8 @@ class SavedGame:
     num_players: int
     pot_size: float
     game_state_json: str
+    owner_id: Optional[str] = None
+    owner_name: Optional[str] = None
 
 
 class GamePersistence:
@@ -81,7 +83,9 @@ class GamePersistence:
                     phase TEXT NOT NULL,
                     num_players INTEGER NOT NULL,
                     pot_size REAL NOT NULL,
-                    game_state_json TEXT NOT NULL
+                    game_state_json TEXT NOT NULL,
+                    owner_id TEXT,
+                    owner_name TEXT
                 )
             """)
             
@@ -186,8 +190,25 @@ class GamePersistence:
                     times_used INTEGER DEFAULT 0
                 )
             """)
+            
+            # Add owner_id column if it doesn't exist (migration)
+            cursor = conn.execute("PRAGMA table_info(games)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'owner_id' not in columns:
+                conn.execute("ALTER TABLE games ADD COLUMN owner_id TEXT")
+                conn.execute("ALTER TABLE games ADD COLUMN owner_name TEXT")
+                # Purge old games without owners
+                conn.execute("DELETE FROM games")
+                logger.info("Migrated games table: added owner_id column and purged old games")
+            
+            # Add index for owner_id
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_games_owner 
+                ON games(owner_id)
+            """)
     
-    def save_game(self, game_id: str, state_machine: PokerStateMachine) -> None:
+    def save_game(self, game_id: str, state_machine: PokerStateMachine, 
+                  owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
         game_state = state_machine.game_state
         
@@ -200,14 +221,16 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO games 
-                (game_id, updated_at, phase, num_players, pot_size, game_state_json)
-                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+                (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
             """, (
                 game_id,
                 state_machine.current_phase.value,
                 len(game_state.players),
                 game_state.pot['total'],
-                game_json
+                game_json,
+                owner_id,
+                owner_name
             ))
     
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
@@ -242,15 +265,24 @@ class GamePersistence:
             
             return state_machine
     
-    def list_games(self, limit: int = 20) -> List[SavedGame]:
-        """List saved games, most recently updated first."""
+    def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
+        """List saved games, most recently updated first. Filter by owner_id if provided."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT * FROM games 
-                ORDER BY updated_at DESC 
-                LIMIT ?
-            """, (limit,))
+            
+            if owner_id:
+                cursor = conn.execute("""
+                    SELECT * FROM games 
+                    WHERE owner_id = ?
+                    ORDER BY updated_at DESC 
+                    LIMIT ?
+                """, (owner_id, limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT * FROM games 
+                    ORDER BY updated_at DESC 
+                    LIMIT ?
+                """, (limit,))
             
             games = []
             for row in cursor:
@@ -261,10 +293,20 @@ class GamePersistence:
                     phase=row['phase'],
                     num_players=row['num_players'],
                     pot_size=row['pot_size'],
-                    game_state_json=row['game_state_json']
+                    game_state_json=row['game_state_json'],
+                    owner_id=row['owner_id'],
+                    owner_name=row['owner_name']
                 ))
             
             return games
+    
+    def count_user_games(self, owner_id: str) -> int:
+        """Count how many games a user owns."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) FROM games WHERE owner_id = ?
+            """, (owner_id,))
+            return cursor.fetchone()[0]
     
     def delete_game(self, game_id: str) -> None:
         """Delete a game and all associated data."""

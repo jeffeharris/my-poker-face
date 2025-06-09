@@ -36,7 +36,7 @@ from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
-CORS(app)  # Enable CORS for all routes
+CORS(app, supports_credentials=True, origins=["http://localhost:3173", "http://localhost:5173"])  # Enable CORS with credentials
 
 # Custom key function that exempts Docker internal IPs
 def get_rate_limit_key():
@@ -95,6 +95,12 @@ auth_manager = AuthManager(app, persistence)
 # Helper function to generate unique game ID
 def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
+
+
+def get_game_owner_info(game_id: str) -> tuple:
+    """Get owner_id and owner_name for a game."""
+    game_data = games.get(game_id, {})
+    return game_data.get('owner_id'), game_data.get('owner_name')
 
 
 def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
@@ -190,18 +196,18 @@ def health_check():
 
 @app.route('/games')
 def list_games():
-    """List all saved games, optionally filtered by current user."""
+    """List games for the current user."""
     current_user = auth_manager.get_current_user()
-    saved_games = persistence.list_games(limit=50)
-    games_data = []
     
+    if current_user:
+        # Get only the user's games
+        saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
+    else:
+        # No games for anonymous users
+        saved_games = []
+    
+    games_data = []
     for game in saved_games:
-        # Check if game belongs to current user (if authenticated)
-        game_data_entry = games.get(game.game_id, {})
-        is_owner = False
-        if current_user and game_data_entry:
-            is_owner = game_data_entry.get('owner_id') == current_user.get('id')
-        
         games_data.append({
             'game_id': game.game_id,
             'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
@@ -209,37 +215,12 @@ def list_games():
             'phase': game.phase,
             'num_players': game.num_players,
             'pot_size': game.pot_size,
-            'is_owner': is_owner
+            'is_owner': True  # Always true since we're filtering by owner
         })
     
     return jsonify({'games': games_data})
 
-@app.route('/api/my-games')
-@auth_manager.require_auth
-def my_games():
-    """List games owned by the authenticated user."""
-    current_user = auth_manager.get_current_user()
-    user_id = current_user.get('id')
-    
-    # Filter games by owner
-    my_games_list = []
-    for game_id, game_data in games.items():
-        if game_data.get('owner_id') == user_id:
-            # Get game info from persistence
-            saved_games = persistence.list_games(limit=1000)
-            for saved_game in saved_games:
-                if saved_game.game_id == game_id:
-                    my_games_list.append({
-                        'game_id': game_id,
-                        'created_at': saved_game.created_at.strftime("%Y-%m-%d %H:%M"),
-                        'updated_at': saved_game.updated_at.strftime("%Y-%m-%d %H:%M"),
-                        'phase': saved_game.phase,
-                        'num_players': saved_game.num_players,
-                        'pot_size': saved_game.pot_size
-                    })
-                    break
-    
-    return jsonify({'games': my_games_list})
+# Removed /api/my-games endpoint - consolidated with /games
 
 
 @app.route('/api/game-state/<game_id>')
@@ -250,6 +231,24 @@ def api_game_state(game_id):
     if not current_game_data:
         # Try to load from database
         try:
+            # First check if the game exists and belongs to the current user
+            current_user = auth_manager.get_current_user()
+            saved_games = persistence.list_games(owner_id=current_user.get('id') if current_user else None, limit=50)
+            
+            # Check if this game belongs to the current user
+            game_found = False
+            owner_id = None
+            owner_name = None
+            for saved_game in saved_games:
+                if saved_game.game_id == game_id:
+                    game_found = True
+                    owner_id = saved_game.owner_id
+                    owner_name = saved_game.owner_name
+                    break
+            
+            if not game_found:
+                return jsonify({'error': 'Game not found or access denied'}), 404
+            
             base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
@@ -278,6 +277,8 @@ def api_game_state(game_id):
                     'elasticity_manager': elasticity_manager,
                     'pressure_detector': pressure_detector,
                     'pressure_stats': pressure_stats,
+                    'owner_id': owner_id,
+                    'owner_name': owner_name,
                     'messages': db_messages
                 }
                 games[game_id] = current_game_data
@@ -363,8 +364,21 @@ def api_new_game():
     if current_user:
         # Use authenticated user's name by default
         player_name = data.get('playerName', current_user.get('name', 'Player'))
+        owner_id = current_user.get('id')
+        owner_name = current_user.get('name')
+        
+        # Check game limits
+        game_count = persistence.count_user_games(owner_id)
+        max_games = 1 if current_user.get('is_guest', True) else 10
+        
+        if game_count >= max_games:
+            return jsonify({
+                'error': f'Game limit reached. {"Guest users" if current_user.get("is_guest") else "You"} can have up to {max_games} saved game{"" if max_games == 1 else "s"}.'
+            }), 400
     else:
         player_name = data.get('playerName', 'Player')
+        owner_id = None
+        owner_name = None
     
     # Check if specific personalities were requested
     requested_personalities = data.get('personalities', [])
@@ -405,7 +419,8 @@ def api_new_game():
         'elasticity_manager': elasticity_manager,
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
-        'owner_id': current_user.get('id') if current_user else None,
+        'owner_id': owner_id,
+        'owner_name': owner_name,
         'messages': [{
             'id': '1',
             'sender': 'System',
@@ -417,7 +432,7 @@ def api_new_game():
     games[game_id] = game_data
     
     # Save the new game to database  
-    persistence.save_game(game_id, state_machine._state_machine)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     # Progress the game to the first human action
     progress_game(game_id)
@@ -458,7 +473,8 @@ def api_player_action(game_id):
     games[game_id] = current_game_data
     
     # Save game after human action
-    persistence.save_game(game_id, state_machine._state_machine)
+    owner_id, owner_name = get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     # Progress the game to handle AI turns
     progress_game(game_id)
@@ -504,7 +520,8 @@ def progress_game(game_id):
         update_and_emit_game_state(game_id)
         
         # Also save the updated state
-        persistence.save_game(game_id, state_machine._state_machine)
+        owner_id, owner_name = get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
         if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
             return redirect(url_for('end_game', game_id=game_id))
@@ -738,7 +755,8 @@ def handle_player_action(data):
     games[game_id] = current_game_data
     
     # Save game after human action
-    persistence.save_game(game_id, state_machine._state_machine)
+    owner_id, owner_name = get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     update_and_emit_game_state(game_id)  # Emit updated game state
     progress_game(game_id)
@@ -839,6 +857,7 @@ def handle_ai_action(game_id: str) -> None:
         amount = player_response_dict.get('adding_to_pot', 0)
         player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
+        raise_corrected = player_response_dict.get('raise_amount_corrected', False)
         
     except Exception as e:
         # This should rarely happen since controller has built-in resilience
@@ -869,13 +888,17 @@ def handle_ai_action(game_id: str) -> None:
         # Use personality-aware fallback messages
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
+        raise_corrected = False
         
         # Subtle notification that we're using fallback
         send_message(game_id, "table", 
                     f"[{current_player.name} takes a moment to consider]", 
                     "table")
 
+    # Build table message with correction indicator
     table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
+    if raise_corrected and action == 'raise':
+        table_message_content += " ⚠️"  # Subtle warning emoji to indicate correction
     
     # Only send AI message if they actually spoke
     if player_message and player_message != '...':
@@ -897,7 +920,8 @@ def handle_ai_action(game_id: str) -> None:
     games[game_id] = current_game_data
     
     # Save game after AI action
-    persistence.save_game(game_id, state_machine._state_machine)
+    owner_id, owner_name = get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     # Save AI state
     if hasattr(controller, 'assistant') and controller.assistant:
