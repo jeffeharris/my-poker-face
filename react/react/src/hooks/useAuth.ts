@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { API_URL } from '../config';
+import { config } from '../config';
 
 interface User {
   id: string;
@@ -51,7 +51,7 @@ export function useAuth() {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
-      const response = await fetch(`${API_URL}/api/auth/me`, {
+      const response = await fetch(`${config.API_URL}/api/auth/me`, {
         credentials: 'include',
         headers,
       });
@@ -91,7 +91,7 @@ export function useAuth() {
 
   const login = useCallback(async (name: string, isGuest: boolean = true) => {
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      const response = await fetch(`${config.API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,7 +130,7 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     try {
-      await fetch(`${API_URL}/api/auth/logout`, {
+      await fetch(`${config.API_URL}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { config } from '../../config';
 import './LoginForm.css';
 
 interface LoginFormProps {
@@ -21,7 +22,7 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
     setError('');
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${config.API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
