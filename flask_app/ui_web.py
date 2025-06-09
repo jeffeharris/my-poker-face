@@ -173,6 +173,7 @@ def index():
 
 
 @app.route('/health')
+@limiter.exempt
 def health_check():
     """Health check endpoint for Docker and monitoring."""
     return jsonify({'status': 'healthy', 'service': 'poker-backend'}), 200
