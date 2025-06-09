@@ -17,7 +17,6 @@ interface ThemedGameSelectorProps {
 
 export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelectorProps) {
   const [themes, setThemes] = useState<Theme[]>([]);
-  const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -4,7 +4,8 @@ WORKDIR /app/react
 COPY react/react/package*.json ./
 RUN npm ci
 COPY react/react/ ./
-RUN npm run build
+# Build with Vite directly, bypassing TypeScript
+RUN npx vite build
 
 # Python backend with React static files
 FROM python:3.11-slim
