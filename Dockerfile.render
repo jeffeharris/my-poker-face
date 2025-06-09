@@ -27,14 +27,15 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:$PORT/health || exit 1
 
-# Copy the Render-specific Flask app
-RUN cp flask_app/ui_web_render.py flask_app/ui_web.py
+# Set Python path for imports
+ENV PYTHONPATH=/app:$PYTHONPATH
 
-# Start with gunicorn
+# Start with gunicorn - use the original ui_web.py but with better error handling
 CMD gunicorn --bind 0.0.0.0:$PORT \
-    --workers 2 \
+    --workers 1 \
     --worker-class eventlet \
     --timeout 120 \
     --keep-alive 5 \
-    --log-level info \
+    --log-level debug \
+    --reload \
     flask_app.ui_web:app

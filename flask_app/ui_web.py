@@ -47,22 +47,39 @@ def get_rate_limit_key():
         return None  # No rate limiting for internal Docker traffic
     return remote_addr
 
-# Initialize rate limiter
-# Use 'redis' hostname when running in Docker, 'localhost' otherwise
-redis_host = 'redis' if os.path.exists('/.dockerenv') else 'localhost'
-redis_port = os.environ.get('REDIS_PORT', '6379')
-redis_url = os.environ.get('REDIS_URL', f'redis://{redis_host}:{redis_port}')
+# Initialize rate limiter with graceful Redis fallback
+redis_url = os.environ.get('REDIS_URL')
+default_limits = ['200 per day', '50 per hour']
 
-# Get rate limits from environment or use defaults
-default_limits = os.environ.get('RATE_LIMIT_DEFAULT', '200 per day, 50 per hour').split(',')
-default_limits = [limit.strip() for limit in default_limits]
-
-limiter = Limiter(
-    app=app,
-    key_func=get_rate_limit_key,
-    default_limits=default_limits,
-    storage_uri=redis_url
-)
+if redis_url:
+    try:
+        # Test Redis connection first
+        import redis
+        r = redis.from_url(redis_url)
+        r.ping()
+        
+        limiter = Limiter(
+            app=app,
+            key_func=get_rate_limit_key,
+            default_limits=default_limits,
+            storage_uri=redis_url
+        )
+        logger.info(f"Rate limiter initialized with Redis")
+    except Exception as e:
+        logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
+        limiter = Limiter(
+            app=app,
+            key_func=get_rate_limit_key,
+            default_limits=default_limits
+        )
+else:
+    # No Redis URL provided, use in-memory
+    limiter = Limiter(
+        app=app,
+        key_func=get_rate_limit_key,
+        default_limits=default_limits
+    )
+    logger.info("Rate limiter initialized with in-memory storage")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 

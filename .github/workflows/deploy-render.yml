@@ -3,8 +3,8 @@ name: Deploy to Render
 on:
   push:
     branches:
-      - main
-      - release-candidate-*
+      # - main
+      # - release-candidate-*
   workflow_dispatch:
 
 jobs:
