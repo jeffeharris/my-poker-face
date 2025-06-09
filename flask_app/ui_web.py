@@ -177,6 +177,12 @@ def update_and_emit_game_state(game_id):
     game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
     game_state_dict['small_blind_idx'] = game_state.small_blind_idx
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
+    # Add missing top-level fields that the frontend expects
+    game_state_dict['highest_bet'] = game_state.highest_bet
+    game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
+    game_state_dict['min_raise'] = game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20
+    game_state_dict['big_blind'] = 20  # TODO: Get from game config
+    game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
