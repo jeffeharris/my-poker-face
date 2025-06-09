@@ -31,7 +31,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   const fetchPersonalities = async () => {
     try {
-      const response = await fetch(`${config.API_URL}/api/personalities`);
+      const response = await fetch(`${config.API_URL}/api/personalities`, { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         setPersonalities(data.personalities);

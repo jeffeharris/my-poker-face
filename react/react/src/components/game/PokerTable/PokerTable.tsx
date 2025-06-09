@@ -57,6 +57,14 @@ interface PokerTableProps {
 export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Helper function to ensure all fetch calls include credentials
+  const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
+    return fetch(url, {
+      ...options,
+      credentials: 'include',
+    });
+  };
   const [gameId, setGameId] = useState<string | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const [useOverlayLoading, setUseOverlayLoading] = useState(false); // Toggle between loading styles
@@ -164,7 +172,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       setupSocketListeners(socket);
       
       // Fetch the game state
-      fetch(`${config.API_URL}/api/game-state/${loadGameId}`)
+      fetchWithCredentials(`${config.API_URL}/api/game-state/${loadGameId}`)
         .then(res => {
           if (!res.ok) {
             throw new Error('Failed to load game');
@@ -232,7 +240,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         });
     } else {
       // Create a new game
-      fetch(`${config.API_URL}/api/new-game`, {
+      fetchWithCredentials(`${config.API_URL}/api/new-game`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -264,7 +272,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         setupSocketListeners(socket);
         
         // Now fetch the initial game state
-        return fetch(`${config.API_URL}/api/game-state/${newGameId}`);
+        return fetchWithCredentials(`${config.API_URL}/api/game-state/${newGameId}`);
       })
       .then(res => res.json())
       .then(data => {
@@ -337,7 +345,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     const pollInterval = setInterval(async () => {
       try {
         console.log('Polling for updates...');
-        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gId}`);
+        const gameResponse = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
         const data = await gameResponse.json();
         setGameState(data);
         
@@ -369,7 +377,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     setAiThinking(true);
     
     try {
-      const response = await fetch(`${config.API_URL}/api/game/${gameId}/action`, {
+      const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -395,7 +403,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     if (!gameId) return;
     
     try {
-      const response = await fetch(`${config.API_URL}/api/game/${gameId}/message`, {
+      const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -408,7 +416,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       
       if (response.ok) {
         // Refresh game state to get updated messages
-        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gameId}`);
+        const gameResponse = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gameId}`);
         const data = await gameResponse.json();
         setGameState(data);
       }

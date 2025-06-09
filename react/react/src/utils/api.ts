@@ -1,8 +1,14 @@
 import { config } from '../config';
 
+// Common fetch options to ensure credentials are included
+const fetchOptions: RequestInit = {
+  credentials: 'include',
+};
+
 export const gameAPI = {
   createGame: async (playerName: string) => {
     const response = await fetch(`${config.API_URL}/api/new-game`, {
+      ...fetchOptions,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -18,7 +24,7 @@ export const gameAPI = {
   },
 
   loadGame: async (gameId: string) => {
-    const response = await fetch(`${config.API_URL}/api/game-state/${gameId}`);
+    const response = await fetch(`${config.API_URL}/api/game-state/${gameId}`, fetchOptions);
     
     if (!response.ok) {
       throw new Error('Failed to load game');
@@ -29,6 +35,7 @@ export const gameAPI = {
 
   sendAction: async (gameId: string, action: string, amount?: number) => {
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/action`, {
+      ...fetchOptions,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -48,6 +55,7 @@ export const gameAPI = {
 
   sendMessage: async (gameId: string, message: string, sender: string) => {
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/message`, {
+      ...fetchOptions,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -66,7 +74,7 @@ export const gameAPI = {
   },
 
   getPressureStats: async (gameId: string) => {
-    const response = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`);
+    const response = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`, fetchOptions);
     
     if (!response.ok) {
       throw new Error('Failed to fetch pressure stats');

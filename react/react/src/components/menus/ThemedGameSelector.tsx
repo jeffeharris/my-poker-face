@@ -43,6 +43,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
     try {
       const response = await fetch(`${config.API_URL}/api/generate-theme`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },

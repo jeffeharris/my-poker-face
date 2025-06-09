@@ -79,7 +79,9 @@ function App() {
 
   const fetchSavedGamesCount = async () => {
     try {
-      const response = await fetch(`${config.API_URL}/games`);
+      const response = await fetch(`${config.API_URL}/games`, {
+        credentials: 'include'
+      });
       const data = await response.json();
       setSavedGamesCount(data.games?.length || 0);
     } catch (error) {
@@ -114,6 +116,7 @@ function App() {
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -146,6 +149,7 @@ function App() {
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -171,6 +175,7 @@ function App() {
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
