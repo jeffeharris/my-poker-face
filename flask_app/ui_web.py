@@ -49,7 +49,7 @@ def get_rate_limit_key():
 
 # Initialize rate limiter with graceful Redis fallback
 redis_url = os.environ.get('REDIS_URL')
-default_limits = ['200 per day', '50 per hour']
+default_limits = ['10000 per day', '1000 per hour', '100 per minute']
 
 if redis_url:
     try:
