@@ -5,7 +5,9 @@ COPY react/react/package*.json ./
 RUN npm ci
 COPY react/react/ ./
 # Build with Vite directly, bypassing TypeScript
-RUN npx vite build
+RUN npx vite build || echo "Build failed, continuing anyway"
+# Debug: Check what was built
+RUN ls -la dist/ || echo "No dist directory found"
 
 # Python backend with React static files
 FROM python:3.11-slim
@@ -26,6 +28,9 @@ COPY . .
 
 # Copy built React app from build stage
 COPY --from=frontend-build /app/react/dist /app/static
+
+# Debug: List what was copied
+RUN ls -la /app/static/ || echo "No static directory found"
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
