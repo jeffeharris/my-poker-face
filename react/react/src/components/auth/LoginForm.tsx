@@ -22,35 +22,11 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
     setError('');
 
     try {
-      const response = await fetch(`${config.API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          guest: true,
-          name: playerName.trim()
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        // Store token if provided
-        if (data.token) {
-          localStorage.setItem('authToken', data.token);
-        }
-        
-        // Store user data
-        localStorage.setItem('currentUser', JSON.stringify(data.user));
-        
-        onLogin(data.user.name, true);
-      } else {
-        setError(data.error || 'Login failed');
-      }
+      // Call the parent's onLogin handler which will handle the API call
+      await onLogin(playerName.trim(), true);
+      // If we reach here without error, login was successful
     } catch (err) {
       setError('Connection error. Please try again.');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -115,7 +91,7 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
             disabled={true}
             title="Coming soon!"
           >
-            <img src="/google-icon.svg" alt="Google" />
+            <span style={{ fontSize: '18px' }}>🔷</span>
             Sign in with Google
           </button>
 

@@ -48,6 +48,7 @@
   border-radius: 8px;
   color: #fff;
   transition: all 0.2s;
+  box-sizing: border-box;
 }
 
 .login-form__input:focus {
@@ -79,6 +80,7 @@
 .login-form__actions {
   display: flex;
   gap: 12px;
+  width: 100%;
 }
 
 .login-form__button {
@@ -94,6 +96,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+  box-sizing: border-box;
 }
 
 .login-form__button--primary {
@@ -140,10 +143,7 @@
   cursor: not-allowed;
 }
 
-.login-form__button--google img {
-  width: 18px;
-  height: 18px;
-}
+/* Google icon handled inline */
 
 .login-form__divider {
   text-align: center;
