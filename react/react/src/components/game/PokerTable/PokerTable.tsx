@@ -221,10 +221,14 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         })
         .catch(err => {
           console.error('Failed to load game:', err);
-          const errorMessage = err.message || 'Sorry, this saved game cannot be loaded.';
-          alert(`${errorMessage}\n\nStarting a new game instead.`);
-          // Reset to show game selector
-          window.location.href = '/';
+          // Clear the bad game state from localStorage
+          localStorage.removeItem('pokerGameState');
+          // If we have an onGameCreated callback, notify parent to reset
+          if (onGameCreated) {
+            onGameCreated('');
+          }
+          // Reload the page to reset the app state
+          window.location.reload();
         });
     } else {
       // Create a new game

@@ -29,10 +29,11 @@ function App() {
   const savedState = localStorage.getItem('pokerGameState');
   const parsedState = savedState ? JSON.parse(savedState) : null;
   
-  const [currentView, setCurrentView] = useState<ViewType>(
-    parsedState?.currentView || 'login'
-  )
-  const [gameId, setGameId] = useState<string | null>(parsedState?.gameId || null)
+  // If we have a saved table view, validate it's not stale
+  const initialView = parsedState?.currentView === 'table' ? 'login' : (parsedState?.currentView || 'login');
+  
+  const [currentView, setCurrentView] = useState<ViewType>(initialView)
+  const [gameId, setGameId] = useState<string | null>(null) // Don't restore gameId to avoid loading non-existent games
   const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
 
