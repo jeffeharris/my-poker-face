@@ -11,6 +11,16 @@
   border-right: 2px solid #444;
   z-index: 1000;
   font-size: 14px;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .pressure-stats-panel h3 {
@@ -47,6 +57,7 @@
   font-size: 18px;
   font-weight: bold;
   color: #fff;
+  transition: all 0.3s ease;
 }
 
 .stat-value.highlight {
@@ -80,6 +91,7 @@
   align-items: center;
   padding: 5px 0;
   font-size: 13px;
+  transition: all 0.3s ease;
 }
 
 .rank {
@@ -114,6 +126,7 @@
   padding: 15px;
   position: relative;
   overflow: hidden;
+  transition: all 0.3s ease;
 }
 
 .player-card h5 {

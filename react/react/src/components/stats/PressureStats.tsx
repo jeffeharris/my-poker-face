@@ -47,22 +47,31 @@ interface PressureStatsProps {
 export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
   const [stats, setStats] = useState<SessionSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   useEffect(() => {
     if (!gameId || !isOpen) return;
 
+    let mounted = true;
+
     const fetchStats = async () => {
       try {
-        setLoading(true);
+        // Only show loading on initial load, not on updates
+        if (isInitialLoad && mounted) {
+          setLoading(true);
+        }
         const response = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`);
-        if (response.ok) {
+        if (response.ok && mounted) {
           const data = await response.json();
           setStats(data);
+          setIsInitialLoad(false);
         }
       } catch (error) {
         console.error('Failed to fetch pressure stats:', error);
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
@@ -72,10 +81,26 @@ export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
     // Update every 5 seconds
     const interval = setInterval(fetchStats, 5000);
 
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [gameId, isOpen]);
 
-  if (!isOpen || !stats) return null;
+  if (!isOpen) return null;
+  
+  // Show loading only on initial load
+  if (loading && isInitialLoad) {
+    return (
+      <div className="pressure-stats-panel">
+        <h3>🎰 Pressure Stats & Highlights</h3>
+        <div className="loading">Loading stats...</div>
+      </div>
+    );
+  }
+  
+  // Don't show anything if no stats yet
+  if (!stats) return null;
 
   const getTiltEmoji = (score: number) => {
     if (score > 0.8) return '🤯';
@@ -96,8 +121,6 @@ export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
   return (
     <div className="pressure-stats-panel">
       <h3>🎰 Pressure Stats & Highlights</h3>
-      
-      {loading && <div className="loading">Loading stats...</div>}
       
       {/* Session Overview */}
       <div className="session-overview">
