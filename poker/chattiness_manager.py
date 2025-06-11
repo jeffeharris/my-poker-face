@@ -129,7 +129,16 @@ class ChattinessManager:
         Returns:
             float: Probability of speaking (0.0-1.0)
         """
-        probability = base_chattiness
+        # Special case for true silence (0.0 = mime/silent character)
+        if base_chattiness == 0.0:
+            # Mimes can still gesture on dramatic moments
+            if context.get('all_in', False) or context.get('showdown', False):
+                return 0.5  # 50% chance to make gestures on big moments
+            return 0.0  # Otherwise truly silent
+            
+        # For everyone else, use a curve that makes low chattiness more talkative
+        # 0.1 -> 0.35, 0.3 -> 0.55, 0.5 -> 0.7, 0.7 -> 0.85, 0.9 -> 0.95
+        probability = 0.25 + (base_chattiness * 0.7)
         
         # Apply contextual modifiers
         for condition, modifier in self.CONTEXT_MODIFIERS.items():
@@ -205,7 +214,9 @@ class ChattinessManager:
         Returns:
             str: Suggestion for speaking style
         """
-        if probability < 0.2:
+        if probability == 0.0:
+            return "Silent character: use only *gestures* and *actions*, no spoken words"
+        elif probability < 0.2:
             return "If speaking, keep it very brief: '...', 'Hmm.', or just gestures"
         elif probability < 0.4:
             return "If speaking, be concise: short phrases or reactions"

@@ -164,6 +164,35 @@ class AIPlayerController:
         if 'adding_to_pot' not in response_dict:
             response_dict['adding_to_pot'] = 0
         
+        # Fix common AI mistake: saying "raise" but setting adding_to_pot to 0
+        if response_dict.get('action') == 'raise' and response_dict.get('adding_to_pot', 0) == 0:
+            # Try to extract amount from persona_response
+            import re
+            persona_response = response_dict.get('persona_response', '')
+            
+            # Look for patterns like "raise by $500" or "raise you $500" or "raise to $500"
+            raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
+            if raise_match:
+                mentioned_amount = int(raise_match.group(1))
+                
+                # Check if it's "raise to" vs "raise by"
+                if 'raise to' in persona_response.lower():
+                    # Convert "raise to" to "raise by"
+                    cost_to_call = context.get('call_amount', 0)
+                    response_dict['adding_to_pot'] = max(10, mentioned_amount - cost_to_call)
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}', converting to raise by ${response_dict['adding_to_pot']} (cost to call: ${cost_to_call})")
+                else:
+                    # Direct "raise by" amount
+                    response_dict['adding_to_pot'] = mentioned_amount
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said raise but adding_to_pot was 0, extracted ${mentioned_amount} from persona_response")
+            else:
+                # Default to minimum raise
+                response_dict['adding_to_pot'] = context.get('min_raise', 10)
+                response_dict['raise_amount_corrected'] = True
+                logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
+        
         # Validate action is valid
         valid_actions = context.get('valid_actions', [])
         if valid_actions and response_dict['action'] not in valid_actions:

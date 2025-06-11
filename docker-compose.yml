@@ -1,16 +1,99 @@
+version: '3.8'
+
 services:
-  poker-game:
-    build: .
+  # Flask/SocketIO backend server
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: poker-backend
     ports:
-      - "5000:5000"
+      - "${BACKEND_PORT:-5000}:5000"
     volumes:
       - ./data:/app/data
-      - .:/app
+      - ./poker:/app/poker
+      - ./flask_app:/app/flask_app
+      - ./core:/app/core
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
       - PYTHONUNBUFFERED=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FLASK_APP=flask_app.ui_web
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379
     env_file:
       - .env
-    command: python -m flask run --host=0.0.0.0 --port=5000 --reload
+    command: python -m flask_app.ui_web
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - poker-network
+
+  # React frontend development server
+  frontend:
+    build:
+      context: ./react/react
+      dockerfile: Dockerfile.dev
+    container_name: poker-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./react/react:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:${BACKEND_PORT:-5000}
+      - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0
+    networks:
+      - poker-network
+
+  # Redis for session management (optional, for future scaling)
+  redis:
+    image: redis:7-alpine
+    container_name: poker-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - poker-network
+
+  # Nginx reverse proxy (optional, for production-like setup)
+  nginx:
+    image: nginx:alpine
+    container_name: poker-nginx
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - poker-network
+    profiles:
+      - production
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  poker-network:
+    driver: bridge

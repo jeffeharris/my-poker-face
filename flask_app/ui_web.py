@@ -2,9 +2,11 @@
 from typing import Optional, Dict
 from pathlib import Path
 
-from flask import Flask, render_template, redirect, url_for, jsonify, Response, request
+from flask import Flask, redirect, url_for, jsonify, Response, request, send_from_directory
 from flask_socketio import SocketIO, join_room
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from datetime import datetime
 import time
 import os
@@ -27,17 +29,72 @@ from poker.poker_game import PokerGameState, initialize_game_state, determine_wi
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from poker.persistence import GamePersistence
+from poker.repositories.sqlite_repositories import PressureEventRepository
+from poker.auth import AuthManager
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
-app.secret_key = 'supersecretkey'  # Replace with a secure secret key for sessions
-CORS(app)  # Enable CORS for all routes
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+CORS(app, supports_credentials=True, origins=["http://localhost:3173", "http://localhost:5173", "https://*.onrender.com", "*"])  # Enable CORS with credentials
+
+# Custom key function that exempts Docker internal IPs
+def get_rate_limit_key():
+    """Get IP address for rate limiting, exempting Docker internal IPs."""
+    remote_addr = get_remote_address()
+    # Exempt Docker internal network IPs (172.x.x.x)
+    if remote_addr and remote_addr.startswith('172.'):
+        return None  # No rate limiting for internal Docker traffic
+    return remote_addr
+
+# Initialize rate limiter with graceful Redis fallback
+redis_url = os.environ.get('REDIS_URL')
+default_limits = ['10000 per day', '1000 per hour', '100 per minute']
+
+if redis_url:
+    try:
+        # Test Redis connection first
+        import redis
+        r = redis.from_url(redis_url)
+        r.ping()
+        
+        limiter = Limiter(
+            app=app,
+            key_func=get_rate_limit_key,
+            default_limits=default_limits,
+            storage_uri=redis_url
+        )
+        logger.info(f"Rate limiter initialized with Redis")
+    except Exception as e:
+        logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
+        limiter = Limiter(
+            app=app,
+            key_func=get_rate_limit_key,
+            default_limits=default_limits
+        )
+else:
+    # No Redis URL provided, use in-memory
+    limiter = Limiter(
+        app=app,
+        key_func=get_rate_limit_key,
+        default_limits=default_limits
+    )
+    logger.info("Rate limiter initialized with in-memory storage")
+
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Dictionary to hold game states and messages for each game ID
 games = {}
 messages = {}
+
+# Custom error handler for rate limit exceeded
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({
+        'error': 'Rate limit exceeded',
+        'message': str(e.description),
+        'retry_after': e.retry_after if hasattr(e, 'retry_after') else None
+    }), 429
 
 # Initialize persistence layer
 # Use /app/data in Docker, or local path otherwise
@@ -46,11 +103,21 @@ if os.path.exists('/app/data'):
 else:
     db_path = os.path.join(os.path.dirname(__file__), '..', 'poker_games.db')
 persistence = GamePersistence(db_path)
+event_repository = PressureEventRepository(db_path)
+
+# Initialize authentication
+auth_manager = AuthManager(app, persistence)
 
 
 # Helper function to generate unique game ID
 def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
+
+
+def get_game_owner_info(game_id: str) -> tuple:
+    """Get owner_id and owner_name for a game."""
+    game_data = games.get(game_id, {})
+    return game_data.get('owner_id'), game_data.get('owner_name')
 
 
 def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
@@ -110,6 +177,12 @@ def update_and_emit_game_state(game_id):
     game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
     game_state_dict['small_blind_idx'] = game_state.small_blind_idx
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
+    # Add missing top-level fields that the frontend expects
+    game_state_dict['highest_bet'] = game_state.highest_bet
+    game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
+    game_state_dict['min_raise'] = game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20
+    game_state_dict['big_blind'] = 20  # TODO: Get from game config
+    game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
@@ -120,17 +193,52 @@ def on_join(game_id):
     socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
 
-@app.route('/')
-def index():
-    return render_template('home.html')
+# Serve static files (React build)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    static_path = Path(__file__).parent.parent / 'static'
+    if path != "" and (static_path / path).exists():
+        return send_from_directory(str(static_path), path)
+    else:
+        # Always return index.html for React Router to handle
+        if (static_path / 'index.html').exists():
+            return send_from_directory(str(static_path), 'index.html')
+    
+    # If no static files, return API info
+    return jsonify({
+        'message': 'My Poker Face API',
+        'version': '1.0',
+        'frontend': 'React app not built',
+        'endpoints': {
+            'games': '/api/pokergame',
+            'new_game': '/api/pokergame/new/<num_players>',
+            'game_state': '/api/pokergame/<game_id>',
+            'health': '/health'
+        }
+    })
+
+
+@app.route('/health')
+@limiter.exempt
+def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return jsonify({'status': 'healthy', 'service': 'poker-backend'}), 200
 
 
 @app.route('/games')
 def list_games():
-    """List all saved games."""
-    saved_games = persistence.list_games(limit=50)
-    games_data = []
+    """List games for the current user."""
+    current_user = auth_manager.get_current_user()
     
+    if current_user:
+        # Get only the user's games
+        saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
+    else:
+        # No games for anonymous users
+        saved_games = []
+    
+    games_data = []
     for game in saved_games:
         games_data.append({
             'game_id': game.game_id,
@@ -138,10 +246,13 @@ def list_games():
             'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
             'phase': game.phase,
             'num_players': game.num_players,
-            'pot_size': game.pot_size
+            'pot_size': game.pot_size,
+            'is_owner': True  # Always true since we're filtering by owner
         })
     
     return jsonify({'games': games_data})
+
+# Removed /api/my-games endpoint - consolidated with /games
 
 
 @app.route('/api/game-state/<game_id>')
@@ -152,6 +263,24 @@ def api_game_state(game_id):
     if not current_game_data:
         # Try to load from database
         try:
+            # First check if the game exists and belongs to the current user
+            current_user = auth_manager.get_current_user()
+            saved_games = persistence.list_games(owner_id=current_user.get('id') if current_user else None, limit=50)
+            
+            # Check if this game belongs to the current user
+            game_found = False
+            owner_id = None
+            owner_name = None
+            for saved_game in saved_games:
+                if saved_game.game_id == game_id:
+                    game_found = True
+                    owner_id = saved_game.owner_id
+                    owner_name = saved_game.owner_name
+                    break
+            
+            if not game_found:
+                return jsonify({'error': 'Game not found or access denied'}), 404
+            
             base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
@@ -180,6 +309,8 @@ def api_game_state(game_id):
                     'elasticity_manager': elasticity_manager,
                     'pressure_detector': pressure_detector,
                     'pressure_stats': pressure_stats,
+                    'owner_id': owner_id,
+                    'owner_name': owner_name,
                     'messages': db_messages
                 }
                 games[game_id] = current_game_data
@@ -254,13 +385,43 @@ def api_game_state(game_id):
 
 
 @app.route('/api/new-game', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour'))
 def api_new_game():
     """Create a new game and return the game ID."""
     # Get player name from request, default to "Player" if not provided
     data = request.json or {}
-    player_name = data.get('playerName', 'Player')
     
-    ai_player_names = get_celebrities(shuffled=True)[:3]  # 3 AI players
+    # Check if user is authenticated
+    current_user = auth_manager.get_current_user()
+    if current_user:
+        # Use authenticated user's name by default
+        player_name = data.get('playerName', current_user.get('name', 'Player'))
+        owner_id = current_user.get('id')
+        owner_name = current_user.get('name')
+        
+        # Check game limits
+        game_count = persistence.count_user_games(owner_id)
+        max_games = 1 if current_user.get('is_guest', True) else 10
+        
+        if game_count >= max_games:
+            return jsonify({
+                'error': f'Game limit reached. {"Guest users" if current_user.get("is_guest") else "You"} can have up to {max_games} saved game{"" if max_games == 1 else "s"}.'
+            }), 400
+    else:
+        player_name = data.get('playerName', 'Player')
+        owner_id = None
+        owner_name = None
+    
+    # Check if specific personalities were requested
+    requested_personalities = data.get('personalities', [])
+    
+    if requested_personalities:
+        # Use the specific personalities requested
+        ai_player_names = requested_personalities
+    else:
+        # Default to 3 random AI players
+        ai_player_names = get_celebrities(shuffled=True)[:3]
+    
     game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
@@ -281,7 +442,8 @@ def api_new_game():
             )
     
     pressure_detector = PressureEventDetector(elasticity_manager)
-    pressure_stats = PressureStatsTracker()
+    game_id = generate_game_id()
+    pressure_stats = PressureStatsTracker(game_id, event_repository)
 
     game_data = {
         'state_machine': state_machine,
@@ -289,6 +451,8 @@ def api_new_game():
         'elasticity_manager': elasticity_manager,
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
+        'owner_id': owner_id,
+        'owner_name': owner_name,
         'messages': [{
             'id': '1',
             'sender': 'System',
@@ -297,11 +461,10 @@ def api_new_game():
             'type': 'system'
         }]
     }
-    game_id = generate_game_id()
     games[game_id] = game_data
     
     # Save the new game to database  
-    persistence.save_game(game_id, state_machine._state_machine)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     # Progress the game to the first human action
     progress_game(game_id)
@@ -310,6 +473,7 @@ def api_new_game():
 
 
 @app.route('/api/game/<game_id>/action', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute'))
 def api_player_action(game_id):
     """Handle player action via API."""
     data = request.json
@@ -341,7 +505,8 @@ def api_player_action(game_id):
     games[game_id] = current_game_data
     
     # Save game after human action
-    persistence.save_game(game_id, state_machine._state_machine)
+    owner_id, owner_name = get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     # Progress the game to handle AI turns
     progress_game(game_id)
@@ -365,30 +530,8 @@ def api_send_message(game_id):
 
 @app.route('/new_game', methods=['GET'])
 def new_game():
-    ai_player_names = get_celebrities(shuffled=True)[:4]
-    # For legacy route, use default player name
-    game_state = initialize_game_state(player_names=ai_player_names, human_name="Player")
-    base_state_machine = PokerStateMachine(game_state=game_state)
-    state_machine = StateMachineAdapter(base_state_machine)
-    # Create a controller for each player in the game and add to a map of name -> controller
-    ai_controllers = {}
-    for player in state_machine.game_state.players:
-        if not player.is_human:
-            new_controller = AIPlayerController(player.name, state_machine)
-            ai_controllers[player.name] = new_controller
-
-    game_data = {
-        'state_machine': state_machine,
-        'ai_controllers': ai_controllers,
-        'messages': []
-    }
-    game_id = generate_game_id()
-    games[game_id] = game_data
-    
-    # Save the new game to database  
-    persistence.save_game(game_id, state_machine._state_machine)
-    
-    return redirect(url_for('game', game_id=game_id))
+    # Deprecated: Use /api/new-game POST endpoint instead
+    return redirect('/api/new-game')
 
 
 @socketio.on('progress_game')
@@ -409,7 +552,8 @@ def progress_game(game_id):
         update_and_emit_game_state(game_id)
         
         # Also save the updated state
-        persistence.save_game(game_id, state_machine._state_machine)
+        owner_id, owner_name = get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
         if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
             return redirect(url_for('end_game', game_id=game_id))
@@ -608,54 +752,10 @@ def progress_game(game_id):
 
 
 @app.route('/game/<game_id>', methods=['GET'])
-def game(game_id) -> str or Response:
-    current_game_data = games.get(game_id)
-    
-    # Try to load from database if not in memory
-    if not current_game_data:
-        base_state_machine = persistence.load_game(game_id)
-        if base_state_machine:
-            state_machine = StateMachineAdapter(base_state_machine)
-            # Restore AI controllers with saved state
-            ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
-            
-            # Load messages from database
-            db_messages = persistence.load_messages(game_id)
-            
-            # Initialize elasticity tracking for loaded games
-            elasticity_manager = ElasticityManager()
-            for player in state_machine.game_state.players:
-                if not player.is_human and player.name in ai_controllers:
-                    controller = ai_controllers[player.name]
-                    elasticity_manager.add_player(
-                        player.name,
-                        controller.ai_player.personality_config
-                    )
-            
-            pressure_detector = PressureEventDetector(elasticity_manager)
-            pressure_stats = PressureStatsTracker()
-            
-            current_game_data = {
-                'state_machine': state_machine,
-                'ai_controllers': ai_controllers,
-                'elasticity_manager': elasticity_manager,
-                'pressure_detector': pressure_detector,
-                'pressure_stats': pressure_stats,
-                'messages': db_messages
-            }
-            games[game_id] = current_game_data
-        else:
-            return redirect(url_for('index'))
-    
-    state_machine = current_game_data['state_machine']
-
-    # progress_game(game_id)
-
-    return render_template('poker_game.html',
-                           game_state=state_machine.game_state,
-                           player_options=state_machine.game_state.current_player_options,
-                           game_id=game_id,
-                           current_phase=str(state_machine.current_phase))
+def game(game_id) -> Response:
+    # Deprecated: This route previously rendered a template
+    # Now redirect to the API endpoint
+    return redirect(f'/api/game-state/{game_id}')
 
 
 @socketio.on('player_action')
@@ -687,7 +787,8 @@ def handle_player_action(data):
     games[game_id] = current_game_data
     
     # Save game after human action
-    persistence.save_game(game_id, state_machine._state_machine)
+    owner_id, owner_name = get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     update_and_emit_game_state(game_id)  # Emit updated game state
     progress_game(game_id)
@@ -788,6 +889,7 @@ def handle_ai_action(game_id: str) -> None:
         amount = player_response_dict.get('adding_to_pot', 0)
         player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
+        raise_corrected = player_response_dict.get('raise_amount_corrected', False)
         
     except Exception as e:
         # This should rarely happen since controller has built-in resilience
@@ -818,13 +920,17 @@ def handle_ai_action(game_id: str) -> None:
         # Use personality-aware fallback messages
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
+        raise_corrected = False
         
         # Subtle notification that we're using fallback
         send_message(game_id, "table", 
                     f"[{current_player.name} takes a moment to consider]", 
                     "table")
 
+    # Build table message with correction indicator
     table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
+    if raise_corrected and action == 'raise':
+        table_message_content += " ⚠️"  # Subtle warning emoji to indicate correction
     
     # Only send AI message if they actually spoke
     if player_message and player_message != '...':
@@ -846,7 +952,8 @@ def handle_ai_action(game_id: str) -> None:
     games[game_id] = current_game_data
     
     # Save game after AI action
-    persistence.save_game(game_id, state_machine._state_machine)
+    owner_id, owner_name = get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     
     # Save AI state
     if hasattr(controller, 'assistant') and controller.assistant:
@@ -942,18 +1049,19 @@ def delete_game(game_id):
 @app.route('/end_game/<game_id>', methods=['GET'])
 def end_game(game_id):
     if game_id not in games:
-        return redirect(url_for('index'))
+        return jsonify({'error': 'Game not found'}), 404
     games.pop(game_id, None)
     messages.pop(game_id, None)
-    return render_template('winner.html')
+    return jsonify({'message': 'Game ended successfully'})
 
 
 @app.route('/settings/<game_id>')
 def settings(game_id):
+    # Deprecated: Settings are now handled in React
     game_state = games.get(game_id)
     if not game_state:
-        return redirect(url_for('index'))
-    return render_template('settings.html')
+        return jsonify({'error': 'Game not found'}), 404
+    return jsonify({'message': 'Settings should be accessed through the React app'})
 
 
 @app.route('/messages/<game_id>', methods=['GET'])
@@ -996,6 +1104,97 @@ def get_elasticity_data(game_id):
     return jsonify(elasticity_data)
 
 
+@app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour'))
+def get_chat_suggestions(game_id):
+    """Generate smart chat suggestions based on game context."""
+    if game_id not in games:
+        return jsonify({"error": "Game not found"}), 404
+    
+    try:
+        data = request.get_json()
+        game_data = games[game_id]
+        state_machine = game_data['state_machine']
+        game_state = state_machine.game_state
+        
+        # Build context for the AI
+        context_parts = []
+        
+        # Get player info
+        player_name = data.get('playerName', 'Player')
+        
+        # Get recent action if provided
+        last_action = data.get('lastAction')
+        if last_action:
+            action_text = f"{last_action['player']} just {last_action['type']}"
+            if last_action.get('amount'):
+                action_text += f" ${last_action['amount']}"
+            context_parts.append(action_text)
+        
+        # Get game phase and pot
+        context_parts.append(f"Game phase: {str(state_machine.current_phase).split('.')[-1]}")
+        context_parts.append(f"Pot size: ${game_state.pot['total']}")
+        
+        # Get player's chip position if provided
+        chip_position = data.get('chipPosition', '')
+        if chip_position:
+            context_parts.append(f"You are {chip_position}")
+        
+        # Build the prompt
+        context_str = ". ".join(context_parts)
+        
+        prompt = f"""Generate exactly 3 short poker table chat messages for player "{player_name}".
+Context: {context_str}
+
+Requirements:
+- Each message should be 2-4 words max
+- Make them fun, casual, and appropriate for online poker
+- Include one reaction, one strategic comment, and one social/fun message
+- Keep them varied and natural
+- No profanity or negativity
+
+Return as JSON with this format:
+{{
+    "suggestions": [
+        {{"text": "message here", "type": "reaction"}},
+        {{"text": "message here", "type": "strategic"}},
+        {{"text": "message here", "type": "social"}}
+    ]
+}}"""
+
+        # Check if OpenAI API key is available
+        if not os.environ.get("OPENAI_API_KEY"):
+            print("Warning: No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+        
+        # Use the OpenAI assistant
+        assistant = OpenAILLMAssistant(
+            ai_model="gpt-3.5-turbo",  # Faster model for quick suggestions
+            ai_temp=0.8,  # Slightly creative but not too random
+            system_message="You are a friendly poker player giving brief chat suggestions."
+        )
+        
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = assistant.get_json_response(messages)
+        result = json.loads(response.choices[0].message.content)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Error generating chat suggestions: {str(e)}")
+        # Return fallback suggestions if AI fails
+        return jsonify({
+            "suggestions": [
+                {"text": "Nice play!", "type": "reaction"},
+                {"text": "Interesting move", "type": "strategic"},
+                {"text": "Let's go!", "type": "social"}
+            ]
+        })
+
 @app.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
 def get_pressure_stats(game_id):
     """Get pressure event statistics for the game."""
@@ -1010,8 +1209,8 @@ def get_pressure_stats(game_id):
 # Personality management routes
 @app.route('/personalities')
 def personalities_page():
-    """Personality manager page."""
-    return render_template('personalities.html')
+    """Deprecated: Personality manager page now in React."""
+    return redirect('/api/personalities')
 
 @app.route('/api/personalities', methods=['GET'])
 def get_personalities():
@@ -1186,7 +1385,103 @@ def delete_personality(name):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/generate-theme', methods=['POST'])
+def generate_theme():
+    """Generate a themed game with appropriate personalities."""
+    try:
+        data = request.json
+        theme = data.get('theme')
+        theme_name = data.get('themeName')
+        description = data.get('description')
+        
+        if not theme:
+            return jsonify({'error': 'Theme is required'}), 400
+        
+        # Get a sample of personalities to send to OpenAI
+        all_personalities = list(get_celebrities())
+        sample_size = min(100, len(all_personalities))
+        import random
+        personality_sample = random.sample(all_personalities, sample_size)
+        
+        # Create prompt for OpenAI
+        prompt = f"""Given these available personalities: {', '.join(personality_sample)}
+
+Please select 3-5 personalities that would fit the theme: "{theme_name}" - {description}
+
+Selection criteria:
+- Choose personalities that match the theme
+- Create an interesting mix of personalities that would have fun dynamics
+- For "surprise" theme, pick an eclectic, unexpected mix
+- Ensure good variety in play styles
+
+Return ONLY a JSON array of personality names, like:
+["Name1", "Name2", "Name3", "Name4"]
+
+No other text or explanation."""
+
+        # Call OpenAI
+        from core.assistants import OpenAILLMAssistant
+        assistant = OpenAILLMAssistant(
+            system_prompt="You are a game designer selecting personalities for themed poker games.",
+            model="gpt-4o-mini"
+        )
+        
+        response = assistant.get_response(prompt)
+        
+        # Parse the response
+        import json
+        try:
+            # Clean up the response in case it has extra text
+            response_text = response.strip()
+            if response_text.startswith('```'):
+                # Remove code blocks if present
+                response_text = response_text.split('```')[1]
+                if response_text.startswith('json'):
+                    response_text = response_text[4:]
+            
+            personalities = json.loads(response_text)
+            
+            # Validate that all personalities exist
+            valid_personalities = []
+            for name in personalities:
+                if name in personality_sample:
+                    valid_personalities.append(name)
+            
+            # Ensure we have at least 3
+            if len(valid_personalities) < 3:
+                # Fallback to random selection
+                valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+            
+            return jsonify({
+                'success': True,
+                'personalities': valid_personalities[:5]  # Max 5 AI players
+            })
+            
+        except json.JSONDecodeError:
+            # Fallback to random selection
+            personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+            return jsonify({
+                'success': True,
+                'personalities': personalities,
+                'fallback': True
+            })
+            
+    except Exception as e:
+        logger.error(f"Error generating theme: {e}")
+        # Fallback to random selection
+        try:
+            all_personalities = list(get_celebrities())
+            personalities = random.sample(all_personalities, min(4, len(all_personalities)))
+            return jsonify({
+                'success': True,
+                'personalities': personalities,
+                'fallback': True
+            })
+        except:
+            return jsonify({'error': 'Failed to generate theme'}), 500
+
 @app.route('/api/generate_personality', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_GENERATE_PERSONALITY', '15 per hour'))
 def generate_personality():
     """Generate a new personality using AI."""
     try:
