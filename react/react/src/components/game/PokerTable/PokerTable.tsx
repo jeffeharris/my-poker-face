@@ -153,7 +153,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   };
 
   useEffect(() => {
-    // If a gameId is provided, load that game; otherwise create a new one
+    // Only proceed if we have a gameId
+    if (!providedGameId) {
+      // Keep showing loading screen while waiting for gameId
+      return;
+    }
+    
     if (providedGameId) {
       // Load existing game
       const loadGameId = providedGameId;
@@ -238,87 +243,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           // Reload the page to reset the app state
           window.location.reload();
         });
-    } else {
-      // Create a new game
-      fetchWithCredentials(`${config.API_URL}/api/new-game`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          playerName: playerName || 'Player'
-        }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          const newGameId = data.game_id;
-          setGameId(newGameId);
-          
-          // Notify parent component of the new game ID
-          if (onGameCreated) {
-            onGameCreated(newGameId);
-          }
-        
-        // Initialize WebSocket connection
-        const socket = io(config.SOCKET_URL);
-        socketRef.current = socket;
-        
-        socket.on('connect', () => {
-          console.log('WebSocket connected');
-          socket.emit('join_game', newGameId);
-          console.log('Joined new game room:', newGameId);
-        });
-        
-        setupSocketListeners(socket);
-        
-        // Now fetch the initial game state
-        return fetchWithCredentials(`${config.API_URL}/api/game-state/${newGameId}`);
-      })
-      .then(res => res.json())
-      .then(data => {
-        setGameState(data);
-        setLoading(false);
-        
-        // Only initialize positions if they haven't been set yet
-        // This prevents positions from changing when dealer rotates
-        if (playerPositions.size === 0) {
-          const positions = new Map<string, number>();
-          let humanIndex = data.players.findIndex((p: Player) => p.is_human);
-          let positionIndex = 0;
-          
-          // Assign human player to position 0 (bottom)
-          if (humanIndex !== -1) {
-            positions.set(data.players[humanIndex].name, 0);
-            positionIndex = 1;
-          }
-          
-          // Assign other players to remaining positions
-          data.players.forEach((player: Player, index: number) => {
-            if (!player.is_human) {
-              positions.set(player.name, positionIndex);
-              positionIndex++;
-            }
-          });
-          setPlayerPositions(positions);
-        }
-        
-        // Initialize messages
-        if (data.messages) {
-          setMessages(data.messages);
-          data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-        }
-        
-        // Check if AI needs to act
-        const currentPlayer = data.players[data.current_player_idx];
-        if (!currentPlayer.is_human) {
-          setAiThinking(true);
-          // No need to poll - WebSocket will handle updates
-        }
-      })
-      .catch(err => {
-        console.error('Failed to create/fetch game:', err);
-        setLoading(false);
-      });
     }
   }, [providedGameId]);
 
