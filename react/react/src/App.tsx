@@ -113,6 +113,9 @@ function App() {
   };
 
   const handleQuickPlay = async () => {
+    // Immediately switch to table view to show loading screen
+    setCurrentView('table');
+    
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -126,10 +129,15 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setGameId(data.game_id);
-        setCurrentView('table');
+      } else {
+        // If creation fails, go back to menu
+        console.error('Failed to create game');
+        setCurrentView('game-menu');
       }
     } catch (error) {
       console.error('Failed to create game:', error);
+      // If creation fails, go back to menu
+      setCurrentView('game-menu');
     }
   };
 
@@ -146,6 +154,9 @@ function App() {
   };
 
   const handleStartCustomGame = async (selectedPersonalities: string[]) => {
+    // Immediately switch to table view to show loading screen
+    setCurrentView('table');
+    
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -162,15 +173,23 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setGameId(data.game_id);
-        setCurrentView('table');
+      } else {
+        // If creation fails, go back to custom game view
+        console.error('Failed to create custom game');
+        setCurrentView('custom-game');
       }
     } catch (error) {
       console.error('Failed to create custom game:', error);
+      // If creation fails, go back to custom game view
+      setCurrentView('custom-game');
     }
   };
 
   const handleSelectTheme = async (theme: Theme) => {
     if (!theme.personalities) return;
+    
+    // Immediately switch to table view to show loading screen
+    setCurrentView('table');
     
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
@@ -188,10 +207,15 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setGameId(data.game_id);
-        setCurrentView('table');
+      } else {
+        // If creation fails, go back to themed game view
+        console.error('Failed to create themed game');
+        setCurrentView('themed-game');
       }
     } catch (error) {
       console.error('Failed to create themed game:', error);
+      // If creation fails, go back to themed game view
+      setCurrentView('themed-game');
     }
   };
 
