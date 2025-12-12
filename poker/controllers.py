@@ -193,13 +193,19 @@ class AIPlayerController:
                 response_dict['raise_amount_corrected'] = True
                 logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
         
+        # Normalize action to lowercase for consistency
+        if 'action' in response_dict:
+            response_dict['action'] = response_dict['action'].lower()
+
         # Validate action is valid
         valid_actions = context.get('valid_actions', [])
         if valid_actions and response_dict['action'] not in valid_actions:
             logger.warning(f"AI chose invalid action {response_dict['action']}, validating...")
             validated = validate_ai_response(response_dict, valid_actions)
             response_dict['action'] = validated['action']
-            response_dict['adding_to_pot'] = validated['amount']
+            # Preserve adding_to_pot if it was set, otherwise use validated amount
+            if response_dict.get('adding_to_pot', 0) == 0:
+                response_dict['adding_to_pot'] = validated.get('amount', 0)
         
         return response_dict
     
@@ -231,11 +237,11 @@ class AIPlayerController:
         
         return context
     
-    def _build_chattiness_guidance(self, chattiness: float, should_speak: bool, 
+    def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
                                   speaking_context: Dict) -> str:
         """Build guidance for AI about speaking behavior."""
         guidance = f"Your chattiness level: {chattiness:.1f}/1.0\n"
-        
+
         if should_speak:
             guidance += "You feel inclined to say something this turn.\n"
             style = self.chattiness_manager.suggest_speaking_style(
@@ -246,26 +252,26 @@ class AIPlayerController:
             guidance += "You don't feel like talking this turn. Stay quiet.\n"
             guidance += "Focus on your action and inner thoughts only.\n"
             guidance += "DO NOT include 'persona_response' or 'physical' in your response.\n"
-        
+
         # Add context about conversation flow
         if speaking_context['turns_since_spoke'] > 3:
             guidance += f"(You haven't spoken in {speaking_context['turns_since_spoke']} turns)\n"
         if speaking_context['table_silent_turns'] > 2:
             guidance += "(The table has been quiet for a while)\n"
-        
+
         # Add response format based on context
         guidance += "\nRequired response fields:\n"
         guidance += "- action (from your available options)\n"
         guidance += "- inner_monologue (your private thoughts)\n"
-        
+
         if self.ai_player.hand_action_count == 0:
             guidance += "- hand_strategy (your approach for this entire hand)\n"
-        
+
         if should_speak:
-            guidance += "\nOptional response fields:\n"
-            guidance += "- persona_response (what you say out loud)\n"
-            guidance += "- physical (gestures or actions)\n"
-        
+            guidance += "\nIMPORTANT - You MUST include these fields since you want to speak:\n"
+            guidance += "- persona_response (what you say out loud - REQUIRED this turn)\n"
+            guidance += "- physical (your gestures or actions - REQUIRED this turn)\n"
+
         return guidance
 
 
