@@ -3,6 +3,12 @@ import os
 
 from openai import OpenAI
 
+# Import config for AI settings
+try:
+    from poker.config import AI_MAX_MEMORY_LENGTH
+except ImportError:
+    AI_MAX_MEMORY_LENGTH = 15  # Default fallback
+
 
 class LLMAssistant:
     ai_model: str
@@ -31,7 +37,7 @@ class LLMAssistant:
         :type memory: list or None
         """
         # create a class that defines the client using OpenAI API directly
-        self.max_memory_length = 15
+        self.max_memory_length = AI_MAX_MEMORY_LENGTH
         self.memory = memory
         self.ai_temp = ai_temp
         self.ai_model = ai_model

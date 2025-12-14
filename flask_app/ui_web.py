@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 load_dotenv(override=True)
 
 from poker.controllers import AIPlayerController
-from poker.ai_resilience import get_fallback_chat_response
+from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
+from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
@@ -882,7 +883,7 @@ def handle_ai_action(game_id: str) -> None:
     try:
         # The controller.decide_action already has resilience built in,
         # but we wrap in try/catch as a last resort
-        player_response_dict = controller.decide_action(game_messages[-8:])
+        player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])
         
         # Prepare variables needed for new messages
         action = player_response_dict['action']
@@ -894,37 +895,33 @@ def handle_ai_action(game_id: str) -> None:
     except Exception as e:
         # This should rarely happen since controller has built-in resilience
         print(f"[handle_ai_action] Critical error getting AI decision: {e}")
-        
-        # Use personality-aware fallback as last resort
+
+        # Use centralized FallbackActionSelector as last resort
         valid_actions = state_machine.game_state.current_player_options
-        
-        # Get personality traits if available
         personality_traits = getattr(controller, 'personality_traits', {})
-        aggression = personality_traits.get('aggression', 0.5)
-        
-        # Personality-based action selection
-        if 'raise' in valid_actions and aggression > 0.7:
-            action = 'raise'
-            min_bet = 10  # TODO: Get from game rules
-            amount = min(current_player.stack, int(min_bet * (1 + aggression)))
-        elif 'call' in valid_actions and aggression > 0.3:
-            action = 'call'
-            amount = state_machine.game_state.highest_bet - current_player.bet
-        elif 'check' in valid_actions:
-            action = 'check'
-            amount = 0
-        else:
-            action = 'fold'
-            amount = 0
-        
+        call_amount = state_machine.game_state.highest_bet - current_player.bet
+        max_raise = min(current_player.stack, state_machine.game_state.pot.get('total', 0) * 2)
+
+        fallback_result = FallbackActionSelector.select_action(
+            valid_actions=valid_actions,
+            strategy=AIFallbackStrategy.MIMIC_PERSONALITY,
+            personality_traits=personality_traits,
+            call_amount=call_amount,
+            min_raise=MIN_RAISE,
+            max_raise=max_raise
+        )
+
+        action = fallback_result['action']
+        amount = fallback_result['adding_to_pot']
+
         # Use personality-aware fallback messages
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
         raise_corrected = False
-        
+
         # Subtle notification that we're using fallback
-        send_message(game_id, "table", 
-                    f"[{current_player.name} takes a moment to consider]", 
+        send_message(game_id, "table",
+                    f"[{current_player.name} takes a moment to consider]",
                     "table")
 
     # Build table message with correction indicator

@@ -10,8 +10,9 @@ from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
+from .config import MIN_RAISE, BIG_POT_THRESHOLD, AI_MESSAGE_CONTEXT_LIMIT
 from .ai_resilience import (
-    with_ai_fallback, 
+    with_ai_fallback,
     expects_json,
     parse_json_response,
     validate_ai_response,
@@ -121,7 +122,7 @@ class AIPlayerController:
             message=message,
             valid_actions=player_options,
             call_amount=cost_to_call,
-            min_raise=10,  # TODO: Calculate from game rules
+            min_raise=MIN_RAISE,
             max_raise=min(player_stack, game_state.pot['total'] * 2),
             should_speak=should_speak
         )
@@ -150,7 +151,8 @@ class AIPlayerController:
             message=message
         )
         
-        response_json = self.assistant.chat(decision_prompt)
+        # Use JSON mode for more reliable structured responses
+        response_json = self.assistant.chat(decision_prompt, json_format=True)
         response_dict = parse_json_response(response_json)
         
         # Validate response has required keys (only action is truly required)
@@ -189,7 +191,7 @@ class AIPlayerController:
                     logger.warning(f"[RAISE_CORRECTION] {self.player_name} said raise but adding_to_pot was 0, extracted ${mentioned_amount} from persona_response")
             else:
                 # Default to minimum raise
-                response_dict['adding_to_pot'] = context.get('min_raise', 10)
+                response_dict['adding_to_pot'] = context.get('min_raise', MIN_RAISE)
                 response_dict['raise_amount_corrected'] = True
                 logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
         
@@ -203,9 +205,9 @@ class AIPlayerController:
             logger.warning(f"AI chose invalid action {response_dict['action']}, validating...")
             validated = validate_ai_response(response_dict, valid_actions)
             response_dict['action'] = validated['action']
-            # Preserve adding_to_pot if it was set, otherwise use validated amount
+            # Preserve adding_to_pot if it was set, otherwise use validated value
             if response_dict.get('adding_to_pot', 0) == 0:
-                response_dict['adding_to_pot'] = validated.get('amount', 0)
+                response_dict['adding_to_pot'] = validated.get('adding_to_pot', 0)
         
         return response_dict
     
@@ -215,7 +217,7 @@ class AIPlayerController:
         
         # Check pot size
         pot_total = game_state.pot.get('total', 0)
-        if pot_total > 500:  # Arbitrary threshold
+        if pot_total > BIG_POT_THRESHOLD:
             context['big_pot'] = True
         
         # Check if all-in situation
