@@ -1,7 +1,10 @@
 from typing import List, Dict, Optional
 import os
+import logging
 
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 # Import config for AI settings
 try:
@@ -150,7 +153,7 @@ class OpenAILLMAssistant(LLMAssistant):
         kwargs = {
             "model": self.ai_model,
             "messages": messages,
-            "max_completion_tokens": 1500,
+            "max_completion_tokens": 2800,
         }
         if not self.ai_model.startswith("gpt-5"):
             kwargs["temperature"] = self.ai_temp
@@ -174,7 +177,7 @@ class OpenAILLMAssistant(LLMAssistant):
         kwargs = {
             "model": self.ai_model,
             "messages": messages,
-            "max_completion_tokens": 1500,
+            "max_completion_tokens": 2800,
             "response_format": {"type": "json_object"},
         }
         if not self.ai_model.startswith("gpt-5"):
@@ -205,10 +208,20 @@ class OpenAILLMAssistant(LLMAssistant):
             response = self.get_response(self.messages)
 
         content = response.choices[0].message.content
+
+        # Log details if content is empty or None
+        if not content:
+            logger.error(f"[AI_EMPTY_RESPONSE] Empty content from OpenAI")
+            logger.error(f"[AI_EMPTY_RESPONSE] Model: {self.ai_model}")
+            logger.error(f"[AI_EMPTY_RESPONSE] Finish reason: {response.choices[0].finish_reason}")
+            if hasattr(response, 'usage'):
+                logger.error(f"[AI_EMPTY_RESPONSE] Usage: {response.usage}")
+            return ""
+
         ai_message = {"role": "assistant", "content": content}
         self.add_to_memory(ai_message)
 
-        return response.choices[0].message.content
+        return content
 
     def reset_memory(self):
         """

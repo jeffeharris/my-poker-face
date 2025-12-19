@@ -21,10 +21,18 @@ class ResponseValidator:
     }
     
     # Fields that can be present but should be validated
+    # Organized by thinking phase: Observe → Analyze → Deliberate → React → Commit
     OPTIONAL_FIELDS = {
-        "play_style", "chasing", "player_observations", "bluff_likelihood",
-        "bet_strategy", "decision", "persona_response", "physical",
-        "new_confidence", "new_attitude"
+        # Phase 1: Observation
+        "situation_read", "player_observations",
+        # Phase 2: Analysis
+        "hand_strength", "chasing", "odds_assessment",
+        # Phase 3: Deliberation
+        "bluff_likelihood", "bet_strategy", "decision_reasoning",
+        # Phase 4: Reaction
+        "play_style", "new_confidence", "new_attitude", "persona_response", "physical",
+        # Legacy field (kept for backwards compatibility)
+        "decision"
     }
     
     def __init__(self):

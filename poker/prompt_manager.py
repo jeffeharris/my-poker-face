@@ -105,72 +105,101 @@ class PromptManager:
         return template.render(**kwargs)
 
 
-# Response format definitions
+# Response format definitions - structured to simulate human thinking process
+# AI should work through these phases in order: Observe → Analyze → Deliberate → React → Commit
 RESPONSE_FORMAT = {
-    # ALWAYS REQUIRED
-    "action": "REQUIRED: action from provided options",
-    "adding_to_pot": "REQUIRED if raising: amount to raise BY (not total bet, just the raise above the call)",
-    "inner_monologue": "REQUIRED: internal thoughts",
-    
-    # REQUIRED ON FIRST ACTION OF HAND
-    "hand_strategy": "REQUIRED on first action: analysis of current situation",
-    
-    # OPTIONAL STRATEGIC FIELDS
-    "play_style": "OPTIONAL: what is your current play style",
-    "chasing": "OPTIONAL: what you're chasing",
-    "player_observations": "OPTIONAL: notes about other players",
-    "bluff_likelihood": "OPTIONAL: % likelihood to bluff",
-    "bet_strategy": "OPTIONAL: how might you bet this turn",
-    "decision": "OPTIONAL: your decision reasoning",
-    
-    # OPTIONAL BASED ON CHATTINESS
-    "persona_response": "OPTIONAL: what you say to the table",
-    "physical": "OPTIONAL: list of physical actions",
-    
-    # OPTIONAL STATE UPDATES
-    "new_confidence": "OPTIONAL: single word",
-    "new_attitude": "OPTIONAL: single word"
+    # PHASE 1: OBSERVATION (What do I see?)
+    "situation_read": "OPTIONAL: What you notice about the board, position, and table dynamics",
+    "player_observations": "OPTIONAL: Notes about other players' behavior and patterns",
+
+    # PHASE 2: ANALYSIS (What does this mean for me?)
+    "hand_strategy": "REQUIRED on first action: Your strategic approach for this hand",
+    "hand_strength": "OPTIONAL: Your assessment of your hand (weak/marginal/strong/monster)",
+    "chasing": "OPTIONAL: What draws you're chasing, if any",
+    "odds_assessment": "OPTIONAL: Pot odds, implied odds, or risk/reward thinking",
+
+    # PHASE 3: INTERNAL DELIBERATION (Working through the decision)
+    "inner_monologue": "REQUIRED: Private thoughts as you work through what to do",
+    "bluff_likelihood": "OPTIONAL: % likelihood you're bluffing (0-100)",
+    "bet_strategy": "OPTIONAL: How you want to approach this bet",
+    "decision_reasoning": "OPTIONAL: The logic leading to your final choice",
+
+    # PHASE 4: EMOTIONAL REACTION (How do I feel/present?)
+    "play_style": "OPTIONAL: Your current play style (tight/loose/aggressive/passive)",
+    "new_confidence": "OPTIONAL: Updated confidence level (single word)",
+    "new_attitude": "OPTIONAL: Updated emotional state (single word)",
+    "persona_response": "OPTIONAL: What you say out loud to the table",
+    "physical": "OPTIONAL: List of physical actions, gestures, or tells",
+
+    # PHASE 5: COMMITMENT (Final action - decided LAST after thinking it through)
+    "action": "REQUIRED: Your final action from the provided options",
+    "adding_to_pot": "REQUIRED if raising: Amount to raise BY (not total bet, just the raise above the call)"
 }
 
 
 # Example personas with different play styles
+# Examples follow the thinking flow: Observe → Analyze → Deliberate → React → Commit
 PERSONA_EXAMPLES = {
     "Eeyore": {
         "play_style": "tight",
         "sample_response": {
-            "play_style": "tight",
-            "chasing": "none",
+            # PHASE 1: OBSERVATION
+            "situation_read": "Early position, small pot, everyone looks confident",
             "player_observations": {"pooh": "playing loose, possibly bluffing"},
+
+            # PHASE 2: ANALYSIS
             "hand_strategy": "With a 2D and 3C, I don't feel confident. My odds are very low.",
+            "hand_strength": "weak",
+            "chasing": "none",
+            "odds_assessment": "Not worth chasing anything with these cards",
+
+            # PHASE 3: DELIBERATION
+            "inner_monologue": "Another miserable hand. Why do I even bother? Just stay in for now and hope nobody raises.",
             "bluff_likelihood": 10,
             "bet_strategy": "I could check or fold. Not worth the risk.",
-            "decision": "I check.",
-            "action": "check",
-            "adding_to_pot": 0,
-            "inner_monologue": "Another miserable hand. Just stay in for now.",
+            "decision_reasoning": "No point throwing good chips after bad. Checking is free.",
+
+            # PHASE 4: REACTION
+            "play_style": "tight",
+            "new_confidence": "abysmal",
+            "new_attitude": "gloomy",
             "persona_response": "Oh bother, just my luck. Another miserable hand, I suppose.",
             "physical": ["*looks at feet*", "*lets out a big sigh*"],
-            "new_confidence": "abysmal",
-            "new_attitude": "gloomy"
+
+            # PHASE 5: COMMITMENT
+            "action": "check",
+            "adding_to_pot": 0
         }
     },
     "Clint Eastwood": {
         "play_style": "loose and aggressive",
         "sample_response": {
-            "play_style": "loose and aggressive",
-            "chasing": "flush",
-            "player_observations": {"john": "seems nervous"},
+            # PHASE 1: OBSERVATION
+            "situation_read": "Three hearts on board, John looks nervous, pot is building",
+            "player_observations": {"john": "seems nervous, keeps glancing at chips"},
+
+            # PHASE 2: ANALYSIS
             "hand_strategy": "I've got a decent shot if I catch that last heart.",
+            "hand_strength": "marginal but drawing",
+            "chasing": "flush",
+            "odds_assessment": "About 4:1 against hitting, but implied odds are good if John calls",
+
+            # PHASE 3: DELIBERATION
+            "inner_monologue": "Let's see if they flinch. John's nervous - a raise might take it down right here. And if not, I've got outs.",
             "bluff_likelihood": 25,
             "bet_strategy": "A small raise should keep them guessing.",
-            "decision": "I'll raise.",
-            "action": "raise",
-            "adding_to_pot": 50,  # This is raise BY $50, not raise TO $50
-            "inner_monologue": "Let's see if they flinch. Push John a little more.",
+            "decision_reasoning": "Semi-bluff with equity. Either win now or have chances to improve.",
+
+            # PHASE 4: REACTION
+            "play_style": "loose and aggressive",
+            "new_confidence": "steady",
+            "new_attitude": "determined",
             "persona_response": "Your move.",
             "physical": ["*narrows eyes*"],
-            "new_confidence": "steady",
-            "new_attitude": "determined"
+
+            # PHASE 5: COMMITMENT
+            "action": "raise",
+            "adding_to_pot": 50  # This is raise BY $50, not raise TO $50
         }
     }
 }
