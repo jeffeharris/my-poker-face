@@ -36,7 +36,19 @@ from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
-CORS(app, supports_credentials=True, origins=["http://localhost:3173", "http://localhost:5173", "https://*.onrender.com", "*"])  # Enable CORS with credentials
+
+# Configure CORS from environment variable
+# CORS_ORIGINS can be "*" for all origins, or comma-separated list of allowed origins
+cors_origins_env = os.environ.get('CORS_ORIGINS', '*')
+if cors_origins_env == '*':
+    # Allow all origins with credentials by using regex pattern
+    # This echoes back the requesting origin instead of literal "*"
+    import re
+    CORS(app, supports_credentials=True, origins=re.compile(r'.*'))
+else:
+    # Parse comma-separated origins and enable credentials
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+    CORS(app, supports_credentials=True, origins=cors_origins)
 
 # Custom key function that exempts Docker internal IPs
 def get_rate_limit_key():
