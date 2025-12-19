@@ -143,7 +143,7 @@ class FallbackActionSelector:
         # More aggressive players more likely to raise/call
         if 'raise' in valid_actions and aggression > AGGRESSION_RAISE_THRESHOLD:
             if random.random() < aggression:
-                adding_to_pot = int(min_raise + (max_raise - min_raise) * aggression * 0.3)
+                adding_to_pot = max(min_raise, int(min_raise + (max_raise - min_raise) * aggression * 0.3))
                 return {"action": "raise", "adding_to_pot": adding_to_pot}
 
         if 'call' in valid_actions and aggression > AGGRESSION_CALL_THRESHOLD:
