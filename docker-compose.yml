@@ -49,7 +49,7 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - VITE_API_URL=http://localhost:${BACKEND_PORT:-5000}
+      # VITE_API_URL intentionally not set - frontend uses window.location.hostname dynamically
       - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
     depends_on:
       - backend
