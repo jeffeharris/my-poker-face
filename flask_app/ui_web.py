@@ -1178,7 +1178,7 @@ Return as JSON with this format:
         
         # Use the OpenAI assistant
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-3.5-turbo",  # Faster model for quick suggestions
+            ai_model="gpt-5-mini",  # Faster model for quick suggestions
             ai_temp=0.8,  # Slightly creative but not too random
             system_message="You are a friendly poker player giving brief chat suggestions."
         )
@@ -1432,7 +1432,7 @@ No other text or explanation."""
         from core.assistants import OpenAILLMAssistant
         assistant = OpenAILLMAssistant(
             system_prompt="You are a game designer selecting personalities for themed poker games.",
-            model="gpt-4o-mini"
+            ai_model="gpt-5-mini"
         )
         
         response = assistant.get_response(prompt)
