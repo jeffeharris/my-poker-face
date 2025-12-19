@@ -205,6 +205,16 @@ def on_join(game_id):
     print(f"User joined room: {game_id}")
     socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
+    # Check if this is a new game that needs to be started
+    game_id_str = str(game_id)
+    if game_id_str in games:
+        game_data = games[game_id_str]
+        # Start the game if it hasn't been started yet
+        if not game_data.get('game_started', False):
+            game_data['game_started'] = True
+            print(f"Starting game progression for: {game_id_str}")
+            progress_game(game_id_str)
+
 
 # Serve static files (React build)
 @app.route('/', defaults={'path': ''})
@@ -476,12 +486,12 @@ def api_new_game():
     }
     games[game_id] = game_data
     
-    # Save the new game to database  
+    # Save the new game to database
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-    
-    # Progress the game to the first human action
-    progress_game(game_id)
-    
+
+    # Game progression is now triggered by frontend via 'start_game' Socket.IO event
+    # This allows the table UI to load immediately
+
     return jsonify({'game_id': game_id})
 
 
