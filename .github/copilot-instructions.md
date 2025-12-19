@@ -65,6 +65,16 @@ python -m pytest tests/test_persistence.py -v
 python -m pytest tests/test_ai_resilience.py -v
 ```
 
+### Linting
+```bash
+# Frontend linting (TypeScript/React)
+cd react/react
+npm run lint
+
+# Build check
+npm run build
+```
+
 ### Testing Guidelines
 - Mock OpenAI API responses when testing AI behavior
 - Test personality loading from `poker/personalities.json`
