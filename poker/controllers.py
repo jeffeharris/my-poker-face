@@ -166,6 +166,10 @@ class AIPlayerController:
         if 'adding_to_pot' not in response_dict:
             response_dict['adding_to_pot'] = 0
         
+        # Normalize action to lowercase for consistency (before validation checks)
+        if 'action' in response_dict:
+            response_dict['action'] = response_dict['action'].lower()
+        
         # Fix common AI mistake: saying "raise" but setting adding_to_pot to 0
         if response_dict.get('action') == 'raise' and response_dict.get('adding_to_pot', 0) == 0:
             # Try to extract amount from persona_response
@@ -195,10 +199,6 @@ class AIPlayerController:
                 response_dict['raise_amount_corrected'] = True
                 logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
         
-        # Normalize action to lowercase for consistency
-        if 'action' in response_dict:
-            response_dict['action'] = response_dict['action'].lower()
-
         # Validate action is valid
         valid_actions = context.get('valid_actions', [])
         if valid_actions and response_dict['action'] not in valid_actions:
