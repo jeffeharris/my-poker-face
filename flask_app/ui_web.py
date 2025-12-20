@@ -489,8 +489,8 @@ def api_new_game():
     # Save the new game to database
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-    # Game progression is now triggered by frontend via 'start_game' Socket.IO event
-    # This allows the table UI to load immediately
+    # Game progression is triggered later by server-side events (e.g., player joins or actions).
+    # This endpoint only initializes the game so the table UI can load immediately.
 
     return jsonify({'game_id': game_id})
 
