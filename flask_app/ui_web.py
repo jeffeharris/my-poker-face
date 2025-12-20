@@ -38,16 +38,30 @@ from core.assistants import OpenAILLMAssistant
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 
-# Configure CORS from environment variable
-# CORS_ORIGINS can be "*" for all origins, or comma-separated list of allowed origins
+# Configure CORS securely based on environment
+# In development: Allow all origins without credentials (safe for local dev)
+# In production: Require explicit origins with credentials (secure)
+# Check both FLASK_ENV (for backward compatibility) and FLASK_DEBUG
+flask_env = os.environ.get('FLASK_ENV', 'production')
+flask_debug = os.environ.get('FLASK_DEBUG', '0')
+is_development = (flask_env == 'development' or flask_debug == '1')
 cors_origins_env = os.environ.get('CORS_ORIGINS', '*')
+
 if cors_origins_env == '*':
-    # Allow all origins with credentials by using regex pattern
-    # This echoes back the requesting origin instead of literal "*"
-    import re
-    CORS(app, supports_credentials=True, origins=re.compile(r'.*'))
+    # Wildcard origin mode - safe ONLY without credentials
+    if is_development:
+        # Development: Allow all origins without credentials
+        CORS(app, supports_credentials=False, origins='*')
+    else:
+        # Production: Wildcard is not allowed with credentials for security
+        # Fall back to safe defaults or require explicit configuration
+        raise ValueError(
+            "CORS_ORIGINS='*' is not allowed in production. "
+            "Please set CORS_ORIGINS to a comma-separated list of allowed origins. "
+            "Example: CORS_ORIGINS=https://app.example.com,https://www.example.com"
+        )
 else:
-    # Parse comma-separated origins and enable credentials
+    # Explicit origins - can safely use credentials
     cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
     CORS(app, supports_credentials=True, origins=cors_origins)
 
