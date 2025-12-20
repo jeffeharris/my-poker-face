@@ -181,6 +181,6 @@ What is your move?"""
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
-    print("Starting Personality Tester on http://localhost:5001")
+    print("Starting Personality Tester on http://localhost:5000")
     print("Available personalities:", get_available_personalities())
-    app.run(debug=True, port=5001)
+    app.run(debug=True, port=5000)

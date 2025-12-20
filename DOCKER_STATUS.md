@@ -5,12 +5,12 @@
 All services are running correctly with the new UI improvements!
 
 ### Port Mappings
-- **Frontend (React)**: http://localhost:3173 (maps to container port 3000)
-- **Backend (Flask)**: http://localhost:5001 (maps to container port 5000)
-- **Redis**: localhost:6380 (maps to container port 6379)
+- **Frontend (React)**: http://localhost:5173 (maps to container port 5173)
+- **Backend (Flask)**: http://localhost:5000 (maps to container port 5000)
+- **Redis**: localhost:6379 (maps to container port 6379)
 
 ### Environment Variables
-- `VITE_API_URL=http://localhost:5001` - Frontend knows where to find the backend
+- `VITE_API_URL` - (Optional) Override backend URL. If not set, frontend auto-detects using `window.location.hostname:5000` in development
 - `VITE_ENABLE_DEBUG=true` - Debug panel is enabled in the UI
 - `ENABLE_DEBUG=true` - Set in .env file
 
@@ -40,7 +40,7 @@ docker compose up -d --build
 
 ### Accessing the Application
 
-1. Open http://localhost:3173 in your browser
+1. Open http://localhost:5173 in your browser
 2. Enter your name
 3. You'll see the new Game Menu with options:
    - Quick Play (random opponents)
@@ -58,6 +58,7 @@ The debug panel is enabled and can be toggled with the button at the bottom-left
 
 If the frontend can't connect to the backend:
 1. Check that both containers are running: `docker compose ps`
-2. Verify the backend is healthy: `curl http://localhost:5001/health`
+2. Verify the backend is healthy: `curl http://localhost:5000/health`
 3. Check frontend logs: `docker compose logs frontend`
-4. Ensure VITE_API_URL is set correctly in the environment
+4. Verify backend URL detection in browser console (F12 → Console): Should show requests to `http://localhost:5000` or `http://127.0.0.1:5000`
+5. If needed, explicitly set: `VITE_API_URL=http://localhost:5000` in docker-compose.yml environment section

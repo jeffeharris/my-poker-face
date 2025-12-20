@@ -24,7 +24,7 @@ cd tests/personality_tester
 python app.py
 ```
 
-Then open http://localhost:5001 in your browser.
+Then open http://localhost:5000 in your browser.
 
 ## How It Works
 
