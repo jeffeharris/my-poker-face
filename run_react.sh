@@ -1,8 +1,8 @@
 #!/bin/bash
 # Launch script for React + Flask poker game
 
-# Get port from argument or use default
-BACKEND_PORT=${1:-5001}
+# Get port from argument or use default (matches docker-compose.yml)
+BACKEND_PORT=${1:-5000}
 
 echo "🎰 My Poker Face - React Version Launcher"
 echo "========================================="
