@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 load_dotenv(override=True)
 
 from poker.controllers import AIPlayerController
-from poker.ai_resilience import get_fallback_chat_response
+from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
+from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
@@ -36,7 +37,36 @@ from core.assistants import OpenAILLMAssistant
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
-CORS(app, supports_credentials=True, origins=["http://localhost:3173", "http://localhost:5173", "https://*.onrender.com", "*"])  # Enable CORS with credentials
+
+# Configure CORS securely based on environment
+# In development: Allow all origins WITH credentials using regex (echoes back requesting origin)
+# In production: Require explicit origins with credentials (secure)
+# Check both FLASK_ENV (for backward compatibility) and FLASK_DEBUG
+flask_env = os.environ.get('FLASK_ENV', 'production')
+flask_debug = os.environ.get('FLASK_DEBUG', '0')
+is_development = (flask_env == 'development' or flask_debug == '1')
+cors_origins_env = os.environ.get('CORS_ORIGINS', '*')
+
+if cors_origins_env == '*':
+    # Wildcard origin mode
+    if is_development:
+        # Development: Allow all origins WITH credentials using regex
+        # This echoes back the requesting origin instead of literal "*"
+        # which allows credentials to work while maintaining flexibility
+        import re
+        CORS(app, supports_credentials=True, origins=re.compile(r'.*'))
+    else:
+        # Production: Wildcard is not allowed with credentials for security
+        # Fall back to safe defaults or require explicit configuration
+        raise ValueError(
+            "CORS_ORIGINS='*' is not allowed in production. "
+            "Please set CORS_ORIGINS to a comma-separated list of allowed origins. "
+            "Example: CORS_ORIGINS=https://app.example.com,https://www.example.com"
+        )
+else:
+    # Explicit origins - can safely use credentials
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+    CORS(app, supports_credentials=True, origins=cors_origins)
 
 # Custom key function that exempts Docker internal IPs
 def get_rate_limit_key():
@@ -191,6 +221,16 @@ def on_join(game_id):
     join_room(game_id)
     print(f"User joined room: {game_id}")
     socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
+
+    # Check if this is a new game that needs to be started
+    game_id_str = str(game_id)
+    if game_id_str in games:
+        game_data = games[game_id_str]
+        # Start the game if it hasn't been started yet
+        if not game_data.get('game_started', False):
+            game_data['game_started'] = True
+            print(f"Starting game progression for: {game_id_str}")
+            progress_game(game_id_str)
 
 
 # Serve static files (React build)
@@ -463,12 +503,12 @@ def api_new_game():
     }
     games[game_id] = game_data
     
-    # Save the new game to database  
+    # Save the new game to database
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-    
-    # Progress the game to the first human action
-    progress_game(game_id)
-    
+
+    # Game progression is triggered later by server-side events (e.g., player joins or actions).
+    # This endpoint only initializes the game so the table UI can load immediately.
+
     return jsonify({'game_id': game_id})
 
 
@@ -882,7 +922,7 @@ def handle_ai_action(game_id: str) -> None:
     try:
         # The controller.decide_action already has resilience built in,
         # but we wrap in try/catch as a last resort
-        player_response_dict = controller.decide_action(game_messages[-8:])
+        player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])
         
         # Prepare variables needed for new messages
         action = player_response_dict['action']
@@ -894,37 +934,33 @@ def handle_ai_action(game_id: str) -> None:
     except Exception as e:
         # This should rarely happen since controller has built-in resilience
         print(f"[handle_ai_action] Critical error getting AI decision: {e}")
-        
-        # Use personality-aware fallback as last resort
+
+        # Use centralized FallbackActionSelector as last resort
         valid_actions = state_machine.game_state.current_player_options
-        
-        # Get personality traits if available
         personality_traits = getattr(controller, 'personality_traits', {})
-        aggression = personality_traits.get('aggression', 0.5)
-        
-        # Personality-based action selection
-        if 'raise' in valid_actions and aggression > 0.7:
-            action = 'raise'
-            min_bet = 10  # TODO: Get from game rules
-            amount = min(current_player.stack, int(min_bet * (1 + aggression)))
-        elif 'call' in valid_actions and aggression > 0.3:
-            action = 'call'
-            amount = state_machine.game_state.highest_bet - current_player.bet
-        elif 'check' in valid_actions:
-            action = 'check'
-            amount = 0
-        else:
-            action = 'fold'
-            amount = 0
-        
+        call_amount = state_machine.game_state.highest_bet - current_player.bet
+        max_raise = min(current_player.stack, state_machine.game_state.pot.get('total', 0) * 2)
+
+        fallback_result = FallbackActionSelector.select_action(
+            valid_actions=valid_actions,
+            strategy=AIFallbackStrategy.MIMIC_PERSONALITY,
+            personality_traits=personality_traits,
+            call_amount=call_amount,
+            min_raise=MIN_RAISE,
+            max_raise=max_raise
+        )
+
+        action = fallback_result['action']
+        amount = fallback_result['adding_to_pot']
+
         # Use personality-aware fallback messages
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
         raise_corrected = False
-        
+
         # Subtle notification that we're using fallback
-        send_message(game_id, "table", 
-                    f"[{current_player.name} takes a moment to consider]", 
+        send_message(game_id, "table",
+                    f"[{current_player.name} takes a moment to consider]",
                     "table")
 
     # Build table message with correction indicator
@@ -1169,7 +1205,7 @@ Return as JSON with this format:
         
         # Use the OpenAI assistant
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-3.5-turbo",  # Faster model for quick suggestions
+            ai_model="gpt-5-mini",  # Faster model for quick suggestions
             ai_temp=0.8,  # Slightly creative but not too random
             system_message="You are a friendly poker player giving brief chat suggestions."
         )
@@ -1423,7 +1459,7 @@ No other text or explanation."""
         from core.assistants import OpenAILLMAssistant
         assistant = OpenAILLMAssistant(
             system_prompt="You are a game designer selecting personalities for themed poker games.",
-            model="gpt-4o-mini"
+            ai_model="gpt-5-mini"
         )
         
         response = assistant.get_response(prompt)

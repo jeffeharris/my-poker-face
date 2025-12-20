@@ -13,7 +13,8 @@ import json
 import time
 
 # Base URL for the API
-BASE_URL = "http://localhost:5001"
+# Use port 5000 to match docker-compose.yml default backend port
+BASE_URL = "http://localhost:5000"
 
 def test_guest_persistence():
     print("Testing guest user persistence flow...")
