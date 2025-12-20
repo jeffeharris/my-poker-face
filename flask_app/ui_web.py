@@ -39,7 +39,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 
 # Configure CORS securely based on environment
-# In development: Allow all origins without credentials (safe for local dev)
+# In development: Allow all origins WITH credentials using regex (echoes back requesting origin)
 # In production: Require explicit origins with credentials (secure)
 # Check both FLASK_ENV (for backward compatibility) and FLASK_DEBUG
 flask_env = os.environ.get('FLASK_ENV', 'production')
@@ -48,10 +48,13 @@ is_development = (flask_env == 'development' or flask_debug == '1')
 cors_origins_env = os.environ.get('CORS_ORIGINS', '*')
 
 if cors_origins_env == '*':
-    # Wildcard origin mode - safe ONLY without credentials
+    # Wildcard origin mode
     if is_development:
-        # Development: Allow all origins without credentials
-        CORS(app, supports_credentials=False, origins='*')
+        # Development: Allow all origins WITH credentials using regex
+        # This echoes back the requesting origin instead of literal "*"
+        # which allows credentials to work while maintaining flexibility
+        import re
+        CORS(app, supports_credentials=True, origins=re.compile(r'.*'))
     else:
         # Production: Wildcard is not allowed with credentials for security
         # Fall back to safe defaults or require explicit configuration
