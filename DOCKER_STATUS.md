@@ -10,7 +10,7 @@ All services are running correctly with the new UI improvements!
 - **Redis**: localhost:6379 (maps to container port 6379)
 
 ### Environment Variables
-- `VITE_API_URL` - Frontend knows where to find the backend (automatically detected using window.location.hostname:5000)
+- `VITE_API_URL` - (Optional) Override backend URL. If not set, frontend auto-detects using `window.location.hostname:5000` in development
 - `VITE_ENABLE_DEBUG=true` - Debug panel is enabled in the UI
 - `ENABLE_DEBUG=true` - Set in .env file
 
@@ -60,4 +60,5 @@ If the frontend can't connect to the backend:
 1. Check that both containers are running: `docker compose ps`
 2. Verify the backend is healthy: `curl http://localhost:5000/health`
 3. Check frontend logs: `docker compose logs frontend`
-4. Ensure the frontend is using the correct backend URL (should auto-detect using window.location.hostname:5000)
+4. Verify backend URL detection in browser console (F12 → Console): Should show requests to `http://localhost:5000` or `http://127.0.0.1:5000`
+5. If needed, explicitly set: `VITE_API_URL=http://localhost:5000` in docker-compose.yml environment section
