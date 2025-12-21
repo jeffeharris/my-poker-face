@@ -46,7 +46,7 @@ export function ActionButtons({
   const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
   const twoThirdsPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.67));
   const fullPot = Math.max(safeMinRaise, safePotSize);
-  const defaultRaise = Math.max(safeMinRaise, bigBlind * 2);
+  const defaultRaise = safeHighestBet + Math.max(safeMinRaise, bigBlind * 2);
 
   // Smart bet suggestions based on context
   const getSmartBetSuggestions = () => {
