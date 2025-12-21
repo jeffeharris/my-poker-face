@@ -150,6 +150,34 @@ def get_game_owner_info(game_id: str) -> tuple:
     return game_data.get('owner_id'), game_data.get('owner_name')
 
 
+def format_action_message(player_name: str, action: str, amount: int = 0, highest_bet: int = 0) -> str:
+    """
+    Format a player action into a human-readable message.
+
+    :param player_name: The name of the player taking the action
+    :param action: The action type (raise, bet, call, check, fold, all_in)
+    :param amount: The "raise BY" amount (increment over the call)
+    :param highest_bet: The current highest bet before this action
+    :return: Formatted message string
+    """
+    if action == 'raise':
+        # amount is "raise BY", so total bet = highest_bet + amount
+        raise_to_amount = highest_bet + amount
+        return f"{player_name} raises to ${raise_to_amount}."
+    elif action == 'bet':
+        return f"{player_name} bets ${amount}."
+    elif action == 'call':
+        return f"{player_name} calls."
+    elif action == 'check':
+        return f"{player_name} checks."
+    elif action == 'fold':
+        return f"{player_name} folds."
+    elif action == 'all_in':
+        return f"{player_name} goes all-in!"
+    else:
+        return f"{player_name} chose to {action}."
+
+
 def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state."""
     ai_controllers = {}
@@ -210,8 +238,10 @@ def update_and_emit_game_state(game_id):
     # Add missing top-level fields that the frontend expects
     game_state_dict['highest_bet'] = game_state.highest_bet
     game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
-    game_state_dict['min_raise'] = game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20
-    game_state_dict['big_blind'] = 20  # TODO: Get from game config
+    # min_raise is the minimum RAISE BY amount (not total bet)
+    # Use the big blind (current_ante) as minimum raise increment
+    game_state_dict['min_raise'] = game_state.current_ante
+    game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
@@ -415,8 +445,8 @@ def api_game_state(game_id):
         'phase': str(state_machine.current_phase).split('.')[-1],
         'highest_bet': game_state.highest_bet,
         'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
-        'min_raise': game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20,
-        'big_blind': 20,  # TODO: Get from game config
+        'min_raise': game_state.current_ante,  # min_raise is the minimum RAISE BY amount
+        'big_blind': game_state.current_ante,
         'messages': messages,
         'game_id': game_id
     }
@@ -531,10 +561,12 @@ def api_player_action(game_id):
     if not current_player.is_human:
         return jsonify({'error': 'Not human player turn'}), 400
     
+    # Capture highest_bet before play_turn modifies state
+    highest_bet = state_machine.game_state.highest_bet
     game_state = play_turn(state_machine.game_state, action, amount)
-    
+
     # Generate a message to be added to the game table
-    table_message_content = f"{current_player.name} chose to {action}{(' $' + str(amount)) if amount > 0 else ''}."
+    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "game")
     
     game_state = advance_to_next_active_player(game_state)
@@ -814,11 +846,13 @@ def handle_player_action(data):
 
     # Play the current player's turn
     current_player = state_machine.game_state.current_player
+    # Capture highest_bet before play_turn modifies state
+    highest_bet = state_machine.game_state.highest_bet
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Generate a message to be added to the game table
-    table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
-    send_message(game_id,"table", table_message_content, "table")
+    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+    send_message(game_id, "table", table_message_content, "table")
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
 
@@ -929,7 +963,6 @@ def handle_ai_action(game_id: str) -> None:
         amount = player_response_dict.get('adding_to_pot', 0)
         player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
-        raise_corrected = player_response_dict.get('raise_amount_corrected', False)
         
     except Exception as e:
         # This should rarely happen since controller has built-in resilience
@@ -956,25 +989,23 @@ def handle_ai_action(game_id: str) -> None:
         # Use personality-aware fallback messages
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
-        raise_corrected = False
 
         # Subtle notification that we're using fallback
         send_message(game_id, "table",
                     f"[{current_player.name} takes a moment to consider]",
                     "table")
 
-    # Build table message with correction indicator
-    table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
-    if raise_corrected and action == 'raise':
-        table_message_content += " ⚠️"  # Subtle warning emoji to indicate correction
-    
+    # Build table message (capture highest_bet before play_turn modifies state)
+    highest_bet = state_machine.game_state.highest_bet
+    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+
     # Only send AI message if they actually spoke
     if player_message and player_message != '...':
         full_message = f"{player_message} {player_physical_description}".strip()
         send_message(game_id, current_player.name, full_message, "ai", 1)
-    
+
     send_message(game_id, "table", table_message_content, "table")
-    
+
     # Detect pressure events based on AI action
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
