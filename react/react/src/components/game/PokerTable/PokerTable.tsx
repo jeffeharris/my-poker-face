@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import type { ChatMessage } from '../../../types';
 import { Card, CommunityCard, HoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import { Chat } from '../../chat/Chat';
@@ -22,14 +23,6 @@ interface Player {
   is_all_in: boolean;
   is_human: boolean;
   hand?: string[];
-}
-
-interface ChatMessage {
-  id: string;
-  sender: string;
-  message: string;
-  timestamp: string;
-  type: 'game' | 'player' | 'system';
 }
 
 interface GameState {

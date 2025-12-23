@@ -1,6 +1,7 @@
 # Server-Side Python (ui_web.py) with Socket.IO integration and Flask routes for game management using a local dictionary for game states
 from typing import Optional, Dict
 from pathlib import Path
+import uuid
 
 from flask import Flask, redirect, url_for, jsonify, Response, request, send_from_directory
 from flask_socketio import SocketIO, join_room
@@ -225,7 +226,7 @@ def update_and_emit_game_state(game_id):
     game_state = current_game_data['state_machine'].game_state
     game_state_dict = game_state.to_dict()
     
-    # Include messages in the game state
+    # Include messages in the game state (transform to frontend format)
     messages = []
     for msg in current_game_data.get('messages', []):
         messages.append({
@@ -577,7 +578,7 @@ def api_player_action(game_id):
 
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
-    send_message(game_id, "Table", table_message_content, "game")
+    send_message(game_id, "Table", table_message_content, "table")
     
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
@@ -645,7 +646,7 @@ def progress_game(game_id):
             num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
             message_content = (f"{state_machine.current_phase} cards dealt: "
                                f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
-            send_message(game_id, "table", message_content, "table")
+            send_message(game_id, "Table", message_content, "table")
 
         # Check if it's an AI's turn to play, then handle AI actions
         if not game_state.current_player.is_human and game_state.awaiting_action:
@@ -780,14 +781,14 @@ def progress_game(game_id):
             else:
                 message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
             
-            send_message(game_id,"table", message_content, "table", 1)
+            send_message(game_id, "Table", message_content, "table", 1)
             
             # Emit winner announcement event
             socketio.emit('winner_announcement', winner_data, to=game_id)
             
             # Delay before dealing new hand
             socketio.sleep(4 if is_showdown else 2)
-            send_message(game_id, "table", "***   NEW HAND DEALT   ***", "table")
+            send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
             # Update the state_machine to be ready for it's next run through the game progression
             state_machine.update_phase()
@@ -862,7 +863,7 @@ def handle_player_action(data):
 
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
-    send_message(game_id, "table", table_message_content, "table")
+    send_message(game_id, "Table", table_message_content, "table")
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
 
@@ -1001,7 +1002,7 @@ def handle_ai_action(game_id: str) -> None:
         player_physical_description = "*pauses momentarily*"
 
         # Subtle notification that we're using fallback
-        send_message(game_id, "table",
+        send_message(game_id, "Table",
                     f"[{current_player.name} takes a moment to consider]",
                     "table")
 
@@ -1014,7 +1015,7 @@ def handle_ai_action(game_id: str) -> None:
         full_message = f"{player_message} {player_physical_description}".strip()
         send_message(game_id, current_player.name, full_message, "ai", 1)
 
-    send_message(game_id, "table", table_message_content, "table")
+    send_message(game_id, "Table", table_message_content, "table")
 
     # Detect pressure events based on AI action
     if action == 'fold':
@@ -1076,13 +1077,12 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     :return: (None)
         None
     """
-    # Load the messages from the session and append the new message then emit the full list of messages.
-    # Not the most efficient but it works for now.
     game_data = games.get(game_id)
     if not game_data:
         return
     game_messages = game_data['messages']
     new_message = {
+        "id": str(uuid.uuid4()),
         "sender": sender,
         "content": content,
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
@@ -1093,10 +1093,11 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
     # Update the messages session state
     game_data['messages'] = game_messages
     games[game_id] = game_data
-    
+
     # Save message to database
     persistence.save_message(game_id, message_type, f"{sender}: {content}")
-    socketio.emit('new_messages', {'game_messages': game_messages}, to=game_id)
+    # Emit only the new message to reduce payload size
+    socketio.emit('new_message', {'message': new_message}, to=game_id)
     socketio.sleep(sleep) if sleep else None
 
 
