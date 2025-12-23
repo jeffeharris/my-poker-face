@@ -136,11 +136,6 @@
   line-height: 1.3;
 }
 
-.chat-message.game {
-  border-left-color: #4caf50;
-  background: rgba(76, 175, 80, 0.1);
-}
-
 .chat-message.system {
   border-left-color: #ff9800;
   background: rgba(255, 152, 0, 0.1);
@@ -149,6 +144,16 @@
 .chat-message.player {
   border-left-color: #2196f3;
   background: rgba(33, 150, 243, 0.1);
+}
+
+.chat-message.ai {
+  border-left-color: #9c27b0;
+  background: rgba(156, 39, 176, 0.1);
+}
+
+.chat-message.table {
+  border-left-color: #4caf50;
+  background: rgba(76, 175, 80, 0.1);
 }
 
 .chat-message.own-message {

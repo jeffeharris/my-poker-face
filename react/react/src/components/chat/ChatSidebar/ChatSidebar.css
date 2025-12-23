@@ -185,11 +185,6 @@
 }
 
 /* Message types */
-.chat-message.game {
-  border-left-color: #4caf50;
-  background: rgba(76, 175, 80, 0.08);
-}
-
 .chat-message.system {
   border-left-color: #ff9800;
   background: rgba(255, 152, 0, 0.08);
@@ -203,6 +198,11 @@
 .chat-message.ai {
   border-left-color: #9c27b0;
   background: rgba(156, 39, 176, 0.08);
+}
+
+.chat-message.table {
+  border-left-color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
 }
 
 .chat-message.own-message {
