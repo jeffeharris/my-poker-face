@@ -1,15 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import type { ChatMessage } from '../../../types';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
 import { QuickChatSuggestions } from '../QuickChatSuggestions';
 import './ChatSidebar.css';
-
-interface ChatMessage {
-  id: string;
-  sender: string;
-  message: string;
-  timestamp: string;
-  type: 'game' | 'player' | 'system' | 'ai' | 'table';
-}
 
 interface ChatSidebarProps {
   messages: ChatMessage[];
@@ -253,11 +246,12 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     switch (type) {
       case 'action':
         return '🎮';
-      case 'game':
+      case 'table':
         return '🎲';
       case 'system':
         return '⚙️';
       case 'ai':
+        return '🤖';
       case 'player':
         return sender === playerName ? '👤' : '💬';
       default:

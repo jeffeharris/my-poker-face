@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import type { Socket } from 'socket.io-client';
-import type { GameState, ChatMessage } from '../types';
+import type { GameState, ChatMessage, BackendChatMessage } from '../types';
 import { useSocket } from '../hooks/useSocket';
 import { useGameState } from '../hooks/useGameState';
 import { gameAPI } from '../utils/api';
@@ -44,9 +44,18 @@ export function GameProvider({ children }: GameProviderProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [aiThinking, setAiThinking] = useState(false);
   const messageIdsRef = React.useRef<Set<string>>(new Set());
-  
+
   const { socket } = useSocket();
   const { gameState, loading, error, playerPositions, fetchGameState, updateGameState } = useGameState(gameId);
+
+  // Helper to append only new messages (deduplicates by ID)
+  const appendNewMessages = useCallback((incomingMessages: ChatMessage[]) => {
+    const newMessages = incomingMessages.filter(msg => !messageIdsRef.current.has(msg.id));
+    if (newMessages.length > 0) {
+      newMessages.forEach(msg => messageIdsRef.current.add(msg.id));
+      setMessages(prev => [...prev, ...newMessages]);
+    }
+  }, []);
 
   // Set up socket listeners
   useEffect(() => {
@@ -59,19 +68,11 @@ export function GameProvider({ children }: GameProviderProps) {
         messages: data.game_state.messages || []
       };
       updateGameState(transformedState);
-      
-      // Update messages
+
       if (data.game_state.messages) {
-        const newMessages = data.game_state.messages.filter((msg: ChatMessage) => {
-          return !messageIdsRef.current.has(msg.id);
-        });
-        
-        if (newMessages.length > 0) {
-          newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          setMessages(prev => [...prev, ...newMessages]);
-        }
+        appendNewMessages(data.game_state.messages);
       }
-      
+
       // Update AI thinking state
       const currentPlayer = transformedState.players[transformedState.current_player_idx];
       setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
@@ -85,12 +86,29 @@ export function GameProvider({ children }: GameProviderProps) {
       console.log('Player joined:', data.message);
     });
 
+    // Listen for new message (emitted by send_message in backend)
+    socket.on('new_message', (data: { message: BackendChatMessage }) => {
+      console.log('Received new_message via WebSocket');
+      const msg = data.message;
+
+      const transformedMessage: ChatMessage = {
+        id: msg.id || `msg-${Date.now()}`,
+        sender: msg.sender,
+        message: msg.content,
+        timestamp: msg.timestamp,
+        type: msg.message_type
+      };
+
+      appendNewMessages([transformedMessage]);
+    });
+
     return () => {
       socket.off('update_game_state');
       socket.off('player_turn_start');
       socket.off('player_joined');
+      socket.off('new_message');
     };
-  }, [socket, updateGameState]);
+  }, [socket, updateGameState, appendNewMessages]);
 
   const createGame = async (playerName: string) => {
     try {
@@ -140,11 +158,10 @@ export function GameProvider({ children }: GameProviderProps) {
 
   const sendMessage = async (message: string, sender: string) => {
     if (!gameId) return;
-    
+
     try {
       await gameAPI.sendMessage(gameId, message, sender);
-      // Refresh game state to get updated messages
-      await fetchGameState(gameId);
+      // Message will be received via WebSocket 'new_message' event
     } catch (error) {
       console.error('Failed to send message:', error);
       throw error;

@@ -1,13 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import type { ChatMessage } from '../../../types';
 import './Chat.css';
-
-interface ChatMessage {
-  id: string;
-  sender: string;
-  message: string;
-  timestamp: string;
-  type: 'game' | 'player' | 'system';
-}
 
 interface ChatProps {
   messages: ChatMessage[];
@@ -46,12 +39,14 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
 
   const getMessageIcon = (type: string, sender: string) => {
     switch (type) {
-      case 'game':
-        return '🎯';
+      case 'table':
+        return '🎲';
       case 'system':
         return '⚙️';
+      case 'ai':
+        return '🤖';
       case 'player':
-        return sender === playerName ? '👤' : '🤖';
+        return sender === playerName ? '👤' : '💬';
       default:
         return '💬';
     }
