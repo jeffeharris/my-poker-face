@@ -1,10 +1,42 @@
 from typing import List, Dict, Optional
 import os
 import logging
+import time
 
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def log_api_stats(model: str, usage, latency_ms: float, content: str, finish_reason: str):
+    """Log API usage statistics. Uses ERROR level on failure, INFO on success."""
+    prompt_tokens = usage.prompt_tokens if usage else 0
+    completion_tokens = usage.completion_tokens if usage else 0
+    total_tokens = usage.total_tokens if usage else 0
+
+    # Extract reasoning tokens if available (GPT-5 models)
+    reasoning_tokens = 0
+    output_tokens = completion_tokens
+    if usage and hasattr(usage, 'completion_tokens_details') and usage.completion_tokens_details:
+        reasoning_tokens = getattr(usage.completion_tokens_details, 'reasoning_tokens', 0) or 0
+        output_tokens = completion_tokens - reasoning_tokens
+
+    # Determine status and log level
+    is_error = not content or finish_reason == 'length'
+    status = "error" if is_error else "ok"
+
+    stats = (
+        f"[AI_STATS] model={model} | "
+        f"latency={latency_ms:.0f}ms | "
+        f"tokens: prompt={prompt_tokens}, output={output_tokens}, reasoning={reasoning_tokens}, total={total_tokens} | "
+        f"status={status}"
+    )
+
+    if is_error:
+        stats += f" | finish_reason={finish_reason}"
+        logger.error(stats)
+    else:
+        logger.info(stats)
 
 # Import config for AI settings
 try:
@@ -112,18 +144,21 @@ class OpenAILLMAssistant(LLMAssistant):
     functions: List[dict] or None
 
     def __init__(self,
-                 ai_model="gpt-5-mini",      # "gpt-3.5-turbo-0125"     # gpt-3.5-turbo-16k
+                 ai_model="gpt-5-nano",
                  ai_temp=1.0,
+                 reasoning_effort="low",
                  system_message="You are a helpful assistant.",
                  memory=None,
                  functions: list = None):
         """
         Initialize the OpenAILLMAssistant instance.
 
-        :param ai_model: The model of the AI to use. Default is "gpt-5-mini".
+        :param ai_model: The model of the AI to use. Default is "gpt-5-nano".
         :type ai_model: str
         :param ai_temp: The temperature setting for the model. Default is 1.0.
         :type ai_temp: float
+        :param reasoning_effort: Reasoning effort for GPT-5 models. Options: minimal, low, medium, high. Default is "low".
+        :type reasoning_effort: str
         :param system_message: The initial system message for the assistant. Default is "You are a helpful assistant.".
         :type system_message: str
         :param memory: Memory to initialize the assistant with. If None, initializes with an empty list.
@@ -134,6 +169,7 @@ class OpenAILLMAssistant(LLMAssistant):
         super().__init__(ai_temp, ai_model, system_message, memory)
         if memory is None:
             self.memory = []
+        self.reasoning_effort = reasoning_effort
         # Initialize OpenAI client with just the API key from environment
         self.client = OpenAI(
             api_key=os.environ.get("OPENAI_API_KEY")
@@ -155,7 +191,9 @@ class OpenAILLMAssistant(LLMAssistant):
             "messages": messages,
             "max_completion_tokens": 2800,
         }
-        if not self.ai_model.startswith("gpt-5"):
+        if self.ai_model.startswith("gpt-5"):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        else:
             kwargs["temperature"] = self.ai_temp
             kwargs["top_p"] = 1
             kwargs["frequency_penalty"] = 0
@@ -180,7 +218,9 @@ class OpenAILLMAssistant(LLMAssistant):
             "max_completion_tokens": 2800,
             "response_format": {"type": "json_object"},
         }
-        if not self.ai_model.startswith("gpt-5"):
+        if self.ai_model.startswith("gpt-5"):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        else:
             kwargs["temperature"] = self.ai_temp
             kwargs["top_p"] = 1
             kwargs["frequency_penalty"] = 0
@@ -202,20 +242,21 @@ class OpenAILLMAssistant(LLMAssistant):
         """
         user_message = {"role": "user", "content": user_content}
         self.add_to_memory(user_message)
+
+        start_time = time.time()
         if json_format:
             response = self.get_json_response(self.messages)
         else:
             response = self.get_response(self.messages)
+        latency_ms = (time.time() - start_time) * 1000
 
-        content = response.choices[0].message.content
+        content = response.choices[0].message.content or ""
+        finish_reason = response.choices[0].finish_reason
 
-        # Log details if content is empty or None
+        # Log stats for every call (ERROR level on failure, INFO on success)
+        log_api_stats(self.ai_model, response.usage, latency_ms, content, finish_reason)
+
         if not content:
-            logger.error(f"[AI_EMPTY_RESPONSE] Empty content from OpenAI")
-            logger.error(f"[AI_EMPTY_RESPONSE] Model: {self.ai_model}")
-            logger.error(f"[AI_EMPTY_RESPONSE] Finish reason: {response.choices[0].finish_reason}")
-            if hasattr(response, 'usage'):
-                logger.error(f"[AI_EMPTY_RESPONSE] Usage: {response.usage}")
             return ""
 
         ai_message = {"role": "assistant", "content": content}
@@ -242,6 +283,7 @@ class OpenAILLMAssistant(LLMAssistant):
             "__name__": "OpenAILLMAssistant",   # TODO: <BUG> change __name__ to type if there isnt a magic property of name
             "ai_model": self.ai_model,
             "ai_temp": self.ai_temp,
+            "reasoning_effort": self.reasoning_effort,
             "system_message": self.system_message,
             "max_memory_length": self.max_memory_length,
             "memory": self.memory,

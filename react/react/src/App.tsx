@@ -145,7 +145,7 @@ function App() {
     setCurrentView('selector');
   };
 
-  const handleStartCustomGame = async (selectedPersonalities: string[]) => {
+  const handleStartCustomGame = async (selectedPersonalities: string[], llmConfig?: { model: string; reasoning_effort: string }) => {
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -153,12 +153,13 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           playerName,
-          personalities: selectedPersonalities 
+          personalities: selectedPersonalities,
+          llm_config: llmConfig
         }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setGameId(data.game_id);

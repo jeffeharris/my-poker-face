@@ -14,6 +14,11 @@ import json
 import logging
 from dotenv import load_dotenv
 
+# Configure logging to show INFO level for AI stats
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
@@ -34,6 +39,7 @@ from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.auth import AuthManager
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
+from openai import OpenAI
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
@@ -484,25 +490,28 @@ def api_new_game():
     
     # Check if specific personalities were requested
     requested_personalities = data.get('personalities', [])
-    
+
+    # Get LLM configuration (model and reasoning_effort)
+    llm_config = data.get('llm_config', {})
+
     if requested_personalities:
         # Use the specific personalities requested
         ai_player_names = requested_personalities
     else:
         # Default to 3 random AI players
         ai_player_names = get_celebrities(shuffled=True)[:3]
-    
+
     game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
-    
+
     # Create AI controllers and elasticity tracking
     ai_controllers = {}
     elasticity_manager = ElasticityManager()
-    
+
     for player in state_machine.game_state.players:
         if not player.is_human:
-            new_controller = AIPlayerController(player.name, state_machine)
+            new_controller = AIPlayerController(player.name, state_machine, llm_config=llm_config)
             ai_controllers[player.name] = new_controller
             
             # Add to elasticity manager
@@ -523,6 +532,7 @@ def api_new_game():
         'pressure_stats': pressure_stats,
         'owner_id': owner_id,
         'owner_name': owner_name,
+        'llm_config': llm_config,
         'messages': [{
             'id': '1',
             'sender': 'System',
@@ -1271,6 +1281,34 @@ def get_pressure_stats(game_id):
     
     pressure_stats = game_data['pressure_stats']
     return jsonify(pressure_stats.get_session_summary())
+
+
+# Model configuration routes
+@app.route('/api/models', methods=['GET'])
+def get_available_models():
+    """Get available OpenAI models for game configuration."""
+    try:
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        models = client.models.list()
+        # Filter to relevant models (GPT-5 and GPT-4o variants)
+        available = [m.id for m in models.data if m.id.startswith(('gpt-5', 'gpt-4o'))]
+        return jsonify({
+            'success': True,
+            'models': sorted(available),
+            'default_model': 'gpt-5-nano',
+            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+            'default_reasoning': 'low'
+        })
+    except Exception as e:
+        logger.error(f"Error fetching models: {e}")
+        # Return defaults on error
+        return jsonify({
+            'success': True,
+            'models': ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
+            'default_model': 'gpt-5-nano',
+            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+            'default_reasoning': 'low'
+        })
 
 
 # Personality management routes

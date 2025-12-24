@@ -59,11 +59,12 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
 
 
 class AIPlayerController:
-    def __init__(self, player_name, state_machine=None, ai_temp=0.9):
+    def __init__(self, player_name, state_machine=None, ai_temp=0.9, llm_config=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.ai_temp = ai_temp
-        self.ai_player = AIPokerPlayer(player_name, ai_temp=ai_temp)
+        self.llm_config = llm_config or {}
+        self.ai_player = AIPokerPlayer(player_name, ai_temp=ai_temp, llm_config=self.llm_config)
         self.assistant = self.ai_player.assistant
         self.prompt_manager = PromptManager()
         self.chattiness_manager = ChattinessManager()

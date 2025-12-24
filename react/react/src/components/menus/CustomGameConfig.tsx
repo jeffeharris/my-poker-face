@@ -13,8 +13,13 @@ interface Personality {
   };
 }
 
+interface LLMConfig {
+  model: string;
+  reasoning_effort: string;
+}
+
 interface CustomGameConfigProps {
-  onStartGame: (selectedPersonalities: string[]) => void;
+  onStartGame: (selectedPersonalities: string[], llmConfig: LLMConfig) => void;
   onBack: () => void;
 }
 
@@ -25,8 +30,16 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const [loading, setLoading] = useState(true);
   const [difficulty, setDifficulty] = useState('normal');
 
+  // Model configuration state
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState('gpt-5-nano');
+  const [reasoningLevels] = useState(['minimal', 'low', 'medium', 'high']);
+  const [selectedReasoning, setSelectedReasoning] = useState('low');
+  const [modelsLoading, setModelsLoading] = useState(true);
+
   useEffect(() => {
     fetchPersonalities();
+    fetchModels();
   }, []);
 
   const fetchPersonalities = async () => {
@@ -40,6 +53,24 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
       console.error('Failed to fetch personalities:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchModels = async () => {
+    try {
+      const response = await fetch(`${config.API_URL}/api/models`, { credentials: 'include' });
+      const data = await response.json();
+      if (data.success) {
+        setAvailableModels(data.models);
+        setSelectedModel(data.default_model || 'gpt-5-nano');
+        setSelectedReasoning(data.default_reasoning || 'low');
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+      // Use defaults on error
+      setAvailableModels(['gpt-5-nano', 'gpt-5-mini', 'gpt-5']);
+    } finally {
+      setModelsLoading(false);
     }
   };
 
@@ -57,7 +88,11 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   const handleStartGame = () => {
     if (selectedPersonalities.length > 0) {
-      onStartGame(selectedPersonalities);
+      const llmConfig: LLMConfig = {
+        model: selectedModel,
+        reasoning_effort: selectedReasoning
+      };
+      onStartGame(selectedPersonalities, llmConfig);
     }
   };
 
@@ -96,8 +131,8 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
             
             <div className="setting">
               <label>Difficulty</label>
-              <select 
-                value={difficulty} 
+              <select
+                value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value)}
                 disabled
               >
@@ -106,6 +141,33 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                 <option value="hard">Hard</option>
               </select>
               <span className="coming-soon">Coming soon</span>
+            </div>
+
+            <div className="setting">
+              <label>AI Model</label>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={modelsLoading}
+              >
+                {availableModels.map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="setting">
+              <label>Reasoning Level</label>
+              <select
+                value={selectedReasoning}
+                onChange={(e) => setSelectedReasoning(e.target.value)}
+              >
+                {reasoningLevels.map(level => (
+                  <option key={level} value={level}>
+                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
