@@ -88,6 +88,7 @@ class PokerGameState:
     current_dealer_idx: int = 0
     community_cards: Tuple[Mapping, ...] = field(default_factory=tuple)
     current_ante: int = ANTE
+    last_raise_amount: int = ANTE  # Tracks the size of the last raise (defaults to big blind)
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
@@ -146,6 +147,14 @@ class PokerGameState:
         for player in self.players:
             highest_bet = player.bet if player.bet > highest_bet else highest_bet
         return highest_bet
+
+    @property
+    def min_raise_amount(self) -> int:
+        """
+        Returns the minimum raise amount according to poker rules.
+        The minimum raise must be at least the size of the last raise (or big blind if no raises yet).
+        """
+        return self.last_raise_amount
 
     @property
     def can_big_blind_take_pre_flop_action(self) -> bool:
@@ -434,6 +443,8 @@ def player_raise(game_state, amount: int):
     # Calculate the cost_to_call as the difference between the current highest bet and the players current bet
     cost_to_call = game_state.highest_bet - game_state.current_player.bet
     game_state = place_bet(game_state=game_state, amount=amount + cost_to_call)
+    # Track the raise amount for minimum raise calculations
+    game_state = game_state.update(last_raise_amount=amount)
     return game_state
 
 
@@ -633,8 +644,11 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     # Sort active players by contribution to handle side pots at showdown
     active_players = [p for p in game_state.players if not p.is_folded and p.bet > 0]
     active_players_sorted = sorted(active_players, key=lambda p: p.bet)
-    # Prepare community cards for hand evaluation
-    community_cards = [Card(card['rank'], card['suit']) for card in game_state.community_cards]
+    # Prepare community cards for hand evaluation (handle both Card objects and dicts)
+    community_cards = [
+        card if isinstance(card, Card) else Card(card['rank'], card['suit'])
+        for card in game_state.community_cards
+    ]
     # Track winnings for each player
     winnings = {}
     # Track each player's remaining contributions independently
@@ -653,7 +667,10 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         # Evaluate hands for eligible players and find the winner(s)
         hands = []
         for player in eligible_players:
-            player_hand = [Card(card['rank'], card['suit']) for card in player.hand]
+            player_hand = [
+                card if isinstance(card, Card) else Card(card['rank'], card['suit'])
+                for card in player.hand
+            ]
             full_hand = HandEvaluator(player_hand + community_cards).evaluate_hand()
             hands.append((player.name, full_hand))
         # Add evaluated hands to the tracking list

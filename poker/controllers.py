@@ -104,17 +104,19 @@ class AIPlayerController:
             game_state.current_player,
             self.state_machine.phase,
             game_messages)
-        
+
+        # Get valid actions early so we can include in guidance
+        player_options = game_state.current_player_options
+
         # Add chattiness guidance to message
         chattiness_guidance = self._build_chattiness_guidance(
-            chattiness, should_speak, speaking_context
+            chattiness, should_speak, speaking_context, player_options
         )
         message = message + "\n\n" + chattiness_guidance
-        
+
         print(message)
-        
-        # Get valid actions and context for fallback
-        player_options = game_state.current_player_options
+
+        # Context for fallback
         cost_to_call = game_state.highest_bet - game_state.current_player.bet
         player_stack = game_state.current_player.stack
         
@@ -123,7 +125,7 @@ class AIPlayerController:
             message=message,
             valid_actions=player_options,
             call_amount=cost_to_call,
-            min_raise=MIN_RAISE,
+            min_raise=game_state.min_raise_amount,
             max_raise=min(player_stack, game_state.pot['total'] * 2),
             should_speak=should_speak
         )
@@ -241,7 +243,7 @@ class AIPlayerController:
         return context
     
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
-                                  speaking_context: Dict) -> str:
+                                  speaking_context: Dict, valid_actions: List[str]) -> str:
         """Build guidance for AI about speaking behavior."""
         guidance = f"Your chattiness level: {chattiness:.1f}/1.0\n"
 
@@ -266,6 +268,9 @@ class AIPlayerController:
         guidance += "\nRequired response fields:\n"
         guidance += "- action (from your available options)\n"
         guidance += "- inner_monologue (your private thoughts)\n"
+
+        if 'raise' in valid_actions:
+            guidance += "- adding_to_pot (REQUIRED if you choose 'raise' - the dollar amount to raise BY)\n"
 
         if self.ai_player.hand_action_count == 0:
             guidance += "- hand_strategy (your approach for this entire hand)\n"
@@ -317,10 +322,13 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
     player_name = ui_data['player_name']
     player_hand = ui_data['player_hand']
 
+    def ensure_card(c):
+        return c if isinstance(c, Card) else Card(c['rank'], c['suit'])
+
     try:
         # Render the player's cards using the CardRenderer.
         rendered_hole_cards = CardRenderer().render_hole_cards(
-            [Card(c['rank'], c['suit']) for c in player_hand])
+            [ensure_card(c) for c in player_hand])
     except:
         print(f"{player_name} has no cards.")
         raise ValueError('Missing cards. Please check your hand.')
@@ -328,7 +336,7 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
     # Display information to the user
     if len(ui_data['community_cards']) > 0:
         rendered_community_cards = CardRenderer().render_cards(
-            [Card(c['rank'], c['suit']) for c in ui_data['community_cards']])
+            [ensure_card(c) for c in ui_data['community_cards']])
         print(f"\nCommunity Cards:\n{rendered_community_cards}")
 
     print(f"Your Hand:\n{rendered_hole_cards}")
@@ -336,6 +344,11 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
     print(f"Your Stack: {ui_data['player_stack']}")
     print(f"Cost to Call: {ui_data['cost_to_call']}")
     print(f"Options: {player_options}\n")
+
+
+def _ensure_card(c):
+    """Convert card to Card object if it's a dict, otherwise return as-is."""
+    return c if isinstance(c, Card) else Card(c['rank'], c['suit'])
 
 
 def convert_game_to_hand_state(game_state, player: Player, phase, messages):
@@ -346,13 +359,13 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     table_positions = game_state.table_positions
     opponent_status = game_state.opponent_status
     current_round = phase
-    community_cards = [str(card) for card in [Card(c['rank'], c['suit']) for c in game_state.community_cards]]
+    community_cards = [str(_ensure_card(c)) for c in game_state.community_cards]
     # opponents = [p.name for p in game_state.players if p.name != player.name]
     # number_of_opponents = len(opponents)
     player_money = player.stack
     player_positions = [position for position, name in table_positions.items() if name == player.name]
     current_situation = f"The {current_round} cards have just been dealt"
-    hole_cards = [str(card) for card in [Card(c['rank'], c['suit']) for c in player.hand]]
+    hole_cards = [str(_ensure_card(c)) for c in player.hand]
     current_pot = game_state.pot['total']
     current_bet = game_state.current_player.bet
     cost_to_call = game_state.highest_bet - game_state.current_player.bet
