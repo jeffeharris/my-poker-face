@@ -113,28 +113,9 @@ class AuthManager:
             return response
         
         @self.app.route('/api/auth/me', methods=['GET'])
-        def get_current_user():
+        def get_current_user_route():
             """Get the current authenticated user."""
             user = self.get_current_user()
-            
-            # If no user in session, check for guest_id cookie
-            if not user:
-                guest_id = request.cookies.get('guest_id')
-                if guest_id and guest_id.startswith('guest_'):
-                    # Check if this guest has saved games
-                    if self.persistence:
-                        games = self.persistence.list_games_for_owner(guest_id)
-                        if games:
-                            # Restore guest session from cookie
-                            user = {
-                                'id': guest_id,
-                                'name': 'Guest',  # Default name, will be updated on next login
-                                'is_guest': True,
-                                'created_at': datetime.utcnow().isoformat()
-                            }
-                            session['user'] = user
-                            session.permanent = True
-            
             if user:
                 return jsonify({'user': user})
             return jsonify({'user': None})
@@ -150,51 +131,32 @@ class AuthManager:
             }), 501
     
     def create_guest_user(self, name: str) -> Dict[str, Any]:
-        """Create a guest user session."""
-        # Check if there's an existing guest ID in cookies
-        existing_guest_id = request.cookies.get('guest_id')
-        
-        if existing_guest_id and existing_guest_id.startswith('guest_'):
-            # Try to retrieve existing user from session or database
-            if 'user' in session and session['user']['id'] == existing_guest_id:
-                # Update name if changed
-                session['user']['name'] = name
-                return session['user']
-            
-            # Check if this guest has saved games in the database
-            if self.persistence:
-                games = self.persistence.list_games_for_owner(existing_guest_id)
-                if games:
-                    # Restore the guest user with the same ID
-                    user_data = {
-                        'id': existing_guest_id,
-                        'name': name,
-                        'is_guest': True,
-                        'created_at': datetime.utcnow().isoformat()
-                    }
-                    session['user'] = user_data
-                    session.permanent = True
-                    return user_data
-        
-        # Create new guest user
+        """Create a guest user session based on name."""
+        import re
+        # Create a deterministic guest ID from the name (lowercase, alphanumeric only)
+        sanitized_name = re.sub(r'[^a-z0-9]', '', name.lower())
+        if not sanitized_name:
+            sanitized_name = 'guest'
+        guest_id = f'guest_{sanitized_name}'
+
         user_data = {
-            'id': f'guest_{secrets.token_hex(8)}',
+            'id': guest_id,
             'name': name,
             'is_guest': True,
             'created_at': datetime.utcnow().isoformat()
         }
-        
+
         session['user'] = user_data
         session.permanent = True
-        
+
         return user_data
     
     def get_current_user(self) -> Optional[Dict[str, Any]]:
-        """Get the current user from session or JWT token."""
+        """Get the current user from session, JWT token, or guest cookie."""
         # Check session first
         if 'user' in session:
             return session['user']
-        
+
         # Check for JWT token in Authorization header
         auth_header = request.headers.get('Authorization')
         if auth_header and auth_header.startswith('Bearer '):
@@ -204,7 +166,23 @@ class AuthManager:
                 return payload.get('user')
             except jwt.InvalidTokenError:
                 pass
-        
+
+        # Check for guest_id cookie and restore session if valid
+        guest_id = request.cookies.get('guest_id')
+        if guest_id and guest_id.startswith('guest_'):
+            # Extract name from guest_id (e.g., 'guest_jeff' -> 'Jeff')
+            name_part = guest_id[6:]  # Remove 'guest_' prefix
+            display_name = name_part.capitalize() if name_part else 'Guest'
+            user = {
+                'id': guest_id,
+                'name': display_name,
+                'is_guest': True,
+                'created_at': datetime.utcnow().isoformat()
+            }
+            session['user'] = user
+            session.permanent = True
+            return user
+
         return None
     
     def generate_token(self, user_data: Dict[str, Any]) -> str:

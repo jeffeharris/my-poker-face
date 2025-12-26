@@ -249,21 +249,19 @@ class GamePersistence:
             # Parse the JSON and recreate the game state
             state_dict = json.loads(row['game_state_json'])
             game_state = self._restore_state_from_dict(state_dict)
-            
-            # Create state machine with the loaded state
-            state_machine = PokerStateMachine(game_state)
-            
-            # Set the phase - handle both int and string values
+
+            # Restore the phase - handle both int and string values
             try:
                 phase_value = state_dict.get('current_phase', 0)
                 if isinstance(phase_value, str):
                     phase_value = int(phase_value)
-                state_machine.current_phase = PokerPhase(phase_value)
-            except (ValueError, KeyError) as e:
+                phase = PokerPhase(phase_value)
+            except (ValueError, KeyError):
                 print(f"Warning: Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
-                state_machine.current_phase = PokerPhase.INITIALIZING_HAND
-            
-            return state_machine
+                phase = PokerPhase.INITIALIZING_HAND
+
+            # Create state machine with the loaded state and phase
+            return PokerStateMachine.from_saved_state(game_state, phase)
     
     def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
         """List saved games, most recently updated first. Filter by owner_id if provided."""
@@ -330,20 +328,29 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT * FROM game_messages 
-                WHERE game_id = ? 
-                ORDER BY timestamp DESC 
+                SELECT * FROM game_messages
+                WHERE game_id = ?
+                ORDER BY timestamp DESC
                 LIMIT ?
             """, (game_id, limit))
-            
+
             messages = []
             for row in cursor:
+                # Parse "sender: content" format back into separate fields
+                text = row['message_text']
+                if ': ' in text:
+                    sender, content = text.split(': ', 1)
+                else:
+                    sender = 'System'
+                    content = text
                 messages.append({
+                    'id': str(row['id']),
                     'timestamp': row['timestamp'],
                     'type': row['message_type'],
-                    'text': row['message_text']
+                    'sender': sender,
+                    'content': content
                 })
-            
+
             return list(reversed(messages))  # Return in chronological order
     
     def _prepare_state_for_save(self, game_state: PokerGameState) -> Dict[str, Any]:

@@ -117,6 +117,10 @@ def get_next_phase(state: ImmutableStateMachine) -> PokerPhase:
             4: PokerPhase.TURN,
             5: PokerPhase.RIVER
         }
+        # Handle unexpected card counts (corrupted state) - default to HAND_OVER to reset
+        if num_cards_dealt not in num_cards_dealt_to_next_phase:
+            print(f"Warning: Unexpected community card count: {num_cards_dealt}, resetting to HAND_OVER")
+            return PokerPhase.HAND_OVER
         return num_cards_dealt_to_next_phase[num_cards_dealt]
     
     next_phase_map = {

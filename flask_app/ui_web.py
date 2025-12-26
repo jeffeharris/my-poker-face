@@ -75,14 +75,10 @@ else:
     cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
     CORS(app, supports_credentials=True, origins=cors_origins)
 
-# Custom key function that exempts Docker internal IPs
+# Custom key function for rate limiting
 def get_rate_limit_key():
-    """Get IP address for rate limiting, exempting Docker internal IPs."""
-    remote_addr = get_remote_address()
-    # Exempt Docker internal network IPs (172.x.x.x)
-    if remote_addr and remote_addr.startswith('172.'):
-        return None  # No rate limiting for internal Docker traffic
-    return remote_addr
+    """Get IP address for rate limiting."""
+    return get_remote_address() or "127.0.0.1"
 
 # Initialize rate limiter with graceful Redis fallback
 redis_url = os.environ.get('REDIS_URL')
@@ -94,7 +90,7 @@ if redis_url:
         import redis
         r = redis.from_url(redis_url)
         r.ping()
-        
+
         limiter = Limiter(
             app=app,
             key_func=get_rate_limit_key,
@@ -198,9 +194,12 @@ def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str
             if player.name in ai_states:
                 saved_state = ai_states[player.name]
                 
-                # Restore conversation history
+                # Restore conversation history (memory, excluding system message)
                 if hasattr(controller, 'assistant') and controller.assistant:
-                    controller.assistant.messages = saved_state['messages']
+                    saved_messages = saved_state.get('messages', [])
+                    # Filter out system messages - only restore user/assistant exchanges
+                    memory = [m for m in saved_messages if m.get('role') != 'system']
+                    controller.assistant.memory = memory
                 
                 # Restore personality state
                 if 'personality_state' in saved_state:
@@ -246,8 +245,8 @@ def update_and_emit_game_state(game_id):
     game_state_dict['highest_bet'] = game_state.highest_bet
     game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
     # min_raise is the minimum RAISE BY amount (not total bet)
-    # Use the big blind (current_ante) as minimum raise increment
-    game_state_dict['min_raise'] = game_state.current_ante
+    # Equals the last raise amount, or big blind if no raises yet
+    game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
@@ -317,13 +316,29 @@ def list_games():
     
     games_data = []
     for game in saved_games:
+        # Parse game state to get player names
+        import json
+        try:
+            state = json.loads(game.game_state_json)
+            player_names = [p['name'] for p in state.get('players', [])]
+        except:
+            player_names = []
+
+        # Convert numeric phase to readable string
+        try:
+            phase_num = int(game.phase) if isinstance(game.phase, str) else game.phase
+            phase_name = PokerPhase(phase_num).name.replace('_', ' ').title()
+        except:
+            phase_name = game.phase
+
         games_data.append({
             'game_id': game.game_id,
             'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
             'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
-            'phase': game.phase,
+            'phase': phase_name,
             'num_players': game.num_players,
             'pot_size': game.pot_size,
+            'player_names': player_names,
             'is_owner': True  # Always true since we're filtering by owner
         })
     
@@ -336,7 +351,14 @@ def list_games():
 def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = games.get(game_id)
-    
+
+    # Auto-advance cached games that are stuck in non-action phases
+    if current_game_data:
+        state_machine = current_game_data['state_machine']
+        if not state_machine.game_state.awaiting_action:
+            print(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
+            progress_game(game_id)
+
     if not current_game_data:
         # Try to load from database
         try:
@@ -391,6 +413,12 @@ def api_game_state(game_id):
                     'messages': db_messages
                 }
                 games[game_id] = current_game_data
+
+                # Auto-advance if game is stuck in a non-action phase (e.g., HAND_OVER)
+                print(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, awaiting_action: {state_machine.game_state.awaiting_action}")
+                if not state_machine.game_state.awaiting_action:
+                    print(f"[LOAD] Auto-advancing game {game_id}")
+                    progress_game(game_id)
             else:
                 return jsonify({'error': 'Game not found'}), 404
         except Exception as e:
@@ -410,6 +438,7 @@ def api_game_state(game_id):
     # Convert game state to API format
     players = []
     for player in game_state.players:
+        hand = [str(card) for card in player.hand] if player.is_human and player.hand else None
         players.append({
             'name': player.name,
             'stack': player.stack,
@@ -417,18 +446,11 @@ def api_game_state(game_id):
             'is_folded': player.is_folded,
             'is_all_in': player.is_all_in,
             'is_human': player.is_human,
-            'hand': player.hand if player.is_human and player.hand else None
+            'hand': hand
         })
     
     # Convert community cards
-    community_cards = []
-    for card in game_state.community_cards:
-        if hasattr(card, 'to_dict'):
-            card_dict = card.to_dict()
-            community_cards.append(f"{card_dict['rank']}{card_dict['suit']}")
-        else:
-            # Already a string
-            community_cards.append(card)
+    community_cards = [str(card) for card in game_state.community_cards]
     
     # Get messages
     messages = []
@@ -452,7 +474,7 @@ def api_game_state(game_id):
         'phase': str(state_machine.current_phase).split('.')[-1],
         'highest_bet': game_state.highest_bet,
         'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
-        'min_raise': game_state.current_ante,  # min_raise is the minimum RAISE BY amount
+        'min_raise': game_state.min_raise_amount,  # minimum RAISE BY amount
         'big_blind': game_state.current_ante,
         'messages': messages,
         'game_id': game_id
@@ -478,7 +500,7 @@ def api_new_game():
         
         # Check game limits
         game_count = persistence.count_user_games(owner_id)
-        max_games = 1 if current_user.get('is_guest', True) else 10
+        max_games = 3 if current_user.get('is_guest', True) else 10
         
         if game_count >= max_games:
             return jsonify({
@@ -644,8 +666,8 @@ def progress_game(game_id):
         if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER] and game_state.no_action_taken:
             # Send a table messages with the cards that were dealt
             num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
-            message_content = (f"{state_machine.current_phase} cards dealt: "
-                               f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
+            cards_str = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+            message_content = f"{state_machine.current_phase} cards dealt: {cards_str}"
             send_message(game_id, "Table", message_content, "table")
 
         # Check if it's an AI's turn to play, then handle AI actions
@@ -744,32 +766,28 @@ def progress_game(game_id):
             if is_showdown:
                 winner_data['hand_name'] = winner_info['hand_name']
             
-            # Include community cards
+            # Include community cards (convert Card objects to dicts)
             for card in game_state.community_cards:
-                if isinstance(card, dict):
-                    winner_data['community_cards'].append({
-                        'rank': card['rank'],
-                        'suit': card['suit']
-                    })
-                else:
+                if hasattr(card, 'to_dict'):
+                    winner_data['community_cards'].append(card.to_dict())
+                elif isinstance(card, dict):
                     winner_data['community_cards'].append(card)
-            
+                else:
+                    winner_data['community_cards'].append({'rank': str(card), 'suit': ''})
+
             # If it's a showdown, include player cards
             if is_showdown:
                 players_cards = {}
                 for player in active_players:
                     if player.hand:
-                        # Convert cards to backend format that Card component expects
                         formatted_cards = []
                         for card in player.hand:
-                            if isinstance(card, dict):
-                                formatted_cards.append({
-                                    'rank': card['rank'],
-                                    'suit': card['suit']
-                                })
-                            else:
-                                # Already formatted
+                            if hasattr(card, 'to_dict'):
+                                formatted_cards.append(card.to_dict())
+                            elif isinstance(card, dict):
                                 formatted_cards.append(card)
+                            else:
+                                formatted_cards.append({'rank': str(card), 'suit': ''})
                         players_cards[player.name] = formatted_cards
                 winner_data['players_cards'] = players_cards
 
