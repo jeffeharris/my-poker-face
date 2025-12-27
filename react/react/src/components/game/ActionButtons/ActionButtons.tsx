@@ -106,7 +106,7 @@ export function ActionButtons({
     if (betAmount >= safeMinRaise && betAmount <= safeStack) {
       // Convert "raise TO" (what user sees) to "raise BY" (what backend expects)
       // Backend's player_raise adds cost_to_call internally, so we send the raise increment
-      const raiseByAmount = betAmount - callAmount;
+      const raiseByAmount = betAmount - safeHighestBet;
       onAction('raise', raiseByAmount);
       // Track recent bets (keep last 5)
       setRecentBets(prev => [betAmount, ...prev.filter(b => b !== betAmount)].slice(0, 5));
