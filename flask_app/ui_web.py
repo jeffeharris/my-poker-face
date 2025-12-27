@@ -317,7 +317,6 @@ def list_games():
     games_data = []
     for game in saved_games:
         # Parse game state to get player names
-        import json
         try:
             state = json.loads(game.game_state_json)
             player_names = [p['name'] for p in state.get('players', [])]
