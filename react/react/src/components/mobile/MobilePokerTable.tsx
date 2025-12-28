@@ -33,12 +33,17 @@ export function MobilePokerTable({
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
 
-  // Scroll chat to bottom when opened or new messages arrive
+  // Scroll chat to bottom only when first opened
   useEffect(() => {
     if (showChatSheet && chatMessagesRef.current) {
-      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+      // Use setTimeout to ensure DOM has rendered
+      setTimeout(() => {
+        if (chatMessagesRef.current) {
+          chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+        }
+      }, 0);
     }
-  }, [showChatSheet, messages]);
+  }, [showChatSheet]);
 
   const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
     return fetch(url, {
