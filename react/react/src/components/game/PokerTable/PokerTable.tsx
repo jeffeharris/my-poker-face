@@ -51,6 +51,7 @@ interface PokerTableProps {
 export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Helper function to ensure all fetch calls include credentials
   const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
@@ -111,20 +112,28 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
     });
     
-    socket.on('new_messages', (data: { game_messages: any[] }) => {
-      console.log('Received new messages via WebSocket');
-      // Only add messages that we haven't seen before
-      const newMessages = data.game_messages.filter((msg: any) => {
-        return !messageIdsRef.current.has(msg.id || String(msg.timestamp));
-      });
-      
-      if (newMessages.length > 0) {
-        newMessages.forEach((msg: any) => {
-          const msgId = msg.id || String(msg.timestamp);
-          messageIdsRef.current.add(msgId);
-        });
-        setMessages(prev => [...prev, ...newMessages]);
+    // Listen for new message (emitted by send_message in backend)
+    socket.on('new_message', (data: { message: any }) => {
+      console.log('Received new_message via WebSocket');
+      const msg = data.message;
+      const msgId = msg.id || String(msg.timestamp);
+
+      // Skip if we've already seen this message
+      if (messageIdsRef.current.has(msgId)) {
+        return;
       }
+
+      // Transform backend format to frontend ChatMessage format
+      const transformedMessage: ChatMessage = {
+        id: msgId,
+        sender: msg.sender,
+        message: msg.content,
+        timestamp: msg.timestamp,
+        type: msg.message_type
+      };
+
+      messageIdsRef.current.add(msgId);
+      setMessages(prev => [...prev, transformedMessage]);
     });
     
     socket.on('player_turn_start', (data: { current_player_options: string[], cost_to_call: number }) => {
@@ -243,7 +252,13 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           playerName: playerName || 'Player'
         }),
       })
-        .then(res => res.json())
+        .then(async res => {
+          if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.error || 'Failed to create game');
+          }
+          return res.json();
+        })
         .then(data => {
           const newGameId = data.game_id;
           setGameId(newGameId);
@@ -311,6 +326,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       })
       .catch(err => {
         console.error('Failed to create/fetch game:', err);
+        setError(err.message || 'Failed to create game');
         setLoading(false);
       });
     }
@@ -396,9 +412,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
   const handleSendMessage = async (message: string) => {
     if (!gameId) return;
-    
+
     try {
-      const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/message`, {
+      await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -408,13 +424,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           sender: playerName || 'Player'
         }),
       });
-      
-      if (response.ok) {
-        // Refresh game state to get updated messages
-        const gameResponse = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gameId}`);
-        const data = await gameResponse.json();
-        setGameState(data);
-      }
+      // Message will be received via WebSocket 'new_message' event
     } catch (error) {
       console.error('Failed to send message:', error);
     }
@@ -437,6 +447,32 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       aiThinking,
       showActionButtons
     });
+  }
+
+  if (error) {
+    return (
+      <div className="poker-table">
+        <div className="initial-loading">
+          <div style={{ fontSize: '48px', marginBottom: '20px' }}>⚠️</div>
+          <h2>Unable to Start Game</h2>
+          <p style={{ color: '#ff6b6b', marginBottom: '20px' }}>{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: '12px 24px',
+              fontSize: '16px',
+              background: '#4a9eff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            Back to Menu
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (loading) {

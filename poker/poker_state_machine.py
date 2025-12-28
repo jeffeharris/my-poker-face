@@ -117,6 +117,10 @@ def get_next_phase(state: ImmutableStateMachine) -> PokerPhase:
             4: PokerPhase.TURN,
             5: PokerPhase.RIVER
         }
+        # Handle unexpected card counts (corrupted state) - default to HAND_OVER to reset
+        if num_cards_dealt not in num_cards_dealt_to_next_phase:
+            print(f"Warning: Unexpected community card count: {num_cards_dealt}, resetting to HAND_OVER")
+            return PokerPhase.HAND_OVER
         return num_cards_dealt_to_next_phase[num_cards_dealt]
     
     next_phase_map = {
@@ -153,16 +157,18 @@ def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 def initialize_betting_round_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for INITIALIZING_BET_ROUND phase transition."""
     num_active_players = len([p.name for p in state.game_state.players if not p.is_folded])
-    
+
     if num_active_players == 1:
         next_phase = PokerPhase.SHOWDOWN
     else:
         new_game_state = reset_player_action_flags(state.game_state)
         new_game_state = set_betting_round_start_player(new_game_state)
+        # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
+        new_game_state = new_game_state.update(last_raise_amount=new_game_state.current_ante)
         return (state
                 .with_game_state(new_game_state)
                 .with_phase(get_next_phase(state)))
-    
+
     return state.with_phase(next_phase)
 
 
@@ -281,7 +287,13 @@ class PokerStateMachine:
                 game_state=game_state,
                 phase=PokerPhase.INITIALIZING_GAME
             )
-    
+
+    @classmethod
+    def from_saved_state(cls, game_state: PokerGameState, phase: PokerPhase) -> 'PokerStateMachine':
+        """Create a state machine from a saved game state with a specific phase."""
+        internal = ImmutableStateMachine(game_state=game_state, phase=phase)
+        return cls(game_state, _internal_state=internal)
+
     # ========================================================================
     # Read-only properties
     # ========================================================================

@@ -15,6 +15,11 @@ import json
 import logging
 from dotenv import load_dotenv
 
+# Configure logging to show INFO level for AI stats
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
@@ -35,6 +40,7 @@ from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.auth import AuthManager
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
+from openai import OpenAI
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
@@ -69,14 +75,10 @@ else:
     cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
     CORS(app, supports_credentials=True, origins=cors_origins)
 
-# Custom key function that exempts Docker internal IPs
+# Custom key function for rate limiting
 def get_rate_limit_key():
-    """Get IP address for rate limiting, exempting Docker internal IPs."""
-    remote_addr = get_remote_address()
-    # Exempt Docker internal network IPs (172.x.x.x)
-    if remote_addr and remote_addr.startswith('172.'):
-        return None  # No rate limiting for internal Docker traffic
-    return remote_addr
+    """Get IP address for rate limiting."""
+    return get_remote_address() or "127.0.0.1"
 
 # Initialize rate limiter with graceful Redis fallback
 redis_url = os.environ.get('REDIS_URL')
@@ -88,7 +90,7 @@ if redis_url:
         import redis
         r = redis.from_url(redis_url)
         r.ping()
-        
+
         limiter = Limiter(
             app=app,
             key_func=get_rate_limit_key,
@@ -151,6 +153,34 @@ def get_game_owner_info(game_id: str) -> tuple:
     return game_data.get('owner_id'), game_data.get('owner_name')
 
 
+def format_action_message(player_name: str, action: str, amount: int = 0, highest_bet: int = 0) -> str:
+    """
+    Format a player action into a human-readable message.
+
+    :param player_name: The name of the player taking the action
+    :param action: The action type (raise, bet, call, check, fold, all_in)
+    :param amount: The "raise BY" amount (increment over the call)
+    :param highest_bet: The current highest bet before this action
+    :return: Formatted message string
+    """
+    if action == 'raise':
+        # amount is "raise BY", so total bet = highest_bet + amount
+        raise_to_amount = highest_bet + amount
+        return f"{player_name} raises to ${raise_to_amount}."
+    elif action == 'bet':
+        return f"{player_name} bets ${amount}."
+    elif action == 'call':
+        return f"{player_name} calls."
+    elif action == 'check':
+        return f"{player_name} checks."
+    elif action == 'fold':
+        return f"{player_name} folds."
+    elif action == 'all_in':
+        return f"{player_name} goes all-in!"
+    else:
+        return f"{player_name} chose to {action}."
+
+
 def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state."""
     ai_controllers = {}
@@ -164,9 +194,12 @@ def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str
             if player.name in ai_states:
                 saved_state = ai_states[player.name]
                 
-                # Restore conversation history
+                # Restore conversation history (memory, excluding system message)
                 if hasattr(controller, 'assistant') and controller.assistant:
-                    controller.assistant.messages = saved_state['messages']
+                    saved_messages = saved_state.get('messages', [])
+                    # Filter out system messages - only restore user/assistant exchanges
+                    memory = [m for m in saved_messages if m.get('role') != 'system']
+                    controller.assistant.memory = memory
                 
                 # Restore personality state
                 if 'personality_state' in saved_state:
@@ -211,8 +244,10 @@ def update_and_emit_game_state(game_id):
     # Add missing top-level fields that the frontend expects
     game_state_dict['highest_bet'] = game_state.highest_bet
     game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
-    game_state_dict['min_raise'] = game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20
-    game_state_dict['big_blind'] = 20  # TODO: Get from game config
+    # min_raise is the minimum RAISE BY amount (not total bet)
+    # Equals the last raise amount, or big blind if no raises yet
+    game_state_dict['min_raise'] = game_state.min_raise_amount
+    game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
@@ -281,13 +316,28 @@ def list_games():
     
     games_data = []
     for game in saved_games:
+        # Parse game state to get player names
+        try:
+            state = json.loads(game.game_state_json)
+            player_names = [p['name'] for p in state.get('players', [])]
+        except:
+            player_names = []
+
+        # Convert numeric phase to readable string
+        try:
+            phase_num = int(game.phase) if isinstance(game.phase, str) else game.phase
+            phase_name = PokerPhase(phase_num).name.replace('_', ' ').title()
+        except:
+            phase_name = game.phase
+
         games_data.append({
             'game_id': game.game_id,
             'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
             'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
-            'phase': game.phase,
+            'phase': phase_name,
             'num_players': game.num_players,
             'pot_size': game.pot_size,
+            'player_names': player_names,
             'is_owner': True  # Always true since we're filtering by owner
         })
     
@@ -300,7 +350,14 @@ def list_games():
 def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = games.get(game_id)
-    
+
+    # Auto-advance cached games that are stuck in non-action phases
+    if current_game_data:
+        state_machine = current_game_data['state_machine']
+        if not state_machine.game_state.awaiting_action:
+            print(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
+            progress_game(game_id)
+
     if not current_game_data:
         # Try to load from database
         try:
@@ -355,6 +412,12 @@ def api_game_state(game_id):
                     'messages': db_messages
                 }
                 games[game_id] = current_game_data
+
+                # Auto-advance if game is stuck in a non-action phase (e.g., HAND_OVER)
+                print(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, awaiting_action: {state_machine.game_state.awaiting_action}")
+                if not state_machine.game_state.awaiting_action:
+                    print(f"[LOAD] Auto-advancing game {game_id}")
+                    progress_game(game_id)
             else:
                 return jsonify({'error': 'Game not found'}), 404
         except Exception as e:
@@ -374,6 +437,7 @@ def api_game_state(game_id):
     # Convert game state to API format
     players = []
     for player in game_state.players:
+        hand = [str(card) for card in player.hand] if player.is_human and player.hand else None
         players.append({
             'name': player.name,
             'stack': player.stack,
@@ -381,18 +445,11 @@ def api_game_state(game_id):
             'is_folded': player.is_folded,
             'is_all_in': player.is_all_in,
             'is_human': player.is_human,
-            'hand': player.hand if player.is_human and player.hand else None
+            'hand': hand
         })
     
     # Convert community cards
-    community_cards = []
-    for card in game_state.community_cards:
-        if hasattr(card, 'to_dict'):
-            card_dict = card.to_dict()
-            community_cards.append(f"{card_dict['rank']}{card_dict['suit']}")
-        else:
-            # Already a string
-            community_cards.append(card)
+    community_cards = [str(card) for card in game_state.community_cards]
     
     # Get messages
     messages = []
@@ -416,8 +473,8 @@ def api_game_state(game_id):
         'phase': str(state_machine.current_phase).split('.')[-1],
         'highest_bet': game_state.highest_bet,
         'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
-        'min_raise': game_state.highest_bet * 2 if game_state.highest_bet > 0 else 20,
-        'big_blind': 20,  # TODO: Get from game config
+        'min_raise': game_state.min_raise_amount,  # minimum RAISE BY amount
+        'big_blind': game_state.current_ante,
         'messages': messages,
         'game_id': game_id
     }
@@ -442,7 +499,7 @@ def api_new_game():
         
         # Check game limits
         game_count = persistence.count_user_games(owner_id)
-        max_games = 1 if current_user.get('is_guest', True) else 10
+        max_games = 3 if current_user.get('is_guest', True) else 10
         
         if game_count >= max_games:
             return jsonify({
@@ -455,25 +512,28 @@ def api_new_game():
     
     # Check if specific personalities were requested
     requested_personalities = data.get('personalities', [])
-    
+
+    # Get LLM configuration (model and reasoning_effort)
+    llm_config = data.get('llm_config', {})
+
     if requested_personalities:
         # Use the specific personalities requested
         ai_player_names = requested_personalities
     else:
         # Default to 3 random AI players
         ai_player_names = get_celebrities(shuffled=True)[:3]
-    
+
     game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
-    
+
     # Create AI controllers and elasticity tracking
     ai_controllers = {}
     elasticity_manager = ElasticityManager()
-    
+
     for player in state_machine.game_state.players:
         if not player.is_human:
-            new_controller = AIPlayerController(player.name, state_machine)
+            new_controller = AIPlayerController(player.name, state_machine, llm_config=llm_config)
             ai_controllers[player.name] = new_controller
             
             # Add to elasticity manager
@@ -494,6 +554,7 @@ def api_new_game():
         'pressure_stats': pressure_stats,
         'owner_id': owner_id,
         'owner_name': owner_name,
+        'llm_config': llm_config,
         'messages': [{
             'id': '1',
             'sender': 'System',
@@ -532,10 +593,12 @@ def api_player_action(game_id):
     if not current_player.is_human:
         return jsonify({'error': 'Not human player turn'}), 400
     
+    # Capture highest_bet before play_turn modifies state
+    highest_bet = state_machine.game_state.highest_bet
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Generate a message to be added to the game table
-    table_message_content = f"{current_player.name} chose to {action}{(' $' + str(amount)) if amount > 0 else ''}."
+    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "table")
     
     game_state = advance_to_next_active_player(game_state)
@@ -602,8 +665,8 @@ def progress_game(game_id):
         if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER] and game_state.no_action_taken:
             # Send a table messages with the cards that were dealt
             num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
-            message_content = (f"{state_machine.current_phase} cards dealt: "
-                               f"{[''.join([c['rank'], c['suit'][:1]]) for c in game_state.community_cards[-num_cards_dealt:]]}")
+            cards_str = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+            message_content = f"{state_machine.current_phase} cards dealt: {cards_str}"
             send_message(game_id, "Table", message_content, "table")
 
         # Check if it's an AI's turn to play, then handle AI actions
@@ -702,32 +765,28 @@ def progress_game(game_id):
             if is_showdown:
                 winner_data['hand_name'] = winner_info['hand_name']
             
-            # Include community cards
+            # Include community cards (convert Card objects to dicts)
             for card in game_state.community_cards:
-                if isinstance(card, dict):
-                    winner_data['community_cards'].append({
-                        'rank': card['rank'],
-                        'suit': card['suit']
-                    })
-                else:
+                if hasattr(card, 'to_dict'):
+                    winner_data['community_cards'].append(card.to_dict())
+                elif isinstance(card, dict):
                     winner_data['community_cards'].append(card)
-            
+                else:
+                    winner_data['community_cards'].append({'rank': str(card), 'suit': ''})
+
             # If it's a showdown, include player cards
             if is_showdown:
                 players_cards = {}
                 for player in active_players:
                     if player.hand:
-                        # Convert cards to backend format that Card component expects
                         formatted_cards = []
                         for card in player.hand:
-                            if isinstance(card, dict):
-                                formatted_cards.append({
-                                    'rank': card['rank'],
-                                    'suit': card['suit']
-                                })
-                            else:
-                                # Already formatted
+                            if hasattr(card, 'to_dict'):
+                                formatted_cards.append(card.to_dict())
+                            elif isinstance(card, dict):
                                 formatted_cards.append(card)
+                            else:
+                                formatted_cards.append({'rank': str(card), 'suit': ''})
                         players_cards[player.name] = formatted_cards
                 winner_data['players_cards'] = players_cards
 
@@ -815,10 +874,12 @@ def handle_player_action(data):
 
     # Play the current player's turn
     current_player = state_machine.game_state.current_player
+    # Capture highest_bet before play_turn modifies state
+    highest_bet = state_machine.game_state.highest_bet
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Generate a message to be added to the game table
-    table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
+    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "table")
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
@@ -930,7 +991,6 @@ def handle_ai_action(game_id: str) -> None:
         amount = player_response_dict.get('adding_to_pot', 0)
         player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
-        raise_corrected = player_response_dict.get('raise_amount_corrected', False)
         
     except Exception as e:
         # This should rarely happen since controller has built-in resilience
@@ -957,25 +1017,23 @@ def handle_ai_action(game_id: str) -> None:
         # Use personality-aware fallback messages
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
-        raise_corrected = False
 
         # Subtle notification that we're using fallback
         send_message(game_id, "Table",
                     f"[{current_player.name} takes a moment to consider]",
                     "table")
 
-    # Build table message with correction indicator
-    table_message_content = f"{current_player.name} chose to {action}{(' by $' + str(amount)) if amount > 0 else ''}."
-    if raise_corrected and action == 'raise':
-        table_message_content += " ⚠️"  # Subtle warning emoji to indicate correction
-    
+    # Build table message (capture highest_bet before play_turn modifies state)
+    highest_bet = state_machine.game_state.highest_bet
+    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+
     # Only send AI message if they actually spoke
     if player_message and player_message != '...':
         full_message = f"{player_message} {player_physical_description}".strip()
         send_message(game_id, current_player.name, full_message, "ai", 1)
-    
+
     send_message(game_id, "Table", table_message_content, "table")
-    
+
     # Detect pressure events based on AI action
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
@@ -1241,6 +1299,34 @@ def get_pressure_stats(game_id):
     
     pressure_stats = game_data['pressure_stats']
     return jsonify(pressure_stats.get_session_summary())
+
+
+# Model configuration routes
+@app.route('/api/models', methods=['GET'])
+def get_available_models():
+    """Get available OpenAI models for game configuration."""
+    try:
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        models = client.models.list()
+        # Filter to relevant models (GPT-5 and GPT-4o variants)
+        available = [m.id for m in models.data if m.id.startswith(('gpt-5', 'gpt-4o'))]
+        return jsonify({
+            'success': True,
+            'models': sorted(available),
+            'default_model': 'gpt-5-nano',
+            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+            'default_reasoning': 'low'
+        })
+    except Exception as e:
+        logger.error(f"Error fetching models: {e}")
+        # Return defaults on error
+        return jsonify({
+            'success': True,
+            'models': ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
+            'default_model': 'gpt-5-nano',
+            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+            'default_reasoning': 'low'
+        })
 
 
 # Personality management routes

@@ -9,6 +9,7 @@ interface SavedGame {
   phase: string;
   num_players: number;
   pot_size: number;
+  player_names?: string[];
 }
 
 interface GameSelectorProps {
@@ -24,7 +25,7 @@ export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }:
 
   const fetchGames = () => {
     console.log('GameSelector: Fetching saved games...');
-    fetch(`${config.API_URL}/games`)
+    fetch(`${config.API_URL}/games`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         console.log('GameSelector: Received games data:', data);
@@ -52,7 +53,8 @@ export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }:
     
     try {
       const response = await fetch(`${config.API_URL}/game/${gameId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
       
       if (response.ok) {
@@ -172,9 +174,14 @@ export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }:
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', paddingRight: '60px' }}>
-                      <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{getPhaseDisplay(game.phase)}</span>
+                      <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{game.phase}</span>
                       <span style={{ color: '#4ade80', fontWeight: 'bold' }}>${game.pot_size} pot</span>
                     </div>
+                    {game.player_names && game.player_names.length > 0 && (
+                      <div style={{ fontSize: '13px', color: '#d1d5db', marginBottom: '6px', paddingRight: '60px' }}>
+                        {game.player_names.join(', ')}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', paddingRight: '60px' }}>
                       <span style={{ color: '#94a3b8' }}>{game.num_players} players</span>
                       <span style={{ color: '#94a3b8' }}>{new Date(game.updated_at).toLocaleDateString()}</span>
