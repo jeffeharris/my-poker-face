@@ -3,7 +3,8 @@ import { io, Socket } from 'socket.io-client';
 import type { ChatMessage } from '../../../types';
 import { Card, CommunityCard, HoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
-import { Chat } from '../../chat/Chat';
+// Chat component not currently used - kept for future use
+// import { Chat } from '../../chat/Chat';
 import { ChatSidebar } from '../../chat/ChatSidebar';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PlayerThinking } from '../PlayerThinking';
@@ -60,10 +61,10 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   };
   const [gameId, setGameId] = useState<string | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
-  const [useOverlayLoading, setUseOverlayLoading] = useState(false); // Toggle between loading styles
-  const [pollIntervalRef, setPollIntervalRef] = useState<NodeJS.Timeout | null>(null);
+  const [useOverlayLoading] = useState(false); // Toggle between loading styles
+  const [pollIntervalRef, setPollIntervalRef] = useState<ReturnType<typeof setInterval> | null>(null);
   const socketRef = useRef<Socket | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [, setLastUpdate] = useState<Date | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
@@ -199,7 +200,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             }
             
             // Assign other players to remaining positions
-            data.players.forEach((player: Player, index: number) => {
+            data.players.forEach((player: Player) => {
               if (!player.is_human) {
                 positions.set(player.name, positionIndex);
                 positionIndex++;
@@ -286,7 +287,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           }
           
           // Assign other players to remaining positions
-          data.players.forEach((player: Player, index: number) => {
+          data.players.forEach((player: Player) => {
             if (!player.is_human) {
               positions.set(player.name, positionIndex);
               positionIndex++;
@@ -294,7 +295,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           });
           setPlayerPositions(positions);
         }
-        
+
         // Initialize messages
         if (data.messages) {
           setMessages(data.messages);
@@ -328,8 +329,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     };
   }, []);
 
-  // Polling function
-  const startPolling = (gId: string) => {
+  // Polling function (kept for fallback if WebSocket fails)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _startPolling = (gId: string) => {
     // Clear any existing interval
     if (pollIntervalRef) {
       clearInterval(pollIntervalRef);
@@ -534,11 +536,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       
       <PokerTableLayout
         chatPanel={
-          <ChatSidebar 
+          <ChatSidebar
             messages={messages}
             onSendMessage={handleSendMessage}
             playerName={playerName}
-            gameId={gameId}
+            gameId={gameId ?? undefined}
             isPlayerTurn={gameState && gameState.players[gameState.current_player_idx]?.name === playerName}
           />
         }
