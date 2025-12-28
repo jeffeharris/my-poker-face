@@ -22,6 +22,7 @@ export function MobileWinnerAnnouncement({ winnerInfo, onComplete }: MobileWinne
 
   useEffect(() => {
     if (winnerInfo) {
+      setShowCards(false);
       // Show cards after a short delay for dramatic effect
       const cardTimer = setTimeout(() => {
         setShowCards(true);
@@ -31,7 +32,7 @@ export function MobileWinnerAnnouncement({ winnerInfo, onComplete }: MobileWinne
       const dismissTimer = setTimeout(() => {
         setShowCards(false);
         onComplete();
-      }, winnerInfo.showdown ? 6000 : 3000);
+      }, winnerInfo.showdown ? 8000 : 3000);
 
       return () => {
         clearTimeout(cardTimer);
@@ -53,22 +54,43 @@ export function MobileWinnerAnnouncement({ winnerInfo, onComplete }: MobileWinne
         <div className="winner-amount">Wins ${winAmount}</div>
 
         {winnerInfo.hand_name && (
-          <div className="winner-hand-name">{winnerInfo.hand_name}</div>
+          <div className="winner-hand-name">with {winnerInfo.hand_name}</div>
         )}
 
-        {showCards && winnerInfo.showdown && winnerInfo.players_cards && (
-          <div className="showdown-cards">
-            {Object.entries(winnerInfo.players_cards).map(([playerName, cards]) => (
-              <div key={playerName} className="player-showdown">
-                <div className="showdown-player-name">{playerName}</div>
-                <div className="showdown-cards-row">
-                  {cards.map((card, i) => (
-                    <Card key={i} card={card} faceDown={false} size="medium" />
+        {winnerInfo.showdown && showCards && (
+          <div className="showdown-section">
+            {/* Community Cards */}
+            {winnerInfo.community_cards && winnerInfo.community_cards.length > 0 && (
+              <div className="community-section">
+                <div className="section-label">Board</div>
+                <div className="community-cards-row">
+                  {winnerInfo.community_cards.map((card, i) => (
+                    <Card key={i} card={card} faceDown={false} size="small" />
                   ))}
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Player Cards */}
+            {winnerInfo.players_cards && (
+              <div className="players-hands-section">
+                {Object.entries(winnerInfo.players_cards).map(([playerName, cards]) => (
+                  <div key={playerName} className="player-showdown">
+                    <div className="showdown-player-name">{playerName}</div>
+                    <div className="showdown-cards-row">
+                      {cards.map((card, i) => (
+                        <Card key={i} card={card} faceDown={false} size="small" />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        )}
+
+        {!winnerInfo.showdown && (
+          <div className="no-showdown-text">All opponents folded</div>
         )}
 
         <button className="dismiss-btn" onClick={onComplete}>
