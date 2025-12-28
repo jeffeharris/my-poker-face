@@ -31,6 +31,14 @@ export function MobilePokerTable({
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
+
+  // Scroll chat to bottom when opened or new messages arrive
+  useEffect(() => {
+    if (showChatSheet && chatMessagesRef.current) {
+      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+    }
+  }, [showChatSheet, messages]);
 
   const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
     return fetch(url, {
@@ -410,7 +418,7 @@ export function MobilePokerTable({
               <h3>Table Chat</h3>
               <button onClick={() => setShowChatSheet(false)}>×</button>
             </div>
-            <div className="chat-sheet-messages">
+            <div className="chat-sheet-messages" ref={chatMessagesRef}>
               {messages.slice(-50).map((msg, i) => (
                 <div key={msg.id || i} className={`chat-msg ${msg.type}`}>
                   <span className="chat-sender">{msg.sender}:</span>
