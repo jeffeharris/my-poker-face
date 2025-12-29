@@ -1,165 +1,174 @@
 .mobile-winner-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
-  padding: 20px;
-  overflow-y: auto;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-out;
+    padding: 20px;
+    overflow-y: auto;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .mobile-winner-content {
-  text-align: center;
-  color: white;
-  max-width: 360px;
-  width: 100%;
+    text-align: center;
+    color: white;
+    width: 100%;
 }
 
 .winner-trophy {
-  font-size: 64px;
-  margin-bottom: 12px;
-  animation: trophyBounce 1s ease-out;
+    font-size: 64px;
+    margin-bottom: 12px;
+    animation: trophyBounce 1s ease-out;
 }
 
 @keyframes trophyBounce {
-  0% { transform: scale(0); }
-  50% { transform: scale(1.2); }
-  100% { transform: scale(1); }
+    0% {
+        transform: scale(0);
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+    }
 }
 
 .winner-name {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 6px;
-  background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .winner-amount {
-  font-size: 18px;
-  font-weight: 600;
-  color: #4caf50;
-  margin-bottom: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #4caf50;
+    margin-bottom: 12px;
 }
 
 .winner-hand-name {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 16px;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  display: inline-block;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.9);
+    margin-bottom: 16px;
+    padding: 6px 14px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    display: inline-block;
 }
 
 .no-showdown-text {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-bottom: 20px;
-  font-style: italic;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 20px;
+    font-style: italic;
 }
 
 /* Showdown Section */
 .showdown-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 20px;
-  animation: cardsReveal 0.5s ease-out;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 20px;
+    animation: cardsReveal 0.5s ease-out;
 }
 
 @keyframes cardsReveal {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Community Cards Section */
 .community-section {
-  background: rgba(255, 255, 255, 0.08);
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.08);
+    padding: 8px 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .section-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 8px;
 }
 
 .community-cards-row {
-  display: flex;
-  gap: 4px;
-  justify-content: center;
-  flex-wrap: wrap;
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    flex-wrap: wrap;
 }
 
 /* Player Hands Section */
 .players-hands-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .player-showdown {
-  background: rgba(255, 255, 255, 0.05);
-  padding: 10px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 10px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 
 .showdown-player-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  min-width: 80px;
-  text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    min-width: 80px;
+    text-align: left;
 }
 
 .showdown-cards-row {
-  display: flex;
-  gap: 4px;
-  justify-content: center;
+    display: flex;
+    gap: 4px;
+    justify-content: center;
 }
 
 /* Dismiss Button */
 .dismiss-btn {
-  padding: 14px 32px;
-  background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
-  border: none;
-  border-radius: 12px;
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
-  transition: transform 0.1s;
-  margin-top: 8px;
+    padding: 14px 32px;
+    background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    transition: transform 0.1s;
+    margin-top: 8px;
 }
 
 .dismiss-btn:active {
-  transform: scale(0.95);
+    transform: scale(0.95);
 }

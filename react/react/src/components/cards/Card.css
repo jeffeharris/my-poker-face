@@ -335,10 +335,10 @@
     }
 
     .playing-card.unicode-card.medium {
-        font-size: 7.425em;
-        width: 72px;
-        height: 76px;
-        padding-bottom: 19px;
+        font-size: 6.75em;
+        width: 65px;
+        height: 69px;
+        padding-bottom: 17px;
     }
 
     .playing-card.unicode-card.large {
@@ -362,9 +362,9 @@
     }
 
     .playing-card.card-back.medium {
-        width: 72px;
-        height: 76px;
-        padding-bottom: 19px;
+        width: 65px;
+        height: 69px;
+        padding-bottom: 17px;
     }
 
     .playing-card.card-back.large {
