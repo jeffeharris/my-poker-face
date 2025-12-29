@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
-import type { ChatMessage, GameState } from '../../types';
+import type { ChatMessage } from '../../types';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
-import { config } from '../../config';
+import { usePokerGame } from '../../hooks/usePokerGame';
 import './MobilePokerTable.css';
 
 interface MobilePokerTableProps {
@@ -21,23 +20,36 @@ export function MobilePokerTable({
   onGameCreated,
   onBack
 }: MobilePokerTableProps) {
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [gameId, setGameId] = useState<string | null>(null);
-  const [aiThinking, setAiThinking] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const messageIdsRef = useRef<Set<string>>(new Set());
-  const [winnerInfo, setWinnerInfo] = useState<any>(null);
-  const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
+  // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
 
+  // Callback for handling AI messages (for floating bubbles)
+  const handleNewAiMessage = useCallback((message: ChatMessage) => {
+    setRecentAiMessage(message);
+  }, []);
+
+  // Use the shared hook for all socket/state management
+  const {
+    gameState,
+    loading,
+    messages,
+    aiThinking,
+    winnerInfo,
+    handlePlayerAction,
+    handleSendMessage,
+    clearWinnerInfo,
+  } = usePokerGame({
+    gameId: providedGameId ?? null,
+    playerName,
+    onGameCreated,
+    onNewAiMessage: handleNewAiMessage,
+  });
+
   // Scroll chat to bottom only when first opened
   useEffect(() => {
     if (showChatSheet && chatMessagesRef.current) {
-      // Use setTimeout to ensure DOM has rendered
       setTimeout(() => {
         if (chatMessagesRef.current) {
           chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
@@ -46,256 +58,10 @@ export function MobilePokerTable({
     }
   }, [showChatSheet]);
 
-  const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
-    return fetch(url, {
-      ...options,
-      credentials: 'include',
-    });
-  };
-
-  const setupSocketListeners = (socket: Socket) => {
-    socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
-    });
-
-    socket.on('update_game_state', (data: { game_state: any }) => {
-      const transformedState = {
-        ...data.game_state,
-        messages: data.game_state.messages || []
-      };
-      setGameState(transformedState);
-
-      if (data.game_state.messages) {
-        const newMessages = data.game_state.messages.filter((msg: ChatMessage) => {
-          return !messageIdsRef.current.has(msg.id);
-        });
-
-        if (newMessages.length > 0) {
-          newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          setMessages(prev => [...prev, ...newMessages]);
-
-          // Show recent AI messages as floating bubbles
-          const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
-          if (aiMessages.length > 0) {
-            setRecentAiMessage(aiMessages[aiMessages.length - 1]);
-          }
-        }
-      }
-
-      const currentPlayer = transformedState.players[transformedState.current_player_idx];
-      setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
-    });
-
-    socket.on('new_messages', (data: { game_messages: any[] }) => {
-      const newMessages = data.game_messages.filter((msg: any) => {
-        return !messageIdsRef.current.has(msg.id || String(msg.timestamp));
-      });
-
-      if (newMessages.length > 0) {
-        newMessages.forEach((msg: any) => {
-          const msgId = msg.id || String(msg.timestamp);
-          messageIdsRef.current.add(msgId);
-        });
-        setMessages(prev => [...prev, ...newMessages]);
-
-        const aiMessages = newMessages.filter((msg: any) => msg.type === 'ai');
-        if (aiMessages.length > 0) {
-          setRecentAiMessage(aiMessages[aiMessages.length - 1]);
-        }
-      }
-    });
-
-    socket.on('player_turn_start', (data: { current_player_options: string[] }) => {
-      setAiThinking(false);
-      setGameState(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          player_options: data.current_player_options
-        };
-      });
-    });
-
-    socket.on('winner_announcement', (data: any) => {
-      setWinnerInfo(data);
-    });
-  };
-
-  // Helper to fetch and set game state
-  const refreshGameState = useCallback(async (gId: string) => {
-    try {
-      const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
-      const data = await res.json();
-
-      if (data.error || !data.players || data.players.length === 0) {
-        throw new Error(data.message || 'Invalid game state');
-      }
-
-      setGameState(data);
-      setLoading(false);
-
-      if (data.messages) {
-        setMessages(data.messages);
-        data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-      }
-
-      const currentPlayer = data.players[data.current_player_idx];
-      if (!currentPlayer.is_human) {
-        setAiThinking(true);
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Failed to load game state:', err);
-      return false;
-    }
-  }, []);
-
-  // Create socket with reconnection settings
-  const createSocket = useCallback((gId: string) => {
-    const socket = io(config.SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-    });
-
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('Socket connected, joining game:', gId);
-      socket.emit('join_game', gId);
-      // Refresh game state on reconnect to catch up on any missed updates
-      refreshGameState(gId);
-    });
-
-    setupSocketListeners(socket);
-
-    return socket;
-  }, [refreshGameState]);
-
-  useEffect(() => {
-    if (providedGameId) {
-      const loadGameId = providedGameId;
-      setGameId(loadGameId);
-
-      // Store active game ID for reconnection
-      localStorage.setItem('activePokerGameId', loadGameId);
-
-      createSocket(loadGameId);
-      refreshGameState(loadGameId).then(success => {
-        if (!success) {
-          localStorage.removeItem('activePokerGameId');
-          localStorage.removeItem('pokerGameState');
-          if (onGameCreated) onGameCreated('');
-          window.location.reload();
-        }
-      });
-    } else {
-      fetchWithCredentials(`${config.API_URL}/api/new-game`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerName: playerName || 'Player' }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          const newGameId = data.game_id;
-          setGameId(newGameId);
-
-          // Store active game ID for reconnection
-          localStorage.setItem('activePokerGameId', newGameId);
-
-          if (onGameCreated) onGameCreated(newGameId);
-
-          createSocket(newGameId);
-          return refreshGameState(newGameId);
-        })
-        .catch(err => {
-          console.error('Failed to create/fetch game:', err);
-          setLoading(false);
-        });
-    }
-  }, [providedGameId, createSocket, refreshGameState]);
-
-  // Handle visibility changes (browser wake from sleep)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && gameId) {
-        console.log('Page became visible, checking connection...');
-        const socket = socketRef.current;
-
-        if (!socket || !socket.connected) {
-          console.log('Socket disconnected, reconnecting...');
-          // Force reconnection
-          if (socket) {
-            socket.connect();
-          } else {
-            createSocket(gameId);
-          }
-        } else {
-          // Socket is connected, but refresh state to catch up
-          console.log('Socket connected, refreshing game state...');
-          refreshGameState(gameId);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [gameId, createSocket, refreshGameState]);
-
-  useEffect(() => {
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, []);
-
-  const handlePlayerAction = async (action: string, amount?: number) => {
-    if (!gameId) return;
-
-    setAiThinking(true);
-
-    try {
-      const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, amount: amount || 0 }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Action failed');
-      }
-    } catch (error) {
-      console.error('Failed to send action:', error);
-      setAiThinking(false);
-    }
-  };
-
-  const handleSendMessage = async (message: string) => {
-    if (!gameId) return;
-
-    try {
-      await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, sender: playerName || 'Player' }),
-      });
-    } catch (error) {
-      console.error('Failed to send message:', error);
-    }
-  };
-
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
 
   // Sort opponents by their position relative to the human player in turn order
-  // Player immediately after human should be first, player immediately before should be last
   const opponents = (() => {
     if (!gameState?.players) return [];
     const humanIndex = gameState.players.findIndex(p => p.is_human);
