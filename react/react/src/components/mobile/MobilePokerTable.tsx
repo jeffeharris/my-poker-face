@@ -385,13 +385,6 @@ export function MobilePokerTable({
               {opponent.bet > 0 && (
                 <div className="opponent-bet">${opponent.bet}</div>
               )}
-              {isCurrentPlayer && aiThinking && (
-                <div className="thinking-indicator">
-                  <span className="dot">•</span>
-                  <span className="dot">•</span>
-                  <span className="dot">•</span>
-                </div>
-              )}
               {opponent.is_folded && <div className="status-badge folded">FOLD</div>}
               {opponent.is_all_in && <div className="status-badge all-in">ALL-IN</div>}
             </div>

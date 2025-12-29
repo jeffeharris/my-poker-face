@@ -246,27 +246,6 @@
   border-radius: 10px;
 }
 
-.thinking-indicator {
-  position: absolute;
-  top: -8px;
-  display: flex;
-  gap: 3px;
-}
-
-.thinking-indicator .dot {
-  color: #4caf50;
-  font-size: 16px;
-  animation: dotBounce 1.4s ease-in-out infinite;
-}
-
-.thinking-indicator .dot:nth-child(1) { animation-delay: 0s; }
-.thinking-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dotBounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-6px); }
-}
 
 .status-badge {
   position: absolute;
