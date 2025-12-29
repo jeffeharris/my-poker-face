@@ -280,24 +280,24 @@
   
   /* Unicode card responsive sizes */
   .playing-card.unicode-card.small {
-    font-size: 3.75em;
-    width: 37px;
-    height: 39px;
+    font-size: 4.125em;
+    width: 41px;
+    height: 43px;
     padding-bottom: 9px;
   }
 
   .playing-card.unicode-card.medium {
-    font-size: 5.25em;
-    width: 51px;
-    height: 52px;
+    font-size: 5.775em;
+    width: 56px;
+    height: 59px;
     padding-bottom: 16px;
   }
 
   .playing-card.unicode-card.large {
-    font-size: 6.75em;
-    width: 65px;
-    height: 69px;
-    padding-bottom: 18px;
+    font-size: 7.425em;
+    width: 72px;
+    height: 76px;
+    padding-bottom: 19px;
   }
 }
 
