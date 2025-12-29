@@ -80,11 +80,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     socket.on('disconnect', () => {
       console.log('WebSocket disconnected');
     });
-    
+
     socket.on('player_joined', (data: { message: string }) => {
       console.log('Player joined:', data.message);
     });
-    
+
     // Listen for game state updates
     socket.on('update_game_state', (data: { game_state: any }) => {
       console.log('Received game state update via WebSocket');
@@ -95,24 +95,24 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       };
       setGameState(transformedState);
       setLastUpdate(new Date());
-      
+
       // Update messages more intelligently - only add new ones
       if (data.game_state.messages) {
         const newMessages = data.game_state.messages.filter((msg: ChatMessage) => {
           return !messageIdsRef.current.has(msg.id);
         });
-        
+
         if (newMessages.length > 0) {
           newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
           setMessages(prev => [...prev, ...newMessages]);
         }
       }
-      
+
       // Update AI thinking state based on current player
       const currentPlayer = transformedState.players[transformedState.current_player_idx];
       setAiThinking(!currentPlayer.is_human && !currentPlayer.is_folded);
     });
-    
+
     // Listen for new message (emitted by send_message in backend)
     socket.on('new_message', (data: { message: any }) => {
       console.log('Received new_message via WebSocket');
@@ -136,7 +136,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       messageIdsRef.current.add(msgId);
       setMessages(prev => [...prev, transformedMessage]);
     });
-    
+
     socket.on('player_turn_start', (data: { current_player_options: string[], cost_to_call: number }) => {
       console.log('Player turn started, options:', data.current_player_options);
       setAiThinking(false);
@@ -149,12 +149,86 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         };
       });
     });
-    
+
     socket.on('winner_announcement', (data: any) => {
       console.log('Winner announcement received:', data);
       setWinnerInfo(data);
     });
   };
+
+  // Helper to fetch and update game state
+  const refreshGameState = useCallback(async (gId: string) => {
+    try {
+      const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+      const data = await res.json();
+
+      if (data.error || !data.players || data.players.length === 0) {
+        return false;
+      }
+
+      setGameState(data);
+      setLoading(false);
+
+      // Initialize player positions if needed
+      if (playerPositions.size === 0) {
+        const positions = new Map<string, number>();
+        const humanIndex = data.players.findIndex((p: Player) => p.is_human);
+        let positionIndex = 0;
+
+        if (humanIndex !== -1) {
+          positions.set(data.players[humanIndex].name, 0);
+          positionIndex = 1;
+        }
+
+        data.players.forEach((player: Player) => {
+          if (!player.is_human) {
+            positions.set(player.name, positionIndex);
+            positionIndex++;
+          }
+        });
+        setPlayerPositions(positions);
+      }
+
+      if (data.messages) {
+        setMessages(data.messages);
+        data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+      }
+
+      const currentPlayer = data.players[data.current_player_idx];
+      if (!currentPlayer.is_human) {
+        setAiThinking(true);
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Failed to refresh game state:', err);
+      return false;
+    }
+  }, [playerPositions]);
+
+  // Create socket with reconnection settings
+  const createSocket = useCallback((gId: string) => {
+    const socket = io(config.SOCKET_URL, {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Socket connected, joining game:', gId);
+      socket.emit('join_game', gId);
+      // Refresh game state on reconnect to catch up on any missed updates
+      refreshGameState(gId);
+    });
+
+    setupSocketListeners(socket);
+
+    return socket;
+  }, [refreshGameState]);
 
   useEffect(() => {
     // If a gameId is provided, load that game; otherwise create a new one
@@ -162,86 +236,25 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       // Load existing game
       const loadGameId = providedGameId;
       setGameId(loadGameId);
-      
-      // Initialize WebSocket connection
-      const socket = io(config.SOCKET_URL);
-      socketRef.current = socket;
-      
-      socket.on('connect', () => {
-        console.log('WebSocket connected');
-        socket.emit('join_game', loadGameId);
-        console.log('Joined existing game room:', loadGameId);
-      });
-      
-      setupSocketListeners(socket);
-      
-      // Fetch the game state
-      fetchWithCredentials(`${config.API_URL}/api/game-state/${loadGameId}`)
-        .then(res => {
-          if (!res.ok) {
-            throw new Error('Failed to load game');
-          }
-          return res.json();
-        })
-        .then(data => {
-          // Check if it's an error response
-          if (data.error || !data.players || data.players.length === 0) {
-            if (data.message) {
-              throw new Error(data.message);
-            } else {
-              throw new Error('Invalid game state');
-            }
-          }
-          
-          setGameState(data);
-          setLoading(false);
-          
-          // Only initialize positions if they haven't been set yet
-          // This prevents positions from changing when dealer rotates
-          if (playerPositions.size === 0) {
-            const positions = new Map<string, number>();
-            let humanIndex = data.players.findIndex((p: Player) => p.is_human);
-            let positionIndex = 0;
-            
-            // Assign human player to position 0 (bottom)
-            if (humanIndex !== -1) {
-              positions.set(data.players[humanIndex].name, 0);
-              positionIndex = 1;
-            }
-            
-            // Assign other players to remaining positions
-            data.players.forEach((player: Player) => {
-              if (!player.is_human) {
-                positions.set(player.name, positionIndex);
-                positionIndex++;
-              }
-            });
-            setPlayerPositions(positions);
-          }
-          
-          // Initialize messages
-          if (data.messages) {
-            setMessages(data.messages);
-            data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          }
-          
-          // Check if AI needs to act
-          const currentPlayer = data.players[data.current_player_idx];
-          if (!currentPlayer.is_human) {
-            setAiThinking(true);
-          }
-        })
-        .catch(err => {
-          console.error('Failed to load game:', err);
-          // Clear the bad game state from localStorage
+
+      // Store active game ID for reconnection
+      localStorage.setItem('activePokerGameId', loadGameId);
+
+      // Initialize WebSocket connection with reconnection support
+      createSocket(loadGameId);
+
+      // Fetch the initial game state
+      refreshGameState(loadGameId).then(success => {
+        if (!success) {
+          console.error('Failed to load game');
+          localStorage.removeItem('activePokerGameId');
           localStorage.removeItem('pokerGameState');
-          // If we have an onGameCreated callback, notify parent to reset
           if (onGameCreated) {
             onGameCreated('');
           }
-          // Reload the page to reset the app state
           window.location.reload();
-        });
+        }
+      });
     } else {
       // Create a new game
       fetchWithCredentials(`${config.API_URL}/api/new-game`, {
@@ -263,75 +276,58 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         .then(data => {
           const newGameId = data.game_id;
           setGameId(newGameId);
-          
+
+          // Store active game ID for reconnection
+          localStorage.setItem('activePokerGameId', newGameId);
+
           // Notify parent component of the new game ID
           if (onGameCreated) {
             onGameCreated(newGameId);
           }
-        
-        // Initialize WebSocket connection
-        const socket = io(config.SOCKET_URL);
-        socketRef.current = socket;
-        
-        socket.on('connect', () => {
-          console.log('WebSocket connected');
-          socket.emit('join_game', newGameId);
-          console.log('Joined new game room:', newGameId);
-        });
-        
-        setupSocketListeners(socket);
-        
-        // Now fetch the initial game state
-        return fetchWithCredentials(`${config.API_URL}/api/game-state/${newGameId}`);
-      })
-      .then(res => res.json())
-      .then(data => {
-        setGameState(data);
-        setLoading(false);
-        
-        // Only initialize positions if they haven't been set yet
-        // This prevents positions from changing when dealer rotates
-        if (playerPositions.size === 0) {
-          const positions = new Map<string, number>();
-          let humanIndex = data.players.findIndex((p: Player) => p.is_human);
-          let positionIndex = 0;
-          
-          // Assign human player to position 0 (bottom)
-          if (humanIndex !== -1) {
-            positions.set(data.players[humanIndex].name, 0);
-            positionIndex = 1;
-          }
-          
-          // Assign other players to remaining positions
-          data.players.forEach((player: Player) => {
-            if (!player.is_human) {
-              positions.set(player.name, positionIndex);
-              positionIndex++;
-            }
-          });
-          setPlayerPositions(positions);
-        }
 
-        // Initialize messages
-        if (data.messages) {
-          setMessages(data.messages);
-          data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-        }
-        
-        // Check if AI needs to act
-        const currentPlayer = data.players[data.current_player_idx];
-        if (!currentPlayer.is_human) {
-          setAiThinking(true);
-          // No need to poll - WebSocket will handle updates
-        }
-      })
-      .catch(err => {
-        console.error('Failed to create/fetch game:', err);
-        setError(err.message || 'Failed to create game');
-        setLoading(false);
-      });
+          // Initialize WebSocket connection with reconnection support
+          createSocket(newGameId);
+
+          // Fetch the initial game state
+          return refreshGameState(newGameId);
+        })
+        .catch(err => {
+          console.error('Failed to create/fetch game:', err);
+          setError(err.message || 'Failed to create game');
+          setLoading(false);
+        });
     }
-  }, [providedGameId]);
+  }, [providedGameId, createSocket, refreshGameState]);
+
+  // Handle visibility changes (browser wake from sleep)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && gameId) {
+        console.log('Page became visible, checking connection...');
+        const socket = socketRef.current;
+
+        if (!socket || !socket.connected) {
+          console.log('Socket disconnected, reconnecting...');
+          // Force reconnection
+          if (socket) {
+            socket.connect();
+          } else {
+            createSocket(gameId);
+          }
+        } else {
+          // Socket is connected, but refresh state to catch up
+          console.log('Socket connected, refreshing game state...');
+          refreshGameState(gameId);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [gameId, createSocket, refreshGameState]);
 
   // Cleanup on unmount
   useEffect(() => {

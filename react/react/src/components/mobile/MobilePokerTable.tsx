@@ -121,46 +121,77 @@ export function MobilePokerTable({
     });
   };
 
+  // Helper to fetch and set game state
+  const refreshGameState = useCallback(async (gId: string) => {
+    try {
+      const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+      const data = await res.json();
+
+      if (data.error || !data.players || data.players.length === 0) {
+        throw new Error(data.message || 'Invalid game state');
+      }
+
+      setGameState(data);
+      setLoading(false);
+
+      if (data.messages) {
+        setMessages(data.messages);
+        data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+      }
+
+      const currentPlayer = data.players[data.current_player_idx];
+      if (!currentPlayer.is_human) {
+        setAiThinking(true);
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Failed to load game state:', err);
+      return false;
+    }
+  }, []);
+
+  // Create socket with reconnection settings
+  const createSocket = useCallback((gId: string) => {
+    const socket = io(config.SOCKET_URL, {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Socket connected, joining game:', gId);
+      socket.emit('join_game', gId);
+      // Refresh game state on reconnect to catch up on any missed updates
+      refreshGameState(gId);
+    });
+
+    setupSocketListeners(socket);
+
+    return socket;
+  }, [refreshGameState]);
+
   useEffect(() => {
     if (providedGameId) {
       const loadGameId = providedGameId;
       setGameId(loadGameId);
 
-      const socket = io(config.SOCKET_URL);
-      socketRef.current = socket;
+      // Store active game ID for reconnection
+      localStorage.setItem('activePokerGameId', loadGameId);
 
-      socket.on('connect', () => {
-        socket.emit('join_game', loadGameId);
-      });
-
-      setupSocketListeners(socket);
-
-      fetchWithCredentials(`${config.API_URL}/api/game-state/${loadGameId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.error || !data.players || data.players.length === 0) {
-            throw new Error(data.message || 'Invalid game state');
-          }
-
-          setGameState(data);
-          setLoading(false);
-
-          if (data.messages) {
-            setMessages(data.messages);
-            data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          }
-
-          const currentPlayer = data.players[data.current_player_idx];
-          if (!currentPlayer.is_human) {
-            setAiThinking(true);
-          }
-        })
-        .catch(err => {
-          console.error('Failed to load game:', err);
+      createSocket(loadGameId);
+      refreshGameState(loadGameId).then(success => {
+        if (!success) {
+          localStorage.removeItem('activePokerGameId');
           localStorage.removeItem('pokerGameState');
           if (onGameCreated) onGameCreated('');
           window.location.reload();
-        });
+        }
+      });
     } else {
       fetchWithCredentials(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -172,40 +203,50 @@ export function MobilePokerTable({
           const newGameId = data.game_id;
           setGameId(newGameId);
 
+          // Store active game ID for reconnection
+          localStorage.setItem('activePokerGameId', newGameId);
+
           if (onGameCreated) onGameCreated(newGameId);
 
-          const socket = io(config.SOCKET_URL);
-          socketRef.current = socket;
-
-          socket.on('connect', () => {
-            socket.emit('join_game', newGameId);
-          });
-
-          setupSocketListeners(socket);
-
-          return fetchWithCredentials(`${config.API_URL}/api/game-state/${newGameId}`);
-        })
-        .then(res => res.json())
-        .then(data => {
-          setGameState(data);
-          setLoading(false);
-
-          if (data.messages) {
-            setMessages(data.messages);
-            data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          }
-
-          const currentPlayer = data.players[data.current_player_idx];
-          if (!currentPlayer.is_human) {
-            setAiThinking(true);
-          }
+          createSocket(newGameId);
+          return refreshGameState(newGameId);
         })
         .catch(err => {
           console.error('Failed to create/fetch game:', err);
           setLoading(false);
         });
     }
-  }, [providedGameId]);
+  }, [providedGameId, createSocket, refreshGameState]);
+
+  // Handle visibility changes (browser wake from sleep)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && gameId) {
+        console.log('Page became visible, checking connection...');
+        const socket = socketRef.current;
+
+        if (!socket || !socket.connected) {
+          console.log('Socket disconnected, reconnecting...');
+          // Force reconnection
+          if (socket) {
+            socket.connect();
+          } else {
+            createSocket(gameId);
+          }
+        } else {
+          // Socket is connected, but refresh state to catch up
+          console.log('Socket connected, refreshing game state...');
+          refreshGameState(gameId);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [gameId, createSocket, refreshGameState]);
 
   useEffect(() => {
     return () => {
