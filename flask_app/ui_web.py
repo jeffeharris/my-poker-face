@@ -409,7 +409,8 @@ def api_game_state(game_id):
                     'pressure_stats': pressure_stats,
                     'owner_id': owner_id,
                     'owner_name': owner_name,
-                    'messages': db_messages
+                    'messages': db_messages,
+                    'game_started': True  # Mark loaded games as started to prevent duplicate progress_game calls
                 }
                 games[game_id] = current_game_data
 
