@@ -251,7 +251,27 @@ export function MobilePokerTable({
 
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
-  const opponents = gameState?.players.filter(p => !p.is_human) || [];
+
+  // Sort opponents by their position relative to the human player in turn order
+  // Player immediately after human should be first, player immediately before should be last
+  const opponents = (() => {
+    if (!gameState?.players) return [];
+    const humanIndex = gameState.players.findIndex(p => p.is_human);
+    const totalPlayers = gameState.players.length;
+
+    return gameState.players
+      .filter(p => !p.is_human)
+      .sort((a, b) => {
+        const idxA = gameState.players.findIndex(p => p.name === a.name);
+        const idxB = gameState.players.findIndex(p => p.name === b.name);
+
+        // Calculate clockwise distance from human (wrapping around)
+        const distA = (idxA - humanIndex + totalPlayers) % totalPlayers;
+        const distB = (idxB - humanIndex + totalPlayers) % totalPlayers;
+
+        return distA - distB;
+      });
+  })();
 
   const showActionButtons = currentPlayer?.is_human &&
                            !currentPlayer.is_folded &&
