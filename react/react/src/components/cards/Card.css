@@ -1,308 +1,399 @@
 /* Playing Card Styles */
 .playing-card {
-  display: inline-block;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  position: relative;
-  font-family: 'Arial', sans-serif;
-  transition: all 0.3s ease;
-  cursor: pointer;
-  user-select: none;
+    display: inline-block;
+    border-radius: 3px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    position: relative;
+    font-family: "Arial", sans-serif;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    user-select: none;
 }
 
 .playing-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 /* Unicode Card - Simple display */
 .playing-card.unicode-card {
-  background: white;
-  border: 1px solid #ddd;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    background: white;
+    border: 1px solid #ddd;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0.8;
+    text-align: center;
+    overflow: hidden;
 }
 
 .playing-card.unicode-card:hover {
-  transform: scale(1.05) translateY(-2px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transform: scale(1.05) translateY(-2px);
 }
 
 /* Card Sizes */
 .playing-card.small {
-  width: 52px;
-  height: 75px;
-  font-size: 12px;
+    width: 52px;
+    height: 75px;
+    font-size: 12px;
 }
 
 .playing-card.medium {
-  width: 75px;
-  height: 105px;
-  font-size: 15px;
+    width: 75px;
+    height: 105px;
+    font-size: 15px;
 }
 
 .playing-card.large {
-  width: 105px;
-  height: 150px;
-  font-size: 21px;
+    width: 105px;
+    height: 150px;
+    font-size: 21px;
 }
 
 /* Unicode card size adjustments */
+.playing-card.unicode-card.xsmall {
+    font-size: 4.5em;
+    width: 48px;
+    height: 45px;
+    padding: 0;
+    padding-bottom: 11px;
+}
+
 .playing-card.unicode-card.small {
-  font-size: 4.5em;
-  width: 52px;
-  height: 75px;
-  padding: 0;
+    font-size: 6em;
+    width: 63px;
+    height: 62px;
+    padding: 0;
+    padding-bottom: 16px;
 }
 
 .playing-card.unicode-card.medium {
-  font-size: 6em;
-  width: 75px;
-  height: 105px;
-  padding: 0;
+    font-size: 8.25em;
+    width: 80px;
+    height: 86px;
+    padding: 0;
+    padding-bottom: 21px;
 }
 
 .playing-card.unicode-card.large {
-  font-size: 8.25em;
-  width: 105px;
-  height: 150px;
-  padding: 0;
+    font-size: 10.5em;
+    width: 100px;
+    height: 108px;
+    padding: 0;
+    padding-bottom: 27px;
 }
 
 /* Card Front */
 .card-front {
-  background: white;
-  border: 2px solid #333;
-  color: #000;
+    background: white;
+    border: 2px solid #333;
+    color: #000;
 }
 
 .card-front.red {
-  color: #d32f2f;
+    color: #d32f2f;
 }
 
 .card-front.black {
-  color: #000;
+    color: #000;
 }
 
 /* Unicode card colors */
 .playing-card.unicode-card.red {
-  color: #d32f2f;
+    color: #d32f2f;
 }
 
 .playing-card.unicode-card.black {
-  color: #000;
+    color: #000;
 }
 
 /* Card Back */
 .card-back {
-  background: linear-gradient(45deg, #1976d2, #1565c0);
-  border: 2px solid #0d47a1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
+    background: linear-gradient(45deg, #1976d2, #1565c0);
+    border: 2px solid #0d47a1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    line-height: 0.8;
+    overflow: hidden;
+}
+
+/* Card back size overrides to match unicode cards */
+.playing-card.card-back.xsmall {
+    width: 48px;
+    height: 45px;
+    padding-bottom: 15px;
+}
+
+.playing-card.card-back.small {
+    width: 63px;
+    height: 62px;
+    padding-bottom: 20px;
+}
+
+.playing-card.card-back.medium {
+    width: 80px;
+    height: 86px;
+    padding-bottom: 28px;
+}
+
+.playing-card.card-back.large {
+    width: 100px;
+    height: 108px;
+    padding-bottom: 35px;
 }
 
 .card-back-pattern {
-  font-size: 6em;
-  opacity: 0.8;
+    font-size: 6em;
+    opacity: 0.8;
 }
 
 .small .card-back-pattern {
-  font-size: 4.5em;
+    font-size: 4.5em;
 }
 
 .large .card-back-pattern {
-  font-size: 8.25em;
+    font-size: 8.25em;
 }
 
 /* Card Layout */
 .card-corner {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1;
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1;
 }
 
 .top-left {
-  top: 4px;
-  left: 4px;
+    top: 4px;
+    left: 4px;
 }
 
 .bottom-right {
-  bottom: 4px;
-  right: 4px;
-  transform: rotate(180deg);
+    bottom: 4px;
+    right: 4px;
+    transform: rotate(180deg);
 }
 
 .small .card-corner {
-  top: 2px;
-  left: 2px;
+    top: 2px;
+    left: 2px;
 }
 
 .small .bottom-right {
-  bottom: 2px;
-  right: 2px;
+    bottom: 2px;
+    right: 2px;
 }
 
 .large .card-corner {
-  top: 6px;
-  left: 6px;
+    top: 6px;
+    left: 6px;
 }
 
 .large .bottom-right {
-  bottom: 6px;
-  right: 6px;
+    bottom: 6px;
+    right: 6px;
 }
 
 .rank {
-  font-weight: bold;
-  font-size: 1em;
+    font-weight: bold;
+    font-size: 1em;
 }
 
 .suit-small {
-  font-size: 0.8em;
-  margin-top: 1px;
+    font-size: 0.8em;
+    margin-top: 1px;
 }
 
 .card-center {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .suit-large {
-  font-size: 2em;
+    font-size: 2em;
 }
 
 .small .suit-large {
-  font-size: 1.2em;
+    font-size: 1.2em;
 }
 
 .large .suit-large {
-  font-size: 3em;
+    font-size: 3em;
 }
 
 /* Specialized Card Types */
 .community-card {
-  margin: 0 4px;
-  animation: cardReveal 0.5s ease-out;
+    margin: 0 4px;
+    animation: cardReveal 0.5s ease-out;
 }
 
 @keyframes cardReveal {
-  0% {
-    transform: rotateY(90deg) scale(0.8);
-    opacity: 0;
-  }
-  50% {
-    transform: rotateY(45deg) scale(0.9);
-    opacity: 0.5;
-  }
-  100% {
-    transform: rotateY(0deg) scale(1);
-    opacity: 1;
-  }
+    0% {
+        transform: rotateY(90deg) scale(0.8);
+        opacity: 0;
+    }
+    50% {
+        transform: rotateY(45deg) scale(0.9);
+        opacity: 0.5;
+    }
+    100% {
+        transform: rotateY(0deg) scale(1);
+        opacity: 1;
+    }
 }
 
 .hole-card {
-  margin: 0 2px;
+    margin: 0 2px;
 }
 
 .deck-card {
-  opacity: 0.9;
+    opacity: 0.9;
 }
 
 .deck-card:hover {
-  opacity: 1;
+    opacity: 1;
 }
 
 /* Card animations */
 .playing-card.dealing {
-  animation: dealCard 0.6s ease-out;
+    animation: dealCard 0.6s ease-out;
 }
 
 @keyframes dealCard {
-  0% {
-    transform: translateX(-100px) rotateZ(-45deg) scale(0);
-    opacity: 0;
-  }
-  50% {
-    transform: translateX(-20px) rotateZ(-10deg) scale(0.8);
-    opacity: 0.7;
-  }
-  100% {
-    transform: translateX(0) rotateZ(0deg) scale(1);
-    opacity: 1;
-  }
+    0% {
+        transform: translateX(-100px) rotateZ(-45deg) scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: translateX(-20px) rotateZ(-10deg) scale(0.8);
+        opacity: 0.7;
+    }
+    100% {
+        transform: translateX(0) rotateZ(0deg) scale(1);
+        opacity: 1;
+    }
 }
 
 .playing-card.flipping {
-  animation: flipCard 0.6s ease-in-out;
+    animation: flipCard 0.6s ease-in-out;
 }
 
 @keyframes flipCard {
-  0% { transform: rotateY(0deg); }
-  50% { transform: rotateY(90deg) scale(0.8); }
-  100% { transform: rotateY(0deg); }
+    0% {
+        transform: rotateY(0deg);
+    }
+    50% {
+        transform: rotateY(90deg) scale(0.8);
+    }
+    100% {
+        transform: rotateY(0deg);
+    }
 }
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
-  .playing-card.large {
-    width: 90px;
-    height: 128px;
-    font-size: 18px;
-  }
-  
-  .playing-card.medium {
-    width: 68px;
-    height: 95px;
-    font-size: 14px;
-  }
-  
-  .playing-card.small {
-    width: 45px;
-    height: 63px;
-    font-size: 11px;
-  }
-  
-  /* Unicode card responsive sizes */
-  .playing-card.unicode-card.small {
-    font-size: 3.75em;
-  }
-  
-  .playing-card.unicode-card.medium {
-    font-size: 5.25em;
-  }
-  
-  .playing-card.unicode-card.large {
-    font-size: 6.75em;
-  }
+    .playing-card.large {
+        width: 90px;
+        height: 128px;
+        font-size: 18px;
+    }
+
+    .playing-card.medium {
+        width: 68px;
+        height: 95px;
+        font-size: 14px;
+    }
+
+    .playing-card.small {
+        width: 45px;
+        height: 63px;
+        font-size: 11px;
+    }
+
+    /* Unicode card responsive sizes */
+    .playing-card.unicode-card.xsmall {
+        font-size: 4.125em;
+        width: 41px;
+        height: 43px;
+        padding-bottom: 9px;
+    }
+
+    .playing-card.unicode-card.small {
+        font-size: 5.775em;
+        width: 56px;
+        height: 59px;
+        padding-bottom: 15px;
+    }
+
+    .playing-card.unicode-card.medium {
+        font-size: 6.75em;
+        width: 65px;
+        height: 69px;
+        padding-bottom: 17px;
+    }
+
+    .playing-card.unicode-card.large {
+        font-size: 9.45em;
+        width: 90px;
+        height: 97px;
+        padding-bottom: 24px;
+    }
+
+    /* Card back responsive sizes */
+    .playing-card.card-back.xsmall {
+        width: 41px;
+        height: 43px;
+        padding-bottom: 9px;
+    }
+
+    .playing-card.card-back.small {
+        width: 56px;
+        height: 59px;
+        padding-bottom: 15px;
+    }
+
+    .playing-card.card-back.medium {
+        width: 65px;
+        height: 69px;
+        padding-bottom: 17px;
+    }
+
+    .playing-card.card-back.large {
+        width: 90px;
+        height: 97px;
+        padding-bottom: 24px;
+    }
 }
 
 /* Special effects */
 .playing-card.selected {
-  box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
-  border-color: #00ff00;
+    box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+    border-color: #00ff00;
 }
 
 .playing-card.disabled {
-  opacity: 0.5;
-  filter: grayscale(0.5);
+    opacity: 0.5;
+    filter: grayscale(0.5);
 }
 
 .playing-card.highlighted {
-  animation: cardHighlight 1s infinite alternate;
+    animation: cardHighlight 1s infinite alternate;
 }
 
 @keyframes cardHighlight {
-  from { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
-  to { box-shadow: 0 4px 20px rgba(255, 215, 0, 0.6); }
+    from {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    to {
+        box-shadow: 0 4px 20px rgba(255, 215, 0, 0.6);
+    }
 }

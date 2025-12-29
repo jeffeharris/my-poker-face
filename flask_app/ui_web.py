@@ -352,10 +352,12 @@ def api_game_state(game_id):
     current_game_data = games.get(game_id)
 
     # Auto-advance cached games that are stuck in non-action phases
+    # Only advance if game hasn't been started yet (prevents duplicate progress_game calls)
     if current_game_data:
         state_machine = current_game_data['state_machine']
-        if not state_machine.game_state.awaiting_action:
+        if not state_machine.game_state.awaiting_action and not current_game_data.get('game_started', False):
             print(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
+            current_game_data['game_started'] = True
             progress_game(game_id)
 
     if not current_game_data:
@@ -409,7 +411,8 @@ def api_game_state(game_id):
                     'pressure_stats': pressure_stats,
                     'owner_id': owner_id,
                     'owner_name': owner_name,
-                    'messages': db_messages
+                    'messages': db_messages,
+                    'game_started': True  # Mark loaded games as started to prevent duplicate progress_game calls
                 }
                 games[game_id] = current_game_data
 
@@ -435,9 +438,13 @@ def api_game_state(game_id):
     game_state = state_machine.game_state
     
     # Convert game state to API format
+    # Use dict format for cards to match WebSocket format (more robust than string parsing)
     players = []
     for player in game_state.players:
-        hand = [str(card) for card in player.hand] if player.is_human and player.hand else None
+        if player.is_human and player.hand:
+            hand = [card.to_dict() if hasattr(card, 'to_dict') else card for card in player.hand]
+        else:
+            hand = None
         players.append({
             'name': player.name,
             'stack': player.stack,
@@ -447,9 +454,9 @@ def api_game_state(game_id):
             'is_human': player.is_human,
             'hand': hand
         })
-    
-    # Convert community cards
-    community_cards = [str(card) for card in game_state.community_cards]
+
+    # Convert community cards (dict format to match WebSocket)
+    community_cards = [card.to_dict() if hasattr(card, 'to_dict') else card for card in game_state.community_cards]
     
     # Get messages
     messages = []

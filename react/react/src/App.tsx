@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { PokerTable } from './components/game/PokerTable'
+import { MobilePokerTable } from './components/mobile'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManagerHTML } from './components/admin/PersonalityManagerHTML'
@@ -9,6 +10,7 @@ import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
 import { LoginForm } from './components/auth/LoginForm'
 import { useAuth } from './hooks/useAuth'
+import { useViewport } from './hooks/useViewport'
 import { config } from './config'
 import './App.css'
 
@@ -24,7 +26,8 @@ interface Theme {
 
 function App() {
   const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
-  
+  const { isMobile } = useViewport();
+
   // Check localStorage for saved state on initial load
   const savedState = localStorage.getItem('pokerGameState');
   const parsedState = savedState ? JSON.parse(savedState) : null;
@@ -199,17 +202,17 @@ function App() {
   return (
     <>
 
-      {/* Navigation - only show when in table view */}
-      {currentView === 'table' && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 10, 
-          left: 10, 
+      {/* Navigation - only show when in table view on desktop */}
+      {currentView === 'table' && !isMobile && (
+        <div style={{
+          position: 'fixed',
+          top: 10,
+          left: 10,
           zIndex: 1000,
           display: 'flex',
           gap: '10px'
         }}>
-          <button 
+          <button
             onClick={() => {
               // Clear the saved game when going back to menu
               setGameId(null);
@@ -229,8 +232,8 @@ function App() {
         </div>
       )}
 
-      {/* User info - show when authenticated */}
-      {isAuthenticated && user && currentView !== 'login' && (
+      {/* User info - only show on game menu screen */}
+      {isAuthenticated && user && currentView === 'game-menu' && (
         <div style={{
           position: 'fixed',
           top: 10,
@@ -304,11 +307,23 @@ function App() {
         />
       )}
       {currentView === 'table' && (
-        <PokerTable 
-          gameId={gameId} 
-          playerName={playerName}
-          onGameCreated={(newGameId) => setGameId(newGameId)}
-        />
+        isMobile ? (
+          <MobilePokerTable
+            gameId={gameId}
+            playerName={playerName}
+            onGameCreated={(newGameId) => setGameId(newGameId)}
+            onBack={() => {
+              setGameId(null);
+              setCurrentView('game-menu');
+            }}
+          />
+        ) : (
+          <PokerTable
+            gameId={gameId}
+            playerName={playerName}
+            onGameCreated={(newGameId) => setGameId(newGameId)}
+          />
+        )
       )}
       {currentView === 'personalities' && (
         <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />

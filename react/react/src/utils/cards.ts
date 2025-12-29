@@ -9,7 +9,7 @@ export interface Card {
 }
 
 // Unicode playing card symbols (complete deck)
-const CARD_SYMBOLS = {
+export const CARD_SYMBOLS = {
   spades: {
     'A': '🂡', '2': '🂢', '3': '🂣', '4': '🂤', '5': '🂥', '6': '🂦', '7': '🂧', '8': '🂨', 
     '9': '🂩', '10': '🂪', 'J': '🂫', 'Q': '🂭', 'K': '🂮'
@@ -124,4 +124,29 @@ export function drawCards(deck: Card[], count: number): { cards: Card[], remaini
   const cards = deck.slice(0, count);
   const remainingDeck = deck.slice(count);
   return { cards, remainingDeck };
+}
+
+// Map backend suit names to internal suit keys
+const SUIT_MAP: Record<string, 'hearts' | 'diamonds' | 'clubs' | 'spades'> = {
+  'Hearts': 'hearts',
+  'Diamonds': 'diamonds',
+  'Clubs': 'clubs',
+  'Spades': 'spades'
+};
+
+// Convert backend card format { rank: string, suit: string } to Card object
+export function cardFromBackend(backendCard: { rank: string; suit: string }): Card | null {
+  const suit = SUIT_MAP[backendCard.suit];
+  if (!suit) return null;
+
+  const unicode = CARD_SYMBOLS[suit]?.[backendCard.rank as keyof typeof CARD_SYMBOLS.spades];
+  if (!unicode) return null;
+
+  return {
+    suit,
+    rank: backendCard.rank as Card['rank'],
+    value: getRankValue(backendCard.rank),
+    unicode,
+    color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
+  };
 }

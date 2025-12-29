@@ -79,7 +79,8 @@ class FallbackActionSelector:
                 valid_actions, personality_traits, call_amount, min_raise, max_raise
             )
         else:
-            return {"action": "fold", "adding_to_pot": 0}
+            # Unknown strategy - use conservative (prefers check over fold)
+            return FallbackActionSelector._conservative(valid_actions, call_amount)
 
     @staticmethod
     def _conservative(valid_actions: List[str], call_amount: int) -> Dict[str, Any]:
@@ -105,8 +106,13 @@ class FallbackActionSelector:
             if a in valid_actions
         }
 
+        # Never fold when check is available (folding when you can check for free is never correct)
+        if 'check' in available_weights and 'fold' in available_weights:
+            del available_weights['fold']
+
         if not available_weights:
-            return {"action": "fold", "adding_to_pot": 0}
+            # Prefer check over fold as ultimate fallback
+            return {"action": "check" if 'check' in valid_actions else "fold", "adding_to_pot": 0}
 
         # Normalize weights
         total_weight = sum(available_weights.values())
@@ -381,6 +387,10 @@ def _get_fallback_response(args: tuple, kwargs: dict, strategy: AIFallbackStrate
         )
     except Exception as e:
         logger.error(f"Error in fallback generation: {e}")
+        # Prefer check over fold even in error cases
+        valid_actions = kwargs.get('valid_actions', [])
+        if 'check' in valid_actions:
+            return {"action": "check", "adding_to_pot": 0}
         return {"action": "fold", "adding_to_pot": 0}
 
 
@@ -394,7 +404,7 @@ def _conservative_fallback(args: tuple, kwargs: dict) -> Dict[str, Any]:
 
 def _random_valid_fallback(args: tuple, kwargs: dict) -> Dict[str, Any]:
     """Random valid action fallback"""
-    valid_actions = kwargs.get('valid_actions', ['fold'])
+    valid_actions = kwargs.get('valid_actions', ['check', 'call', 'fold'])
     call_amount = kwargs.get('call_amount', 0)
     min_raise = kwargs.get('min_raise', MIN_RAISE)
     max_raise = kwargs.get('max_raise', MIN_RAISE * DEFAULT_MAX_RAISE_MULTIPLIER)
@@ -407,7 +417,7 @@ def _personality_based_fallback(
     personality_traits: Optional[Dict[str, float]]
 ) -> Dict[str, Any]:
     """Fallback based on personality traits"""
-    valid_actions = kwargs.get('valid_actions', ['fold'])
+    valid_actions = kwargs.get('valid_actions', ['check', 'call', 'fold'])
     call_amount = kwargs.get('call_amount', 0)
     min_raise = kwargs.get('min_raise', MIN_RAISE)
     max_raise = kwargs.get('max_raise', MIN_RAISE * DEFAULT_MAX_RAISE_MULTIPLIER)
