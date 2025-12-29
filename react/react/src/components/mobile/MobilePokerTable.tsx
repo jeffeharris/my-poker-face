@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ChatMessage, GameState } from '../../types';
 import { Card } from '../cards';
@@ -29,6 +29,7 @@ export function MobilePokerTable({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
@@ -432,7 +433,7 @@ export function MobilePokerTable({
       {/* Winner Announcement */}
       <MobileWinnerAnnouncement
         winnerInfo={winnerInfo}
-        onComplete={() => setWinnerInfo(null)}
+        onComplete={clearWinnerInfo}
       />
 
       {/* Chat Sheet (bottom drawer) */}

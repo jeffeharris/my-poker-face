@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ChatMessage } from '../../../types';
 import { Card, CommunityCard, HoleCard } from '../../cards';
@@ -69,6 +69,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
   const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
   const [debugMode, setDebugMode] = useState<boolean>(config.ENABLE_DEBUG);
   const [showStats, setShowStats] = useState<boolean>(true); // Default to showing stats
@@ -765,7 +766,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         {/* Winner Announcement */}
         <WinnerAnnouncement
           winnerInfo={winnerInfo}
-          onComplete={() => setWinnerInfo(null)}
+          onComplete={clearWinnerInfo}
         />
       </div>
       </PokerTableLayout>
