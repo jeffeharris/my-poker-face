@@ -21,26 +21,27 @@ class GameStateAdapter:
     def current_player_options(self) -> List[str]:
         """Get available actions for the current player."""
         options = []
-        
+
         if self._game_state.awaiting_action:
             current_player = self._game_state.current_player
-            
-            # Always can fold unless already folded
-            if not current_player.is_folded:
-                options.append('fold')
-            
-            # Check if can check (no one has bet or we've matched the bet)
-            if self._game_state.highest_bet == current_player.bet:
-                options.append('check')
-            else:
-                # Can call if not all-in
+            cost_to_call = self._game_state.highest_bet - current_player.bet
+
+            # Fold and check are mutually exclusive:
+            # - fold only when there's a bet to call (folding for free is never correct)
+            # - check only when there's no bet to call
+            if cost_to_call > 0:
+                if not current_player.is_folded:
+                    options.append('fold')
+                # Can call if have chips
                 if current_player.stack > 0:
                     options.append('call')
-            
-            # Can raise if have chips and haven't reached bet limit
+            else:
+                options.append('check')
+
+            # Can raise if have chips
             if current_player.stack > 0:
                 options.append('raise')
-        
+
         return options
     
     @property 

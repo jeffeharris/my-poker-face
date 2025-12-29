@@ -160,10 +160,12 @@ class AIPlayerController:
         
         # Validate response has required keys (only action is truly required)
         required_keys = ('action',)
+        valid_actions = context.get('valid_actions', [])
         if not all(key in response_dict for key in required_keys):
-            # Try to fix missing keys
-            response_dict.setdefault('action', 'fold')
-            logger.warning(f"AI response was missing action, defaulted to fold")
+            # Try to fix missing keys - prefer check over fold (folding when you can check is never correct)
+            default_action = 'check' if 'check' in valid_actions else 'fold'
+            response_dict.setdefault('action', default_action)
+            logger.warning(f"AI response was missing action, defaulted to {default_action}")
         
         # Set default for adding_to_pot if not present
         if 'adding_to_pot' not in response_dict:
@@ -203,7 +205,6 @@ class AIPlayerController:
                 logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
         
         # Validate action is valid
-        valid_actions = context.get('valid_actions', [])
         if valid_actions and response_dict['action'] not in valid_actions:
             logger.warning(f"AI chose invalid action {response_dict['action']}, validating...")
             validated = validate_ai_response(response_dict, valid_actions)
