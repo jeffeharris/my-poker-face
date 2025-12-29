@@ -25,9 +25,13 @@ export function MobilePokerTable({
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
 
-  // Callback for handling AI messages (for floating bubbles)
+  // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
     setRecentAiMessage(message);
+  }, []);
+
+  const dismissRecentAiMessage = useCallback(() => {
+    setRecentAiMessage(null);
   }, []);
 
   // Use the shared hook for all socket/state management
@@ -175,7 +179,7 @@ export function MobilePokerTable({
       {/* Floating AI Message */}
       <FloatingChat
         message={recentAiMessage}
-        onDismiss={() => setRecentAiMessage(null)}
+        onDismiss={dismissRecentAiMessage}
       />
 
       {/* Hero Section - Your Cards */}
