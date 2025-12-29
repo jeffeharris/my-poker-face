@@ -63,12 +63,8 @@
 }
 
 .hole-card {
-  width: 35px;
-  height: 50px;
+  /* Width/height now controlled by Card.css unicode-card sizes */
   font-size: 14px;
-  background: #1a1a2e;
-  color: #fff;
-  border: 1px solid #555;
 }
 
 /* Pot Area */
@@ -118,7 +114,7 @@
 
 .player-seat {
   position: absolute;
-  width: 150px;
+  width: 180px;
   background: rgba(255, 255, 255, 0.9);
   border: 2px solid #333;
   border-radius: 12px;

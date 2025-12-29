@@ -1,7 +1,7 @@
 /* Playing Card Styles */
 .playing-card {
   display: inline-block;
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   position: relative;
   font-family: 'Arial', sans-serif;
@@ -23,11 +23,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 0.8;
+  text-align: center;
+  overflow: hidden;
 }
 
 .playing-card.unicode-card:hover {
   transform: scale(1.05) translateY(-2px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 /* Card Sizes */
@@ -52,23 +54,26 @@
 /* Unicode card size adjustments */
 .playing-card.unicode-card.small {
   font-size: 4.5em;
-  width: 52px;
-  height: 75px;
+  width: 48px;
+  height: 45px;
   padding: 0;
+  padding-bottom: 11px;
 }
 
 .playing-card.unicode-card.medium {
   font-size: 6em;
-  width: 75px;
-  height: 105px;
+  width: 63px;
+  height: 62px;
   padding: 0;
+  padding-bottom: 16px;
 }
 
 .playing-card.unicode-card.large {
   font-size: 8.25em;
-  width: 105px;
-  height: 150px;
+  width: 80px;
+  height: 86px;
   padding: 0;
+  padding-bottom: 21px;
 }
 
 /* Card Front */
@@ -276,14 +281,23 @@
   /* Unicode card responsive sizes */
   .playing-card.unicode-card.small {
     font-size: 3.75em;
+    width: 37px;
+    height: 39px;
+    padding-bottom: 9px;
   }
-  
+
   .playing-card.unicode-card.medium {
     font-size: 5.25em;
+    width: 51px;
+    height: 52px;
+    padding-bottom: 16px;
   }
-  
+
   .playing-card.unicode-card.large {
     font-size: 6.75em;
+    width: 65px;
+    height: 69px;
+    padding-bottom: 18px;
   }
 }
 
