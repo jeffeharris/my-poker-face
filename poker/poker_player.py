@@ -104,15 +104,24 @@ class AIPokerPlayer(PokerPlayer):
     # Shared personality generator instance
     _personality_generator = None
 
-    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9):
-        # Options for models ["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4","gpt-4-32k"]
+    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9, llm_config=None):
         super().__init__(name, starting_money=starting_money)
         self.prompt_manager = PromptManager()
         self.personality_config = self._load_personality_config()
         self.confidence = self.personality_config.get("default_confidence", "Unsure")
         self.attitude = self.personality_config.get("default_attitude", "Distracted")
-        self.assistant = OpenAILLMAssistant(ai_temp=ai_temp,
-                                            system_message=self.persona_prompt())
+
+        # Store and extract LLM configuration
+        self.llm_config = llm_config or {}
+        model = self.llm_config.get("model", "gpt-5-nano")
+        reasoning_effort = self.llm_config.get("reasoning_effort", "low")
+
+        self.assistant = OpenAILLMAssistant(
+            ai_model=model,
+            ai_temp=ai_temp,
+            reasoning_effort=reasoning_effort,
+            system_message=self.persona_prompt()
+        )
         
         # Initialize elastic personality
         self.elastic_personality = ElasticPersonality.from_base_personality(
@@ -134,11 +143,13 @@ class AIPokerPlayer(PokerPlayer):
             "folded": self.folded if self.folded is not None else False,
             "confidence": self.confidence if self.confidence is not None else "Unsure",
             "attitude": self.attitude if self.attitude is not None else "Distracted",
+            "llm_config": self.llm_config if hasattr(self, 'llm_config') else {},
             "assistant": {
                 "ai_temp": self.assistant.ai_temp,
                 "system_message": self.assistant.system_message,
                 "messages": self.assistant.messages,
                 "model": self.assistant.ai_model,
+                "reasoning_effort": self.assistant.reasoning_effort,
             } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"},
             "elastic_personality": self.elastic_personality.to_dict() if hasattr(self, 'elastic_personality') else None,
             "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
@@ -155,32 +166,37 @@ class AIPokerPlayer(PokerPlayer):
             folded = player_dict.get("folded", False)
             confidence = player_dict.get("confidence", "Unsure")
             attitude = player_dict.get("attitude", "Distracted")
+            llm_config = player_dict.get("llm_config", {})
             assistant_dict = player_dict.get("assistant", {})
             ai_temp = assistant_dict.get("ai_temp", .9)
+            model = assistant_dict.get("model", llm_config.get("model", "gpt-5-nano"))
+            reasoning_effort = assistant_dict.get("reasoning_effort", llm_config.get("reasoning_effort", "low"))
             system_message = assistant_dict.get("system_message", cls().persona_prompt())
             assistant = OpenAILLMAssistant(
+                ai_model=model,
                 ai_temp=ai_temp,
+                reasoning_effort=reasoning_effort,
                 system_message=system_message
             )
 
-            instance = cls(name=name, starting_money=starting_money, ai_temp=ai_temp)
+            instance = cls(name=name, starting_money=starting_money, ai_temp=ai_temp, llm_config=llm_config)
             instance.cards = cards
             instance.options = options
             instance.folded = folded
             instance.confidence = confidence
             instance.attitude = attitude
             instance.assistant = assistant
-            
+
             # Restore elastic personality if present
             if 'elastic_personality' in player_dict and player_dict['elastic_personality']:
                 instance.elastic_personality = ElasticPersonality.from_dict(player_dict['elastic_personality'])
-            
+
             # Restore hand strategy persistence
             if 'current_hand_strategy' in player_dict:
                 instance.current_hand_strategy = player_dict['current_hand_strategy']
             if 'hand_action_count' in player_dict:
                 instance.hand_action_count = player_dict['hand_action_count']
-            
+
             return instance
         except KeyError as e:
             raise ValueError(f"Missing key in player_dict: {e}")

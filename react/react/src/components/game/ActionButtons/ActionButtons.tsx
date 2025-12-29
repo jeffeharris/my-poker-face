@@ -31,21 +31,22 @@ export function ActionButtons({
   const featureFlags = useFeatureFlags();
 
   // Ensure all values are valid numbers
+  // minRaise from backend is the minimum RAISE BY amount (typically big blind)
   const safeMinRaise = Math.max(1, minRaise || bigBlind || 20);
   const safePotSize = Math.max(0, potSize || 0);
   const safeHighestBet = Math.max(0, highestBet || 0);
   const safeCurrentBet = Math.max(0, currentPlayerBet || 0);
   const safeStack = Math.max(0, currentPlayerStack || 0);
-  
+
   const callAmount = Math.max(0, safeHighestBet - safeCurrentBet);
-  
-  // Calculate default bet amounts
-  const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
-  const fullPot = Math.max(safeMinRaise, safePotSize);
-  const threeQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.75));
-  const defaultRaise = Math.max(safeMinRaise, bigBlind * 2);
+
+  // Calculate raise amounts as pot fractions
+  // These are the TOTAL amounts to raise TO (displayed to user, converted to "raise BY" when sent)
   const oneThirdPot = Math.max(safeMinRaise, Math.floor(safePotSize / 3));
+  const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
   const twoThirdsPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.67));
+  const fullPot = Math.max(safeMinRaise, safePotSize);
+  const defaultRaise = safeHighestBet + Math.max(safeMinRaise, bigBlind * 2);
 
   // Smart bet suggestions based on context
   const getSmartBetSuggestions = () => {
@@ -103,7 +104,10 @@ export function ActionButtons({
 
   const submitBet = () => {
     if (betAmount >= safeMinRaise && betAmount <= safeStack) {
-      onAction('raise', betAmount);
+      // Convert "raise TO" (what user sees) to "raise BY" (what backend expects)
+      // Backend's player_raise adds cost_to_call internally, so we send the raise increment
+      const raiseByAmount = betAmount - safeHighestBet;
+      onAction('raise', raiseByAmount);
       // Track recent bets (keep last 5)
       setRecentBets(prev => [betAmount, ...prev.filter(b => b !== betAmount)].slice(0, 5));
       setShowBetInterface(false);

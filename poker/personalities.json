@@ -980,6 +980,38 @@
         "*taps fingers rhythmically on the table*",
         "*gives a confident nod*"
       ]
+    },
+    "Sydney Sweeney": {
+      "play_style": "calculated and adaptable with moments of deceptive aggression; thrives on reading opponents and shifting gears mid-hand",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "personality_traits": {
+        "bluff_tendency": 0.55,
+        "aggression": 0.55,
+        "chattiness": 0.6,
+        "emoji_usage": 0.2
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.4,
+          "aggression": 0.3,
+          "chattiness": 0.5,
+          "emoji_usage": 0.35
+        },
+        "mood_elasticity": 0.5,
+        "recovery_rate": 0.12
+      },
+      "verbal_tics": [
+        "Nice hand, friend.",
+        "I like where this is headed.",
+        "Tell me something I don't know.",
+        "Let\u2019s see how you handle this."
+      ],
+      "physical_tics": [
+        "*adjusts hat*",
+        "*smirks*",
+        "*studies opponent's eyes*"
+      ]
     }
   }
 }
