@@ -60,8 +60,12 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
             }
           }
         }
-      } catch {
-        // Fall through to parseCard
+      } catch (error) {
+        // Log error but still fall through to parseCard
+        console.error('Failed to parse Python-style card string in Card component:', {
+          cardString: card,
+          error,
+        });
       }
     }
     // If stringified dict parsing didn't work, try normal card string parsing (e.g., "J♥")
