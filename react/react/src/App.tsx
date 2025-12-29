@@ -232,8 +232,8 @@ function App() {
         </div>
       )}
 
-      {/* User info - show when authenticated */}
-      {isAuthenticated && user && currentView !== 'login' && (
+      {/* User info - only show on game menu screen */}
+      {isAuthenticated && user && currentView === 'game-menu' && (
         <div style={{
           position: 'fixed',
           top: 10,
