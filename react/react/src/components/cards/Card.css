@@ -108,6 +108,27 @@
   align-items: center;
   justify-content: center;
   color: white;
+  line-height: 0.8;
+  overflow: hidden;
+}
+
+/* Card back size overrides to match unicode cards */
+.playing-card.card-back.small {
+  width: 48px;
+  height: 45px;
+  padding-bottom: 15px;
+}
+
+.playing-card.card-back.medium {
+  width: 63px;
+  height: 62px;
+  padding-bottom: 22px;
+}
+
+.playing-card.card-back.large {
+  width: 80px;
+  height: 86px;
+  padding-bottom: 28px;
 }
 
 .card-back-pattern {
@@ -295,6 +316,25 @@
 
   .playing-card.unicode-card.large {
     font-size: 7.425em;
+    width: 72px;
+    height: 76px;
+    padding-bottom: 19px;
+  }
+
+  /* Card back responsive sizes */
+  .playing-card.card-back.small {
+    width: 41px;
+    height: 43px;
+    padding-bottom: 9px;
+  }
+
+  .playing-card.card-back.medium {
+    width: 56px;
+    height: 59px;
+    padding-bottom: 16px;
+  }
+
+  .playing-card.card-back.large {
     width: 72px;
     height: 76px;
     padding-bottom: 19px;
