@@ -1,0 +1,469 @@
+/* Personality Manager - Premium Poker Aesthetic */
+
+.personality-manager {
+  min-height: 100vh;
+  background: var(--gradient-bg-main);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-6);
+  overflow-y: auto;
+  position: relative;
+}
+
+/* Ambient glow effect */
+.personality-manager::before {
+  content: '';
+  position: fixed;
+  top: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150%;
+  height: 60%;
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(59, 130, 246, 0.04) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+}
+
+.personality-manager__container {
+  width: 100%;
+  max-width: var(--container-xl);
+  margin: var(--space-10) 0;
+  animation: fadeInUp 0.6s var(--ease-out-expo);
+  position: relative;
+  z-index: 1;
+}
+
+/* Alert messages */
+.personality-manager__alert {
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  border-radius: var(--radius-lg);
+  display: none;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+}
+
+.personality-manager__alert--success {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-emerald);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.personality-manager__alert--error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.personality-manager__alert--info {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--color-sapphire);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* Main grid layout */
+.personality-manager__grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: var(--space-6);
+  min-height: 600px;
+}
+
+/* Personality list panel */
+.personality-manager__list-panel {
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-5);
+  overflow-y: auto;
+  max-height: 700px;
+  box-shadow: var(--shadow-card);
+}
+
+.personality-manager__new-btn {
+  width: 100%;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  transition: var(--transition-all-slow);
+  box-shadow: var(--glow-gold);
+}
+
+.personality-manager__new-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glow-gold-strong);
+}
+
+.personality-manager__item {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+}
+
+.personality-manager__item:hover {
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  transform: translateX(4px);
+}
+
+.personality-manager__item.active {
+  background: var(--color-gold-muted);
+  border-color: var(--color-gold);
+  box-shadow: var(--glow-gold);
+}
+
+/* Editor panel */
+.personality-manager__editor-panel {
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-card);
+  overflow-y: auto;
+  max-height: 700px;
+}
+
+.personality-manager__editor-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-6) 0;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.personality-manager__section-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold);
+  margin: var(--space-6) 0 var(--space-4) 0;
+}
+
+/* Form elements */
+.personality-manager__form-group {
+  margin-bottom: var(--space-5);
+}
+
+.personality-manager__label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-gold);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.personality-manager__input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  box-sizing: border-box;
+  transition: var(--transition-all-base);
+}
+
+.personality-manager__input:focus {
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-focus);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-gold-muted);
+}
+
+.personality-manager__input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* Traits grid */
+.personality-manager__traits-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+}
+
+/* Trait slider */
+.personality-manager__trait-slider {
+  margin-bottom: var(--space-5);
+  background: var(--color-bg-surface);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-default);
+}
+
+.personality-manager__trait-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.personality-manager__trait-label {
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-gold);
+}
+
+.personality-manager__trait-info {
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.personality-manager__slider-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  position: relative;
+}
+
+.personality-manager__range {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-bg-void);
+  outline: none;
+  opacity: 0.9;
+  transition: opacity 0.2s;
+  border-radius: var(--radius-full);
+}
+
+.personality-manager__range:hover {
+  opacity: 1;
+}
+
+.personality-manager__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--gradient-gold);
+  cursor: pointer;
+  border-radius: 50%;
+  box-shadow: var(--glow-gold);
+}
+
+.personality-manager__range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--gradient-gold);
+  cursor: pointer;
+  border-radius: 50%;
+  box-shadow: var(--glow-gold);
+  border: none;
+}
+
+.personality-manager__slider-value {
+  min-width: 50px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold);
+  font-size: var(--font-size-sm);
+}
+
+.personality-manager__elasticity-range {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 10px;
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+
+.personality-manager__elasticity-bounds {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-disabled);
+}
+
+/* Array inputs */
+.personality-manager__array-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.personality-manager__array-item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.personality-manager__array-item input {
+  flex: 1;
+}
+
+.personality-manager__remove-btn {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: var(--transition-all-base);
+}
+
+.personality-manager__remove-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.personality-manager__add-btn {
+  padding: var(--space-2) var(--space-4);
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--color-emerald);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-2);
+  transition: var(--transition-all-base);
+}
+
+.personality-manager__add-btn:hover {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+/* Button group */
+.personality-manager__button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border-default);
+}
+
+.personality-manager__btn {
+  padding: var(--space-3) var(--space-6);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition: var(--transition-all-slow);
+}
+
+.personality-manager__btn--primary {
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
+  box-shadow: var(--glow-gold);
+}
+
+.personality-manager__btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glow-gold-strong);
+}
+
+.personality-manager__btn--warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.personality-manager__btn--warning:hover {
+  background: rgba(245, 158, 11, 0.3);
+  transform: translateY(-2px);
+}
+
+.personality-manager__btn--danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.personality-manager__btn--danger:hover {
+  background: rgba(239, 68, 68, 0.3);
+  transform: translateY(-2px);
+}
+
+.personality-manager__btn--secondary {
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-default);
+}
+
+.personality-manager__btn--secondary:hover {
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+/* No selection state */
+.personality-manager__no-selection {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-12);
+  font-family: var(--font-body);
+  font-size: var(--font-size-md);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .personality-manager__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .personality-manager__list-panel {
+    max-height: 300px;
+  }
+
+  .personality-manager__traits-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .personality-manager {
+    padding: var(--space-4);
+  }
+
+  .personality-manager__container {
+    margin: var(--space-6) 0;
+  }
+
+  .personality-manager__editor-panel {
+    padding: var(--space-4);
+  }
+
+  .personality-manager__button-group {
+    flex-direction: column;
+  }
+
+  .personality-manager__btn {
+    width: 100%;
+  }
+}

@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { config } from '../../config';
+import { PageHeader } from '../shared';
+import './PersonalityManager.css';
 
 interface PersonalityManagerHTMLProps {
   onBack: () => void;
@@ -10,10 +12,10 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     // Add the back button functionality
     const handleBack = () => onBack();
     (window as any).handleBackToMenu = handleBack;
-    
+
     // Initialize the personality manager
     initializePersonalityManager();
-    
+
     return () => {
       delete (window as any).handleBackToMenu;
     };
@@ -31,7 +33,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
       try {
         const response = await fetch(`${config.API_URL}/api/personalities`);
         const data = await response.json();
-        
+
         if (data.success) {
           personalities = data.personalities;
           displayPersonalityList();
@@ -46,18 +48,18 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     function displayPersonalityList() {
       const listDiv = document.getElementById('personality-list');
       if (!listDiv) return;
-      
+
       const names = Object.keys(personalities).sort();
-      
+
       listDiv.innerHTML = names.map(name => `
-        <div class="personality-item ${currentPersonality === name ? 'active' : ''}" 
+        <div class="personality-manager__item ${currentPersonality === name ? 'active' : ''}"
              data-name="${name}">
           ${name}
         </div>
       `).join('');
 
       // Add click handlers
-      listDiv.querySelectorAll('.personality-item').forEach(item => {
+      listDiv.querySelectorAll('.personality-manager__item').forEach(item => {
         item.addEventListener('click', () => {
           const name = item.getAttribute('data-name');
           if (name) selectPersonality(name);
@@ -74,7 +76,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     function displayEditor(name: string, data: any) {
       const editorDiv = document.getElementById('editor-content');
       if (!editorDiv) return;
-      
+
       // Get elasticity config or use defaults
       const elasticityConfig = data.elasticity_config || {
         trait_elasticity: {
@@ -86,92 +88,92 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         mood_elasticity: 0.4,
         recovery_rate: 0.1
       };
-      
+
       editorDiv.innerHTML = `
-        <h2>Editing: ${name}</h2>
-        
-        <div class="form-group">
-          <label for="play_style">Play Style</label>
-          <input type="text" id="play_style" value="${data.play_style || ''}" 
+        <h2 class="personality-manager__editor-title">Editing: ${name}</h2>
+
+        <div class="personality-manager__form-group">
+          <label class="personality-manager__label" for="play_style">Play Style</label>
+          <input class="personality-manager__input" type="text" id="play_style" value="${data.play_style || ''}"
                  placeholder="e.g., aggressive and boastful">
         </div>
-        
-        <div class="traits-grid">
-          <div class="form-group">
-            <label for="default_confidence">Default Confidence</label>
-            <input type="text" id="default_confidence" value="${data.default_confidence || ''}" 
+
+        <div class="personality-manager__traits-grid">
+          <div class="personality-manager__form-group">
+            <label class="personality-manager__label" for="default_confidence">Default Confidence</label>
+            <input class="personality-manager__input" type="text" id="default_confidence" value="${data.default_confidence || ''}"
                    placeholder="e.g., supreme">
           </div>
-          
-          <div class="form-group">
-            <label for="default_attitude">Default Attitude</label>
-            <input type="text" id="default_attitude" value="${data.default_attitude || ''}" 
+
+          <div class="personality-manager__form-group">
+            <label class="personality-manager__label" for="default_attitude">Default Attitude</label>
+            <input class="personality-manager__input" type="text" id="default_attitude" value="${data.default_attitude || ''}"
                    placeholder="e.g., domineering">
           </div>
         </div>
-        
-        <h3>Personality Traits</h3>
+
+        <h3 class="personality-manager__section-title">Personality Traits</h3>
         ${renderTraitSlider('bluff_tendency', 'Bluff Tendency', data.personality_traits?.bluff_tendency || 0.5, elasticityConfig.trait_elasticity?.bluff_tendency || 0.3)}
         ${renderTraitSlider('aggression', 'Aggression', data.personality_traits?.aggression || 0.5, elasticityConfig.trait_elasticity?.aggression || 0.3)}
         ${renderTraitSlider('chattiness', 'Chattiness', data.personality_traits?.chattiness || 0.5, elasticityConfig.trait_elasticity?.chattiness || 0.5)}
         ${renderTraitSlider('emoji_usage', 'Emoji Usage', data.personality_traits?.emoji_usage || 0.3, elasticityConfig.trait_elasticity?.emoji_usage || 0.3)}
-        
-        <h3>Elasticity Settings</h3>
-        <div class="trait-slider">
-          <div class="trait-header">
-            <label>Mood Elasticity</label>
-            <span class="trait-info">How reactive mood changes are</span>
+
+        <h3 class="personality-manager__section-title">Elasticity Settings</h3>
+        <div class="personality-manager__trait-slider">
+          <div class="personality-manager__trait-header">
+            <label class="personality-manager__trait-label">Mood Elasticity</label>
+            <span class="personality-manager__trait-info">How reactive mood changes are</span>
           </div>
-          <div class="slider-container">
-            <input type="range" id="mood_elasticity" min="0" max="100" 
+          <div class="personality-manager__slider-container">
+            <input class="personality-manager__range" type="range" id="mood_elasticity" min="0" max="100"
                    value="${(elasticityConfig.mood_elasticity || 0.4) * 100}">
-            <span class="slider-value" id="mood_elasticity_value">
+            <span class="personality-manager__slider-value" id="mood_elasticity_value">
               ${Math.round((elasticityConfig.mood_elasticity || 0.4) * 100)}%
             </span>
           </div>
         </div>
-        
-        <div class="trait-slider">
-          <div class="trait-header">
-            <label>Recovery Rate</label>
-            <span class="trait-info">How fast traits return to baseline</span>
+
+        <div class="personality-manager__trait-slider">
+          <div class="personality-manager__trait-header">
+            <label class="personality-manager__trait-label">Recovery Rate</label>
+            <span class="personality-manager__trait-info">How fast traits return to baseline</span>
           </div>
-          <div class="slider-container">
-            <input type="range" id="recovery_rate" min="0" max="20" 
+          <div class="personality-manager__slider-container">
+            <input class="personality-manager__range" type="range" id="recovery_rate" min="0" max="20"
                    value="${(elasticityConfig.recovery_rate || 0.1) * 100}">
-            <span class="slider-value" id="recovery_rate_value">
+            <span class="personality-manager__slider-value" id="recovery_rate_value">
               ${Math.round((elasticityConfig.recovery_rate || 0.1) * 100)}%
             </span>
           </div>
         </div>
-        
-        <h3>Verbal Tics</h3>
-        <div class="array-input" id="verbal_tics">
+
+        <h3 class="personality-manager__section-title">Verbal Tics</h3>
+        <div class="personality-manager__array-input" id="verbal_tics">
           ${(data.verbal_tics || []).map((tic: string, i: number) => `
-            <div class="array-item">
-              <input type="text" value="${tic}" data-index="${i}" data-field="verbal_tics">
-              <button class="remove-array-item" data-field="verbal_tics" data-index="${i}">×</button>
+            <div class="personality-manager__array-item">
+              <input class="personality-manager__input" type="text" value="${tic}" data-index="${i}" data-field="verbal_tics">
+              <button class="personality-manager__remove-btn" data-field="verbal_tics" data-index="${i}">×</button>
             </div>
           `).join('')}
         </div>
-        <button class="add-item-btn" data-field="verbal_tics">+ Add Verbal Tic</button>
-        
-        <h3>Physical Tics</h3>
-        <div class="array-input" id="physical_tics">
+        <button class="personality-manager__add-btn" data-field="verbal_tics">+ Add Verbal Tic</button>
+
+        <h3 class="personality-manager__section-title">Physical Tics</h3>
+        <div class="personality-manager__array-input" id="physical_tics">
           ${(data.physical_tics || []).map((tic: string, i: number) => `
-            <div class="array-item">
-              <input type="text" value="${tic}" data-index="${i}" data-field="physical_tics">
-              <button class="remove-array-item" data-field="physical_tics" data-index="${i}">×</button>
+            <div class="personality-manager__array-item">
+              <input class="personality-manager__input" type="text" value="${tic}" data-index="${i}" data-field="physical_tics">
+              <button class="personality-manager__remove-btn" data-field="physical_tics" data-index="${i}">×</button>
             </div>
           `).join('')}
         </div>
-        <button class="add-item-btn" data-field="physical_tics">+ Add Physical Tic</button>
-        
-        <div class="button-group">
-          <button class="btn btn-primary" id="save-btn">Save Changes</button>
-          <button class="btn btn-warning" id="regenerate-btn">Regenerate with AI</button>
-          <button class="btn btn-danger" id="delete-btn">Delete Personality</button>
-          <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
+        <button class="personality-manager__add-btn" data-field="physical_tics">+ Add Physical Tic</button>
+
+        <div class="personality-manager__button-group">
+          <button class="personality-manager__btn personality-manager__btn--primary" id="save-btn">Save Changes</button>
+          <button class="personality-manager__btn personality-manager__btn--warning" id="regenerate-btn">Regenerate with AI</button>
+          <button class="personality-manager__btn personality-manager__btn--danger" id="delete-btn">Delete Personality</button>
+          <button class="personality-manager__btn personality-manager__btn--secondary" id="cancel-btn">Cancel</button>
         </div>
       `;
 
@@ -179,30 +181,30 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
       function renderTraitSlider(traitId: string, label: string, value: number, elasticity: number) {
         const minValue = Math.max(0, value - elasticity);
         const maxValue = Math.min(1, value + elasticity);
-        
+
         return `
-          <div class="trait-slider">
-            <div class="trait-header">
-              <label>${label}</label>
-              <span class="trait-info">Elasticity: ±${Math.round(elasticity * 100)}%</span>
+          <div class="personality-manager__trait-slider">
+            <div class="personality-manager__trait-header">
+              <label class="personality-manager__trait-label">${label}</label>
+              <span class="personality-manager__trait-info">Elasticity: ±${Math.round(elasticity * 100)}%</span>
             </div>
-            <div class="slider-container">
-              <div class="elasticity-range" style="left: ${minValue * 100}%; width: ${(maxValue - minValue) * 100}%;"></div>
-              <input type="range" id="${traitId}" min="0" max="100" 
+            <div class="personality-manager__slider-container">
+              <div class="personality-manager__elasticity-range" style="left: ${minValue * 100}%; width: ${(maxValue - minValue) * 100}%;"></div>
+              <input class="personality-manager__range" type="range" id="${traitId}" min="0" max="100"
                      value="${value * 100}">
-              <span class="slider-value" id="${traitId}_value">
+              <span class="personality-manager__slider-value" id="${traitId}_value">
                 ${Math.round(value * 100)}%
               </span>
             </div>
-            <div class="elasticity-bounds">
+            <div class="personality-manager__elasticity-bounds">
               <span>Min: ${Math.round(minValue * 100)}%</span>
               <span>Max: ${Math.round(maxValue * 100)}%</span>
             </div>
-            <div class="form-group" style="margin-top: 10px;">
-              <label for="${traitId}_elasticity" style="font-size: 12px;">Elasticity</label>
-              <input type="range" id="${traitId}_elasticity" min="0" max="100" 
+            <div class="personality-manager__form-group" style="margin-top: 10px;">
+              <label class="personality-manager__trait-label" for="${traitId}_elasticity" style="font-size: 12px;">Elasticity</label>
+              <input class="personality-manager__range" type="range" id="${traitId}_elasticity" min="0" max="100"
                      value="${elasticity * 100}" style="height: 4px;">
-              <span class="slider-value" id="${traitId}_elasticity_value" style="font-size: 12px;">
+              <span class="personality-manager__slider-value" id="${traitId}_elasticity_value" style="font-size: 12px;">
                 ${Math.round(elasticity * 100)}%
               </span>
             </div>
@@ -211,39 +213,39 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
       }
 
       // Add event listeners
-      document.querySelectorAll('input[type="range"]').forEach(slider => {
+      document.querySelectorAll('.personality-manager__range').forEach(slider => {
         slider.addEventListener('input', (e) => {
           const target = e.target as HTMLInputElement;
           const trait = target.id;
           const valueSpan = document.getElementById(trait + '_value');
           if (valueSpan) valueSpan.textContent = target.value + '%';
-          
+
           // Update elasticity range visualization if it's a trait slider
           if (!trait.endsWith('_elasticity') && trait !== 'mood_elasticity' && trait !== 'recovery_rate') {
             updateElasticityRange(trait);
           }
         });
       });
-      
+
       // Function to update elasticity range visualization
       function updateElasticityRange(traitId: string) {
         const traitSlider = document.getElementById(traitId) as HTMLInputElement;
         const elasticitySlider = document.getElementById(traitId + '_elasticity') as HTMLInputElement;
-        
+
         if (traitSlider && elasticitySlider) {
           const value = parseFloat(traitSlider.value) / 100;
           const elasticity = parseFloat(elasticitySlider.value) / 100;
-          
+
           const minValue = Math.max(0, value - elasticity);
           const maxValue = Math.min(1, value + elasticity);
-          
-          const rangeDiv = traitSlider.parentElement?.querySelector('.elasticity-range') as HTMLElement;
+
+          const rangeDiv = traitSlider.parentElement?.querySelector('.personality-manager__elasticity-range') as HTMLElement;
           if (rangeDiv) {
             rangeDiv.style.left = `${minValue * 100}%`;
             rangeDiv.style.width = `${(maxValue - minValue) * 100}%`;
           }
-          
-          const boundsDiv = traitSlider.closest('.trait-slider')?.querySelector('.elasticity-bounds') as HTMLElement;
+
+          const boundsDiv = traitSlider.closest('.personality-manager__trait-slider')?.querySelector('.personality-manager__elasticity-bounds') as HTMLElement;
           if (boundsDiv) {
             boundsDiv.innerHTML = `
               <span>Min: ${Math.round(minValue * 100)}%</span>
@@ -253,7 +255,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         }
       }
 
-      document.querySelectorAll('.array-item input').forEach(input => {
+      document.querySelectorAll('.personality-manager__array-item input').forEach(input => {
         input.addEventListener('change', (e) => {
           const target = e.target as HTMLInputElement;
           const field = target.getAttribute('data-field');
@@ -262,7 +264,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         });
       });
 
-      document.querySelectorAll('.remove-array-item').forEach(btn => {
+      document.querySelectorAll('.personality-manager__remove-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const target = e.target as HTMLElement;
           const field = target.getAttribute('data-field');
@@ -271,7 +273,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         });
       });
 
-      document.querySelectorAll('.add-item-btn').forEach(btn => {
+      document.querySelectorAll('.personality-manager__add-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const target = e.target as HTMLElement;
           const field = target.getAttribute('data-field');
@@ -321,7 +323,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
 
     async function savePersonality() {
       if (!currentPersonality) return;
-      
+
       const updatedData = {
         play_style: (document.getElementById('play_style') as HTMLInputElement)?.value || '',
         default_confidence: (document.getElementById('default_confidence') as HTMLInputElement)?.value || '',
@@ -345,16 +347,16 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         verbal_tics: getArrayValues('verbal_tics'),
         physical_tics: getArrayValues('physical_tics')
       };
-      
+
       try {
         const response = await fetch(`${config.API_URL}/api/personality/${currentPersonality}`, {
           method: 'PUT',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(updatedData)
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
           showAlert('success', data.message);
           personalities[currentPersonality] = updatedData;
@@ -369,18 +371,18 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
 
     async function deletePersonality() {
       if (!currentPersonality) return;
-      
+
       if (!confirm(`Are you sure you want to delete ${currentPersonality}? This cannot be undone.`)) {
         return;
       }
-      
+
       try {
         const response = await fetch(`${config.API_URL}/api/personality/${currentPersonality}`, {
           method: 'DELETE'
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
           showAlert('success', data.message);
           delete personalities[currentPersonality];
@@ -389,7 +391,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
           const editorContent = document.getElementById('editor-content');
           if (editorContent) {
             editorContent.innerHTML = `
-              <div class="no-selection">
+              <div class="personality-manager__no-selection">
                 Select a personality to edit or create a new one
               </div>
             `;
@@ -404,25 +406,25 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
 
     async function regeneratePersonality() {
       if (!currentPersonality) return;
-      
+
       if (!confirm(`Are you sure you want to regenerate the personality for "${currentPersonality}"? This will replace the current personality with a new AI-generated one.`)) {
         return;
       }
-      
+
       showAlert('info', `Regenerating personality for ${currentPersonality}...`);
-      
+
       try {
         const response = await fetch(`${config.API_URL}/api/generate_personality`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             name: currentPersonality,
             force: true
           })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
           personalities[currentPersonality] = data.personality;
           selectPersonality(currentPersonality);
@@ -442,7 +444,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
       const editorContent = document.getElementById('editor-content');
       if (editorContent) {
         editorContent.innerHTML = `
-          <div class="no-selection">
+          <div class="personality-manager__no-selection">
             Select a personality to edit or create a new one
           </div>
         `;
@@ -452,12 +454,12 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     async function createNewPersonality() {
       const name = prompt('Enter name for new personality:');
       if (!name) return;
-      
+
       if (personalities[name]) {
         showAlert('error', 'Personality already exists!');
         return;
       }
-      
+
       if (confirm(`Would you like AI to generate a personality for "${name}"?\n\nClick OK to use AI generation, or Cancel to create manually.`)) {
         generateWithAI(name);
       } else {
@@ -474,7 +476,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
           verbal_tics: [],
           physical_tics: []
         };
-        
+
         personalities[name] = newPersonality;
         displayPersonalityList();
         selectPersonality(name);
@@ -483,16 +485,16 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
 
     async function generateWithAI(name: string) {
       showAlert('info', `Generating personality for ${name}...`);
-      
+
       try {
         const response = await fetch(`${config.API_URL}/api/generate_personality`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ name })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
           personalities[name] = data.personality;
           displayPersonalityList();
@@ -522,20 +524,20 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         verbal_tics: [],
         physical_tics: []
       };
-      
+
       personalities[name] = newPersonality;
       displayPersonalityList();
       selectPersonality(name);
     }
 
     function showAlert(type: string, message: string) {
-      const alertDiv = document.getElementById('alert');
+      const alertDiv = document.getElementById('personality-alert');
       if (!alertDiv) return;
-      
-      alertDiv.className = `alert alert-${type}`;
+
+      alertDiv.className = `personality-manager__alert personality-manager__alert--${type}`;
       alertDiv.textContent = message;
       alertDiv.style.display = 'block';
-      
+
       setTimeout(() => {
         alertDiv.style.display = 'none';
       }, 5000);
@@ -546,349 +548,31 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', padding: '20px' }}>
-      <style dangerouslySetInnerHTML={{ __html: `
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        }
-        .container {
-          background: rgba(20, 20, 20, 0.95);
-          padding: 30px;
-          border-radius: 15px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-          border: 1px solid rgba(61, 139, 55, 0.3);
-          max-width: 1400px;
-          margin: 0 auto;
-          position: relative;
-        }
-        .back-button {
-          position: absolute;
-          top: 20px;
-          left: 20px;
-          padding: 10px 20px;
-          background: rgba(61, 139, 55, 0.8);
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: bold;
-          transition: all 0.3s;
-        }
-        .back-button:hover {
-          background: #5fb956;
-          transform: translateX(-5px);
-        }
-        h1 {
-          color: #5fb956;
-          text-align: center;
-          margin-bottom: 30px;
-          text-shadow: 0 2px 10px rgba(95, 185, 86, 0.4);
-        }
-        h2 {
-          color: #5fb956;
-          border-bottom: 2px solid #3D8B37;
-          padding-bottom: 10px;
-          margin-bottom: 20px;
-        }
-        h3 {
-          color: #5fb956;
-          margin-top: 25px;
-          margin-bottom: 15px;
-        }
-        .personality-grid {
-          display: grid;
-          grid-template-columns: 350px 1fr;
-          gap: 20px;
-          min-height: 600px;
-        }
-        .personality-list {
-          background: rgba(34, 34, 34, 0.9);
-          border-radius: 10px;
-          padding: 20px;
-          overflow-y: auto;
-          max-height: 700px;
-          border: 1px solid #3D8B37;
-        }
-        .personality-item {
-          padding: 12px 15px;
-          margin-bottom: 8px;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid #444;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: all 0.3s;
-          color: #fff;
-        }
-        .personality-item:hover {
-          background: rgba(61, 139, 55, 0.3);
-          border-color: #3D8B37;
-          transform: translateX(5px);
-        }
-        .personality-item.active {
-          background: rgba(61, 139, 55, 0.5);
-          color: white;
-          border-color: #5fb956;
-          box-shadow: 0 0 10px rgba(61, 139, 55, 0.5);
-        }
-        .editor-panel {
-          background: rgba(34, 34, 34, 0.9);
-          border-radius: 10px;
-          padding: 25px;
-          border: 1px solid #3D8B37;
-        }
-        .form-group {
-          margin-bottom: 20px;
-        }
-        label {
-          display: block;
-          margin-bottom: 8px;
-          font-weight: bold;
-          color: #5fb956;
-          font-size: 14px;
-        }
-        input[type="text"], textarea, select {
-          width: 100%;
-          padding: 10px 12px;
-          border: 1px solid #444;
-          border-radius: 6px;
-          font-size: 14px;
-          box-sizing: border-box;
-          background: rgba(255, 255, 255, 0.1);
-          color: #fff;
-          transition: all 0.3s;
-        }
-        input[type="text"]:focus, textarea:focus {
-          background: rgba(255, 255, 255, 0.15);
-          border-color: #3D8B37;
-          outline: none;
-          box-shadow: 0 0 5px rgba(61, 139, 55, 0.5);
-        }
-        textarea {
-          min-height: 60px;
-          resize: vertical;
-        }
-        .trait-slider {
-          margin-bottom: 25px;
-          background: rgba(0, 0, 0, 0.3);
-          padding: 15px;
-          border-radius: 8px;
-          border: 1px solid rgba(61, 139, 55, 0.2);
-        }
-        .trait-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-        .trait-info {
-          font-size: 12px;
-          color: #888;
-        }
-        .elasticity-bounds {
-          display: flex;
-          justify-content: space-between;
-          margin-top: 5px;
-          font-size: 11px;
-          color: #666;
-        }
-        .slider-container {
-          display: flex;
-          align-items: center;
-          gap: 15px;
-          position: relative;
-        }
-        input[type="range"] {
-          flex: 1;
-          height: 6px;
-          -webkit-appearance: none;
-          appearance: none;
-          background: #444;
-          outline: none;
-          opacity: 0.8;
-          transition: opacity 0.2s;
-          border-radius: 3px;
-        }
-        input[type="range"]:hover {
-          opacity: 1;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          width: 20px;
-          height: 20px;
-          background: #3D8B37;
-          cursor: pointer;
-          border-radius: 50%;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-        input[type="range"]::-moz-range-thumb {
-          width: 20px;
-          height: 20px;
-          background: #3D8B37;
-          cursor: pointer;
-          border-radius: 50%;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-        .slider-value {
-          width: 60px;
-          text-align: center;
-          font-weight: bold;
-          color: #5fb956;
-          font-size: 16px;
-        }
-        .elasticity-range {
-          position: absolute;
-          top: -2px;
-          height: 10px;
-          background: rgba(61, 139, 55, 0.2);
-          border: 1px solid rgba(61, 139, 55, 0.4);
-          border-radius: 3px;
-          pointer-events: none;
-        }
-        .button-group {
-          display: flex;
-          gap: 10px;
-          margin-top: 20px;
-        }
-        .btn {
-          padding: 12px 24px;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: bold;
-          transition: all 0.3s;
-        }
-        .btn-primary {
-          background: #3D8B37;
-          color: white;
-          border: 1px solid #3D8B37;
-        }
-        .btn-primary:hover {
-          background: #5fb956;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 10px rgba(61, 139, 55, 0.5);
-        }
-        .btn-success {
-          background: #3D8B37;
-          color: white;
-          border: 1px solid #3D8B37;
-        }
-        .btn-success:hover {
-          background: #5fb956;
-          box-shadow: 0 4px 10px rgba(61, 139, 55, 0.5);
-        }
-        .btn-danger {
-          background: #dc3545;
-          color: white;
-          border: 1px solid #dc3545;
-        }
-        .btn-danger:hover {
-          background: #c82333;
-          transform: translateY(-2px);
-        }
-        .btn-secondary {
-          background: #444;
-          color: white;
-          border: 1px solid #666;
-        }
-        .btn-secondary:hover {
-          background: #666;
-        }
-        .btn-warning {
-          background: #f0ad4e;
-          color: #000;
-          border: 1px solid #f0ad4e;
-        }
-        .btn-warning:hover {
-          background: #ec971f;
-          transform: translateY(-2px);
-        }
-        .alert {
-          padding: 15px;
-          margin-bottom: 20px;
-          border-radius: 4px;
-          display: none;
-        }
-        .alert-success {
-          background: #d4edda;
-          color: #155724;
-          border: 1px solid #c3e6cb;
-        }
-        .alert-error {
-          background: #f8d7da;
-          color: #721c24;
-          border: 1px solid #f5c6cb;
-        }
-        .alert-info {
-          background: #d1ecf1;
-          color: #0c5460;
-          border: 1px solid #bee5eb;
-        }
-        .traits-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-        }
-        .array-input {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-        }
-        .array-item {
-          display: flex;
-          gap: 5px;
-          align-items: center;
-        }
-        .array-item input {
-          flex: 1;
-        }
-        .array-item button {
-          padding: 5px 10px;
-          background: #dc3545;
-          color: white;
-          border: none;
-          border-radius: 3px;
-          cursor: pointer;
-        }
-        .add-item-btn {
-          padding: 5px 15px;
-          background: #28a745;
-          color: white;
-          border: none;
-          border-radius: 3px;
-          cursor: pointer;
-          margin-top: 5px;
-        }
-        .no-selection {
-          text-align: center;
-          color: #999;
-          padding: 40px;
-        }
-        .new-personality-btn {
-          width: 100%;
-          margin-bottom: 15px;
-        }
-      ` }} />
-      
-      <div className="container">
-        <button className="back-button" onClick={onBack}>← Back to Menu</button>
-        <h1>🎰 AI Poker Personality Manager 🎰</h1>
-        
-        <div id="alert" className="alert"></div>
-        
-        <div className="personality-grid">
-          <div className="personality-list">
-            <button className="btn btn-success new-personality-btn" onClick={() => (window as any).createNewPersonality?.()}>
+    <div className="personality-manager">
+      <div className="personality-manager__container">
+        <PageHeader
+          title="AI Personality Manager"
+          subtitle="Create and customize AI opponent personalities"
+          onBack={onBack}
+          titleVariant="primary"
+        />
+
+        <div id="personality-alert" className="personality-manager__alert"></div>
+
+        <div className="personality-manager__grid">
+          <div className="personality-manager__list-panel">
+            <button
+              className="personality-manager__new-btn"
+              onClick={() => (window as any).createNewPersonality?.()}
+            >
               + Create New Personality
             </button>
             <div id="personality-list"></div>
           </div>
-          
-          <div className="editor-panel">
+
+          <div className="personality-manager__editor-panel">
             <div id="editor-content">
-              <div className="no-selection">
+              <div className="personality-manager__no-selection">
                 Select a personality to edit or create a new one
               </div>
             </div>
