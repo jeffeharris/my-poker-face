@@ -8,7 +8,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-from ..config import OPPONENT_SUMMARY_TOKENS, MEMORABLE_HAND_THRESHOLD
+from ..config import (
+    OPPONENT_SUMMARY_TOKENS,
+    MEMORABLE_HAND_THRESHOLD,
+    MIN_HANDS_FOR_STYLE_LABEL,
+    MIN_HANDS_FOR_SUMMARY,
+    VPIP_TIGHT_THRESHOLD,
+    VPIP_LOOSE_THRESHOLD,
+    VPIP_VERY_SELECTIVE,
+    AGGRESSION_FACTOR_HIGH,
+    AGGRESSION_FACTOR_VERY_HIGH,
+    AGGRESSION_FACTOR_LOW,
+)
 
 
 @dataclass
@@ -107,11 +118,11 @@ class OpponentTendencies:
         - 'loose-passive' (Calling Station)
         - 'unknown'
         """
-        if self.hands_observed < 5:
+        if self.hands_observed < MIN_HANDS_FOR_STYLE_LABEL:
             return 'unknown'
 
-        is_tight = self.vpip < 0.3
-        is_aggressive = self.aggression_factor > 1.5
+        is_tight = self.vpip < VPIP_TIGHT_THRESHOLD
+        is_aggressive = self.aggression_factor > AGGRESSION_FACTOR_HIGH
 
         if is_tight and is_aggressive:
             return 'tight-aggressive'
@@ -124,20 +135,20 @@ class OpponentTendencies:
 
     def get_summary(self) -> str:
         """Generate human-readable summary for AI prompts."""
-        if self.hands_observed < 3:
+        if self.hands_observed < MIN_HANDS_FOR_SUMMARY:
             return "Not enough data"
 
         style = self.get_play_style_label()
         parts = [f"{style}"]
 
-        if self.vpip > 0.5:
+        if self.vpip > VPIP_LOOSE_THRESHOLD:
             parts.append("plays many hands")
-        elif self.vpip < 0.2:
+        elif self.vpip < VPIP_VERY_SELECTIVE:
             parts.append("very selective")
 
-        if self.aggression_factor > 2.0:
+        if self.aggression_factor > AGGRESSION_FACTOR_VERY_HIGH:
             parts.append("very aggressive")
-        elif self.aggression_factor < 0.5:
+        elif self.aggression_factor < AGGRESSION_FACTOR_LOW:
             parts.append("passive")
 
         if self.bluff_frequency > 0.5:
@@ -354,7 +365,7 @@ class OpponentModelManager:
         for opponent in opponents:
             if opponent in self.models[observer]:
                 model = self.models[observer][opponent]
-                if model.tendencies.hands_observed >= 3:  # Need enough data
+                if model.tendencies.hands_observed >= MIN_HANDS_FOR_SUMMARY:
                     summaries.append(model.get_prompt_summary(tokens_per_opponent))
 
         return "\n".join(summaries)

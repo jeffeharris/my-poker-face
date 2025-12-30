@@ -33,3 +33,13 @@ OPPONENT_SUMMARY_TOKENS = 200     # Max tokens for opponent summaries in prompts
 COMMENTARY_ENABLED = True         # Enable end-of-hand AI commentary
 MEMORABLE_HAND_THRESHOLD = 0.7    # Impact score threshold for memorable hands (0-1)
 MEMORY_TRIM_KEEP_EXCHANGES = 4    # Number of message exchanges to keep when trimming memory
+
+# Opponent modeling thresholds
+MIN_HANDS_FOR_STYLE_LABEL = 5     # Minimum hands observed before labeling play style
+MIN_HANDS_FOR_SUMMARY = 3         # Minimum hands observed before generating summary
+VPIP_TIGHT_THRESHOLD = 0.3        # VPIP below this = tight player
+VPIP_LOOSE_THRESHOLD = 0.5        # VPIP above this = loose player (plays many hands)
+VPIP_VERY_SELECTIVE = 0.2         # VPIP below this = very selective
+AGGRESSION_FACTOR_HIGH = 1.5      # AF above this = aggressive player
+AGGRESSION_FACTOR_VERY_HIGH = 2.0 # AF above this = very aggressive
+AGGRESSION_FACTOR_LOW = 0.5       # AF below this = passive player
