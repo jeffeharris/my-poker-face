@@ -919,7 +919,7 @@ def progress_game(game_id):
                 new_hand_number = memory_manager.hand_count + 1
                 memory_manager.on_hand_start(game_state, hand_number=new_hand_number)
 
-            # Update the state_machine to be ready for it's next run through the game progression
+            # Update the state_machine to be ready for its next run through the game progression
             state_machine.update_phase()
             state_machine.game_state = game_state
             current_game_data['state_machine'] = state_machine
