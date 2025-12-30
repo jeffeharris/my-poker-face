@@ -1297,6 +1297,186 @@ Return as JSON with this format:
             ]
         })
 
+
+@app.route('/api/game/<game_id>/targeted-chat-suggestions', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour'))
+def get_targeted_chat_suggestions(game_id):
+    """Generate targeted chat suggestions to engage specific AI players."""
+    if game_id not in games:
+        return jsonify({"error": "Game not found"}), 404
+
+    try:
+        data = request.get_json()
+        game_data = games[game_id]
+        state_machine = game_data['state_machine']
+        game_state = state_machine.game_state
+
+        # Get request parameters
+        player_name = data.get('playerName', 'Player')
+        target_player = data.get('targetPlayer')  # None = table talk
+        tone = data.get('tone', 'encourage')
+
+        # Define tone descriptions for the prompt
+        tone_descriptions = {
+            'encourage': 'supportive, friendly, complimentary about their play',
+            'antagonize': 'playful trash talk, teasing, challenging their decisions (keep it fun, not mean)',
+            'confuse': 'random non-sequiturs, weird observations, misdirection to throw them off',
+            'flatter': 'over-the-top compliments, acknowledge their skill, be impressed',
+            'challenge': 'direct dares, betting challenges, call them out to make a move'
+        }
+
+        tone_desc = tone_descriptions.get(tone, tone_descriptions['encourage'])
+
+        # Build game context
+        context_parts = []
+        context_parts.append(f"Game phase: {str(state_machine.current_phase).split('.')[-1]}")
+        context_parts.append(f"Pot size: ${game_state.pot['total']}")
+
+        # Get last action if provided
+        last_action = data.get('lastAction')
+        if last_action:
+            action_text = f"{last_action.get('player', 'Someone')} just {last_action.get('type', 'acted')}"
+            if last_action.get('amount'):
+                action_text += f" ${last_action['amount']}"
+            context_parts.append(action_text)
+
+        context_str = ". ".join(context_parts)
+
+        # Load target personality if targeting specific player
+        target_context = ""
+        if target_player:
+            # Try to load personality from file
+            try:
+                personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+                with open(personalities_file, 'r') as f:
+                    personalities_data = json.load(f)
+
+                if target_player in personalities_data.get('personalities', {}):
+                    personality = personalities_data['personalities'][target_player]
+                    play_style = personality.get('play_style', 'unknown')
+                    verbal_tics = personality.get('verbal_tics', [])[:3]  # First 3 tics
+                    attitude = personality.get('default_attitude', 'neutral')
+
+                    target_context = f"""
+Target player: {target_player}
+Their personality: {play_style}
+Their attitude: {attitude}
+Their catchphrases: {', '.join(verbal_tics) if verbal_tics else 'none known'}"""
+            except Exception as e:
+                logger.warning(f"Could not load personality for {target_player}: {e}")
+                target_context = f"\nTarget player: {target_player}"
+
+        # Build the prompt
+        if target_player:
+            # Get first name for more natural addressing
+            target_first_name = target_player.split()[0] if target_player else "them"
+            prompt = f"""Generate exactly 2 short poker table chat messages for player "{player_name}" to say directly to {target_player}.
+{target_context}
+
+Tone: {tone_desc}
+Game context: {context_str}
+
+Requirements:
+- Each message should be 5-15 words
+- IMPORTANT: Include "{target_first_name}" or "{target_player}" in each message to make it clear who you're addressing
+- Match the {tone} tone perfectly
+- Reference poker/the game situation when possible
+- If you know their personality, play off their quirks
+- Be playful but not offensive or mean-spirited
+- Messages should feel natural for poker table banter
+
+Example formats: "Hey {target_first_name}, ...", "{target_first_name}, you really think...", "What's the matter {target_first_name}..."
+
+Return as JSON:
+{{
+    "suggestions": [
+        {{"text": "message here", "tone": "{tone}"}},
+        {{"text": "message here", "tone": "{tone}"}}
+    ],
+    "targetPlayer": "{target_player}"
+}}"""
+        else:
+            # General table talk
+            prompt = f"""Generate exactly 2 short poker table chat messages to announce to the whole table.
+
+Tone: {tone_desc}
+Game context: {context_str}
+
+Requirements:
+- Each message should be 5-15 words
+- Write in FIRST PERSON - these are things the player will say directly
+- Do NOT include the speaker's name - they are saying this themselves
+- Match the {tone} tone perfectly
+- General table talk, not directed at anyone specific
+- Be playful and engaging
+- Messages should feel natural for poker table banter
+
+Good examples: "Anyone else feeling lucky tonight?", "This pot is getting interesting!", "I've got a good feeling about this one"
+Bad examples: "Jeff says he's feeling lucky" (don't use 3rd person), "Player announces confidence" (don't narrate)
+
+Return as JSON:
+{{
+    "suggestions": [
+        {{"text": "message here", "tone": "{tone}"}},
+        {{"text": "message here", "tone": "{tone}"}}
+    ],
+    "targetPlayer": null
+}}"""
+
+        # Check if OpenAI API key is available
+        if not os.environ.get("OPENAI_API_KEY"):
+            logger.warning("No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+
+        # Debug logging
+        logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}")
+        logger.info(f"[QuickChat] Prompt: {prompt[:500]}...")
+
+        # Use the OpenAI assistant - minimal reasoning for fast responses
+        assistant = OpenAILLMAssistant(
+            ai_model="gpt-5-nano",
+            reasoning_effort="minimal",
+            system_message="You are a witty poker player helping generate fun table talk. Keep it light and entertaining."
+        )
+
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+
+        response = assistant.get_json_response(messages)
+        raw_content = response.choices[0].message.content
+        logger.info(f"[QuickChat] Raw response: {raw_content}")
+        result = json.loads(raw_content)
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[QuickChat] ERROR generating suggestions: {str(e)}")
+        logger.exception("[QuickChat] Full traceback:")
+        # Return fallback suggestions with error flag
+        target = data.get('targetPlayer') if 'data' in dir() else None
+        fallback_messages = {
+            'encourage': ["Nice hand!", "Good play there!"],
+            'antagonize': ["You sure about that?", "Interesting choice..."],
+            'confuse': ["Did anyone else hear that?", "The cards speak to me."],
+            'flatter': ["Impressive as always!", "You're too good!"],
+            'challenge': ["Prove it!", "Show me what you got!"]
+        }
+        tone = data.get('tone', 'encourage') if 'data' in dir() else 'encourage'
+        msgs = fallback_messages.get(tone, fallback_messages['encourage'])
+
+        return jsonify({
+            "suggestions": [
+                {"text": msgs[0], "tone": tone},
+                {"text": msgs[1], "tone": tone}
+            ],
+            "targetPlayer": target,
+            "error": str(e),
+            "fallback": True
+        })
+
+
 @app.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
 def get_pressure_stats(game_id):
     """Get pressure event statistics for the game."""

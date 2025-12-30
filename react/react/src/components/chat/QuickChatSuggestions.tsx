@@ -1,136 +1,246 @@
-import { useState, useEffect } from 'react';
-import { config } from '../../config';
+import { useState, useCallback } from 'react';
+import type { Player } from '../../types';
+import type { ChatTone, TargetedSuggestion } from '../../types/chat';
+import { gameAPI } from '../../utils/api';
 import './QuickChatSuggestions.css';
-
-interface Suggestion {
-  text: string;
-  type: 'reaction' | 'strategic' | 'social';
-}
 
 interface QuickChatSuggestionsProps {
   gameId: string;
   playerName: string;
-  isPlayerTurn: boolean;
+  players: Player[];
   lastAction?: {
     type: string;
     player: string;
     amount?: number;
   };
   onSelectSuggestion: (text: string) => void;
+  defaultExpanded?: boolean;
+  hideHeader?: boolean;
 }
+
+interface ToneOption {
+  id: ChatTone;
+  emoji: string;
+  label: string;
+}
+
+const TONE_OPTIONS: ToneOption[] = [
+  { id: 'encourage', emoji: '👍', label: 'Encourage' },
+  { id: 'antagonize', emoji: '😈', label: 'Tease' },
+  { id: 'confuse', emoji: '🤔', label: 'Confuse' },
+  { id: 'flatter', emoji: '🌟', label: 'Flatter' },
+  { id: 'challenge', emoji: '⚔️', label: 'Challenge' },
+];
 
 export function QuickChatSuggestions({
   gameId,
   playerName,
-  isPlayerTurn,
+  players,
   lastAction,
-  onSelectSuggestion
+  onSelectSuggestion,
+  defaultExpanded = false,
+  hideHeader = false
 }: QuickChatSuggestionsProps) {
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
+  const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
+  const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState(0);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  const fetchSuggestions = async () => {
-    // Prevent too frequent requests (30 second cooldown)
+  // Get AI players (non-human, not folded)
+  const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
+
+  const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone) => {
+    // Cooldown check (15 seconds)
     const now = Date.now();
-    if (now - lastFetchTime < 30000) return;
+    if (now - lastFetchTime < 15000) {
+      return;
+    }
 
     setLoading(true);
     try {
-      const payload = {
+      // Convert 'table' to null for API (general table talk)
+      const apiTarget = target === 'table' ? null : target;
+      console.log('[QuickChat] Fetching suggestions:', { gameId, playerName, target: apiTarget, tone });
+      const response = await gameAPI.getTargetedChatSuggestions(
+        gameId,
         playerName,
-        lastAction,
-        chipPosition: 'mid-stack', // TODO: Calculate based on game state
-        // Add more context as needed
-      };
-      
-      const response = await fetch(`${config.API_URL}/api/game/${gameId}/chat-suggestions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setSuggestions(data.suggestions || []);
-        setLastFetchTime(now);
+        apiTarget,
+        tone,
+        lastAction
+      );
+      console.log('[QuickChat] Got response:', response);
+      if (response.fallback) {
+        console.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
       }
+      setSuggestions(response.suggestions || []);
+      setLastFetchTime(now);
     } catch (error) {
-      console.error('Failed to fetch chat suggestions:', error);
+      console.error('[QuickChat] Failed to fetch suggestions:', error);
+      // Set fallback suggestions
+      setSuggestions([
+        { text: 'Nice play!', tone },
+        { text: 'Interesting...', tone }
+      ]);
     } finally {
       setLoading(false);
     }
+  }, [gameId, playerName, lastAction, lastFetchTime]);
+
+  const handleTargetSelect = (target: string | null) => {
+    console.log('[QuickChat] Target selected:', target, 'Current tone:', selectedTone);
+    setSelectedTarget(target);
+    setSuggestions([]); // Clear old suggestions
+    // If tone is already selected, fetch new suggestions
+    if (selectedTone) {
+      fetchSuggestions(target, selectedTone);
+    }
   };
 
-  // Fetch suggestions when it becomes player's turn
-  useEffect(() => {
-    if (isPlayerTurn && suggestions.length === 0) {
-      fetchSuggestions();
+  const handleToneSelect = (tone: ChatTone) => {
+    console.log('[QuickChat] Tone selected:', tone, 'Current target:', selectedTarget);
+    setSelectedTone(tone);
+    // Only fetch if a target is selected
+    if (selectedTarget) {
+      fetchSuggestions(selectedTarget, tone);
     }
-  }, [isPlayerTurn]);
-
-  // Fetch new suggestions when significant action happens
-  useEffect(() => {
-    if (lastAction && isPlayerTurn) {
-      // Only refresh if action is significant (raise, all-in, etc)
-      if (['raise', 'all-in', 'all_in'].includes(lastAction.type)) {
-        fetchSuggestions();
-      }
-    }
-  }, [lastAction]);
-
-  if (!isPlayerTurn || suggestions.length === 0) {
-    return null;
-  }
+  };
 
   const handleSuggestionClick = (text: string) => {
     onSelectSuggestion(text);
-    // Optionally clear suggestions after use
-    // setSuggestions([]);
+    // Reset state after selection
+    setSelectedTarget(null);
+    setSelectedTone(null);
+    setSuggestions([]);
+    setIsExpanded(false);
   };
 
-  const getTypeEmoji = (type: string) => {
-    switch (type) {
-      case 'reaction': return '😎';
-      case 'strategic': return '🧠';
-      case 'social': return '💬';
-      default: return '💭';
+  const handleRefresh = () => {
+    if (selectedTone) {
+      setLastFetchTime(0); // Reset cooldown
+      fetchSuggestions(selectedTarget, selectedTone);
     }
   };
 
-  return (
-    <div className="quick-chat-suggestions">
-      <div className="suggestions-container">
-        {loading ? (
-          <div className="suggestion-pill loading">
-            <span className="loading-dots">...</span>
-          </div>
-        ) : (
-          suggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              className={`suggestion-pill suggestion-${suggestion.type}`}
-              onClick={() => handleSuggestionClick(suggestion.text)}
-              title={`${suggestion.type} message`}
-            >
-              <span className="suggestion-emoji">
-                {getTypeEmoji(suggestion.type)}
-              </span>
-              <span className="suggestion-text">{suggestion.text}</span>
-            </button>
-          ))
-        )}
+  // Collapsed state - just show the toggle button
+  if (!isExpanded) {
+    return (
+      <div className="quick-chat-collapsed">
         <button
-          className="refresh-suggestions"
-          onClick={fetchSuggestions}
-          disabled={loading}
-          title="Get new suggestions"
+          className="quick-chat-toggle"
+          onClick={() => setIsExpanded(true)}
+          title="Quick chat suggestions"
         >
-          🔄
+          <span className="toggle-emoji">💬</span>
+          <span className="toggle-text">Quick Chat</span>
         </button>
       </div>
+    );
+  }
+
+  return (
+    <div className="quick-chat-suggestions">
+      {/* Header with collapse button - hidden when used in overlay */}
+      {!hideHeader && (
+        <div className="quick-chat-header">
+          <span className="header-title">Quick Chat</span>
+          <button
+            className="collapse-btn"
+            onClick={() => {
+              setIsExpanded(false);
+              setSelectedTarget(null);
+              setSelectedTone(null);
+              setSuggestions([]);
+            }}
+            title="Close"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Target selector */}
+      <div className="target-selector">
+        <div className="selector-label">Who?</div>
+        <div className="target-options">
+          <button
+            className={`target-btn ${selectedTarget === 'table' ? 'selected' : ''}`}
+            onClick={() => handleTargetSelect('table')}
+            title="Talk to the table"
+          >
+            <span className="target-avatar">🎲</span>
+            <span className="target-name">Table</span>
+          </button>
+          {aiPlayers.map((player) => (
+            <button
+              key={player.name}
+              className={`target-btn ${selectedTarget === player.name ? 'selected' : ''}`}
+              onClick={() => handleTargetSelect(player.name)}
+              title={`Talk to ${player.name}`}
+            >
+              <span className="target-avatar">
+                {player.name.charAt(0).toUpperCase()}
+              </span>
+              <span className="target-name">
+                {player.name.split(' ')[0]}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tone selector */}
+      <div className="tone-selector">
+        <div className="selector-label">How?</div>
+        <div className="tone-options">
+          {TONE_OPTIONS.map((tone) => (
+            <button
+              key={tone.id}
+              className={`tone-btn tone-${tone.id} ${selectedTone === tone.id ? 'selected' : ''}`}
+              onClick={() => handleToneSelect(tone.id)}
+              title={tone.label}
+            >
+              <span className="tone-emoji">{tone.emoji}</span>
+              <span className="tone-label">{tone.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Suggestions display */}
+      {(loading || suggestions.length > 0) && (
+        <div className="suggestions-section">
+          <div className="selector-label">Say:</div>
+          <div className="suggestions-container">
+            {loading ? (
+              <div className="suggestion-loading">
+                <span className="loading-dots">Thinking</span>
+              </div>
+            ) : (
+              <>
+                {suggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    className={`suggestion-pill tone-${suggestion.tone}`}
+                    onClick={() => handleSuggestionClick(suggestion.text)}
+                  >
+                    {suggestion.text}
+                  </button>
+                ))}
+                <button
+                  className="refresh-btn"
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  title="Get new suggestions"
+                >
+                  🔄
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

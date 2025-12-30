@@ -1,4 +1,5 @@
 import { config } from '../config';
+import type { ChatTone, TargetedSuggestionsResponse } from '../types/chat';
 
 // Common fetch options to ensure credentials are included
 const fetchOptions: RequestInit = {
@@ -75,11 +76,39 @@ export const gameAPI = {
 
   getPressureStats: async (gameId: string) => {
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/pressure-stats`, fetchOptions);
-    
+
     if (!response.ok) {
       throw new Error('Failed to fetch pressure stats');
     }
-    
+
+    return response.json();
+  },
+
+  getTargetedChatSuggestions: async (
+    gameId: string,
+    playerName: string,
+    targetPlayer: string | null,
+    tone: ChatTone,
+    lastAction?: { type: string; player: string; amount?: number }
+  ): Promise<TargetedSuggestionsResponse> => {
+    const response = await fetch(`${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`, {
+      ...fetchOptions,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        playerName,
+        targetPlayer,
+        tone,
+        lastAction,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch chat suggestions');
+    }
+
     return response.json();
   },
 };
