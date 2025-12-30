@@ -62,7 +62,6 @@ export function QuickChatSuggestions({
     try {
       // Convert 'table' to null for API (general table talk)
       const apiTarget = target === 'table' ? null : target;
-      console.log('[QuickChat] Fetching suggestions:', { gameId, playerName, target: apiTarget, tone });
       const response = await gameAPI.getTargetedChatSuggestions(
         gameId,
         playerName,
@@ -70,14 +69,9 @@ export function QuickChatSuggestions({
         tone,
         lastAction
       );
-      console.log('[QuickChat] Got response:', response);
-      if (response.fallback) {
-        console.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
-      }
       setSuggestions(response.suggestions || []);
       setLastFetchTime(now);
-    } catch (error) {
-      console.error('[QuickChat] Failed to fetch suggestions:', error);
+    } catch {
       // Set fallback suggestions
       setSuggestions([
         { text: 'Nice play!', tone },
@@ -89,7 +83,6 @@ export function QuickChatSuggestions({
   }, [gameId, playerName, lastAction, lastFetchTime]);
 
   const handleTargetSelect = (target: string | null) => {
-    console.log('[QuickChat] Target selected:', target, 'Current tone:', selectedTone);
     setSelectedTarget(target);
     setSuggestions([]); // Clear old suggestions
     // If tone is already selected, fetch new suggestions
@@ -99,7 +92,6 @@ export function QuickChatSuggestions({
   };
 
   const handleToneSelect = (tone: ChatTone) => {
-    console.log('[QuickChat] Tone selected:', tone, 'Current target:', selectedTarget);
     setSelectedTone(tone);
     // Only fetch if a target is selected
     if (selectedTarget) {
