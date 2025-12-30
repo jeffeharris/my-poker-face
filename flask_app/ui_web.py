@@ -431,13 +431,27 @@ def api_game_state(game_id):
                 
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
-                
+
+                # Initialize memory manager for AI learning (needed for commentary)
+                memory_manager = AIMemoryManager(game_id, persistence.db_path)
+                for player in state_machine.game_state.players:
+                    if not player.is_human and player.name in ai_controllers:
+                        memory_manager.initialize_for_player(player.name)
+                        # Connect memory to AI controller
+                        controller = ai_controllers[player.name]
+                        controller.session_memory = memory_manager.get_session_memory(player.name)
+                        controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+
+                # Start recording the current hand
+                memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
+
                 current_game_data = {
                     'state_machine': state_machine,
                     'ai_controllers': ai_controllers,
                     'elasticity_manager': elasticity_manager,
                     'pressure_detector': pressure_detector,
                     'pressure_stats': pressure_stats,
+                    'memory_manager': memory_manager,
                     'owner_id': owner_id,
                     'owner_name': owner_name,
                     'messages': db_messages,
