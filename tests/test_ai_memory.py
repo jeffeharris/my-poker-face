@@ -14,7 +14,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
