@@ -190,6 +190,84 @@ class GamePersistence:
                     times_used INTEGER DEFAULT 0
                 )
             """)
+
+            # Hand history for AI memory and learning
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS hand_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    hand_number INTEGER NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    players_json TEXT NOT NULL,
+                    hole_cards_json TEXT,
+                    community_cards_json TEXT,
+                    actions_json TEXT NOT NULL,
+                    winners_json TEXT,
+                    pot_size INTEGER,
+                    showdown BOOLEAN,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, hand_number)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hand_history_game
+                ON hand_history(game_id)
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp
+                ON hand_history(timestamp DESC)
+            """)
+
+            # Opponent models for AI learning across sessions
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS opponent_models (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    observer_name TEXT NOT NULL,
+                    opponent_name TEXT NOT NULL,
+                    hands_observed INTEGER DEFAULT 0,
+                    vpip REAL DEFAULT 0.5,
+                    pfr REAL DEFAULT 0.5,
+                    aggression_factor REAL DEFAULT 1.0,
+                    fold_to_cbet REAL DEFAULT 0.5,
+                    bluff_frequency REAL DEFAULT 0.3,
+                    showdown_win_rate REAL DEFAULT 0.5,
+                    recent_trend TEXT,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(observer_name, opponent_name)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opponent_models_observer
+                ON opponent_models(observer_name)
+            """)
+
+            # Memorable hands that AI players remember
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memorable_hands (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    observer_name TEXT NOT NULL,
+                    opponent_name TEXT NOT NULL,
+                    hand_id INTEGER NOT NULL,
+                    memory_type TEXT NOT NULL,
+                    impact_score REAL,
+                    narrative TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (hand_id) REFERENCES hand_history(id)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memorable_observer
+                ON memorable_hands(observer_name)
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memorable_opponent
+                ON memorable_hands(opponent_name)
+            """)
             
             # Add owner_id column if it doesn't exist (migration)
             cursor = conn.execute("PRAGMA table_info(games)")

@@ -31,6 +31,7 @@ from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
+from poker.memory import AIMemoryManager
 from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
@@ -553,12 +554,26 @@ def api_new_game():
     game_id = generate_game_id()
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
+    # Initialize memory manager for AI learning
+    memory_manager = AIMemoryManager(game_id, persistence.db_path)
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            memory_manager.initialize_for_player(player.name)
+            # Connect memory to AI controller
+            controller = ai_controllers[player.name]
+            controller.session_memory = memory_manager.get_session_memory(player.name)
+            controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+
+    # Start recording the first hand
+    memory_manager.on_hand_start(state_machine.game_state, hand_number=1)
+
     game_data = {
         'state_machine': state_machine,
         'ai_controllers': ai_controllers,
         'elasticity_manager': elasticity_manager,
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
+        'memory_manager': memory_manager,
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': llm_config,
@@ -604,10 +619,23 @@ def api_player_action(game_id):
     highest_bet = state_machine.game_state.highest_bet
     game_state = play_turn(state_machine.game_state, action, amount)
 
+    # Record human action in memory manager
+    if 'memory_manager' in current_game_data:
+        memory_manager = current_game_data['memory_manager']
+        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
+        memory_manager.on_action(
+            player_name=current_player.name,
+            action=action,
+            amount=amount,
+            phase=phase,
+            pot_total=pot_total
+        )
+
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "table")
-    
+
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
     
@@ -748,7 +776,41 @@ def progress_game(game_id):
                         }
                     
                     socketio.emit('elasticity_update', elasticity_data, to=game_id)
-            
+
+            # Process hand completion with memory manager
+            if 'memory_manager' in current_game_data:
+                memory_manager = current_game_data['memory_manager']
+                ai_controllers = current_game_data.get('ai_controllers', {})
+
+                # Build AI players dict for commentary generation
+                ai_players = {
+                    name: controller.ai_player
+                    for name, controller in ai_controllers.items()
+                }
+
+                # Complete hand recording and generate commentary
+                try:
+                    commentaries = memory_manager.on_hand_complete(
+                        winner_info=winner_info,
+                        game_state=game_state,
+                        ai_players=ai_players
+                    )
+
+                    # Send AI commentary as chat messages
+                    for player_name, commentary in commentaries.items():
+                        if commentary and commentary.table_comment:
+                            send_message(game_id, player_name, commentary.table_comment, "ai")
+
+                    # Apply learned adjustments to AI personalities
+                    for name, controller in ai_controllers.items():
+                        if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
+                            memory_manager.apply_learned_adjustments(
+                                name,
+                                controller.ai_player.elastic_personality
+                            )
+                except Exception as e:
+                    logger.warning(f"Memory manager hand completion failed: {e}")
+
             # Now award the pot winnings
             game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
@@ -813,6 +875,12 @@ def progress_game(game_id):
             # Delay before dealing new hand
             socketio.sleep(4 if is_showdown else 2)
             send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
+
+            # Start recording the new hand in memory manager
+            if 'memory_manager' in current_game_data:
+                memory_manager = current_game_data['memory_manager']
+                new_hand_number = memory_manager.hand_count + 1
+                memory_manager.on_hand_start(game_state, hand_number=new_hand_number)
 
             # Update the state_machine to be ready for it's next run through the game progression
             state_machine.update_phase()
@@ -888,13 +956,27 @@ def handle_player_action(data):
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "table")
+
+    # Record action in memory manager
+    if 'memory_manager' in current_game_data:
+        memory_manager = current_game_data['memory_manager']
+        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
+        memory_manager.on_action(
+            player_name=current_player.name,
+            action=action,
+            amount=amount,
+            phase=phase,
+            pot_total=pot_total
+        )
+
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
 
     # Update the game session states (global variables right now)
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    
+
     # Save game after human action
     owner_id, owner_name = get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
@@ -1048,11 +1130,25 @@ def handle_ai_action(game_id: str) -> None:
         detect_and_apply_pressure(game_id, 'big_bet', player_name=current_player.name, bet_size=amount)
 
     game_state = play_turn(state_machine.game_state, action, amount)
+
+    # Record action in memory manager
+    if 'memory_manager' in current_game_data:
+        memory_manager = current_game_data['memory_manager']
+        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
+        memory_manager.on_action(
+            player_name=current_player.name,
+            action=action,
+            amount=amount,
+            phase=phase,
+            pot_total=pot_total
+        )
+
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    
+
     # Save game after AI action
     owner_id, owner_name = get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
@@ -1204,6 +1300,68 @@ def get_elasticity_data(game_id):
         }
     
     return jsonify(elasticity_data)
+
+
+@app.route('/api/game/<game_id>/memory-debug', methods=['GET'])
+def get_memory_debug(game_id):
+    """Get current memory state for debugging - shows if AI memory system is working."""
+    game_data = games.get(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    if 'memory_manager' not in game_data:
+        return jsonify({'error': 'Memory manager not initialized', 'working': False}), 200
+
+    memory_manager = game_data['memory_manager']
+
+    # Build debug info
+    debug_info = {
+        'working': True,
+        'game_id': memory_manager.game_id,
+        'hand_count': memory_manager.hand_count,
+        'initialized_players': list(memory_manager.initialized_players),
+        'session_memories': {},
+        'opponent_models': {},
+        'current_hand': None,
+        'completed_hands_count': len(memory_manager.hand_recorder.completed_hands)
+    }
+
+    # Session memory info
+    for player_name, session in memory_manager.session_memories.items():
+        debug_info['session_memories'][player_name] = {
+            'hands_played': session.context.hands_played,
+            'hands_won': session.context.hands_won,
+            'current_streak': session.context.current_streak,
+            'streak_count': session.context.streak_count,
+            'total_winnings': session.context.total_winnings,
+            'hand_memories_count': len(session.hand_memories),
+            'context_preview': session.get_context_for_prompt(100)[:200] if session.hand_memories else 'No hands yet'
+        }
+
+    # Opponent model info
+    all_models = memory_manager.opponent_model_manager.models
+    for observer, targets in all_models.items():
+        debug_info['opponent_models'][observer] = {}
+        for target, model in targets.items():
+            debug_info['opponent_models'][observer][target] = {
+                'hands_observed': model.tendencies.hands_observed,
+                'vpip': round(model.tendencies.vpip, 2),
+                'pfr': round(model.tendencies.pfr, 2),
+                'aggression_factor': round(model.tendencies.aggression_factor, 2),
+                'play_style': model.tendencies.get_play_style_label(),
+                'summary': model.get_prompt_summary()
+            }
+
+    # Current hand in progress
+    if memory_manager.hand_recorder.current_hand:
+        current = memory_manager.hand_recorder.current_hand
+        debug_info['current_hand'] = {
+            'hand_number': current.hand_number,
+            'actions_recorded': len(current.actions),
+            'phase': current.actions[-1].phase if current.actions else 'PRE_FLOP'
+        }
+
+    return jsonify(debug_info)
 
 
 @app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])

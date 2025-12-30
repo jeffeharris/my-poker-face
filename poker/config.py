@@ -25,3 +25,11 @@ FALLBACK_ACTION_WEIGHTS = {
 # Personality-based fallback thresholds
 AGGRESSION_RAISE_THRESHOLD = 0.6  # Aggression level above which raise is considered
 AGGRESSION_CALL_THRESHOLD = 0.3   # Aggression level above which call is considered
+
+# Memory and learning configuration
+SESSION_MEMORY_HANDS = 10         # Number of hands to remember in session
+MEMORY_CONTEXT_TOKENS = 150       # Max tokens for session context in prompts
+OPPONENT_SUMMARY_TOKENS = 200     # Max tokens for opponent summaries in prompts
+COMMENTARY_ENABLED = True         # Enable end-of-hand AI commentary
+MEMORABLE_HAND_THRESHOLD = 0.7    # Impact score threshold for memorable hands (0-1)
+MEMORY_TRIM_KEEP_EXCHANGES = 4    # Number of message exchanges to keep when trimming memory
