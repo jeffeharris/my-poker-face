@@ -63,7 +63,9 @@ class CommentaryGenerator:
                            confidence: str,
                            attitude: str,
                            chattiness: float,
-                           assistant: Any) -> Optional[HandCommentary]:
+                           assistant: Any,
+                           session_context_override: Optional[str] = None,
+                           opponent_context_override: Optional[str] = None) -> Optional[HandCommentary]:
         """Generate personalized commentary for a player about a hand.
 
         Args:
@@ -71,12 +73,14 @@ class CommentaryGenerator:
             hand: The completed hand record
             player_outcome: 'won', 'lost', or 'folded'
             player_cards: The player's hole cards
-            session_memory: Player's session memory (optional)
-            opponent_models: Dict of opponent models (optional)
+            session_memory: Player's session memory (optional, ignored if override provided)
+            opponent_models: Dict of opponent models (optional, ignored if override provided)
             confidence: Player's current confidence level
             attitude: Player's current attitude
             chattiness: 0-1 chattiness level
             assistant: The AI assistant to use for generation
+            session_context_override: Pre-computed session context string (for thread safety)
+            opponent_context_override: Pre-computed opponent summary string (for thread safety)
 
         Returns:
             HandCommentary or None if commentary generation is disabled/fails
@@ -88,7 +92,12 @@ class CommentaryGenerator:
             # Build context for the prompt
             hand_summary = self._build_hand_summary(hand)
             winner_info = self._build_winner_info(hand)
-            session_context = session_memory.get_context_for_prompt(100) if session_memory else "First hand"
+
+            # Use override if provided (thread-safe path), otherwise compute from objects
+            if session_context_override is not None:
+                session_context = session_context_override
+            else:
+                session_context = session_memory.get_context_for_prompt(100) if session_memory else "First hand"
 
             # Render the prompt
             prompt = self.prompt_manager.render_prompt(

@@ -182,6 +182,34 @@ def format_action_message(player_name: str, action: str, amount: int = 0, highes
         return f"{player_name} chose to {action}."
 
 
+def record_action_in_memory(game_data: dict, player_name: str, action: str,
+                            amount: int, game_state, state_machine) -> None:
+    """Record a player action in the memory manager if available.
+
+    Args:
+        game_data: The game data dictionary containing the memory_manager
+        player_name: Name of the player who acted
+        action: The action taken ('fold', 'check', 'call', 'raise', 'bet', 'all_in')
+        amount: Amount added to pot
+        game_state: Current game state (for pot total)
+        state_machine: State machine (for current phase)
+    """
+    if 'memory_manager' not in game_data:
+        return
+
+    memory_manager = game_data['memory_manager']
+    pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+    phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
+
+    memory_manager.on_action(
+        player_name=player_name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_total=pot_total
+    )
+
+
 def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state."""
     ai_controllers = {}
@@ -620,17 +648,7 @@ def api_player_action(game_id):
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Record human action in memory manager
-    if 'memory_manager' in current_game_data:
-        memory_manager = current_game_data['memory_manager']
-        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
-        memory_manager.on_action(
-            player_name=current_player.name,
-            action=action,
-            amount=amount,
-            phase=phase,
-            pot_total=pot_total
-        )
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
@@ -977,17 +995,7 @@ def handle_player_action(data):
     send_message(game_id, "Table", table_message_content, "table")
 
     # Record action in memory manager
-    if 'memory_manager' in current_game_data:
-        memory_manager = current_game_data['memory_manager']
-        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
-        memory_manager.on_action(
-            player_name=current_player.name,
-            action=action,
-            amount=amount,
-            phase=phase,
-            pot_total=pot_total
-        )
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
@@ -1151,17 +1159,7 @@ def handle_ai_action(game_id: str) -> None:
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Record action in memory manager
-    if 'memory_manager' in current_game_data:
-        memory_manager = current_game_data['memory_manager']
-        pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
-        memory_manager.on_action(
-            player_name=current_player.name,
-            action=action,
-            amount=amount,
-            phase=phase,
-            pot_total=pot_total
-        )
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state

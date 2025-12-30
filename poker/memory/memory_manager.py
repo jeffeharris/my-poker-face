@@ -10,6 +10,7 @@ Coordinates:
 
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
@@ -47,6 +48,10 @@ class AIMemoryManager:
         # Tracking
         self.hand_count = 0
         self.initialized_players: set = set()
+
+        # Thread safety for parallel commentary generation
+        self._lock = threading.Lock()
+        self._last_recorded_hand: Optional[RecordedHand] = None
 
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
@@ -129,8 +134,9 @@ class AIMemoryManager:
         # Complete hand recording
         try:
             recorded_hand = self.hand_recorder.complete_hand(winner_info, game_state)
-            # Store for async commentary generation
-            self._last_recorded_hand = recorded_hand
+            # Store for async commentary generation (thread-safe)
+            with self._lock:
+                self._last_recorded_hand = recorded_hand
         except Exception as e:
             logger.error(f"Failed to complete hand recording: {e}")
             return {}
@@ -186,17 +192,27 @@ class AIMemoryManager:
         This can be called asynchronously after on_hand_complete(skip_commentary=True).
         All AI players' commentary is generated in parallel using ThreadPoolExecutor.
 
+        Thread Safety:
+            - Acquires lock to get snapshot of recorded hand
+            - Creates immutable snapshots of session context before spawning threads
+            - Each thread only reads from its own snapshot
+
         Args:
             ai_players: Dict mapping player names to their AIPokerPlayer objects
 
         Returns:
             Dict mapping player names to their HandCommentary
         """
-        if not hasattr(self, '_last_recorded_hand') or self._last_recorded_hand is None:
-            logger.warning("No recorded hand available for commentary generation")
-            return {}
+        # Thread-safe access to recorded hand - acquire lock, get snapshot, release
+        with self._lock:
+            if self._last_recorded_hand is None:
+                logger.warning("No recorded hand available for commentary generation")
+                return {}
+            # RecordedHand is immutable (frozen dataclass), safe to share
+            recorded_hand = self._last_recorded_hand
+            # Clear to prevent memory leak - we have our reference now
+            self._last_recorded_hand = None
 
-        recorded_hand = self._last_recorded_hand
         commentaries: Dict[str, HandCommentary] = {}
 
         if not COMMENTARY_ENABLED:
@@ -211,25 +227,52 @@ class AIMemoryManager:
         if not players_to_process:
             return commentaries
 
-        def generate_single_commentary(player_name: str) -> Tuple[str, Optional[HandCommentary]]:
-            """Generate commentary for a single player. Returns (player_name, commentary)."""
+        # Create thread-safe snapshots BEFORE spawning threads
+        # This prevents race conditions if session memory or opponent models
+        # are modified by another thread (e.g., new hand starting)
+        player_snapshots: Dict[str, Dict[str, Any]] = {}
+        for player_name in players_to_process:
             ai_player = ai_players[player_name]
             session_memory = self.session_memories[player_name]
-            outcome = recorded_hand.get_player_outcome(player_name)
-            player_cards = recorded_hand.hole_cards.get(player_name, [])
+
+            # Capture all data needed for commentary generation
+            player_snapshots[player_name] = {
+                'outcome': recorded_hand.get_player_outcome(player_name),
+                'player_cards': list(recorded_hand.hole_cards.get(player_name, [])),
+                'session_context': session_memory.get_context_for_prompt(100),
+                'opponent_summaries': self.opponent_model_manager.get_table_summary(
+                    player_name,
+                    [p for p in ai_players if p != player_name],
+                    200
+                ),
+                'confidence': getattr(ai_player, 'confidence', 'neutral'),
+                'attitude': getattr(ai_player, 'attitude', 'neutral'),
+                'chattiness': self._get_chattiness(ai_player),
+                'assistant': getattr(ai_player, 'assistant', None),
+            }
+
+        def generate_single_commentary(player_name: str) -> Tuple[str, Optional[HandCommentary]]:
+            """Generate commentary for a single player. Returns (player_name, commentary).
+
+            Uses pre-captured snapshot data to avoid accessing shared mutable state.
+            """
+            snapshot = player_snapshots[player_name]
 
             try:
                 commentary = self.commentary_generator.generate_commentary(
                     player_name=player_name,
-                    hand=recorded_hand,
-                    player_outcome=outcome,
-                    player_cards=player_cards,
-                    session_memory=session_memory,
-                    opponent_models=self.opponent_model_manager.get_all_models_for_observer(player_name),
-                    confidence=getattr(ai_player, 'confidence', 'neutral'),
-                    attitude=getattr(ai_player, 'attitude', 'neutral'),
-                    chattiness=self._get_chattiness(ai_player),
-                    assistant=getattr(ai_player, 'assistant', None)
+                    hand=recorded_hand,  # Immutable, safe to share
+                    player_outcome=snapshot['outcome'],
+                    player_cards=snapshot['player_cards'],
+                    session_memory=None,  # Pass context string instead
+                    opponent_models=None,  # Pass summary string instead
+                    confidence=snapshot['confidence'],
+                    attitude=snapshot['attitude'],
+                    chattiness=snapshot['chattiness'],
+                    assistant=snapshot['assistant'],
+                    # New optional params for pre-computed context
+                    session_context_override=snapshot['session_context'],
+                    opponent_context_override=snapshot['opponent_summaries'],
                 )
                 return (player_name, commentary)
             except Exception as e:
