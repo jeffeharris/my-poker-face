@@ -218,28 +218,23 @@ class TestSessionMemory(unittest.TestCase):
         self.assertEqual(self.memory.context.total_winnings, -150)
 
     def test_streak_tracking(self):
-        """Test win/loss streak detection.
+        """Test win/loss streak detection."""
+        # Win 3 in a row
+        for i in range(3):
+            self.memory.record_hand_outcome(i + 1, "won", 100, 100)
 
-        Note: The implementation resets streak to 'neutral' when count <= 1,
-        meaning a streak only shows after 2+ consecutive same outcomes.
-        Due to how update_streak resets current_streak to 'neutral' after
-        each hand with count=1, the streak counter only increments when
-        staying in the same streak state (which requires count > 1 to persist).
-        """
-        # Win once - streak count is 1, but reset to neutral
-        self.memory.record_hand_outcome(1, "won", 100, 100)
-        # With the current implementation, streak resets to neutral after count=1
-        self.assertEqual(self.memory.context.current_streak, "neutral")
+        self.assertEqual(self.memory.context.current_streak, "winning")
+        self.assertEqual(self.memory.context.streak_count, 3)
 
-        # The streak logic as implemented:
-        # - If already in a streak, increment count
-        # - If starting new streak, set count to 1
-        # - If count <= 1, reset to neutral
-        # This means single wins/losses don't show as streaks
+        # Now lose - resets streak
+        self.memory.record_hand_outcome(4, "lost", 100, -100)
+        self.assertEqual(self.memory.context.current_streak, "losing")
+        self.assertEqual(self.memory.context.streak_count, 1)
 
-        # Test that losses also result in neutral for single occurrence
-        self.memory.record_hand_outcome(2, "lost", 100, -100)
-        self.assertEqual(self.memory.context.current_streak, "neutral")
+        # Lose again - streak continues
+        self.memory.record_hand_outcome(5, "lost", 100, -100)
+        self.assertEqual(self.memory.context.current_streak, "losing")
+        self.assertEqual(self.memory.context.streak_count, 2)
 
     def test_memory_trimming(self):
         """Test that old hands are trimmed when max is exceeded."""

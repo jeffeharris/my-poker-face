@@ -69,7 +69,11 @@ class SessionContext:
     table_dynamics: str = 'normal'   # 'tight', 'loose', 'aggressive', 'passive', 'normal'
 
     def update_streak(self, won: bool):
-        """Update the current streak based on hand outcome."""
+        """Update the current streak based on hand outcome.
+
+        Tracks consecutive wins or losses. The streak is reported in get_summary()
+        only when streak_count >= 2, so single wins/losses don't show as streaks.
+        """
         if won:
             if self.current_streak == 'winning':
                 self.streak_count += 1
@@ -82,10 +86,6 @@ class SessionContext:
             else:
                 self.current_streak = 'losing'
                 self.streak_count = 1
-
-        # Reset to neutral if small streak
-        if self.streak_count <= 1:
-            self.current_streak = 'neutral'
 
     def get_summary(self) -> str:
         """Get a text summary of the session context."""
