@@ -10,6 +10,7 @@ from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .elasticity_manager import ElasticPersonality
 from .personality_generator import PersonalityGenerator
+from .config import MEMORY_TRIM_KEEP_EXCHANGES
 
 
 class PokerPlayer:
@@ -211,14 +212,29 @@ class AIPokerPlayer(PokerPlayer):
     def set_for_new_hand(self):
         """
         Prepares the player for a new hand.
-        Resets the memory of the assistant.
+        Preserves session context by trimming memory instead of clearing it.
         """
         super().set_for_new_hand()
-        # Reset the assistant's memory instead of directly assigning a new list.
-        self.assistant.reset_memory()
+        # Trim memory but preserve session context for continuity
+        self._trim_and_preserve_context()
         # Reset hand strategy for new hand
         self.current_hand_strategy = None
         self.hand_action_count = 0
+
+    def _trim_and_preserve_context(self):
+        """
+        Trim memory but keep last few exchanges for session continuity.
+        This allows AI to remember recent interactions while keeping context manageable.
+        """
+        if not self.assistant.memory:
+            return
+
+        # Keep the last N messages (exchanges) for continuity
+        # Each exchange is typically 2 messages (user + assistant)
+        max_keep = MEMORY_TRIM_KEEP_EXCHANGES * 2
+
+        if len(self.assistant.memory) > max_keep:
+            self.assistant.memory = self.assistant.memory[-max_keep:]
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """

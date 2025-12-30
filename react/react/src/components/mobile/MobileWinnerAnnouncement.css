@@ -172,3 +172,46 @@
 .dismiss-btn:active {
     transform: scale(0.95);
 }
+
+/* Commentary Section */
+.mobile-commentary-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.mobile-commentary-bubble {
+    background: rgba(74, 158, 255, 0.15);
+    border: 1px solid rgba(74, 158, 255, 0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    animation: commentSlideIn 0.4s ease-out both;
+}
+
+@keyframes commentSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.mobile-commentary-bubble .commentary-player {
+    font-weight: 600;
+    color: #ffd700;
+    margin-right: 6px;
+    font-size: 13px;
+}
+
+.mobile-commentary-bubble .commentary-text {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    line-height: 1.4;
+}

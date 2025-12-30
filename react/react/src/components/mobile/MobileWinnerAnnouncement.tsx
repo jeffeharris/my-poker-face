@@ -12,32 +12,69 @@ interface WinnerInfo {
     community_cards?: string[];
 }
 
+interface CommentaryItem {
+    player_name: string;
+    comment: string;
+    ttl: number;
+    id: string;
+    timestamp: number;
+}
+
 interface MobileWinnerAnnouncementProps {
     winnerInfo: WinnerInfo | null;
+    commentary?: CommentaryItem[];
     onComplete: () => void;
 }
 
 export function MobileWinnerAnnouncement({
     winnerInfo,
+    commentary = [],
     onComplete,
 }: MobileWinnerAnnouncementProps) {
     const [showCards, setShowCards] = useState(false);
+    const [visibleComments, setVisibleComments] = useState<CommentaryItem[]>([]);
+
+    // Handle comment TTL expiration
+    useEffect(() => {
+        if (commentary.length === 0) return;
+
+        // Add new comments to visible list
+        setVisibleComments(prev => {
+            const existingIds = new Set(prev.map(c => c.id));
+            const newComments = commentary.filter(c => !existingIds.has(c.id));
+            return [...prev, ...newComments];
+        });
+
+        // Set up timers to remove expired comments
+        const timers = commentary.map(comment => {
+            const elapsed = Date.now() - comment.timestamp;
+            const remaining = Math.max(0, comment.ttl - elapsed);
+
+            return setTimeout(() => {
+                setVisibleComments(prev => prev.filter(c => c.id !== comment.id));
+            }, remaining);
+        });
+
+        return () => timers.forEach(t => clearTimeout(t));
+    }, [commentary]);
 
     useEffect(() => {
         if (winnerInfo) {
             setShowCards(false);
+            setVisibleComments([]); // Clear comments for new announcement
+
             // Show cards after a short delay for dramatic effect
             const cardTimer = setTimeout(() => {
                 setShowCards(true);
             }, 800);
 
-            // Auto-dismiss after showing
+            // Auto-dismiss after showing (longer to allow commentary)
             const dismissTimer = setTimeout(
                 () => {
                     setShowCards(false);
                     onComplete();
                 },
-                winnerInfo.showdown ? 8000 : 3000,
+                winnerInfo.showdown ? 10000 : 6000,
             );
 
             return () => {
