@@ -10,7 +10,8 @@ Coordinates:
 
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 
 from .hand_history import HandHistoryRecorder, RecordedHand, WinnerInfo
@@ -110,22 +111,26 @@ class AIMemoryManager:
 
     def on_hand_complete(self, winner_info: Dict[str, Any],
                         game_state: Any,
-                        ai_players: Dict[str, Any] = None) -> Dict[str, HandCommentary]:
-        """Process end of hand - record history, update models, generate commentary.
+                        ai_players: Dict[str, Any] = None,
+                        skip_commentary: bool = False) -> Dict[str, HandCommentary]:
+        """Process end of hand - record history, update models, optionally generate commentary.
 
         Args:
             winner_info: Dict with 'winnings', 'hand_name', 'hand_rank'
             game_state: Current game state
             ai_players: Dict mapping player names to their AIPokerPlayer objects
+            skip_commentary: If True, skip commentary generation (for async flow)
 
         Returns:
-            Dict mapping player names to their HandCommentary (or None)
+            Dict mapping player names to their HandCommentary (or None if skip_commentary)
         """
         ai_players = ai_players or {}
 
         # Complete hand recording
         try:
             recorded_hand = self.hand_recorder.complete_hand(winner_info, game_state)
+            # Store for async commentary generation
+            self._last_recorded_hand = recorded_hand
         except Exception as e:
             logger.error(f"Failed to complete hand recording: {e}")
             return {}
@@ -138,9 +143,7 @@ class AIMemoryManager:
                         model = self.opponent_model_manager.get_model(observer, winner.name)
                         model.observe_showdown(won=True)
 
-        # Update session memories and generate commentary
-        commentaries: Dict[str, HandCommentary] = {}
-
+        # Update session memories
         for player_name, session_memory in self.session_memories.items():
             # Determine player's outcome
             outcome = recorded_hand.get_player_outcome(player_name)
@@ -170,28 +173,80 @@ class AIMemoryManager:
                 notable_events=notable_events
             )
 
-            # Generate commentary if enabled and player is AI
-            if COMMENTARY_ENABLED and player_name in ai_players:
-                ai_player = ai_players[player_name]
-                player_cards = recorded_hand.hole_cards.get(player_name, [])
+        # Skip commentary generation if requested (for async flow)
+        if skip_commentary:
+            return {}
 
-                try:
-                    commentary = self.commentary_generator.generate_commentary(
-                        player_name=player_name,
-                        hand=recorded_hand,
-                        player_outcome=outcome,
-                        player_cards=player_cards,
-                        session_memory=session_memory,
-                        opponent_models=self.opponent_model_manager.get_all_models_for_observer(player_name),
-                        confidence=getattr(ai_player, 'confidence', 'neutral'),
-                        attitude=getattr(ai_player, 'attitude', 'neutral'),
-                        chattiness=self._get_chattiness(ai_player),
-                        assistant=getattr(ai_player, 'assistant', None)
-                    )
-                    if commentary:
-                        commentaries[player_name] = commentary
-                except Exception as e:
-                    logger.warning(f"Failed to generate commentary for {player_name}: {e}")
+        # Generate commentary synchronously (legacy flow)
+        return self.generate_commentary_for_hand(ai_players)
+
+    def generate_commentary_for_hand(self, ai_players: Dict[str, Any]) -> Dict[str, HandCommentary]:
+        """Generate commentary for the last completed hand.
+
+        This can be called asynchronously after on_hand_complete(skip_commentary=True).
+        All AI players' commentary is generated in parallel using ThreadPoolExecutor.
+
+        Args:
+            ai_players: Dict mapping player names to their AIPokerPlayer objects
+
+        Returns:
+            Dict mapping player names to their HandCommentary
+        """
+        if not hasattr(self, '_last_recorded_hand') or self._last_recorded_hand is None:
+            logger.warning("No recorded hand available for commentary generation")
+            return {}
+
+        recorded_hand = self._last_recorded_hand
+        commentaries: Dict[str, HandCommentary] = {}
+
+        if not COMMENTARY_ENABLED:
+            return commentaries
+
+        # Build list of players to generate commentary for
+        players_to_process = [
+            player_name for player_name in ai_players
+            if player_name in self.session_memories
+        ]
+
+        if not players_to_process:
+            return commentaries
+
+        def generate_single_commentary(player_name: str) -> Tuple[str, Optional[HandCommentary]]:
+            """Generate commentary for a single player. Returns (player_name, commentary)."""
+            ai_player = ai_players[player_name]
+            session_memory = self.session_memories[player_name]
+            outcome = recorded_hand.get_player_outcome(player_name)
+            player_cards = recorded_hand.hole_cards.get(player_name, [])
+
+            try:
+                commentary = self.commentary_generator.generate_commentary(
+                    player_name=player_name,
+                    hand=recorded_hand,
+                    player_outcome=outcome,
+                    player_cards=player_cards,
+                    session_memory=session_memory,
+                    opponent_models=self.opponent_model_manager.get_all_models_for_observer(player_name),
+                    confidence=getattr(ai_player, 'confidence', 'neutral'),
+                    attitude=getattr(ai_player, 'attitude', 'neutral'),
+                    chattiness=self._get_chattiness(ai_player),
+                    assistant=getattr(ai_player, 'assistant', None)
+                )
+                return (player_name, commentary)
+            except Exception as e:
+                logger.warning(f"Failed to generate commentary for {player_name}: {e}")
+                return (player_name, None)
+
+        # Generate all commentaries in parallel
+        with ThreadPoolExecutor(max_workers=len(players_to_process)) as executor:
+            futures = {
+                executor.submit(generate_single_commentary, player_name): player_name
+                for player_name in players_to_process
+            }
+
+            for future in as_completed(futures):
+                player_name, commentary = future.result()
+                if commentary:
+                    commentaries[player_name] = commentary
 
         return commentaries
 

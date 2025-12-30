@@ -777,7 +777,7 @@ def progress_game(game_id):
                     
                     socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
-            # Process hand completion with memory manager
+            # Process hand completion with memory manager (skip commentary for now - generate async)
             if 'memory_manager' in current_game_data:
                 memory_manager = current_game_data['memory_manager']
                 ai_controllers = current_game_data.get('ai_controllers', {})
@@ -788,26 +788,14 @@ def progress_game(game_id):
                     for name, controller in ai_controllers.items()
                 }
 
-                # Complete hand recording and generate commentary
+                # Complete hand recording (skip commentary - will generate async after showing winner)
                 try:
-                    commentaries = memory_manager.on_hand_complete(
+                    memory_manager.on_hand_complete(
                         winner_info=winner_info,
                         game_state=game_state,
-                        ai_players=ai_players
+                        ai_players=ai_players,
+                        skip_commentary=True
                     )
-
-                    # Send AI commentary as chat messages
-                    for player_name, commentary in commentaries.items():
-                        if commentary and commentary.table_comment:
-                            send_message(game_id, player_name, commentary.table_comment, "ai")
-
-                    # Apply learned adjustments to AI personalities
-                    for name, controller in ai_controllers.items():
-                        if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
-                            memory_manager.apply_learned_adjustments(
-                                name,
-                                controller.ai_player.elastic_personality
-                            )
                 except Exception as e:
                     logger.warning(f"Memory manager hand completion failed: {e}")
 
@@ -868,10 +856,41 @@ def progress_game(game_id):
                 message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
             
             send_message(game_id, "Table", message_content, "table", 1)
-            
+
             # Emit winner announcement event
             socketio.emit('winner_announcement', winner_data, to=game_id)
-            
+
+            # Generate AI commentary (parallel LLM calls for all AI players)
+            # This runs after winner is displayed but before next hand starts
+            if 'memory_manager' in current_game_data:
+                memory_manager = current_game_data['memory_manager']
+                ai_controllers = current_game_data.get('ai_controllers', {})
+                ai_players = {
+                    name: controller.ai_player
+                    for name, controller in ai_controllers.items()
+                }
+
+                try:
+                    logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
+                    commentaries = memory_manager.generate_commentary_for_hand(ai_players)
+                    logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
+
+                    # Send AI commentary as chat messages
+                    for player_name, commentary in commentaries.items():
+                        if commentary and commentary.table_comment:
+                            logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
+                            send_message(game_id, player_name, commentary.table_comment, "ai")
+
+                    # Apply learned adjustments to AI personalities
+                    for name, controller in ai_controllers.items():
+                        if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
+                            memory_manager.apply_learned_adjustments(
+                                name,
+                                controller.ai_player.elastic_personality
+                            )
+                except Exception as e:
+                    logger.warning(f"Commentary generation failed: {e}")
+
             # Delay before dealing new hand
             socketio.sleep(4 if is_showdown else 2)
             send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
