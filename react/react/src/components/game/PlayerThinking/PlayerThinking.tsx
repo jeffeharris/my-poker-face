@@ -5,7 +5,7 @@ interface PlayerThinkingProps {
   position: number;
 }
 
-export function PlayerThinking({ playerName, position }: PlayerThinkingProps) {
+export function PlayerThinking({ playerName: _playerName, position }: PlayerThinkingProps) {
   return (
     <div className={`player-thinking-indicator position-${position}`}>
       <div className="thinking-ring">

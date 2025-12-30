@@ -1,9 +1,25 @@
 import { useState } from 'react';
 import './ElasticityDemo.css';
 
+interface TraitData {
+  current: number;
+  anchor: number;
+  elasticity: number;
+  pressure: number;
+  min: number;
+  max: number;
+}
+
+interface PlayerData {
+  mood: string;
+  traits: Record<string, TraitData>;
+}
+
+type MockDataType = Record<string, PlayerData>;
+
 // Standalone demo component with mock data
 export function ElasticityDemo() {
-  const [mockData, setMockData] = useState({
+  const [mockData, setMockData] = useState<MockDataType>({
     "A Mime": {
       mood: "Mysterious",
       traits: {
@@ -86,7 +102,7 @@ export function ElasticityDemo() {
     ).join(' ');
   };
 
-  const getTraitColor = (trait: any) => {
+  const getTraitColor = (trait: TraitData) => {
     const deviation = Math.abs(trait.current - trait.anchor);
     if (deviation > trait.elasticity * 0.7) return '#ff4444';
     if (deviation > trait.elasticity * 0.4) return '#ffaa44';

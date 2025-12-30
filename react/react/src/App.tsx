@@ -9,6 +9,7 @@ import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
 import { LoginForm } from './components/auth/LoginForm'
+import { InstallPrompt } from './components/pwa/InstallPrompt'
 import { useAuth } from './hooks/useAuth'
 import { useViewport } from './hooks/useViewport'
 import { config } from './config'
@@ -329,6 +330,9 @@ function App() {
         <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />
       )}
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
+
+      {/* PWA Install Prompt */}
+      <InstallPrompt />
     </>
   )
 }
