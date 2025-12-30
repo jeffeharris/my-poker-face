@@ -7,16 +7,18 @@ interface GameMenuProps {
   onCustomGame: () => void;
   onThemedGame: () => void;
   onContinueGame: () => void;
+  onManagePersonalities: () => void;
   savedGamesCount: number;
 }
 
-export function GameMenu({ 
-  playerName, 
-  onQuickPlay, 
-  onCustomGame, 
-  onThemedGame, 
+export function GameMenu({
+  playerName,
+  onQuickPlay,
+  onCustomGame,
+  onThemedGame,
   onContinueGame,
-  savedGamesCount 
+  onManagePersonalities,
+  savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
 
@@ -72,7 +74,7 @@ export function GameMenu({
             <div className="option-arrow">→</div>
           </button>
 
-          <button 
+          <button
             className="menu-option continue-game"
             onClick={onContinueGame}
             onMouseEnter={() => setHoveredOption('continue')}
@@ -82,12 +84,26 @@ export function GameMenu({
             <div className="option-icon">📂</div>
             <div className="option-content">
               <h3>Continue Game</h3>
-              <p>{savedGamesCount > 0 
+              <p>{savedGamesCount > 0
                 ? `Resume from ${savedGamesCount} saved game${savedGamesCount > 1 ? 's' : ''}`
                 : 'No saved games yet'
               }</p>
             </div>
             {savedGamesCount > 0 && <div className="option-arrow">→</div>}
+          </button>
+
+          <button
+            className="menu-option manage-personalities"
+            onClick={onManagePersonalities}
+            onMouseEnter={() => setHoveredOption('personalities')}
+            onMouseLeave={() => setHoveredOption(null)}
+          >
+            <div className="option-icon">🎭</div>
+            <div className="option-content">
+              <h3>Manage Personalities</h3>
+              <p>Create and edit AI opponents</p>
+            </div>
+            <div className="option-arrow">→</div>
           </button>
         </div>
 
@@ -97,6 +113,7 @@ export function GameMenu({
             {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
             {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
             {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
+            {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
             {!hoveredOption && "🃏 Ready to test your poker face?"}
           </p>
         </div>

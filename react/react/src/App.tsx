@@ -99,11 +99,6 @@ function App() {
     setCurrentView('table');
   };
 
-  const handleNewGame = () => {
-    setGameId(null); // null means create new game
-    setCurrentView('table');
-  };
-
   const handleNameSubmit = (name: string) => {
     setPlayerName(name);
     setCurrentView('game-menu');
@@ -240,20 +235,19 @@ function App() {
         <PlayerNameEntry onSubmit={handleNameSubmit} />
       )}
       {currentView === 'game-menu' && (
-        <GameMenu 
+        <GameMenu
           playerName={playerName}
           onQuickPlay={handleQuickPlay}
           onCustomGame={handleCustomGame}
           onThemedGame={handleThemedGame}
           onContinueGame={handleContinueGame}
+          onManagePersonalities={() => setCurrentView('personalities')}
           savedGamesCount={savedGamesCount}
         />
       )}
       {currentView === 'selector' && (
         <GameSelector
           onSelectGame={handleSelectGame}
-          onNewGame={handleNewGame}
-          onManagePersonalities={() => setCurrentView('personalities')}
           onBack={() => setCurrentView('game-menu')}
         />
       )}
@@ -289,7 +283,7 @@ function App() {
         )
       )}
       {currentView === 'personalities' && (
-        <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />
+        <PersonalityManagerHTML onBack={() => setCurrentView('game-menu')} />
       )}
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
 
