@@ -1301,7 +1301,81 @@ Return as JSON with this format:
 @app.route('/api/game/<game_id>/targeted-chat-suggestions', methods=['POST'])
 @limiter.limit(os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour'))
 def get_targeted_chat_suggestions(game_id):
-    """Generate targeted chat suggestions to engage specific AI players."""
+    """
+    Generate targeted chat suggestions to engage specific AI players in a given game.
+
+    This endpoint is intended for frontend consumption. It uses the current game state
+    plus optional targeting and tone parameters to generate short chat messages the
+    human player can send to AI opponents.
+
+    HTTP:
+        POST /api/game/<game_id>/targeted-chat-suggestions
+
+    Request JSON body:
+        {
+            "playerName": string,          # Optional. Display name of the human player.
+                                         # Defaults to "Player" if omitted.
+            "targetPlayer": string|null,   # Optional. Name/key of the AI personality to
+                                         # target. If null/omitted, messages are "table talk".
+            "tone": string,                # Optional. Desired tone of the suggestions.
+                                         # Supported values:
+                                         #   "encourage" (default)
+                                         #   "antagonize"
+                                         #   "confuse"
+                                         #   "flatter"
+                                         #   "challenge"
+            "lastAction": {                # Optional. Context about the most recent action.
+                "player": string,          # Name of the player who acted.
+                "type": string,            # Action type (e.g., "bet", "raise", "fold").
+                "amount": number|null      # Optional. Chip amount associated with the action.
+            }
+        }
+
+        All fields are optional; the endpoint will fall back to sensible defaults
+        when they are not provided.
+
+    Successful response (200 OK):
+        JSON object with an array of suggested messages:
+        {
+            "suggestions": [
+                {
+                    "text": string,       # The chat message text to show/send.
+                    "type": string        # High-level category, e.g. "reaction",
+                                         # "strategic", "social".
+                },
+                ...
+            ]
+        }
+
+    Error responses:
+        404 Not Found:
+            Returned when no active game with the given ``game_id`` exists.
+            Response body:
+            {
+                "error": "Game not found"
+            }
+
+        429 Too Many Requests:
+            Returned when the caller exceeds the configured rate limit (see below).
+            The exact response body is provided by Flask-Limiter.
+
+        500 Internal Server Error:
+            If an unexpected exception occurs, the server logs the error and may
+            return a generic error with fallback suggestions from the AI layer.
+
+    Rate limiting:
+        This endpoint is rate-limited by Flask-Limiter via:
+            @limiter.limit(os.environ.get("RATE_LIMIT_CHAT_SUGGESTIONS", "100 per hour"))
+        The default limit is "100 per hour" per client IP address, unless overridden
+        by the RATE_LIMIT_CHAT_SUGGESTIONS environment variable.
+
+    Args:
+        game_id: Identifier of the game whose state should be used to generate
+                 targeted chat suggestions.
+
+    Returns:
+        A Flask ``Response`` object containing a JSON payload as described above.
+    """
     if game_id not in games:
         return jsonify({"error": "Game not found"}), 404
 
