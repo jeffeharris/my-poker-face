@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { config } from '../../config';
 import './LoginForm.css';
 
 interface LoginFormProps {

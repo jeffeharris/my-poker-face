@@ -34,11 +34,6 @@ export default defineConfig({
             type: 'image/png',
             purpose: 'maskable',
           },
-          {
-            src: '/poker-favicon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-          },
         ],
       },
       workbox: {

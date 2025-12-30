@@ -74,21 +74,6 @@ export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }:
     }
   };
 
-  const getPhaseDisplay = (phase: string) => {
-    const phaseMap: { [key: string]: string } = {
-      '0': 'Initializing',
-      '1': 'Pre-Flop',
-      '2': 'Flop',
-      '3': 'Turn',
-      '4': 'River',
-      '5': 'Showdown',
-      '6': 'Hand Over',
-      '7': 'Game Over',
-      '8': 'Dealing Cards'
-    };
-    return phaseMap[phase] || phase;
-  };
-
   if (loading) {
     return (
       <div className="game-selector loading">
