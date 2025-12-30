@@ -1,0 +1,126 @@
+.install-prompt {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+  border-top: 1px solid rgba(220, 38, 38, 0.3);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 9999;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.install-prompt__content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.install-prompt__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.install-prompt__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.install-prompt__text strong {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.install-prompt__text span {
+  color: #a0aec0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.install-prompt__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.install-prompt__button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.install-prompt__button--dismiss {
+  background: transparent;
+  color: #a0aec0;
+}
+
+.install-prompt__button--dismiss:hover {
+  color: #ffffff;
+}
+
+.install-prompt__button--install {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+}
+
+.install-prompt__button--install:hover {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+}
+
+.install-prompt__button--install:active {
+  transform: translateY(0);
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .install-prompt {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .install-prompt__content {
+    width: 100%;
+  }
+
+  .install-prompt__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .install-prompt__button {
+    flex: 1;
+  }
+}
