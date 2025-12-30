@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
+import { PageHeader } from '../shared';
 import './GameSelector.css';
 
 interface SavedGame {
@@ -16,9 +17,10 @@ interface GameSelectorProps {
   onSelectGame: (gameId: string) => void;
   onNewGame: () => void;
   onManagePersonalities?: () => void;
+  onBack: () => void;
 }
 
-export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }: GameSelectorProps) {
+export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities, onBack }: GameSelectorProps) {
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
@@ -84,13 +86,12 @@ export function GameSelector({ onSelectGame, onNewGame, onManagePersonalities }:
 
   return (
     <div className="game-selector">
-      <div className="selector-header">
-        <h1>🎰 Poker Game</h1>
-        <p>Start a new game or continue a saved one</p>
-        <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
-          Note: Game loading is experimental and may not work for all saved games
-        </p>
-      </div>
+      <PageHeader
+        title="Saved Games"
+        subtitle="Continue a saved game or start fresh"
+        onBack={onBack}
+        titleVariant="primary"
+      />
 
       <div className="game-options">
         <button className="new-game-button" onClick={onNewGame}>

@@ -1,71 +1,117 @@
-/* Game Selector Styles */
+/* Game Selector (Saved Games) - Premium Poker Aesthetic */
+
 .game-selector {
   min-height: 100vh;
   width: 100%;
-  background: #0a0e1b;
+  background: var(--gradient-bg-main);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 40px 20px;
-  color: white;
-  
-  /* Force dark theme for this component */
+  padding: var(--space-10) var(--space-6);
+  color: var(--color-text-primary);
+  position: relative;
   color-scheme: dark;
 }
 
-.selector-header {
-  text-align: center;
-  margin-bottom: 40px;
-}
-
-.selector-header h1 {
-  font-size: 48px;
-  margin: 0 0 10px 0;
-  background: linear-gradient(45deg, #ffd700, #ffed4e);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.selector-header p {
-  font-size: 18px;
-  color: #94a3b8;
+/* Ambient glow effect */
+.game-selector::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150%;
+  height: 60%;
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(168, 85, 247, 0.04) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
 }
 
 .game-options {
   position: relative;
-  max-width: 800px;
+  max-width: var(--container-lg);
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
+  z-index: 1;
 }
 
 /* New Game Button */
 .new-game-button {
   width: 100%;
-  padding: 30px;
-  margin-bottom: 40px;
-  background: linear-gradient(135deg, #1e3a8a, #2563eb);
-  border: 2px solid #3b82f6;
-  border-radius: 16px;
+  padding: var(--space-6) var(--space-8);
+  margin-bottom: var(--space-6);
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: var(--transition-all-slow);
   display: flex;
   align-items: center;
-  gap: 20px;
-  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+  gap: var(--space-5);
+  box-shadow: var(--shadow-card);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Top highlight */
+.new-game-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--space-6);
+  right: var(--space-6);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+}
+
+/* Shine effect */
+.new-game-button::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(212, 165, 116, 0.06) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  transition: left 0.6s var(--ease-out-expo);
+}
+
+.new-game-button:hover::after {
+  left: 150%;
 }
 
 .new-game-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 30px rgba(37, 99, 235, 0.5);
-  border-color: #60a5fa;
+  background: var(--gradient-card-hover);
+  border-color: var(--color-border-gold);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-4px);
 }
 
 .button-icon {
-  font-size: 48px;
+  font-size: var(--font-size-5xl);
   flex-shrink: 0;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+  transition: var(--transition-transform);
+}
+
+.new-game-button:hover .button-icon {
+  transform: scale(1.1);
 }
 
 .button-text {
@@ -73,48 +119,56 @@
 }
 
 .button-text h3 {
-  margin: 0 0 5px 0;
-  font-size: 24px;
-  color: white;
+  margin: 0 0 var(--space-1) 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .button-text p {
   margin: 0;
-  color: #94a3b8;
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
 }
 
 /* Saved Games */
 .saved-games {
   position: relative;
   width: 100%;
-  margin-top: 20px;
+  margin-top: var(--space-6);
 }
 
 .saved-games h2 {
-  font-size: 24px;
-  margin: 0 0 20px 0;
-  color: #e2e8f0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-5) 0;
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .games-list {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .saved-game-card {
   position: relative;
   display: block;
-  background: rgba(255, 255, 255, 0.1); /* Made more visible for debugging */
-  border: 2px solid rgba(255, 255, 255, 0.3); /* Made more visible */
-  border-radius: 12px;
-  padding: 20px;
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-all-slow);
   width: 100%;
   text-align: left;
-  color: white;
+  color: var(--color-text-primary);
   margin: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 /* Ensure button inherits styles properly */
@@ -125,15 +179,16 @@ button.saved-game-card {
 }
 
 .saved-game-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-  transform: translateX(4px);
+  background: var(--gradient-card-hover);
+  border-color: var(--color-border-gold);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateX(8px);
 }
 
 .game-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
 }
 
@@ -144,28 +199,32 @@ button.saved-game-card {
 }
 
 .game-phase {
-  font-size: 16px;
-  font-weight: bold;
-  color: #60a5fa;
+  font-family: var(--font-display);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-sapphire);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .game-pot {
-  font-size: 18px;
-  font-weight: bold;
-  color: #4ade80;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-emerald);
 }
 
 .game-meta {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  color: #94a3b8;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
 }
 
 .game-players {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 /* Loading State */
@@ -174,11 +233,12 @@ button.saved-game-card {
 }
 
 .game-selector.loading h2 {
-  color: #94a3b8;
-  animation: pulse 1.5s ease-in-out infinite;
+  font-family: var(--font-display);
+  color: var(--color-text-tertiary);
+  animation: loadingPulse 1.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
+@keyframes loadingPulse {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
 }
@@ -186,28 +246,72 @@ button.saved-game-card {
 /* No Saved Games */
 .no-saved-games {
   text-align: center;
-  padding: 40px;
-  color: #64748b;
+  padding: var(--space-12);
+  color: var(--color-text-muted);
+}
+
+.no-saved-games p {
+  font-family: var(--font-body);
   font-style: italic;
+  margin: 0;
+}
+
+/* Delete button styles for inline games */
+.delete-button {
+  position: absolute;
+  bottom: var(--space-3);
+  right: var(--space-3);
+  background: var(--gradient-ruby);
+  color: var(--color-text-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  opacity: 0;
+  transition: var(--transition-all-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.delete-button:hover {
+  box-shadow: var(--glow-ruby);
+  transform: scale(1.05);
+}
+
+.saved-game-card:hover .delete-button {
+  opacity: 1;
 }
 
 /* Responsive */
-@media (max-width: 600px) {
-  .selector-header h1 {
-    font-size: 36px;
+@media (max-width: 640px) {
+  .game-selector {
+    padding: var(--space-6) var(--space-4);
   }
-  
+
   .new-game-button {
-    padding: 20px;
+    padding: var(--space-5);
     flex-direction: column;
     text-align: center;
+    gap: var(--space-3);
   }
-  
+
   .button-text {
     text-align: center;
   }
-  
+
   .button-icon {
-    font-size: 36px;
+    font-size: var(--font-size-4xl);
+  }
+
+  .button-text h3 {
+    font-size: var(--font-size-lg);
+  }
+
+  .saved-games h2 {
+    font-size: var(--font-size-xl);
   }
 }

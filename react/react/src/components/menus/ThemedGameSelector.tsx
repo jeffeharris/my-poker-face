@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
+import { PageHeader } from '../shared';
 import './ThemedGameSelector.css';
 
 interface Theme {
@@ -78,13 +79,12 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
   return (
     <div className="themed-selector">
       <div className="themed-selector__container">
-        <div className="themed-selector__header">
-          <button className="back-button" onClick={onBack}>
-            ← Back
-          </button>
-          <h2>Choose Your Theme</h2>
-          <p>Each theme brings together unique personalities for an unforgettable game!</p>
-        </div>
+        <PageHeader
+          title="Choose Your Theme"
+          subtitle="Each theme brings together unique personalities for an unforgettable game!"
+          onBack={onBack}
+          titleVariant="themed"
+        />
 
         {error && (
           <div className="error-message">

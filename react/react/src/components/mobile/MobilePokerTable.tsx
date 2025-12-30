@@ -5,6 +5,7 @@ import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import './MobilePokerTable.css';
 
@@ -115,24 +116,16 @@ export function MobilePokerTable({
   return (
     <div className="mobile-poker-table">
       {/* Header with back button and pot */}
-      <div className="mobile-header">
-        <button className="mobile-back-btn" onClick={onBack}>
-          <span>←</span>
-        </button>
-        <div className="mobile-pot">
-          <span className="pot-label">POT</span>
-          <span className="pot-amount">${gameState.pot.total}</span>
-        </div>
-        <button
-          className="mobile-chat-toggle"
-          onClick={() => setShowChatSheet(true)}
-        >
-          💬
-          {messages.length > 0 && (
-            <span className="chat-badge">{messages.length}</span>
-          )}
-        </button>
-      </div>
+      <MobileHeader
+        onBack={onBack}
+        centerContent={<PotDisplay total={gameState.pot.total} />}
+        rightContent={
+          <ChatToggle
+            onClick={() => setShowChatSheet(true)}
+            badgeCount={messages.length}
+          />
+        }
+      />
 
       {/* Opponents Strip */}
       <div className="mobile-opponents">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
+import { PageHeader } from '../shared';
 import './CustomGameConfig.css';
 
 interface Personality {
@@ -111,13 +112,12 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   return (
     <div className="custom-config">
       <div className="custom-config__container">
-        <div className="custom-config__header">
-          <button className="back-button" onClick={onBack}>
-            ← Back
-          </button>
-          <h2>Custom Game Setup</h2>
-          <p>Choose your opponents (up to 5)</p>
-        </div>
+        <PageHeader
+          title="Custom Game Setup"
+          subtitle="Choose your opponents (up to 5)"
+          onBack={onBack}
+          titleVariant="primary"
+        />
 
         <div className="config-section">
           <h3>Game Settings</h3>

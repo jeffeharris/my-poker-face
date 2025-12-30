@@ -10,6 +10,7 @@ import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
 import { LoginForm } from './components/auth/LoginForm'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
+import { BackButton, UserBadge } from './components/shared'
 import { useAuth } from './hooks/useAuth'
 import { useViewport } from './hooks/useViewport'
 import { config } from './config'
@@ -205,70 +206,30 @@ function App() {
 
       {/* Navigation - only show when in table view on desktop */}
       {currentView === 'table' && !isMobile && (
-        <div style={{
-          position: 'fixed',
-          top: 10,
-          left: 10,
-          zIndex: 1000,
-          display: 'flex',
-          gap: '10px'
-        }}>
-          <button
+        <div className="app-nav app-nav--left">
+          <BackButton
             onClick={() => {
-              // Clear the saved game when going back to menu
               setGameId(null);
               setCurrentView('game-menu');
             }}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#666',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            ← Back to Menu
-          </button>
+            label="Back to Menu"
+            position="relative"
+          />
         </div>
       )}
 
       {/* User info - only show on game menu screen */}
       {isAuthenticated && user && currentView === 'game-menu' && (
-        <div style={{
-          position: 'fixed',
-          top: 10,
-          right: 10,
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '8px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          borderRadius: '20px',
-          color: '#fff',
-          fontSize: '14px'
-        }}>
-          <span>{user.name} {user.is_guest && '(Guest)'}</span>
-          <button
-            onClick={async () => {
-              await logout();
-              setCurrentView('login');
-              setGameId(null);
-            }}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: '#dc3545',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-          >
-            Logout
-          </button>
-        </div>
+        <UserBadge
+          name={user.name}
+          isGuest={user.is_guest}
+          onLogout={async () => {
+            await logout();
+            setCurrentView('login');
+            setGameId(null);
+          }}
+          className="user-badge--fixed"
+        />
       )}
 
       {/* Views */}
@@ -289,10 +250,11 @@ function App() {
         />
       )}
       {currentView === 'selector' && (
-        <GameSelector 
-          onSelectGame={handleSelectGame} 
+        <GameSelector
+          onSelectGame={handleSelectGame}
           onNewGame={handleNewGame}
           onManagePersonalities={() => setCurrentView('personalities')}
+          onBack={() => setCurrentView('game-menu')}
         />
       )}
       {currentView === 'custom-game' && (

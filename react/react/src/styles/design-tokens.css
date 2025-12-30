@@ -1,0 +1,594 @@
+/**
+ * Design Tokens - Premium Poker Aesthetic
+ *
+ * A rich, sophisticated design system inspired by high-end casino aesthetics.
+ * Deep blacks, warm golds, and subtle ambient glows.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ===========================================
+     TYPOGRAPHY - Premium Fonts
+     =========================================== */
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  --font-body: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* ===========================================
+     COLOR PALETTE - Luxury Poker
+     =========================================== */
+
+  /* Deep Black Foundation */
+  --color-bg-void: #050508;
+  --color-bg-primary: #0a0b10;
+  --color-bg-secondary: #0f1118;
+  --color-bg-tertiary: #151820;
+  --color-bg-dark: #030305;
+
+  /* Surface Colors with depth */
+  --color-bg-surface: rgba(255, 255, 255, 0.03);
+  --color-bg-surface-hover: rgba(255, 255, 255, 0.06);
+  --color-bg-surface-active: rgba(255, 255, 255, 0.08);
+  --color-bg-elevated: rgba(20, 22, 30, 0.95);
+  --color-bg-overlay: rgba(0, 0, 0, 0.95);
+  --color-bg-card: linear-gradient(145deg, rgba(20, 22, 28, 0.9) 0%, rgba(12, 14, 18, 0.95) 100%);
+
+  /* Primary Gold Palette - Luxury accent */
+  --color-gold: #d4a574;
+  --color-gold-light: #e8c9a0;
+  --color-gold-bright: #f5d89a;
+  --color-gold-dark: #a67c4a;
+  --color-gold-muted: rgba(212, 165, 116, 0.15);
+
+  /* Accent Colors - Refined poker palette */
+  --color-emerald: #34d399;
+  --color-emerald-dark: #059669;
+  --color-emerald-muted: rgba(52, 211, 153, 0.15);
+
+  --color-ruby: #f43f5e;
+  --color-ruby-dark: #be123c;
+  --color-ruby-muted: rgba(244, 63, 94, 0.15);
+
+  --color-sapphire: #3b82f6;
+  --color-sapphire-dark: #1d4ed8;
+  --color-sapphire-muted: rgba(59, 130, 246, 0.15);
+
+  --color-amethyst: #a855f7;
+  --color-amethyst-dark: #7c3aed;
+  --color-amethyst-muted: rgba(168, 85, 247, 0.15);
+
+  --color-amber: #f59e0b;
+  --color-amber-dark: #d97706;
+  --color-amber-muted: rgba(245, 158, 11, 0.15);
+
+  --color-cyan: #22d3ee;
+  --color-rose: #fb7185;
+
+  /* Legacy color aliases for compatibility */
+  --color-green: var(--color-emerald);
+  --color-green-dark: var(--color-emerald-dark);
+  --color-blue: var(--color-sapphire);
+  --color-blue-dark: var(--color-sapphire-dark);
+  --color-orange: var(--color-amber);
+  --color-orange-dark: var(--color-amber-dark);
+  --color-red: var(--color-ruby);
+  --color-red-dark: var(--color-ruby-dark);
+  --color-purple: var(--color-amethyst);
+  --color-purple-dark: var(--color-amethyst-dark);
+  --color-pink: #ec4899;
+  --color-yellow: #facc15;
+
+  /* Text Colors - Refined hierarchy */
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: rgba(248, 250, 252, 0.72);
+  --color-text-tertiary: rgba(248, 250, 252, 0.56);
+  --color-text-muted: rgba(248, 250, 252, 0.4);
+  --color-text-disabled: rgba(248, 250, 252, 0.28);
+  --color-text-gold: var(--color-gold-light);
+
+  /* Border Colors */
+  --color-border-default: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-border-focus: rgba(212, 165, 116, 0.4);
+  --color-border-gold: rgba(212, 165, 116, 0.25);
+  --color-border-glow: rgba(212, 165, 116, 0.5);
+
+  /* ===========================================
+     GRADIENTS - Sophisticated depth
+     =========================================== */
+
+  /* Background Gradients */
+  --gradient-bg-main: linear-gradient(165deg,
+    #0a0b10 0%,
+    #0f1118 25%,
+    #0a0b10 50%,
+    #080910 100%
+  );
+
+  --gradient-bg-radial: radial-gradient(
+    ellipse 80% 50% at 50% -20%,
+    rgba(212, 165, 116, 0.08) 0%,
+    transparent 50%
+  );
+
+  --gradient-bg-subtle: radial-gradient(
+    circle at 30% 20%,
+    rgba(212, 165, 116, 0.04) 0%,
+    transparent 40%
+  );
+
+  /* Card/Surface Gradients */
+  --gradient-card: linear-gradient(145deg,
+    rgba(25, 28, 35, 0.8) 0%,
+    rgba(15, 17, 22, 0.9) 100%
+  );
+
+  --gradient-card-hover: linear-gradient(145deg,
+    rgba(30, 34, 42, 0.85) 0%,
+    rgba(20, 22, 28, 0.9) 100%
+  );
+
+  /* Accent Gradients */
+  --gradient-gold: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-dark) 100%);
+  --gradient-gold-shine: linear-gradient(135deg,
+    var(--color-gold-bright) 0%,
+    var(--color-gold) 50%,
+    var(--color-gold-dark) 100%
+  );
+
+  --gradient-emerald: linear-gradient(135deg, var(--color-emerald) 0%, var(--color-emerald-dark) 100%);
+  --gradient-sapphire: linear-gradient(135deg, var(--color-sapphire) 0%, var(--color-sapphire-dark) 100%);
+  --gradient-ruby: linear-gradient(135deg, var(--color-ruby) 0%, var(--color-ruby-dark) 100%);
+  --gradient-amethyst: linear-gradient(135deg, var(--color-amethyst) 0%, var(--color-amethyst-dark) 100%);
+  --gradient-amber: linear-gradient(135deg, var(--color-amber) 0%, var(--color-amber-dark) 100%);
+
+  /* Legacy gradient aliases */
+  --gradient-green: var(--gradient-emerald);
+  --gradient-blue: var(--gradient-sapphire);
+  --gradient-red: var(--gradient-ruby);
+  --gradient-purple: var(--gradient-amethyst);
+  --gradient-orange: var(--gradient-amber);
+  --gradient-pink: linear-gradient(135deg, #ec4899 0%, #be185d 100%);
+
+  /* Text Gradients */
+  --gradient-text-primary: linear-gradient(135deg, var(--color-gold-bright), var(--color-gold));
+  --gradient-text-shine: linear-gradient(90deg,
+    var(--color-gold-dark) 0%,
+    var(--color-gold-bright) 50%,
+    var(--color-gold-dark) 100%
+  );
+  --gradient-text-emerald: linear-gradient(135deg, var(--color-emerald), var(--color-cyan));
+  --gradient-text-themed: linear-gradient(135deg, var(--color-amber), var(--color-rose));
+
+  /* ===========================================
+     SPACING SCALE (4px base)
+     =========================================== */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* ===========================================
+     TYPOGRAPHY
+     =========================================== */
+
+  /* Font Sizes */
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 15px;
+  --font-size-md: 17px;
+  --font-size-lg: 19px;
+  --font-size-xl: 22px;
+  --font-size-2xl: 26px;
+  --font-size-3xl: 32px;
+  --font-size-4xl: 40px;
+  --font-size-5xl: 48px;
+  --font-size-6xl: 60px;
+  --font-size-7xl: 72px;
+
+  /* Font Weights */
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* Line Heights */
+  --line-height-none: 1;
+  --line-height-tight: 1.1;
+  --line-height-snug: 1.25;
+  --line-height-normal: 1.4;
+  --line-height-relaxed: 1.6;
+
+  /* Letter Spacing */
+  --letter-spacing-tight: -0.02em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.025em;
+  --letter-spacing-wider: 0.05em;
+  --letter-spacing-widest: 0.12em;
+
+  /* ===========================================
+     BORDER RADIUS
+     =========================================== */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 28px;
+  --radius-4xl: 36px;
+  --radius-full: 9999px;
+
+  /* ===========================================
+     SHADOWS & GLOWS
+     =========================================== */
+
+  /* Soft shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.7);
+  --shadow-2xl: 0 24px 64px rgba(0, 0, 0, 0.8);
+
+  /* Inset shadows for depth */
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-inset-lg: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+
+  /* Glow effects */
+  --glow-gold: 0 0 20px rgba(212, 165, 116, 0.25), 0 0 40px rgba(212, 165, 116, 0.1);
+  --glow-gold-strong: 0 0 30px rgba(212, 165, 116, 0.4), 0 0 60px rgba(212, 165, 116, 0.2);
+  --glow-emerald: 0 0 20px rgba(52, 211, 153, 0.3), 0 0 40px rgba(52, 211, 153, 0.15);
+  --glow-sapphire: 0 0 20px rgba(59, 130, 246, 0.3), 0 0 40px rgba(59, 130, 246, 0.15);
+  --glow-ruby: 0 0 20px rgba(244, 63, 94, 0.3), 0 0 40px rgba(244, 63, 94, 0.15);
+  --glow-amethyst: 0 0 20px rgba(168, 85, 247, 0.3), 0 0 40px rgba(168, 85, 247, 0.15);
+  --glow-amber: 0 0 20px rgba(245, 158, 11, 0.3), 0 0 40px rgba(245, 158, 11, 0.15);
+
+  /* Legacy shadow aliases */
+  --shadow-green: var(--glow-emerald);
+  --shadow-blue: var(--glow-sapphire);
+  --shadow-orange: var(--glow-amber);
+  --shadow-red: var(--glow-ruby);
+  --shadow-purple: var(--glow-amethyst);
+  --shadow-pink: 0 0 20px rgba(236, 72, 153, 0.3);
+
+  /* Card shadows */
+  --shadow-card:
+    0 4px 6px rgba(0, 0, 0, 0.3),
+    0 10px 20px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --shadow-card-hover:
+    0 8px 16px rgba(0, 0, 0, 0.4),
+    0 16px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(212, 165, 116, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* ===========================================
+     Z-INDEX SCALE
+     =========================================== */
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-sticky: 150;
+  --z-modal: 200;
+  --z-toast: 300;
+  --z-nav: 400;
+  --z-overlay: 1000;
+
+  /* ===========================================
+     TRANSITIONS & ANIMATIONS
+     =========================================== */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --transition-fast: 0.15s var(--ease-in-out-smooth);
+  --transition-base: 0.25s var(--ease-in-out-smooth);
+  --transition-slow: 0.4s var(--ease-out-expo);
+  --transition-slower: 0.6s var(--ease-out-expo);
+
+  --transition-all-fast: all 0.15s var(--ease-in-out-smooth);
+  --transition-all-base: all 0.25s var(--ease-in-out-smooth);
+  --transition-all-slow: all 0.4s var(--ease-out-expo);
+  --transition-transform: transform 0.3s var(--ease-out-expo);
+
+  /* ===========================================
+     CONTAINER WIDTHS
+     =========================================== */
+  --container-xs: 400px;
+  --container-sm: 520px;
+  --container-md: 680px;
+  --container-lg: 900px;
+  --container-xl: 1100px;
+  --container-2xl: 1400px;
+
+  /* ===========================================
+     BREAKPOINTS (for reference in JS)
+     =========================================== */
+  --breakpoint-mobile: 640px;
+  --breakpoint-tablet: 1024px;
+  --breakpoint-desktop: 1280px;
+
+  /* ===========================================
+     SAFE AREA INSETS (mobile)
+     =========================================== */
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
+  --safe-area-left: env(safe-area-inset-left);
+  --safe-area-right: env(safe-area-inset-right);
+}
+
+/* ===========================================
+   GLOBAL STYLES
+   =========================================== */
+
+* {
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+/* ===========================================
+   SHARED BUTTON STYLES
+   =========================================== */
+
+/* Icon Button (back, close, etc.) */
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: var(--transition-all-base);
+  backdrop-filter: blur(8px);
+}
+
+.btn-icon:hover {
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+  transform: translateX(-2px);
+}
+
+.btn-icon:active {
+  transform: translateX(-2px) scale(0.98);
+}
+
+/* Primary Button (gold accent) */
+.btn-primary {
+  position: relative;
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
+  border: none;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  box-shadow: var(--glow-gold), var(--shadow-md);
+  transition: var(--transition-all-slow);
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.btn-primary:hover::before {
+  left: 100%;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glow-gold-strong), var(--shadow-lg);
+}
+
+.btn-primary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Secondary Button (emerald/green) */
+.btn-secondary {
+  position: relative;
+  background: var(--gradient-emerald);
+  color: var(--color-bg-void);
+  border: none;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  box-shadow: var(--glow-emerald), var(--shadow-md);
+  transition: var(--transition-all-slow);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(52, 211, 153, 0.4), var(--shadow-lg);
+}
+
+.btn-secondary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Danger Button (ruby/red) */
+.btn-danger {
+  background: var(--gradient-ruby);
+  color: var(--color-text-primary);
+  border: none;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  box-shadow: var(--glow-ruby);
+  transition: var(--transition-all-slow);
+}
+
+.btn-danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(244, 63, 94, 0.4);
+}
+
+/* Ghost Button */
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.btn-ghost:hover {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
+/* ===========================================
+   UTILITY CLASSES
+   =========================================== */
+
+/* Glass morphism effect */
+.glass {
+  background: rgba(15, 17, 24, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border-default);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border-default);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: var(--gradient-text-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-shine {
+  background: var(--gradient-text-shine);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: textShine 3s ease-in-out infinite;
+}
+
+@keyframes textShine {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Premium card styling */
+.premium-card {
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  transition: var(--transition-all-slow);
+}
+
+.premium-card:hover {
+  background: var(--gradient-card-hover);
+  border-color: var(--color-border-gold);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-4px);
+}
+
+/* Ambient glow backgrounds */
+.ambient-glow {
+  position: relative;
+}
+
+.ambient-glow::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--gradient-bg-radial);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Safe area padding */
+.safe-area-bottom {
+  padding-bottom: max(var(--space-4), var(--safe-area-bottom));
+}
+
+.safe-area-top {
+  padding-top: max(var(--space-4), var(--safe-area-top));
+}
+
+/* Focus ring for accessibility */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-bg-void), 0 0 0 4px var(--color-gold);
+}
+
+/* Subtle noise texture overlay */
+.noise-texture {
+  position: relative;
+}
+
+.noise-texture::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: 1;
+}

@@ -1,172 +1,230 @@
-/* Themed Game Selector */
+/* Themed Game Selector - Premium Poker Aesthetic */
+
 .themed-selector {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background: var(--gradient-bg-main);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-6);
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Ambient glow */
+.themed-selector::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150%;
+  height: 70%;
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(245, 158, 11, 0.05) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
 }
 
 .themed-selector__container {
   width: 100%;
-  max-width: 800px;
-  animation: fadeInUp 0.5s ease-out;
-}
-
-/* Header */
-.themed-selector__header {
-  text-align: center;
-  margin-bottom: 40px;
-  color: white;
+  max-width: var(--container-lg);
+  margin: var(--space-10) 0;
+  animation: fadeInUp 0.6s var(--ease-out-expo);
   position: relative;
-}
-
-.back-button {
-  position: absolute;
-  left: 0;
-  top: 0;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.back-button:hover {
-  background: rgba(255, 255, 255, 0.15);
-  transform: translateX(-4px);
-}
-
-.themed-selector__header h2 {
-  font-size: 32px;
-  margin: 0 0 8px 0;
-  font-weight: 700;
-  background: linear-gradient(135deg, #ff9800, #ff5722);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.themed-selector__header p {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.7);
-  margin: 0;
+  z-index: 1;
 }
 
 /* Error message */
 .error-message {
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid rgba(244, 67, 54, 0.3);
-  color: #ff5252;
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 24px;
+  background: var(--color-ruby-muted);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  color: var(--color-ruby);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-6);
   text-align: center;
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  backdrop-filter: blur(8px);
 }
 
 /* Theme Grid */
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  margin-bottom: 32px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-5);
+  margin-bottom: var(--space-10);
 }
 
 .theme-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 24px 16px;
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-8) var(--space-5);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: var(--transition-all-slow);
   text-align: center;
   position: relative;
   overflow: hidden;
+  box-shadow: var(--shadow-card);
 }
 
+/* Inner glow effect */
 .theme-card::before {
   content: '';
   position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 0%,
+    rgba(255, 255, 255, 0.04) 0%,
+    transparent 100%
+  );
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.4s ease;
+}
+
+/* Shine sweep on hover */
+.theme-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  transition: left 0.5s var(--ease-out-expo);
 }
 
 .theme-card:hover::before {
   opacity: 1;
 }
 
+.theme-card:hover::after {
+  left: 150%;
+}
+
 .theme-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  background: var(--gradient-card-hover);
+  border-color: var(--color-border-gold);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-6px);
 }
 
 .theme-card:disabled {
-  opacity: 0.5;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
 .theme-card:disabled:hover {
   transform: none;
+  box-shadow: var(--shadow-card);
+  border-color: var(--color-border-default);
 }
 
 /* Theme content */
 .theme-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-  animation: iconFloat 3s ease-in-out infinite;
+  font-size: var(--font-size-6xl);
+  margin-bottom: var(--space-4);
+  display: block;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+  animation: iconFloat 4s ease-in-out infinite;
+  animation-delay: calc(var(--animation-delay, 0) * 0.15s);
 }
 
 @keyframes iconFloat {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  50% { transform: translateY(-6px); }
 }
 
 .theme-card h3 {
-  margin: 0 0 8px 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: white;
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .theme-card p {
   margin: 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-  line-height: 1.4;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
 }
 
-/* Theme-specific colors */
-.science:hover { border-color: #4caf50; }
-.hollywood:hover { border-color: #e91e63; }
-.sports:hover { border-color: #ff9800; }
-.history:hover { border-color: #9c27b0; }
-.music:hover { border-color: #2196f3; }
-.comedy:hover { border-color: #ffeb3b; }
-.villains:hover { border-color: #f44336; }
-.surprise:hover { border-color: #00bcd4; }
+/* Theme-specific accent colors on hover */
+.science:hover {
+  border-color: var(--color-emerald);
+  box-shadow: var(--shadow-card-hover), var(--glow-emerald);
+}
+
+.hollywood:hover {
+  border-color: var(--color-pink);
+  box-shadow: var(--shadow-card-hover), var(--shadow-pink);
+}
+
+.sports:hover {
+  border-color: var(--color-amber);
+  box-shadow: var(--shadow-card-hover), var(--glow-amber);
+}
+
+.history:hover {
+  border-color: var(--color-amethyst);
+  box-shadow: var(--shadow-card-hover), var(--glow-amethyst);
+}
+
+.music:hover {
+  border-color: var(--color-sapphire);
+  box-shadow: var(--shadow-card-hover), var(--glow-sapphire);
+}
+
+.comedy:hover {
+  border-color: var(--color-yellow);
+  box-shadow: var(--shadow-card-hover), 0 0 20px rgba(250, 204, 21, 0.25);
+}
+
+.villains:hover {
+  border-color: var(--color-ruby);
+  box-shadow: var(--shadow-card-hover), var(--glow-ruby);
+}
+
+.surprise:hover {
+  border-color: var(--color-cyan);
+  box-shadow: var(--shadow-card-hover), 0 0 20px rgba(34, 211, 238, 0.25);
+}
 
 /* Surprise badge */
 .surprise-badge {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 20px;
-  animation: spin 4s linear infinite;
+  top: var(--space-3);
+  right: var(--space-3);
+  font-size: var(--font-size-xl);
+  animation: sparkle 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.4));
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes sparkle {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: rotate(180deg) scale(1.1);
+    opacity: 0.8;
+  }
 }
 
 /* Generating overlay */
@@ -176,44 +234,57 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(5, 5, 8, 0.95);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
+  z-index: var(--z-overlay);
+  animation: overlayFadeIn 0.3s ease-out;
 }
 
-@keyframes fadeIn {
+@keyframes overlayFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 .generating-content {
   text-align: center;
-  color: white;
+  color: var(--color-text-primary);
+  animation: contentPulse 2s ease-in-out infinite;
+}
+
+@keyframes contentPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
 }
 
 .generating-spinner {
-  font-size: 64px;
-  animation: slotMachine 0.5s ease-in-out infinite;
-  margin-bottom: 24px;
+  font-size: 80px;
+  animation: slotSpin 0.4s ease-in-out infinite;
+  margin-bottom: var(--space-8);
+  filter: drop-shadow(0 0 30px rgba(212, 165, 116, 0.4));
 }
 
-@keyframes slotMachine {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+@keyframes slotSpin {
+  0% { transform: translateY(-20px); opacity: 0; }
+  50% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(20px); opacity: 0; }
 }
 
 .generating-content h3 {
-  font-size: 24px;
-  margin: 0 0 8px 0;
-  color: white;
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .generating-content p {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--font-body);
+  font-size: var(--font-size-md);
+  color: var(--color-text-tertiary);
   margin: 0;
 }
 
@@ -223,28 +294,42 @@
 }
 
 .hint {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.5);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
   font-style: italic;
   margin: 0;
+  opacity: 0.7;
 }
 
 /* Responsive */
 @media (max-width: 640px) {
+  .themed-selector {
+    padding: var(--space-5);
+  }
+
+  .themed-selector__container {
+    margin: var(--space-6) 0;
+  }
+
   .theme-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-3);
   }
-  
+
+  .theme-card {
+    padding: var(--space-6) var(--space-4);
+  }
+
   .theme-icon {
-    font-size: 36px;
+    font-size: var(--font-size-5xl);
   }
-  
+
   .theme-card h3 {
-    font-size: 16px;
+    font-size: var(--font-size-md);
   }
-  
+
   .theme-card p {
-    font-size: 12px;
+    font-size: var(--font-size-xs);
   }
 }
