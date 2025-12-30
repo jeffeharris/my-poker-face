@@ -92,6 +92,38 @@ class PromptManager:
                 )
             }
         )
+
+        # End of hand commentary template for AI reflection
+        self.templates['end_of_hand_commentary'] = PromptTemplate(
+            name='end_of_hand_commentary',
+            sections={
+                'context': (
+                    "The hand just ended. Here's what happened:\n"
+                    "{hand_summary}\n\n"
+                    "Your outcome: {player_outcome}\n"
+                    "Your cards: {player_cards}\n"
+                    "Winner: {winner_info}\n\n"
+                    "Your session so far: {session_context}"
+                ),
+                'instruction': (
+                    "As {player_name}, reflect on this hand in character.\n"
+                    "Your personality: {confidence}, {attitude}\n"
+                    "Your chattiness level: {chattiness}/1.0\n\n"
+                    "Consider:\n"
+                    "1. How do you FEEL about the outcome? (Stay in character)\n"
+                    "2. Did you play it well? Any regrets?\n"
+                    "3. What did you notice about your opponents?\n\n"
+                    "Respond in JSON format:\n"
+                    "{{\n"
+                    "  \"emotional_reaction\": \"How you feel right now (1-2 sentences, in character)\",\n"
+                    "  \"strategic_reflection\": \"Your thoughts on your play (1-2 sentences)\",\n"
+                    "  \"opponent_observations\": [\"What you noticed about specific players\"],\n"
+                    "  \"would_say_aloud\": \"What you'd say to the table (or null if staying quiet)\"\n"
+                    "}}\n\n"
+                    "Only include 'would_say_aloud' if your chattiness ({chattiness}) is > 0.4 and you feel compelled to speak."
+                )
+            }
+        )
     
     def get_template(self, template_name: str) -> PromptTemplate:
         """Get a specific template by name."""

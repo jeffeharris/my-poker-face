@@ -10,7 +10,7 @@ from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
-from .config import MIN_RAISE, BIG_POT_THRESHOLD, AI_MESSAGE_CONTEXT_LIMIT
+from .config import MIN_RAISE, BIG_POT_THRESHOLD, AI_MESSAGE_CONTEXT_LIMIT, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS
 from .ai_resilience import (
     with_ai_fallback,
     expects_json,
@@ -59,7 +59,8 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
 
 
 class AIPlayerController:
-    def __init__(self, player_name, state_machine=None, ai_temp=0.9, llm_config=None):
+    def __init__(self, player_name, state_machine=None, ai_temp=0.9, llm_config=None,
+                 session_memory=None, opponent_model_manager=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.ai_temp = ai_temp
@@ -71,6 +72,9 @@ class AIPlayerController:
         self.response_validator = ResponseValidator()
         # Store personality traits for fallback behavior
         self.personality_traits = self.ai_player.personality_config.get('personality_traits', {})
+        # Memory systems (optional - set by memory manager)
+        self.session_memory = session_memory
+        self.opponent_model_manager = opponent_model_manager
         
     def get_current_personality_traits(self):
         """Get current trait values from elastic personality if available."""
@@ -111,6 +115,11 @@ class AIPlayerController:
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
+
+        # Inject memory context if available
+        memory_context = self._build_memory_context(game_state)
+        if memory_context:
+            message = memory_context + "\n\n" + message
 
         # Add chattiness guidance to message
         chattiness_guidance = self._build_chattiness_guidance(
@@ -278,7 +287,33 @@ class AIPlayerController:
                 return True
 
         return False
-    
+
+    def _build_memory_context(self, game_state) -> str:
+        """Build context from session memory and opponent models for injection into prompts."""
+        parts = []
+
+        # Session context (recent outcomes, streak, observations)
+        if self.session_memory:
+            session_ctx = self.session_memory.get_context_for_prompt(MEMORY_CONTEXT_TOKENS)
+            if session_ctx:
+                parts.append(f"=== Your Session ===\n{session_ctx}")
+
+        # Opponent summaries
+        if self.opponent_model_manager:
+            # Get active opponents
+            opponents = [
+                p.name for p in game_state.players
+                if p.name != self.player_name and not p.is_folded
+            ]
+            opponent_ctx = self.opponent_model_manager.get_table_summary(
+                self.player_name, opponents, OPPONENT_SUMMARY_TOKENS
+            )
+            if opponent_ctx:
+                parts.append(f"=== Opponent Intel ===\n{opponent_ctx}")
+
+        return "\n\n".join(parts) if parts else ""
+
+
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
                                   speaking_context: Dict, valid_actions: List[str]) -> str:
         """Build guidance for AI about speaking behavior."""

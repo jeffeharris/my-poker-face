@@ -12,8 +12,17 @@ interface WinnerInfo {
   community_cards?: any[];
 }
 
+interface CommentaryItem {
+  player_name: string;
+  comment: string;
+  ttl: number;
+  id: string;
+  timestamp: number;
+}
+
 interface WinnerAnnouncementProps {
   winnerInfo: WinnerInfo | null;
+  commentary?: CommentaryItem[];
   onComplete: () => void;
 }
 
