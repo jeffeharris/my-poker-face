@@ -35,6 +35,8 @@ from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
+from poker.hand_evaluator import HandEvaluator
+from core.card import Card
 from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
@@ -890,12 +892,22 @@ def progress_game(game_id):
                 else:
                     winner_data['community_cards'].append({'rank': str(card), 'suit': ''})
 
-            # If it's a showdown, include player cards
+            # If it's a showdown, include player cards and hand info in a combined structure
             if is_showdown:
-                players_cards = {}
+                players_showdown = {}
+
+                # Prepare community cards for hand evaluation
+                community_cards_for_eval = []
+                for card in game_state.community_cards:
+                    if isinstance(card, Card):
+                        community_cards_for_eval.append(card)
+                    elif isinstance(card, dict):
+                        community_cards_for_eval.append(Card(card['rank'], card['suit']))
+
                 for player in active_players:
                     if player.hand:
                         formatted_cards = []
+                        player_cards_for_eval = []
                         for card in player.hand:
                             if hasattr(card, 'to_dict'):
                                 formatted_cards.append(card.to_dict())
@@ -903,8 +915,45 @@ def progress_game(game_id):
                                 formatted_cards.append(card)
                             else:
                                 formatted_cards.append({'rank': str(card), 'suit': ''})
-                        players_cards[player.name] = formatted_cards
-                winner_data['players_cards'] = players_cards
+
+                            # Prepare cards for hand evaluation
+                            if isinstance(card, Card):
+                                player_cards_for_eval.append(card)
+                            elif isinstance(card, dict):
+                                player_cards_for_eval.append(Card(card['rank'], card['suit']))
+
+                        # Evaluate hand to get hand name, rank, and kickers
+                        try:
+                            full_hand = player_cards_for_eval + community_cards_for_eval
+                            hand_result = HandEvaluator(full_hand).evaluate_hand()
+
+                            # Convert kicker values to readable card names
+                            kicker_values = hand_result.get('kicker_values', [])
+                            # Flatten if nested (some hands return nested lists)
+                            if kicker_values and isinstance(kicker_values[0], list):
+                                kicker_values = kicker_values[0] if kicker_values[0] else []
+
+                            value_names = {14: 'A', 13: 'K', 12: 'Q', 11: 'J', 10: '10',
+                                           9: '9', 8: '8', 7: '7', 6: '6', 5: '5',
+                                           4: '4', 3: '3', 2: '2'}
+                            kicker_names = [value_names.get(v, str(v)) for v in kicker_values if isinstance(v, int)]
+
+                            players_showdown[player.name] = {
+                                'cards': formatted_cards,
+                                'hand_name': hand_result.get('hand_name', 'Unknown'),
+                                'hand_rank': hand_result.get('hand_rank', 10),  # Lower is better (1=Royal Flush)
+                                'kickers': kicker_names  # Readable kicker card names
+                            }
+                        except Exception as e:
+                            logger.warning(f"Failed to evaluate hand for {player.name}: {e}")
+                            players_showdown[player.name] = {
+                                'cards': formatted_cards,
+                                'hand_name': None,
+                                'hand_rank': 99,
+                                'kickers': []
+                            }
+
+                winner_data['players_showdown'] = players_showdown
 
             if is_showdown:
                 message_content = (
@@ -1948,17 +1997,22 @@ No other text or explanation."""
         # Call OpenAI
         from core.assistants import OpenAILLMAssistant
         assistant = OpenAILLMAssistant(
-            system_prompt="You are a game designer selecting personalities for themed poker games.",
+            system_message="You are a game designer selecting personalities for themed poker games.",
             ai_model=FAST_AI_MODEL
         )
 
-        response = assistant.get_response(prompt)
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+        response = assistant.get_response(messages)
+        response_content = response.choices[0].message.content or ""
 
         # Parse the response
         import json
         try:
             # Clean up the response in case it has extra text
-            response_text = response.strip()
+            response_text = response_content.strip()
             if response_text.startswith('```'):
                 # Remove code blocks if present
                 response_text = response_text.split('```')[1]
@@ -1975,7 +2029,7 @@ No other text or explanation."""
 
             # Ensure we have at least 3
             if len(valid_personalities) < 3:
-                # Fallback to random selection
+                logger.warning(f"Theme generation returned insufficient valid personalities ({len(valid_personalities)}), using random fallback")
                 valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
 
             return jsonify({
@@ -1984,8 +2038,8 @@ No other text or explanation."""
             })
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse theme generation response: {e}. Response was: {response}")
-            # Fallback to random selection
+            logger.error(f"Failed to parse theme generation response: {e}. Response was: {response_content}")
+            logger.warning("Theme generation using random fallback due to JSON parse error")
             personalities = random.sample(personality_sample, min(4, len(personality_sample)))
             return jsonify({
                 'success': True,
@@ -1995,7 +2049,7 @@ No other text or explanation."""
             
     except Exception as e:
         logger.error(f"Error generating theme: {e}")
-        # Fallback to random selection
+        logger.warning("Theme generation using random fallback due to exception")
         try:
             all_personalities = list(get_celebrities())
             personalities = random.sample(all_personalities, min(4, len(all_personalities)))
