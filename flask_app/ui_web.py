@@ -1229,16 +1229,18 @@ def handle_ai_action(game_id: str) -> None:
                     f"[{current_player.name} takes a moment to consider]",
                     "table")
 
-    # Build table message (capture highest_bet before play_turn modifies state)
+    # Build action text (capture highest_bet before play_turn modifies state)
     highest_bet = state_machine.game_state.highest_bet
-    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+    action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
-    # Only send AI message if they actually spoke
+    # Send AI message with action included, or just table message if no chat
     if player_message and player_message != '...':
         full_message = f"{player_message} {player_physical_description}".strip()
-        send_message(game_id, current_player.name, full_message, "ai", 1)
-
-    send_message(game_id, "Table", table_message_content, "table")
+        # Combined message: action + chat in one (action shown in floating bubble)
+        send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+    else:
+        # No chat, just send the action as a table message
+        send_message(game_id, "Table", action_text, "table")
 
     # Detect pressure events based on AI action
     if action == 'fold':
@@ -1287,7 +1289,8 @@ def handle_send_message(data):
 
     send_message(game_id, sender, content, message_type)
 
-def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
+def send_message(game_id: str, sender: str, content: str, message_type: str,
+                 sleep: Optional[int] = None, action: Optional[str] = None) -> None:
     """
     Send a message to the specified game chat.
 
@@ -1301,6 +1304,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
         The type of the message ['ai', 'table', 'user'].
     :param sleep: (Optional[int])
         Optional time to sleep after sending the message, in seconds.
+    :param action: (Optional[str])
+        Optional action text to include with AI messages (e.g., "raised to $50").
     :return: (None)
         None
     """
@@ -1315,6 +1320,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
         "message_type": message_type
     }
+    # Include action for AI messages (shown in floating bubble)
+    if action:
+        new_message["action"] = action
     game_messages.append(new_message)
 
     # Update the messages session state

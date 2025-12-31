@@ -21,7 +21,11 @@ export function FloatingChat({ message, onDismiss, duration = 8000 }: FloatingCh
   useEffect(() => {
     if (message && !processedIdsRef.current.has(message.id)) {
       processedIdsRef.current.add(message.id);
-      setMessages(prev => [...prev, { ...message, addedAt: Date.now(), isExiting: false }]);
+      setMessages(prev => [...prev, {
+        ...message,
+        addedAt: Date.now(),
+        isExiting: false
+      }]);
     }
   }, [message]);
 
@@ -93,7 +97,9 @@ export function FloatingChat({ message, onDismiss, duration = 8000 }: FloatingCh
               {isAI && <span className="ai-badge">AI</span>}
             </div>
             <div className="floating-chat-content">
-              <div className="floating-chat-sender">{msg.sender}</div>
+              <div className="floating-chat-sender">
+                {msg.action || msg.sender}
+              </div>
               <div className="floating-chat-message">{msg.message}</div>
             </div>
             <div className="floating-chat-dismiss">×</div>
