@@ -245,26 +245,6 @@ class SessionMemory:
 
         return result
 
-    def get_emotional_state(self) -> str:
-        """Get the current emotional state based on recent hands."""
-        if not self.hand_memories:
-            return 'neutral'
-
-        # Average emotional impact of recent hands
-        recent = self.hand_memories[-3:]
-        avg_impact = sum(h.emotional_impact for h in recent) / len(recent)
-
-        if avg_impact > 0.5:
-            return 'confident'
-        elif avg_impact > 0.2:
-            return 'positive'
-        elif avg_impact > -0.2:
-            return 'neutral'
-        elif avg_impact > -0.5:
-            return 'frustrated'
-        else:
-            return 'tilted'
-
     def get_recent_outcomes(self, limit: int = 5) -> List[str]:
         """Get list of recent outcome strings."""
         return [h.outcome for h in self.hand_memories[-limit:]]

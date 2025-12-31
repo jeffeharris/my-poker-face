@@ -1154,7 +1154,7 @@ def progress_game(game_id):
                                         controller = ai_controllers[player_name]
                                         if hasattr(controller, 'tilt_state'):
                                             # Determine opponent (for nemesis tracking)
-                                            opponent = winner_names[0] if winner_names and player_name not in winner_names else None
+                                            opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
                                             controller.tilt_state.apply_pressure_event(event_name, opponent)
 
                         # Update AI controllers with new elasticity values

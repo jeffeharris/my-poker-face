@@ -19,7 +19,7 @@ from .ai_resilience import (
     get_fallback_chat_response,
     AIFallbackStrategy
 )
-from .tilt_modifier import TiltState, TiltPromptModifier, create_tilt_state_from_session
+from .tilt_modifier import TiltState, TiltPromptModifier
 
 logger = logging.getLogger(__name__)
 
@@ -319,53 +319,16 @@ class AIPlayerController:
 
         return "\n\n".join(parts) if parts else ""
 
-    def _update_tilt_from_session(self):
-        """Update tilt state from session memory."""
-        if not self.session_memory:
-            return
-
-        # Get emotional state and context from session memory
-        emotional_state = self.session_memory.get_emotional_state()
-        context = self.session_memory.context
-        hand_memories = self.session_memory.hand_memories
-
-        # Map emotional state to tilt level
-        emotional_tilt_map = {
-            'tilted': 0.8,
-            'frustrated': 0.5,
-            'neutral': 0.0,
-            'positive': 0.0,
-            'confident': 0.0,
-        }
-        base_tilt = emotional_tilt_map.get(emotional_state, 0.0)
-
-        # Add tilt from losing streak
-        if context.current_streak == 'losing' and context.streak_count >= 2:
-            base_tilt = min(1.0, base_tilt + context.streak_count * 0.1)
-            self.tilt_state.tilt_source = 'losing_streak'
-            self.tilt_state.losing_streak = context.streak_count
-
-        # Check recent hands for bad beats and other tilt triggers
-        if hand_memories:
-            for hand in hand_memories[-3:]:
-                if hand.emotional_impact < -0.5:
-                    # Check notable events for specific tilt sources
-                    for event in hand.notable_events:
-                        event_lower = event.lower()
-                        if 'bad beat' in event_lower or 'river' in event_lower:
-                            base_tilt = min(1.0, base_tilt + 0.15)
-                            self.tilt_state.tilt_source = 'bad_beat'
-                        elif 'bluff' in event_lower and 'called' in event_lower:
-                            base_tilt = min(1.0, base_tilt + 0.1)
-                            self.tilt_state.tilt_source = 'bluff_called'
-
-        self.tilt_state.tilt_level = base_tilt
-
     def _apply_tilt_effects(self, message: str) -> str:
-        """Apply tilt effects to the prompt if player is tilted."""
-        # Update tilt state from session memory
-        self._update_tilt_from_session()
+        """Apply tilt effects to the prompt if player is tilted.
 
+        Tilt is updated independently from:
+        - Pressure events (bad_beat, bluff_called, rivalry_trigger, etc.)
+        - Hand outcomes (win/loss amounts)
+        - Chat messages (trash talk)
+
+        This method only applies the effects - tilt updates happen elsewhere.
+        """
         # Only apply if tilted enough to matter
         if self.tilt_state.tilt_level < 0.2:
             return message

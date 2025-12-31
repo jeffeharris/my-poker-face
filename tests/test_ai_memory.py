@@ -244,17 +244,6 @@ class TestSessionMemory(unittest.TestCase):
         self.assertEqual(len(self.memory.hand_memories), 5)  # max_hand_memory=5
         self.assertEqual(self.memory.hand_memories[0].hand_number, 6)  # Oldest kept
 
-    def test_emotional_state(self):
-        """Test emotional state calculation."""
-        # Start neutral
-        self.assertEqual(self.memory.get_emotional_state(), "neutral")
-
-        # Win big pots
-        for i in range(3):
-            self.memory.record_hand_outcome(i+1, "won", 1000, 1000)
-
-        self.assertIn(self.memory.get_emotional_state(), ["confident", "positive"])
-
     def test_context_for_prompt(self):
         """Test generating context string for AI prompts."""
         self.memory.record_hand_outcome(1, "won", 500, 500, ["Big bluff"])
