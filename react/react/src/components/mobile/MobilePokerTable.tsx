@@ -4,6 +4,7 @@ import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
+import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import './MobilePokerTable.css';
 
@@ -22,6 +23,7 @@ export function MobilePokerTable({
 }: MobilePokerTableProps) {
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
+  const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
 
@@ -222,7 +224,31 @@ export function MobilePokerTable({
           bigBlind={gameState.big_blind}
           potSize={gameState.pot.total}
           onAction={handlePlayerAction}
+          onQuickChat={() => setShowQuickChat(true)}
         />
+      )}
+
+      {/* Quick Chat Overlay */}
+      {showQuickChat && providedGameId && gameState?.players && (
+        <div className="quick-chat-overlay" onClick={() => setShowQuickChat(false)}>
+          <div className="quick-chat-modal" onClick={e => e.stopPropagation()}>
+            <div className="quick-chat-modal-header">
+              <span>Quick Chat</span>
+              <button onClick={() => setShowQuickChat(false)}>×</button>
+            </div>
+            <QuickChatSuggestions
+              gameId={providedGameId}
+              playerName={playerName || 'Player'}
+              players={gameState.players}
+              defaultExpanded={true}
+              hideHeader={true}
+              onSelectSuggestion={(text) => {
+                handleSendMessage(text);
+                setShowQuickChat(false);
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* AI Thinking Overlay - subtle for mobile */}
@@ -256,6 +282,16 @@ export function MobilePokerTable({
                 </div>
               ))}
             </div>
+            {providedGameId && gameState?.players && (
+              <QuickChatSuggestions
+                gameId={providedGameId}
+                playerName={playerName || 'Player'}
+                players={gameState.players}
+                onSelectSuggestion={(text) => {
+                  handleSendMessage(text);
+                }}
+              />
+            )}
             <form
               className="chat-sheet-input"
               onSubmit={(e) => {

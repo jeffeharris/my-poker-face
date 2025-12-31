@@ -10,6 +10,7 @@ interface MobileActionButtonsProps {
   bigBlind: number;
   potSize: number;
   onAction: (action: string, amount?: number) => void;
+  onQuickChat?: () => void;
 }
 
 export function MobileActionButtons({
@@ -20,7 +21,8 @@ export function MobileActionButtons({
   minRaise,
   bigBlind,
   potSize,
-  onAction
+  onAction,
+  onQuickChat
 }: MobileActionButtonsProps) {
   const [showRaiseSheet, setShowRaiseSheet] = useState(false);
   const [raiseAmount, setRaiseAmount] = useState(minRaise || bigBlind * 2);
@@ -166,6 +168,16 @@ export function MobileActionButtons({
         >
           <span className="btn-icon">★</span>
           <span className="btn-label">All-In ${safeStack}</span>
+        </button>
+      )}
+
+      {onQuickChat && (
+        <button
+          className="action-btn chat-btn"
+          onClick={onQuickChat}
+        >
+          <span className="btn-icon">💬</span>
+          <span className="btn-label">Chat</span>
         </button>
       )}
     </div>

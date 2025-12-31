@@ -83,16 +83,20 @@ class AIPlayerController:
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
+
+        # Save original messages before summarizing (for address detection)
+        original_messages = game_messages
+
         game_messages = summarize_messages(
             game_messages,
             self.player_name)
-        
+
         # Get current chattiness and determine if should speak
         current_traits = self.get_current_personality_traits()
         chattiness = current_traits.get('chattiness', 0.5)
-        
-        # Build game context for chattiness decision
-        game_context = self._build_game_context(game_state)
+
+        # Build game context for chattiness decision (use original messages for address detection)
+        game_context = self._build_game_context(game_state, original_messages)
         should_speak = self.chattiness_manager.should_speak(
             self.player_name, chattiness, game_context
         )
@@ -215,33 +219,65 @@ class AIPlayerController:
         
         return response_dict
     
-    def _build_game_context(self, game_state) -> Dict:
+    def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
         context = {}
-        
+
         # Check pot size
         pot_total = game_state.pot.get('total', 0)
         if pot_total > BIG_POT_THRESHOLD:
             context['big_pot'] = True
-        
+
         # Check if all-in situation
         if any(p.is_all_in for p in game_state.players if p.is_active):
             context['all_in'] = True
-        
+
         # Check if heads-up
         active_players = [p for p in game_state.players if p.is_active]
         if len(active_players) == 2:
             context['heads_up'] = True
         elif len(active_players) > 3:
             context['multi_way_pot'] = True
-        
+
         # Add phase-specific context
         if self.state_machine.phase == 'SHOWDOWN':
             context['showdown'] = True
-        
-        # TODO: Add more context based on recent wins/losses, bluffs, etc.
-        
+
+        # Check if this player was addressed in recent messages
+        if game_messages:
+            context['addressed_directly'] = self._was_addressed_in_messages(game_messages)
+
         return context
+
+    def _was_addressed_in_messages(self, game_messages, lookback=5) -> bool:
+        """Check if this player was mentioned in recent messages."""
+        # Get the last N messages
+        recent_messages = game_messages[-lookback:] if len(game_messages) > lookback else game_messages
+
+        # Player name parts for matching
+        name_lower = self.player_name.lower()
+        name_parts = name_lower.split()
+        first_name = name_parts[0] if name_parts else name_lower
+
+        for msg in recent_messages:
+            # Skip messages from self
+            sender = msg.get('sender', '')
+            if sender.lower() == name_lower:
+                continue
+
+            # Only check player messages (not table/system)
+            msg_type = msg.get('type', msg.get('message_type', ''))
+            if msg_type not in ('player', 'ai'):
+                continue
+
+            content = msg.get('content', msg.get('message', '')).lower()
+
+            # Check if full name or first name is mentioned
+            if name_lower in content or first_name in content:
+                logger.debug(f"{self.player_name} was addressed in message: {content[:50]}...")
+                return True
+
+        return False
     
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
                                   speaking_context: Dict, valid_actions: List[str]) -> str:

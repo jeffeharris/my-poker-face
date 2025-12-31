@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage, Player } from '../../../types';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
 import { QuickChatSuggestions } from '../QuickChatSuggestions';
 import './ChatSidebar.css';
@@ -9,7 +9,7 @@ interface ChatSidebarProps {
   onSendMessage: (message: string) => void;
   playerName?: string;
   gameId?: string;
-  isPlayerTurn?: boolean;
+  players?: Player[];
 }
 
 // Available colors for players
@@ -26,7 +26,7 @@ const AVAILABLE_COLORS = [
 
 type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
 
-export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, isPlayerTurn }: ChatSidebarProps) {
+export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, players = [] }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<MessageFilter>('all');
   const [selectedPlayer, setSelectedPlayer] = useState<string>('all');
@@ -469,16 +469,14 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         <div ref={messagesEndRef} />
       </div>
       
-      {featureFlags.quickSuggestions && gameId && (
+      {gameId && players.length > 0 && (
         <QuickChatSuggestions
           gameId={gameId}
           playerName={playerName}
-          isPlayerTurn={isPlayerTurn || false}
+          players={players}
           lastAction={lastAction}
           onSelectSuggestion={(text) => {
             setInputValue(text);
-            // Optionally auto-send
-            // onSendMessage(text);
           }}
         />
       )}

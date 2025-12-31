@@ -269,7 +269,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             onSendMessage={handleSendMessage}
             playerName={playerName}
             gameId={gameId ?? undefined}
-            isPlayerTurn={gameState && gameState.players[gameState.current_player_idx]?.name === playerName}
+            players={gameState?.players ?? []}
           />
         }
         debugPanel={
