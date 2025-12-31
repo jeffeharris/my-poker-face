@@ -1,0 +1,292 @@
+/**
+ * Shared Animations
+ *
+ * Centralized animation definitions to eliminate duplication
+ * across component CSS files. Import this file in App.css.
+ */
+
+/* ===========================================
+   FADE ANIMATIONS
+   =========================================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ===========================================
+   SLIDE ANIMATIONS
+   =========================================== */
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ===========================================
+   FLOATING/BOUNCE ANIMATIONS
+   =========================================== */
+
+/* Used by FloatingChat */
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes floatOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.9);
+  }
+}
+
+/* Used by theme icons */
+@keyframes iconFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Slot machine bounce effect */
+@keyframes slotMachine {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* ===========================================
+   PULSE ANIMATIONS
+   =========================================== */
+
+/* Subtle scale pulse */
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+/* Glow pulse for all-in button */
+@keyframes allInPulse {
+  0%,
+  100% {
+    box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4);
+  }
+  50% {
+    box-shadow: 0 4px 24px rgba(156, 39, 176, 0.6);
+  }
+}
+
+/* Generic glow pulse */
+@keyframes glowPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 10px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 20px currentColor;
+  }
+}
+
+/* ===========================================
+   ROTATION ANIMATIONS
+   =========================================== */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===========================================
+   UTILITY ANIMATION CLASSES
+   =========================================== */
+
+/* Fade animations */
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.animate-fade-in-down {
+  animation: fadeInDown 0.3s ease-out;
+}
+
+/* Slide animations */
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+/* Float animations */
+.animate-float-in {
+  animation: floatIn 0.3s ease-out;
+}
+
+.animate-float-out {
+  animation: floatOut 0.3s ease-in forwards;
+}
+
+/* Pulse animations */
+.animate-pulse {
+  animation: pulse 2s infinite;
+}
+
+/* Spin animations */
+.animate-spin {
+  animation: spin 4s linear infinite;
+}
+
+.animate-spin-slow {
+  animation: spinSlow 8s linear infinite;
+}
+
+/* Icon float (continuous) */
+.animate-icon-float {
+  animation: iconFloat 3s ease-in-out infinite;
+}
+
+/* ===========================================
+   ANIMATION DURATION MODIFIERS
+   =========================================== */
+
+.duration-fast {
+  animation-duration: 0.15s;
+}
+
+.duration-normal {
+  animation-duration: 0.3s;
+}
+
+.duration-slow {
+  animation-duration: 0.5s;
+}
+
+/* ===========================================
+   ANIMATION DELAY MODIFIERS
+   =========================================== */
+
+.delay-100 {
+  animation-delay: 0.1s;
+}
+
+.delay-200 {
+  animation-delay: 0.2s;
+}
+
+.delay-300 {
+  animation-delay: 0.3s;
+}
+
+.delay-500 {
+  animation-delay: 0.5s;
+}

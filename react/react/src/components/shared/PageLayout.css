@@ -1,0 +1,185 @@
+/**
+ * PageLayout - Premium Poker Aesthetic
+ *
+ * Unified page wrapper for consistent menu screens
+ */
+
+/* ===========================================
+   BASE LAYOUT
+   =========================================== */
+.page-layout {
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height for mobile */
+  width: 100vw;
+  background: var(--gradient-bg-main);
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6);
+  padding-top: max(var(--space-6), env(safe-area-inset-top));
+  padding-bottom: max(var(--space-6), env(safe-area-inset-bottom));
+  padding-left: max(var(--space-6), env(safe-area-inset-left));
+  padding-right: max(var(--space-6), env(safe-area-inset-right));
+  position: fixed;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* ===========================================
+   LAYOUT VARIANTS
+   =========================================== */
+
+/* Centered: Content vertically centered (login, name entry, simple menus) */
+.page-layout--centered {
+  align-items: center;
+}
+
+/* Top: Content starts from top with margin (scrollable pages) */
+.page-layout--top {
+  align-items: flex-start;
+}
+
+/* ===========================================
+   CONTENT CONTAINER
+   =========================================== */
+.page-layout__content {
+  width: 100%;
+  position: relative;
+  z-index: 1;
+  animation: pageContentFadeIn 0.6s var(--ease-out-expo);
+}
+
+@keyframes pageContentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Content max-width variants */
+.page-layout__content--sm {
+  max-width: var(--container-sm);
+}
+
+.page-layout__content--md {
+  max-width: var(--container-md);
+}
+
+.page-layout__content--lg {
+  max-width: var(--container-lg);
+}
+
+.page-layout__content--xl {
+  max-width: var(--container-xl);
+}
+
+/* Add top margin for 'top' variant to give breathing room */
+.page-layout--top .page-layout__content {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+/* ===========================================
+   AMBIENT GLOW EFFECTS
+   =========================================== */
+
+/* Base ambient layer (top glow) */
+.page-layout::before {
+  content: '';
+  position: fixed;
+  top: -30%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150%;
+  height: 80%;
+  pointer-events: none;
+  z-index: 0;
+  transition: background 0.5s ease;
+}
+
+/* Bottom ambient layer */
+.page-layout::after {
+  content: '';
+  position: fixed;
+  bottom: -25%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 130%;
+  height: 60%;
+  background: radial-gradient(
+    ellipse 60% 50% at 50% 100%,
+    rgba(52, 211, 153, 0.03) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Glow color variants */
+.page-layout--glow-gold::before {
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(212, 165, 116, 0.06) 0%,
+    transparent 60%
+  );
+}
+
+.page-layout--glow-emerald::before {
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(52, 211, 153, 0.05) 0%,
+    transparent 60%
+  );
+}
+
+.page-layout--glow-sapphire::before {
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(59, 130, 246, 0.05) 0%,
+    transparent 60%
+  );
+}
+
+.page-layout--glow-amethyst::before {
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(168, 85, 247, 0.05) 0%,
+    transparent 60%
+  );
+}
+
+.page-layout--glow-amber::before {
+  background: radial-gradient(
+    ellipse 50% 40% at 50% 0%,
+    rgba(245, 158, 11, 0.05) 0%,
+    transparent 60%
+  );
+}
+
+.page-layout--glow-none::before,
+.page-layout--glow-none::after {
+  display: none;
+}
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+@media (max-width: 640px) {
+  .page-layout {
+    padding: var(--space-4);
+    padding-top: max(var(--space-4), env(safe-area-inset-top));
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+    padding-left: max(var(--space-4), env(safe-area-inset-left));
+    padding-right: max(var(--space-4), env(safe-area-inset-right));
+  }
+
+  .page-layout--top .page-layout__content {
+    margin-top: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+}

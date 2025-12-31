@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv(override=True)
 
+# AI model configuration - use fast/lightweight models for quick operations
+FAST_AI_MODEL = os.environ.get('OPENAI_FAST_MODEL', 'gpt-5-nano')
+
 from poker.controllers import AIPlayerController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
@@ -32,6 +35,8 @@ from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
+from poker.hand_evaluator import HandEvaluator
+from core.card import Card
 from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
@@ -335,22 +340,42 @@ def health_check():
 def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()
-    
+
     if current_user:
         # Get only the user's games
         saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
     else:
         # No games for anonymous users
         saved_games = []
-    
+
     games_data = []
     for game in saved_games:
-        # Parse game state to get player names
+        # Parse game state to get player data
         try:
             state = json.loads(game.game_state_json)
-            player_names = [p['name'] for p in state.get('players', [])]
+            players = state.get('players', [])
+            player_names = [p['name'] for p in players]
+
+            # Calculate player stats
+            total_players = len(players)
+            active_players = sum(1 for p in players if p.get('stack', 0) > 0)
+
+            # Get human player's stack (first human player found)
+            human_stack = None
+            for p in players:
+                if p.get('is_human', False):
+                    human_stack = p.get('stack', 0)
+                    break
+
+            # Get big blind (current_ante)
+            big_blind = state.get('current_ante', 20)
+
         except:
             player_names = []
+            total_players = game.num_players
+            active_players = game.num_players
+            human_stack = None
+            big_blind = 20
 
         # Convert numeric phase to readable string
         try:
@@ -367,9 +392,13 @@ def list_games():
             'num_players': game.num_players,
             'pot_size': game.pot_size,
             'player_names': player_names,
-            'is_owner': True  # Always true since we're filtering by owner
+            'is_owner': True,  # Always true since we're filtering by owner
+            'active_players': active_players,
+            'total_players': total_players,
+            'human_stack': human_stack,
+            'big_blind': big_blind
         })
-    
+
     return jsonify({'games': games_data})
 
 # Removed /api/my-games endpoint - consolidated with /games
@@ -863,12 +892,22 @@ def progress_game(game_id):
                 else:
                     winner_data['community_cards'].append({'rank': str(card), 'suit': ''})
 
-            # If it's a showdown, include player cards
+            # If it's a showdown, include player cards and hand info in a combined structure
             if is_showdown:
-                players_cards = {}
+                players_showdown = {}
+
+                # Prepare community cards for hand evaluation
+                community_cards_for_eval = []
+                for card in game_state.community_cards:
+                    if isinstance(card, Card):
+                        community_cards_for_eval.append(card)
+                    elif isinstance(card, dict):
+                        community_cards_for_eval.append(Card(card['rank'], card['suit']))
+
                 for player in active_players:
                     if player.hand:
                         formatted_cards = []
+                        player_cards_for_eval = []
                         for card in player.hand:
                             if hasattr(card, 'to_dict'):
                                 formatted_cards.append(card.to_dict())
@@ -876,8 +915,45 @@ def progress_game(game_id):
                                 formatted_cards.append(card)
                             else:
                                 formatted_cards.append({'rank': str(card), 'suit': ''})
-                        players_cards[player.name] = formatted_cards
-                winner_data['players_cards'] = players_cards
+
+                            # Prepare cards for hand evaluation
+                            if isinstance(card, Card):
+                                player_cards_for_eval.append(card)
+                            elif isinstance(card, dict):
+                                player_cards_for_eval.append(Card(card['rank'], card['suit']))
+
+                        # Evaluate hand to get hand name, rank, and kickers
+                        try:
+                            full_hand = player_cards_for_eval + community_cards_for_eval
+                            hand_result = HandEvaluator(full_hand).evaluate_hand()
+
+                            # Convert kicker values to readable card names
+                            kicker_values = hand_result.get('kicker_values', [])
+                            # Flatten if nested (some hands return nested lists)
+                            if kicker_values and isinstance(kicker_values[0], list):
+                                kicker_values = kicker_values[0] if kicker_values[0] else []
+
+                            value_names = {14: 'A', 13: 'K', 12: 'Q', 11: 'J', 10: '10',
+                                           9: '9', 8: '8', 7: '7', 6: '6', 5: '5',
+                                           4: '4', 3: '3', 2: '2'}
+                            kicker_names = [value_names.get(v, str(v)) for v in kicker_values if isinstance(v, int)]
+
+                            players_showdown[player.name] = {
+                                'cards': formatted_cards,
+                                'hand_name': hand_result.get('hand_name', 'Unknown'),
+                                'hand_rank': hand_result.get('hand_rank', 10),  # Lower is better (1=Royal Flush)
+                                'kickers': kicker_names  # Readable kicker card names
+                            }
+                        except Exception as e:
+                            logger.warning(f"Failed to evaluate hand for {player.name}: {e}")
+                            players_showdown[player.name] = {
+                                'cards': formatted_cards,
+                                'hand_name': None,
+                                'hand_rank': 99,
+                                'kickers': []
+                            }
+
+                winner_data['players_showdown'] = players_showdown
 
             if is_showdown:
                 message_content = (
@@ -1153,16 +1229,18 @@ def handle_ai_action(game_id: str) -> None:
                     f"[{current_player.name} takes a moment to consider]",
                     "table")
 
-    # Build table message (capture highest_bet before play_turn modifies state)
+    # Build action text (capture highest_bet before play_turn modifies state)
     highest_bet = state_machine.game_state.highest_bet
-    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+    action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
-    # Only send AI message if they actually spoke
+    # Send AI message with action included, or just table message if no chat
     if player_message and player_message != '...':
         full_message = f"{player_message} {player_physical_description}".strip()
-        send_message(game_id, current_player.name, full_message, "ai", 1)
-
-    send_message(game_id, "Table", table_message_content, "table")
+        # Combined message: action + chat in one (action shown in floating bubble)
+        send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+    else:
+        # No chat, just send the action as a table message
+        send_message(game_id, "Table", action_text, "table")
 
     # Detect pressure events based on AI action
     if action == 'fold':
@@ -1211,7 +1289,8 @@ def handle_send_message(data):
 
     send_message(game_id, sender, content, message_type)
 
-def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
+def send_message(game_id: str, sender: str, content: str, message_type: str,
+                 sleep: Optional[int] = None, action: Optional[str] = None) -> None:
     """
     Send a message to the specified game chat.
 
@@ -1225,6 +1304,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
         The type of the message ['ai', 'table', 'user'].
     :param sleep: (Optional[int])
         Optional time to sleep after sending the message, in seconds.
+    :param action: (Optional[str])
+        Optional action text to include with AI messages (e.g., "raised to $50").
     :return: (None)
         None
     """
@@ -1239,6 +1320,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
         "message_type": message_type
     }
+    # Include action for AI messages (shown in floating bubble)
+    if action:
+        new_message["action"] = action
     game_messages.append(new_message)
 
     # Update the messages session state
@@ -1460,7 +1544,7 @@ Return as JSON with this format:
         
         # Use the OpenAI assistant
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-5-mini",  # Faster model for quick suggestions
+            ai_model=FAST_AI_MODEL,
             ai_temp=0.8,  # Slightly creative but not too random
             system_message="You are a friendly poker player giving brief chat suggestions."
         )
@@ -1623,7 +1707,7 @@ Return as JSON:
 
         # Use the OpenAI assistant - minimal reasoning for fast responses
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-5-nano",
+            ai_model=FAST_AI_MODEL,
             reasoning_effort="minimal",
             system_message="You are a witty poker player helping generate fun table talk. Keep it light and entertaining."
         )
@@ -1921,43 +2005,49 @@ No other text or explanation."""
         # Call OpenAI
         from core.assistants import OpenAILLMAssistant
         assistant = OpenAILLMAssistant(
-            system_prompt="You are a game designer selecting personalities for themed poker games.",
-            ai_model="gpt-5-mini"
+            system_message="You are a game designer selecting personalities for themed poker games.",
+            ai_model=FAST_AI_MODEL
         )
-        
-        response = assistant.get_response(prompt)
-        
+
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+        response = assistant.get_response(messages)
+        response_content = response.choices[0].message.content or ""
+
         # Parse the response
         import json
         try:
             # Clean up the response in case it has extra text
-            response_text = response.strip()
+            response_text = response_content.strip()
             if response_text.startswith('```'):
                 # Remove code blocks if present
                 response_text = response_text.split('```')[1]
                 if response_text.startswith('json'):
                     response_text = response_text[4:]
-            
+
             personalities = json.loads(response_text)
-            
+
             # Validate that all personalities exist
             valid_personalities = []
             for name in personalities:
                 if name in personality_sample:
                     valid_personalities.append(name)
-            
+
             # Ensure we have at least 3
             if len(valid_personalities) < 3:
-                # Fallback to random selection
+                logger.warning(f"Theme generation returned insufficient valid personalities ({len(valid_personalities)}), using random fallback")
                 valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
-            
+
             return jsonify({
                 'success': True,
                 'personalities': valid_personalities[:5]  # Max 5 AI players
             })
-            
-        except json.JSONDecodeError:
-            # Fallback to random selection
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse theme generation response: {e}. Response was: {response_content}")
+            logger.warning("Theme generation using random fallback due to JSON parse error")
             personalities = random.sample(personality_sample, min(4, len(personality_sample)))
             return jsonify({
                 'success': True,
@@ -1967,7 +2057,7 @@ No other text or explanation."""
             
     except Exception as e:
         logger.error(f"Error generating theme: {e}")
-        # Fallback to random selection
+        logger.warning("Theme generation using random fallback due to exception")
         try:
             all_personalities = list(get_celebrities())
             personalities = random.sample(all_personalities, min(4, len(all_personalities)))

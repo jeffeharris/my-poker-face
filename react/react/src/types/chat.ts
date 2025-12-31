@@ -4,6 +4,7 @@ export interface ChatMessage {
   message: string;
   timestamp: string;
   type: 'player' | 'ai' | 'table' | 'system';
+  action?: string;  // Optional action text (e.g., "raised to $50") for AI messages
 }
 
 /**
@@ -16,6 +17,7 @@ export interface BackendChatMessage {
   content: string;
   timestamp: string;
   message_type: ChatMessage['type'];
+  action?: string;  // Optional action text for AI messages
 }
 
 /**

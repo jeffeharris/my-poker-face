@@ -5,6 +5,7 @@ import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import './MobilePokerTable.css';
 
@@ -115,24 +116,16 @@ export function MobilePokerTable({
   return (
     <div className="mobile-poker-table">
       {/* Header with back button and pot */}
-      <div className="mobile-header">
-        <button className="mobile-back-btn" onClick={onBack}>
-          <span>←</span>
-        </button>
-        <div className="mobile-pot">
-          <span className="pot-label">POT</span>
-          <span className="pot-amount">${gameState.pot.total}</span>
-        </div>
-        <button
-          className="mobile-chat-toggle"
-          onClick={() => setShowChatSheet(true)}
-        >
-          💬
-          {messages.length > 0 && (
-            <span className="chat-badge">{messages.length}</span>
-          )}
-        </button>
-      </div>
+      <MobileHeader
+        onBack={onBack}
+        centerContent={<PotDisplay total={gameState.pot.total} />}
+        rightContent={
+          <ChatToggle
+            onClick={() => setShowChatSheet(true)}
+            badgeCount={messages.length}
+          />
+        }
+      />
 
       {/* Opponents Strip */}
       <div className="mobile-opponents">
@@ -164,16 +157,17 @@ export function MobilePokerTable({
         })}
       </div>
 
-      {/* Community Cards */}
+      {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
-          {gameState.community_cards.length > 0 ? (
-            gameState.community_cards.map((card, i) => (
-              <Card key={i} card={card} faceDown={false} size="medium" />
-            ))
-          ) : (
-            <div className="waiting-for-flop">Waiting for flop...</div>
-          )}
+          {/* Show dealt cards */}
+          {gameState.community_cards.map((card, i) => (
+            <Card key={i} card={card} faceDown={false} size="medium" />
+          ))}
+          {/* Show placeholders for remaining cards */}
+          {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
+            <div key={`placeholder-${i}`} className="community-card-placeholder" />
+          ))}
         </div>
         <div className="phase-indicator">{gameState.phase.replace('_', ' ')}</div>
       </div>
@@ -185,7 +179,7 @@ export function MobilePokerTable({
       />
 
       {/* Hero Section - Your Cards */}
-      <div className="mobile-hero">
+      <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`}>
         <div className="hero-info">
           <div className="hero-name">
             {humanPlayer?.name}
@@ -213,20 +207,35 @@ export function MobilePokerTable({
         </div>
       </div>
 
-      {/* Action Buttons */}
-      {showActionButtons && currentPlayer && (
-        <MobileActionButtons
-          playerOptions={gameState.player_options}
-          currentPlayerStack={currentPlayer.stack}
-          highestBet={gameState.highest_bet}
-          currentPlayerBet={currentPlayer.bet}
-          minRaise={gameState.min_raise}
-          bigBlind={gameState.big_blind}
-          potSize={gameState.pot.total}
-          onAction={handlePlayerAction}
-          onQuickChat={() => setShowQuickChat(true)}
-        />
-      )}
+      {/* Action Buttons - Always visible area */}
+      <div className="mobile-action-area">
+        {showActionButtons && currentPlayer ? (
+          <MobileActionButtons
+            playerOptions={gameState.player_options}
+            currentPlayerStack={currentPlayer.stack}
+            highestBet={gameState.highest_bet}
+            currentPlayerBet={currentPlayer.bet}
+            minRaise={gameState.min_raise}
+            bigBlind={gameState.big_blind}
+            potSize={gameState.pot.total}
+            onAction={handlePlayerAction}
+            onQuickChat={() => setShowQuickChat(true)}
+          />
+        ) : (
+          <div className="mobile-waiting-bar">
+            <span className="waiting-text">
+              {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
+            </span>
+            <button
+              className="action-btn chat-btn"
+              onClick={() => setShowQuickChat(true)}
+            >
+              <span className="btn-icon">💬</span>
+              <span className="btn-label">Chat</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Quick Chat Overlay */}
       {showQuickChat && providedGameId && gameState?.players && (
@@ -251,14 +260,6 @@ export function MobilePokerTable({
         </div>
       )}
 
-      {/* AI Thinking Overlay - subtle for mobile */}
-      {aiThinking && !showActionButtons && (
-        <div className="mobile-waiting">
-          <div className="waiting-text">
-            {currentPlayer?.name} is thinking...
-          </div>
-        </div>
-      )}
 
       {/* Winner Announcement */}
       <MobileWinnerAnnouncement

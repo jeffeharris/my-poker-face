@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
+import { PageLayout, PageHeader } from '../shared';
 import './ThemedGameSelector.css';
 
 interface Theme {
@@ -11,7 +12,7 @@ interface Theme {
 }
 
 interface ThemedGameSelectorProps {
-  onSelectTheme: (theme: Theme) => void;
+  onSelectTheme: (theme: Theme) => Promise<void>;
   onBack: () => void;
 }
 
@@ -59,16 +60,17 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
       }
 
       const data = await response.json();
-      
+
       // Add the generated personalities to the theme
       const themedGame = {
         ...theme,
         personalities: data.personalities
       };
 
-      onSelectTheme(themedGame);
+      await onSelectTheme(themedGame);
     } catch (err) {
-      setError('Failed to generate themed game. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate themed game. Please try again.';
+      setError(errorMessage);
       console.error('Theme generation error:', err);
     } finally {
       setGenerating(false);
@@ -76,15 +78,13 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
   };
 
   return (
-    <div className="themed-selector">
-      <div className="themed-selector__container">
-        <div className="themed-selector__header">
-          <button className="back-button" onClick={onBack}>
-            ← Back
-          </button>
-          <h2>Choose Your Theme</h2>
-          <p>Each theme brings together unique personalities for an unforgettable game!</p>
-        </div>
+    <PageLayout variant="top" glowColor="amber" maxWidth="lg">
+      <PageHeader
+        title="Choose Your Theme"
+        subtitle="Each theme brings together unique personalities for an unforgettable game!"
+        onBack={onBack}
+        titleVariant="themed"
+      />
 
         {error && (
           <div className="error-message">
@@ -120,12 +120,11 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
           </div>
         )}
 
-        <div className="themed-selector__footer">
-          <p className="hint">
-            💡 Personalities won't be revealed until the game starts - it's part of the surprise!
-          </p>
-        </div>
+      <div className="themed-selector__footer">
+        <p className="hint">
+          Personalities won't be revealed until the game starts - it's part of the surprise!
+        </p>
       </div>
-    </div>
+    </PageLayout>
   );
 }

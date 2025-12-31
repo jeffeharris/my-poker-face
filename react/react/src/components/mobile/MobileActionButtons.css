@@ -27,9 +27,12 @@
   transform: scale(0.95);
 }
 
-.btn-icon {
-  font-size: 20px;
+.action-btn .btn-icon {
+  font-size: 28px;
   line-height: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .btn-label {
