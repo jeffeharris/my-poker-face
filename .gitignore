@@ -179,3 +179,6 @@ poker_games.db
 /data/poker_games.db
 /docs/screenshots/
 /poker/personality_backups/
+
+# Claude Code
+.claude/plans/
