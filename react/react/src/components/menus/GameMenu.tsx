@@ -66,12 +66,11 @@ export function GameMenu({
             onMouseEnter={() => setHoveredOption('themed')}
             onMouseLeave={() => setHoveredOption(null)}
           >
-            <div className="option-icon">🎭</div>
+            <div className="option-icon">✨</div>
             <div className="option-content">
               <h3>Themed Game</h3>
               <p>Play with a surprise cast of personalities!</p>
             </div>
-            <div className="option-badge">NEW</div>
             <div className="option-arrow">→</div>
           </button>
 

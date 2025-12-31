@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv(override=True)
 
+# AI model configuration - use fast/lightweight models for quick operations
+FAST_AI_MODEL = os.environ.get('OPENAI_FAST_MODEL', 'gpt-5-nano')
+
 from poker.controllers import AIPlayerController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
@@ -335,22 +338,42 @@ def health_check():
 def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()
-    
+
     if current_user:
         # Get only the user's games
         saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
     else:
         # No games for anonymous users
         saved_games = []
-    
+
     games_data = []
     for game in saved_games:
-        # Parse game state to get player names
+        # Parse game state to get player data
         try:
             state = json.loads(game.game_state_json)
-            player_names = [p['name'] for p in state.get('players', [])]
+            players = state.get('players', [])
+            player_names = [p['name'] for p in players]
+
+            # Calculate player stats
+            total_players = len(players)
+            active_players = sum(1 for p in players if p.get('stack', 0) > 0)
+
+            # Get human player's stack (first human player found)
+            human_stack = None
+            for p in players:
+                if p.get('is_human', False):
+                    human_stack = p.get('stack', 0)
+                    break
+
+            # Get big blind (current_ante)
+            big_blind = state.get('current_ante', 20)
+
         except:
             player_names = []
+            total_players = game.num_players
+            active_players = game.num_players
+            human_stack = None
+            big_blind = 20
 
         # Convert numeric phase to readable string
         try:
@@ -367,9 +390,13 @@ def list_games():
             'num_players': game.num_players,
             'pot_size': game.pot_size,
             'player_names': player_names,
-            'is_owner': True  # Always true since we're filtering by owner
+            'is_owner': True,  # Always true since we're filtering by owner
+            'active_players': active_players,
+            'total_players': total_players,
+            'human_stack': human_stack,
+            'big_blind': big_blind
         })
-    
+
     return jsonify({'games': games_data})
 
 # Removed /api/my-games endpoint - consolidated with /games
@@ -1460,7 +1487,7 @@ Return as JSON with this format:
         
         # Use the OpenAI assistant
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-5-mini",  # Faster model for quick suggestions
+            ai_model=FAST_AI_MODEL,
             ai_temp=0.8,  # Slightly creative but not too random
             system_message="You are a friendly poker player giving brief chat suggestions."
         )
@@ -1623,7 +1650,7 @@ Return as JSON:
 
         # Use the OpenAI assistant - minimal reasoning for fast responses
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-5-nano",
+            ai_model=FAST_AI_MODEL,
             reasoning_effort="minimal",
             system_message="You are a witty poker player helping generate fun table talk. Keep it light and entertaining."
         )
@@ -1922,11 +1949,11 @@ No other text or explanation."""
         from core.assistants import OpenAILLMAssistant
         assistant = OpenAILLMAssistant(
             system_prompt="You are a game designer selecting personalities for themed poker games.",
-            ai_model="gpt-5-mini"
+            ai_model=FAST_AI_MODEL
         )
-        
+
         response = assistant.get_response(prompt)
-        
+
         # Parse the response
         import json
         try:
@@ -1937,26 +1964,27 @@ No other text or explanation."""
                 response_text = response_text.split('```')[1]
                 if response_text.startswith('json'):
                     response_text = response_text[4:]
-            
+
             personalities = json.loads(response_text)
-            
+
             # Validate that all personalities exist
             valid_personalities = []
             for name in personalities:
                 if name in personality_sample:
                     valid_personalities.append(name)
-            
+
             # Ensure we have at least 3
             if len(valid_personalities) < 3:
                 # Fallback to random selection
                 valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
-            
+
             return jsonify({
                 'success': True,
                 'personalities': valid_personalities[:5]  # Max 5 AI players
             })
-            
-        except json.JSONDecodeError:
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse theme generation response: {e}. Response was: {response}")
             # Fallback to random selection
             personalities = random.sample(personality_sample, min(4, len(personality_sample)))
             return jsonify({

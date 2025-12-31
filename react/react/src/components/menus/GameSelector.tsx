@@ -11,6 +11,10 @@ interface SavedGame {
   num_players: number;
   pot_size: number;
   player_names?: string[];
+  active_players?: number;
+  total_players?: number;
+  human_stack?: number;
+  big_blind?: number;
 }
 
 interface GameSelectorProps {
@@ -94,10 +98,14 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
       <div className="game-selector__content">
         {savedGames.length > 0 && (
           <div className="saved-games">
-            <h2>Continue Playing</h2>
             <div className="games-list">
               {savedGames.slice(0, 10).map(game => {
-                console.log('Rendering game:', game);
+                const activePlayers = game.active_players ?? game.num_players;
+                const totalPlayers = game.total_players ?? game.num_players;
+                const playersText = activePlayers === totalPlayers
+                  ? `${totalPlayers} players`
+                  : `${activePlayers}/${totalPlayers} remaining`;
+
                 return (
                 <div
                   key={game.game_id}
@@ -105,25 +113,23 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
                   style={{
                     display: 'block',
                     width: '100%',
-                    padding: '20px',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: '2px solid rgba(255, 255, 255, 0.3)',
+                    padding: '16px 20px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
                     borderRadius: '12px',
                     color: 'white',
                     textAlign: 'left',
-                    marginBottom: '10px',
+                    marginBottom: '12px',
                     position: 'relative',
                     transition: 'all 0.2s'
                   }}
                   onMouseEnter={(e) => {
-                    const deleteBtn = e.currentTarget.querySelector('.delete-button') as HTMLElement;
-                    if (deleteBtn) deleteBtn.style.opacity = '1';
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
                   }}
                   onMouseLeave={(e) => {
-                    const deleteBtn = e.currentTarget.querySelector('.delete-button') as HTMLElement;
-                    if (deleteBtn && deletingGameId !== game.game_id) {
-                      deleteBtn.style.opacity = '0';
-                    }
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
                   }}
                 >
                   <button
@@ -138,18 +144,63 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
                       padding: 0
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', paddingRight: '60px' }}>
-                      <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{game.phase}</span>
-                      <span style={{ color: '#4ade80', fontWeight: 'bold' }}>${game.pot_size} pot</span>
+                    {/* Header: Player names + date */}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      marginBottom: '12px'
+                    }}>
+                      {game.player_names && game.player_names.length > 0 && (
+                        <div style={{ fontSize: '16px', color: '#f1f5f9', fontWeight: 600, flex: 1 }}>
+                          {game.player_names.join(', ')}
+                        </div>
+                      )}
+                      <span style={{ color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                        {new Date(game.updated_at).toLocaleDateString()}
+                      </span>
                     </div>
-                    {game.player_names && game.player_names.length > 0 && (
-                      <div style={{ fontSize: '13px', color: '#d1d5db', marginBottom: '6px', paddingRight: '60px' }}>
-                        {game.player_names.join(', ')}
+
+                    {/* Stats grid */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '12px 16px',
+                      marginBottom: '12px'
+                    }}>
+                      {game.human_stack !== undefined && game.human_stack !== null && (
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>Your Stack</div>
+                          <div style={{ fontSize: '16px', color: '#4ade80', fontWeight: 600 }}>${game.human_stack.toLocaleString()}</div>
+                        </div>
+                      )}
+                      <div>
+                        <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>Current Pot</div>
+                        <div style={{ fontSize: '16px', color: '#fbbf24', fontWeight: 600 }}>${game.pot_size.toLocaleString()}</div>
                       </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', paddingRight: '60px' }}>
-                      <span style={{ color: '#94a3b8' }}>{game.num_players} players</span>
-                      <span style={{ color: '#94a3b8' }}>{new Date(game.updated_at).toLocaleDateString()}</span>
+                      {game.big_blind && (
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>Blinds</div>
+                          <div style={{ fontSize: '16px', color: '#a78bfa', fontWeight: 600 }}>{game.big_blind / 2}/{game.big_blind}</div>
+                        </div>
+                      )}
+                      <div>
+                        <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>Players</div>
+                        <div style={{ fontSize: '16px', color: '#94a3b8', fontWeight: 600 }}>{playersText}</div>
+                      </div>
+                    </div>
+
+                    {/* Phase indicator */}
+                    <div style={{
+                      display: 'inline-block',
+                      background: 'rgba(96, 165, 250, 0.15)',
+                      color: '#60a5fa',
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 500
+                    }}>
+                      {game.phase}
                     </div>
                   </button>
                   <button
@@ -158,32 +209,32 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
                     disabled={deletingGameId === game.game_id}
                     style={{
                       position: 'absolute',
-                      bottom: '10px',
-                      right: '10px',
-                      background: '#ef4444',
-                      color: 'white',
-                      border: 'none',
+                      bottom: '12px',
+                      right: '12px',
+                      background: 'rgba(127, 29, 29, 0.6)',
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
                       borderRadius: '6px',
-                      padding: '4px 10px',
+                      padding: '4px 8px',
                       cursor: deletingGameId === game.game_id ? 'not-allowed' : 'pointer',
                       fontSize: '11px',
-                      fontWeight: 'bold',
-                      opacity: 0,
-                      transition: 'all 0.2s',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                      fontWeight: 500,
+                      transition: 'all 0.2s'
                     }}
                     onMouseEnter={(e) => {
                       if (deletingGameId !== game.game_id) {
                         e.currentTarget.style.background = '#dc2626';
-                        e.currentTarget.style.transform = 'scale(1.05)';
+                        e.currentTarget.style.color = 'white';
+                        e.currentTarget.style.borderColor = '#dc2626';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#ef4444';
-                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.background = 'rgba(127, 29, 29, 0.6)';
+                      e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
                     }}
                   >
-                    {deletingGameId === game.game_id ? 'Deleting...' : 'Delete'}
+                    {deletingGameId === game.game_id ? '...' : 'Delete'}
                   </button>
                 </div>
                 );
