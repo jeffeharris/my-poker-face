@@ -348,6 +348,206 @@ def health_check():
     return jsonify({'status': 'healthy', 'service': 'poker-backend'}), 200
 
 
+@app.route('/debug')
+def debug_page():
+    """Debug page with links to debug endpoints - only available in development."""
+    if not is_development:
+        return jsonify({'error': 'Debug page only available in development mode'}), 403
+
+    # Get list of active games for the debug links
+    active_games = list(games.keys())
+
+    html = '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Poker Debug Console</title>
+        <style>
+            body { font-family: monospace; background: #1a1a2e; color: #eee; padding: 20px; }
+            h1 { color: #00d4ff; }
+            h2 { color: #ff6b6b; margin-top: 30px; }
+            .section { background: #16213e; padding: 15px; border-radius: 8px; margin: 10px 0; }
+            a { color: #4ecca3; }
+            .endpoint { margin: 10px 0; padding: 10px; background: #0f3460; border-radius: 4px; }
+            .method { color: #ff9f1c; font-weight: bold; }
+            .url { color: #4ecca3; }
+            .desc { color: #aaa; font-size: 0.9em; }
+            input, select { background: #0f3460; color: #eee; border: 1px solid #4ecca3; padding: 8px; border-radius: 4px; margin: 5px; }
+            button { background: #4ecca3; color: #1a1a2e; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+            button:hover { background: #3db892; }
+            pre { background: #0f3460; padding: 15px; border-radius: 4px; overflow-x: auto; }
+            .games-list { margin: 10px 0; }
+            .game-id { background: #0f3460; padding: 5px 10px; border-radius: 4px; margin: 5px; display: inline-block; }
+        </style>
+    </head>
+    <body>
+        <h1>Poker Debug Console</h1>
+        <p>Development mode is <strong style="color: #4ecca3;">ENABLED</strong></p>
+
+        <div class="section">
+            <h2>Active Games</h2>
+            <div class="games-list">
+    '''
+
+    if active_games:
+        for game_id in active_games:
+            html += f'<span class="game-id">{game_id}</span> '
+    else:
+        html += '<em>No active games</em>'
+
+    html += '''
+            </div>
+            <p><a href="/games">View saved games</a></p>
+        </div>
+
+        <div class="section">
+            <h2>Tilt System Debug</h2>
+            <p class="desc">Test the tilt modifier system that affects AI decision-making</p>
+
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="url">/api/game/{game_id}/tilt-debug</span>
+                <p class="desc">View tilt state for all AI players</p>
+                <input type="text" id="tilt-game-id" placeholder="game_id" style="width: 300px;">
+                <button onclick="fetchTilt()">Fetch Tilt States</button>
+            </div>
+
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="url">/api/game/{game_id}/tilt-debug/{player_name}</span>
+                <p class="desc">Set tilt state for testing</p>
+                <input type="text" id="set-tilt-game-id" placeholder="game_id" style="width: 200px;">
+                <input type="text" id="set-tilt-player" placeholder="player_name" style="width: 150px;">
+                <br>
+                <select id="tilt-level">
+                    <option value="0">None (0.0)</option>
+                    <option value="0.3">Mild (0.3)</option>
+                    <option value="0.5">Moderate (0.5)</option>
+                    <option value="0.8" selected>Severe (0.8)</option>
+                    <option value="1.0">Maximum (1.0)</option>
+                </select>
+                <select id="tilt-source">
+                    <option value="bad_beat">Bad Beat</option>
+                    <option value="bluff_called">Bluff Called</option>
+                    <option value="big_loss">Big Loss</option>
+                    <option value="losing_streak">Losing Streak</option>
+                </select>
+                <input type="text" id="tilt-nemesis" placeholder="nemesis (optional)" style="width: 150px;">
+                <button onclick="setTilt()">Set Tilt</button>
+            </div>
+            <pre id="tilt-result">Results will appear here...</pre>
+        </div>
+
+        <div class="section">
+            <h2>Memory System Debug</h2>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="url">/api/game/{game_id}/memory-debug</span>
+                <p class="desc">View AI memory state (session memory, opponent models)</p>
+                <input type="text" id="memory-game-id" placeholder="game_id" style="width: 300px;">
+                <button onclick="fetchMemory()">Fetch Memory</button>
+            </div>
+            <pre id="memory-result">Results will appear here...</pre>
+        </div>
+
+        <div class="section">
+            <h2>Elasticity System Debug</h2>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="url">/api/game/{game_id}/elasticity</span>
+                <p class="desc">View elastic personality traits for all AI players</p>
+                <input type="text" id="elasticity-game-id" placeholder="game_id" style="width: 300px;">
+                <button onclick="fetchElasticity()">Fetch Elasticity</button>
+            </div>
+            <pre id="elasticity-result">Results will appear here...</pre>
+        </div>
+
+        <div class="section">
+            <h2>Pressure Stats</h2>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="url">/api/game/{game_id}/pressure-stats</span>
+                <p class="desc">View pressure events and statistics</p>
+                <input type="text" id="pressure-game-id" placeholder="game_id" style="width: 300px;">
+                <button onclick="fetchPressure()">Fetch Pressure Stats</button>
+            </div>
+            <pre id="pressure-result">Results will appear here...</pre>
+        </div>
+
+        <div class="section">
+            <h2>Game State</h2>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="url">/api/game/{game_id}/diagnostic</span>
+                <p class="desc">Full game diagnostic info</p>
+                <input type="text" id="diag-game-id" placeholder="game_id" style="width: 300px;">
+                <button onclick="fetchDiagnostic()">Fetch Diagnostic</button>
+            </div>
+            <pre id="diag-result">Results will appear here...</pre>
+        </div>
+
+        <script>
+            async function fetchJson(url, options = {}) {
+                try {
+                    const resp = await fetch(url, options);
+                    return await resp.json();
+                } catch (e) {
+                    return {error: e.message};
+                }
+            }
+
+            async function fetchTilt() {
+                const gameId = document.getElementById('tilt-game-id').value;
+                const result = await fetchJson(`/api/game/${gameId}/tilt-debug`);
+                document.getElementById('tilt-result').textContent = JSON.stringify(result, null, 2);
+            }
+
+            async function setTilt() {
+                const gameId = document.getElementById('set-tilt-game-id').value;
+                const player = encodeURIComponent(document.getElementById('set-tilt-player').value);
+                const data = {
+                    tilt_level: parseFloat(document.getElementById('tilt-level').value),
+                    tilt_source: document.getElementById('tilt-source').value,
+                    nemesis: document.getElementById('tilt-nemesis').value || null
+                };
+                const result = await fetchJson(`/api/game/${gameId}/tilt-debug/${player}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                document.getElementById('tilt-result').textContent = JSON.stringify(result, null, 2);
+            }
+
+            async function fetchMemory() {
+                const gameId = document.getElementById('memory-game-id').value;
+                const result = await fetchJson(`/api/game/${gameId}/memory-debug`);
+                document.getElementById('memory-result').textContent = JSON.stringify(result, null, 2);
+            }
+
+            async function fetchElasticity() {
+                const gameId = document.getElementById('elasticity-game-id').value;
+                const result = await fetchJson(`/api/game/${gameId}/elasticity`);
+                document.getElementById('elasticity-result').textContent = JSON.stringify(result, null, 2);
+            }
+
+            async function fetchPressure() {
+                const gameId = document.getElementById('pressure-game-id').value;
+                const result = await fetchJson(`/api/game/${gameId}/pressure-stats`);
+                document.getElementById('pressure-result').textContent = JSON.stringify(result, null, 2);
+            }
+
+            async function fetchDiagnostic() {
+                const gameId = document.getElementById('diag-game-id').value;
+                const result = await fetchJson(`/api/game/${gameId}/diagnostic`);
+                document.getElementById('diag-result').textContent = JSON.stringify(result, null, 2);
+            }
+        </script>
+    </body>
+    </html>
+    '''
+    return html
+
+
 @app.route('/games')
 def list_games():
     """List games for the current user."""
@@ -1622,6 +1822,91 @@ def get_memory_debug(game_id):
         }
 
     return jsonify(debug_info)
+
+
+@app.route('/api/game/<game_id>/tilt-debug', methods=['GET'])
+def get_tilt_debug(game_id):
+    """Get tilt state for all AI players - useful for debugging tilt system."""
+    game_data = games.get(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    ai_controllers = game_data.get('ai_controllers', {})
+    if not ai_controllers:
+        return jsonify({'error': 'No AI controllers found'}), 200
+
+    tilt_info = {}
+    for player_name, controller in ai_controllers.items():
+        if hasattr(controller, 'tilt_state'):
+            state = controller.tilt_state
+            tilt_info[player_name] = {
+                'tilt_level': round(state.tilt_level, 2),
+                'tilt_category': state.get_tilt_category(),
+                'tilt_source': state.tilt_source or 'none',
+                'nemesis': state.nemesis,
+                'losing_streak': state.losing_streak,
+                'recent_losses': state.recent_losses[-3:] if state.recent_losses else []
+            }
+        else:
+            tilt_info[player_name] = {'error': 'No tilt state (old controller?)'}
+
+    return jsonify({
+        'game_id': game_id,
+        'tilt_states': tilt_info
+    })
+
+
+@app.route('/api/game/<game_id>/tilt-debug/<player_name>', methods=['POST'])
+def set_tilt_debug(game_id, player_name):
+    """Set tilt state for an AI player - for testing tilt effects.
+
+    POST body (all fields optional):
+    {
+        "tilt_level": 0.8,        # 0.0 to 1.0
+        "tilt_source": "bad_beat", # bad_beat, bluff_called, big_loss, losing_streak
+        "nemesis": "Eeyore",       # player who caused the tilt
+        "losing_streak": 5         # number of consecutive losses
+    }
+    """
+    game_data = games.get(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    ai_controllers = game_data.get('ai_controllers', {})
+    if player_name not in ai_controllers:
+        return jsonify({
+            'error': f'AI player "{player_name}" not found',
+            'available_players': list(ai_controllers.keys())
+        }), 404
+
+    controller = ai_controllers[player_name]
+    if not hasattr(controller, 'tilt_state'):
+        return jsonify({'error': 'Controller has no tilt state'}), 500
+
+    data = request.get_json() or {}
+    state = controller.tilt_state
+
+    # Update tilt state from request
+    if 'tilt_level' in data:
+        state.tilt_level = max(0.0, min(1.0, float(data['tilt_level'])))
+    if 'tilt_source' in data:
+        state.tilt_source = data['tilt_source']
+    if 'nemesis' in data:
+        state.nemesis = data['nemesis']
+    if 'losing_streak' in data:
+        state.losing_streak = int(data['losing_streak'])
+
+    return jsonify({
+        'success': True,
+        'player': player_name,
+        'new_state': {
+            'tilt_level': round(state.tilt_level, 2),
+            'tilt_category': state.get_tilt_category(),
+            'tilt_source': state.tilt_source,
+            'nemesis': state.nemesis,
+            'losing_streak': state.losing_streak
+        }
+    })
 
 
 @app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])

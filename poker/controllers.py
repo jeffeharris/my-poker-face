@@ -19,6 +19,7 @@ from .ai_resilience import (
     get_fallback_chat_response,
     AIFallbackStrategy
 )
+from .tilt_modifier import TiltState, TiltPromptModifier, create_tilt_state_from_session
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,8 @@ class AIPlayerController:
         # Memory systems (optional - set by memory manager)
         self.session_memory = session_memory
         self.opponent_model_manager = opponent_model_manager
+        # Tilt state tracking
+        self.tilt_state = TiltState()
         
     def get_current_personality_traits(self):
         """Get current trait values from elastic personality if available."""
@@ -126,6 +129,9 @@ class AIPlayerController:
             chattiness, should_speak, speaking_context, player_options
         )
         message = message + "\n\n" + chattiness_guidance
+
+        # Apply tilt effects if player is tilted
+        message = self._apply_tilt_effects(message)
 
         print(message)
 
@@ -313,6 +319,81 @@ class AIPlayerController:
 
         return "\n\n".join(parts) if parts else ""
 
+    def _update_tilt_from_session(self):
+        """Update tilt state from session memory."""
+        if not self.session_memory:
+            return
+
+        # Get emotional state and context from session memory
+        emotional_state = self.session_memory.get_emotional_state()
+        context = self.session_memory.context
+        hand_memories = self.session_memory.hand_memories
+
+        # Map emotional state to tilt level
+        emotional_tilt_map = {
+            'tilted': 0.8,
+            'frustrated': 0.5,
+            'neutral': 0.0,
+            'positive': 0.0,
+            'confident': 0.0,
+        }
+        base_tilt = emotional_tilt_map.get(emotional_state, 0.0)
+
+        # Add tilt from losing streak
+        if context.current_streak == 'losing' and context.streak_count >= 2:
+            base_tilt = min(1.0, base_tilt + context.streak_count * 0.1)
+            self.tilt_state.tilt_source = 'losing_streak'
+            self.tilt_state.losing_streak = context.streak_count
+
+        # Check recent hands for bad beats and other tilt triggers
+        if hand_memories:
+            for hand in hand_memories[-3:]:
+                if hand.emotional_impact < -0.5:
+                    # Check notable events for specific tilt sources
+                    for event in hand.notable_events:
+                        event_lower = event.lower()
+                        if 'bad beat' in event_lower or 'river' in event_lower:
+                            base_tilt = min(1.0, base_tilt + 0.15)
+                            self.tilt_state.tilt_source = 'bad_beat'
+                        elif 'bluff' in event_lower and 'called' in event_lower:
+                            base_tilt = min(1.0, base_tilt + 0.1)
+                            self.tilt_state.tilt_source = 'bluff_called'
+
+        self.tilt_state.tilt_level = base_tilt
+
+    def _apply_tilt_effects(self, message: str) -> str:
+        """Apply tilt effects to the prompt if player is tilted."""
+        # Update tilt state from session memory
+        self._update_tilt_from_session()
+
+        # Only apply if tilted enough to matter
+        if self.tilt_state.tilt_level < 0.2:
+            return message
+
+        # Create modifier and apply effects
+        modifier = TiltPromptModifier(self.tilt_state)
+        modified_message = modifier.modify_prompt(message)
+
+        # Log tilt level for debugging
+        logger.info(
+            f"{self.player_name} tilt level: {self.tilt_state.tilt_level:.2f} "
+            f"({self.tilt_state.get_tilt_category()}) - source: {self.tilt_state.tilt_source}"
+        )
+
+        return modified_message
+
+    def update_tilt_from_hand_result(self, outcome: str, amount: int,
+                                      opponent: Optional[str] = None,
+                                      was_bad_beat: bool = False,
+                                      was_bluff_called: bool = False):
+        """Update tilt state based on hand outcome. Call this after each hand."""
+        self.tilt_state.update_from_hand(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            was_bad_beat=was_bad_beat,
+            was_bluff_called=was_bluff_called
+        )
 
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
                                   speaking_context: Dict, valid_actions: List[str]) -> str:

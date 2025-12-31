@@ -1,0 +1,301 @@
+"""
+Tilt Prompt Modifier System.
+
+Modifies AI prompts based on tilt state to simulate the psychological effects
+of being on tilt: tunnel vision, intrusive thoughts, and poor strategic thinking.
+"""
+
+import random
+import re
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any
+
+
+# Intrusive thoughts injected based on tilt source
+INTRUSIVE_THOUGHTS = {
+    'bad_beat': [
+        "You can't believe that river card. Unreal.",
+        "That should have been YOUR pot.",
+        "The cards are running against you tonight.",
+        "How could they have called with THAT hand?",
+        "The poker gods are not on your side right now.",
+    ],
+    'bluff_called': [
+        "They're onto you. Or are they just lucky?",
+        "You need to prove you can't be pushed around.",
+        "Next time, make them PAY for calling.",
+        "They got lucky. Your read was right.",
+        "Time to switch it up and confuse them.",
+    ],
+    'big_loss': [
+        "You NEED to win this one back. NOW.",
+        "Your stack is dwindling. Do something!",
+        "Stop being so passive. Take control!",
+        "You're better than this. Show them.",
+        "One big hand and you're back in it.",
+    ],
+    'losing_streak': [
+        "Nothing is going your way tonight.",
+        "You can't catch a break.",
+        "Maybe this isn't your night...",
+        "When will your luck turn around?",
+        "You've been card dead for too long.",
+    ],
+    'revenge': [
+        "{nemesis} just took your chips. Make them regret it.",
+        "Show {nemesis} who the real player is here.",
+        "{nemesis} thinks they have your number. Prove them wrong.",
+        "You owe {nemesis} some payback.",
+    ],
+}
+
+# Strategy overrides that replace careful thinking with tilted advice
+TILTED_STRATEGY = {
+    'mild': (
+        "You're feeling the pressure. Trust your gut more than the math. "
+        "Sometimes you just need to make a play."
+    ),
+    'moderate': (
+        "Forget the textbook plays. You need to make something happen. "
+        "Being passive got you here - time to take control. "
+        "If you have any piece of the board, consider betting."
+    ),
+    'severe': (
+        "You're behind and you know it. Stop playing scared. "
+        "Big hands or big bluffs - that's how you get back in this. "
+        "They think they have you figured out? Prove them wrong. "
+        "Don't fold unless you have absolutely nothing."
+    ),
+}
+
+# Normal strategic advice that gets removed when tilted
+STRATEGIC_PHRASES_TO_REMOVE = [
+    "Preserve your chips for when the odds are in your favor",
+    "preserve your chips for stronger opportunities",
+    "remember that sometimes folding or checking is the best move",
+    "Balance your confidence with a healthy dose of skepticism",
+]
+
+
+@dataclass
+class TiltState:
+    """Tracks tilt information for a player."""
+    tilt_level: float = 0.0  # 0.0 to 1.0
+    tilt_source: str = ''    # 'bad_beat', 'bluff_called', 'big_loss', etc.
+    nemesis: Optional[str] = None  # Player who caused the tilt
+    recent_losses: List[Dict[str, Any]] = field(default_factory=list)
+    losing_streak: int = 0
+
+    def update_from_hand(self, outcome: str, amount: int, opponent: Optional[str] = None,
+                         was_bad_beat: bool = False, was_bluff_called: bool = False):
+        """Update tilt state based on hand outcome."""
+        if outcome == 'lost' or outcome == 'folded':
+            # Increase tilt on losses
+            if was_bad_beat:
+                self.tilt_level = min(1.0, self.tilt_level + 0.25)
+                self.tilt_source = 'bad_beat'
+            elif was_bluff_called:
+                self.tilt_level = min(1.0, self.tilt_level + 0.2)
+                self.tilt_source = 'bluff_called'
+            elif amount < -500:  # Big loss
+                self.tilt_level = min(1.0, self.tilt_level + 0.15)
+                self.tilt_source = 'big_loss'
+            else:
+                self.tilt_level = min(1.0, self.tilt_level + 0.05)
+
+            self.losing_streak += 1
+            if self.losing_streak >= 3:
+                self.tilt_source = 'losing_streak'
+
+            if opponent:
+                self.nemesis = opponent
+
+            self.recent_losses.append({
+                'amount': amount,
+                'opponent': opponent,
+                'was_bad_beat': was_bad_beat
+            })
+            # Keep only last 5 losses
+            self.recent_losses = self.recent_losses[-5:]
+
+        elif outcome == 'won':
+            # Winning reduces tilt
+            self.tilt_level = max(0.0, self.tilt_level - 0.15)
+            self.losing_streak = 0
+            if amount > 500:  # Big win provides more relief
+                self.tilt_level = max(0.0, self.tilt_level - 0.1)
+
+    def decay(self, amount: float = 0.02):
+        """Natural tilt decay over time."""
+        self.tilt_level = max(0.0, self.tilt_level - amount)
+
+    def get_tilt_category(self) -> str:
+        """Get tilt severity category."""
+        if self.tilt_level >= 0.7:
+            return 'severe'
+        elif self.tilt_level >= 0.4:
+            return 'moderate'
+        elif self.tilt_level >= 0.2:
+            return 'mild'
+        return 'none'
+
+
+class TiltPromptModifier:
+    """Modifies AI prompts based on tilt state."""
+
+    def __init__(self, tilt_state: TiltState):
+        self.tilt_state = tilt_state
+
+    def modify_prompt(self, base_prompt: str) -> str:
+        """Apply all tilt effects to the prompt."""
+        if self.tilt_state.tilt_level < 0.2:
+            return base_prompt  # Not tilted enough to affect
+
+        modified = base_prompt
+
+        # 1. Remove strategic advice (information degradation)
+        if self.tilt_state.tilt_level >= 0.4:
+            modified = self._degrade_information(modified)
+
+        # 2. Inject intrusive thoughts
+        modified = self._inject_intrusive_thoughts(modified)
+
+        # 3. Add tilted strategy advice
+        if self.tilt_state.tilt_level >= 0.3:
+            modified = self._add_tilted_strategy(modified)
+
+        return modified
+
+    def _degrade_information(self, prompt: str) -> str:
+        """Remove or obscure strategic advice based on tilt level."""
+        modified = prompt
+
+        # At severe tilt, replace entire strategic section
+        if self.tilt_state.tilt_level >= 0.7:
+            # Replace pot odds guidance with dismissive advice
+            modified = modified.replace(
+                "Consider the pot odds, the amount of money in the pot, and how much you would have to risk.",
+                "Don't overthink this."
+            )
+            # Remove all strategic phrases completely (including surrounding context)
+            for phrase in STRATEGIC_PHRASES_TO_REMOVE:
+                # Try with common surrounding patterns
+                for pattern in [
+                    f"{phrase}, and ",
+                    f", and {phrase}",
+                    f"{phrase}. ",
+                    f" {phrase}",
+                    phrase,
+                ]:
+                    modified = modified.replace(pattern, " ")
+                    modified = modified.replace(pattern.lower(), " ")
+        else:
+            # Moderate tilt: just remove the phrases
+            for phrase in STRATEGIC_PHRASES_TO_REMOVE:
+                modified = modified.replace(phrase, "")
+                modified = modified.replace(phrase.lower(), "")
+
+        # Clean up double spaces and orphaned punctuation
+        modified = re.sub(r'\s+', ' ', modified)  # Collapse whitespace
+        modified = re.sub(r'\s+([,.])', r'\1', modified)  # Remove space before punctuation
+        modified = re.sub(r'([,.])\s*\1', r'\1', modified)  # Remove duplicate punctuation
+        modified = re.sub(r',\s*\.', '.', modified)  # Fix ", ." to "."
+
+        return modified
+
+    def _inject_intrusive_thoughts(self, prompt: str) -> str:
+        """Add intrusive thoughts based on tilt source."""
+        thoughts = []
+
+        # Get thoughts based on tilt source
+        source = self.tilt_state.tilt_source or 'big_loss'
+        if source in INTRUSIVE_THOUGHTS:
+            # Number of thoughts scales with tilt level
+            num_thoughts = 1 if self.tilt_state.tilt_level < 0.5 else 2
+            available_thoughts = INTRUSIVE_THOUGHTS[source]
+            thoughts.extend(random.sample(available_thoughts, min(num_thoughts, len(available_thoughts))))
+
+        # Add revenge thoughts if there's a nemesis
+        if self.tilt_state.nemesis and self.tilt_state.tilt_level >= 0.5:
+            revenge_thoughts = INTRUSIVE_THOUGHTS['revenge']
+            thought = random.choice(revenge_thoughts).format(nemesis=self.tilt_state.nemesis)
+            thoughts.append(thought)
+
+        if not thoughts:
+            return prompt
+
+        # Format the intrusive thoughts
+        thought_block = "\n\n[What's running through your mind: " + " ".join(thoughts) + "]\n"
+
+        # Insert before the "What is your move" question if present
+        if "What is your move" in prompt:
+            return prompt.replace("What is your move", thought_block + "What is your move")
+        else:
+            return prompt + thought_block
+
+    def _add_tilted_strategy(self, prompt: str) -> str:
+        """Replace or add tilted strategy advice."""
+        category = self.tilt_state.get_tilt_category()
+        if category == 'none':
+            return prompt
+
+        tilted_advice = TILTED_STRATEGY.get(category, TILTED_STRATEGY['mild'])
+
+        # Add the tilted strategy as a new section
+        advice_block = f"\n[Current mindset: {tilted_advice}]\n"
+
+        return prompt + advice_block
+
+    def get_info_to_hide(self) -> List[str]:
+        """Get list of information types to hide/obscure at current tilt level.
+
+        Returns list of keys that should be hidden or simplified in game state.
+        """
+        hidden = []
+
+        if self.tilt_state.tilt_level >= 0.5:
+            hidden.append('pot_odds')  # Don't calculate pot odds for them
+
+        if self.tilt_state.tilt_level >= 0.7:
+            hidden.append('opponent_stacks')  # Obscure exact opponent chip counts
+            hidden.append('position_advice')  # Remove position-based advice
+
+        return hidden
+
+
+def create_tilt_state_from_session(session_context: Any,
+                                    recent_hands: List[Any] = None) -> TiltState:
+    """Create a TiltState from session context and recent hand history.
+
+    Args:
+        session_context: SessionContext object with streak info
+        recent_hands: List of recent HandMemory objects
+
+    Returns:
+        TiltState populated from session data
+    """
+    tilt_state = TiltState()
+
+    # Calculate tilt from session context
+    if hasattr(session_context, 'current_streak') and session_context.current_streak == 'losing':
+        tilt_state.losing_streak = getattr(session_context, 'streak_count', 0)
+        if tilt_state.losing_streak >= 3:
+            tilt_state.tilt_level = min(1.0, 0.2 + (tilt_state.losing_streak - 3) * 0.1)
+            tilt_state.tilt_source = 'losing_streak'
+
+    # Process recent hands for more detailed tilt info
+    if recent_hands:
+        for hand in recent_hands[-5:]:  # Last 5 hands
+            if hasattr(hand, 'emotional_impact') and hand.emotional_impact < -0.3:
+                tilt_state.tilt_level = min(1.0, tilt_state.tilt_level + 0.1)
+
+                # Check for bad beats in notable events
+                if hasattr(hand, 'notable_events'):
+                    for event in hand.notable_events:
+                        if 'bad beat' in event.lower() or 'river' in event.lower():
+                            tilt_state.tilt_source = 'bad_beat'
+                            tilt_state.tilt_level = min(1.0, tilt_state.tilt_level + 0.15)
+                        elif 'called' in event.lower() and 'bluff' in event.lower():
+                            tilt_state.tilt_source = 'bluff_called'
+
+    return tilt_state
