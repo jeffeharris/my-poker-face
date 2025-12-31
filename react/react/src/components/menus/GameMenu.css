@@ -1,101 +1,5 @@
 /* Game Menu - Premium Poker Aesthetic */
-
-.game-menu {
-  min-height: 100vh;
-  background: var(--gradient-bg-main);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-6);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Ambient background effects */
-.game-menu::before {
-  content: '';
-  position: absolute;
-  top: -30%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 140%;
-  height: 80%;
-  background: radial-gradient(
-    ellipse 50% 40% at 50% 0%,
-    rgba(212, 165, 116, 0.06) 0%,
-    transparent 60%
-  );
-  pointer-events: none;
-}
-
-.game-menu::after {
-  content: '';
-  position: absolute;
-  bottom: -20%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 120%;
-  height: 60%;
-  background: radial-gradient(
-    ellipse 60% 50% at 50% 100%,
-    rgba(52, 211, 153, 0.04) 0%,
-    transparent 50%
-  );
-  pointer-events: none;
-}
-
-.game-menu__container {
-  width: 100%;
-  max-width: var(--container-md);
-  animation: menuFadeIn 0.7s var(--ease-out-expo);
-  position: relative;
-  z-index: 1;
-}
-
-@keyframes menuFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Header */
-.game-menu__header {
-  text-align: center;
-  margin-bottom: var(--space-12);
-  color: var(--color-text-primary);
-}
-
-.game-menu__header h1 {
-  font-family: var(--font-display);
-  font-size: var(--font-size-5xl);
-  font-weight: var(--font-weight-bold);
-  margin: 0 0 var(--space-3) 0;
-  letter-spacing: var(--letter-spacing-tight);
-  background: var(--gradient-text-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 0 80px rgba(212, 165, 116, 0.3);
-  animation: titleGlow 4s ease-in-out infinite;
-}
-
-@keyframes titleGlow {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.1); }
-}
-
-.game-menu__header p {
-  font-family: var(--font-body);
-  font-size: var(--font-size-lg);
-  color: var(--color-text-tertiary);
-  margin: 0;
-  letter-spacing: var(--letter-spacing-wide);
-}
+/* Container and ambient styles now handled by PageLayout */
 
 /* Options */
 .game-menu__options {
@@ -301,22 +205,6 @@
 
 /* Responsive */
 @media (max-width: 640px) {
-  .game-menu {
-    padding: var(--space-5);
-  }
-
-  .game-menu__header {
-    margin-bottom: var(--space-8);
-  }
-
-  .game-menu__header h1 {
-    font-size: var(--font-size-3xl);
-  }
-
-  .game-menu__header p {
-    font-size: var(--font-size-base);
-  }
-
   .menu-option {
     padding: var(--space-4) var(--space-5);
     gap: var(--space-4);

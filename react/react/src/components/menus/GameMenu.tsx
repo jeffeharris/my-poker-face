@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PageLayout, PageHeader } from '../shared';
 import './GameMenu.css';
 
 interface GameMenuProps {
@@ -23,12 +24,12 @@ export function GameMenu({
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
 
   return (
-    <div className="game-menu">
-      <div className="game-menu__container">
-        <div className="game-menu__header">
-          <h1>Welcome, {playerName}!</h1>
-          <p>Choose how you'd like to play</p>
-        </div>
+    <PageLayout variant="centered" glowColor="gold" maxWidth="md">
+      <PageHeader
+        title={`Welcome, ${playerName}!`}
+        subtitle="Choose how you'd like to play"
+        titleVariant="primary"
+      />
 
         <div className="game-menu__options">
           <button 
@@ -107,17 +108,16 @@ export function GameMenu({
           </button>
         </div>
 
-        <div className="game-menu__footer">
-          <p className="tip">
-            {hoveredOption === 'quick' && "Perfect for a quick session! Games typically last 20-30 minutes."}
-            {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
-            {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
-            {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-            {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
-            {!hoveredOption && "🃏 Ready to test your poker face?"}
-          </p>
-        </div>
+      <div className="game-menu__footer">
+        <p className="tip">
+          {hoveredOption === 'quick' && "Perfect for a quick session! Games typically last 20-30 minutes."}
+          {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
+          {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
+          {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
+          {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
+          {!hoveredOption && "Ready to test your poker face?"}
+        </p>
       </div>
-    </div>
+    </PageLayout>
   );
 }

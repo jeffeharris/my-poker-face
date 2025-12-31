@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { config } from '../../config';
-import { PageHeader } from '../shared';
+import { PageLayout, PageHeader } from '../shared';
 import './PersonalityManager.css';
 
 interface PersonalityManagerHTMLProps {
@@ -548,14 +548,13 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
   };
 
   return (
-    <div className="personality-manager">
-      <div className="personality-manager__container">
-        <PageHeader
-          title="AI Personality Manager"
-          subtitle="Create and customize AI opponent personalities"
-          onBack={onBack}
-          titleVariant="primary"
-        />
+    <PageLayout variant="top" glowColor="sapphire" maxWidth="xl">
+      <PageHeader
+        title="AI Personality Manager"
+        subtitle="Create and customize AI opponent personalities"
+        onBack={onBack}
+        titleVariant="primary"
+      />
 
         <div id="personality-alert" className="personality-manager__alert"></div>
 
@@ -578,7 +577,6 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </PageLayout>
   );
 }

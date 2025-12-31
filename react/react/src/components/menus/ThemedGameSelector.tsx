@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
-import { PageHeader } from '../shared';
+import { PageLayout, PageHeader } from '../shared';
 import './ThemedGameSelector.css';
 
 interface Theme {
@@ -77,14 +77,13 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
   };
 
   return (
-    <div className="themed-selector">
-      <div className="themed-selector__container">
-        <PageHeader
-          title="Choose Your Theme"
-          subtitle="Each theme brings together unique personalities for an unforgettable game!"
-          onBack={onBack}
-          titleVariant="themed"
-        />
+    <PageLayout variant="top" glowColor="amber" maxWidth="lg">
+      <PageHeader
+        title="Choose Your Theme"
+        subtitle="Each theme brings together unique personalities for an unforgettable game!"
+        onBack={onBack}
+        titleVariant="themed"
+      />
 
         {error && (
           <div className="error-message">
@@ -120,12 +119,11 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
           </div>
         )}
 
-        <div className="themed-selector__footer">
-          <p className="hint">
-            💡 Personalities won't be revealed until the game starts - it's part of the surprise!
-          </p>
-        </div>
+      <div className="themed-selector__footer">
+        <p className="hint">
+          Personalities won't be revealed until the game starts - it's part of the surprise!
+        </p>
       </div>
-    </div>
+    </PageLayout>
   );
 }

@@ -16,3 +16,6 @@ export type { MobileHeaderProps, PotDisplayProps, ChatToggleProps } from './Mobi
 
 export { UserBadge } from './UserBadge';
 export type { UserBadgeProps } from './UserBadge';
+
+export { PageLayout } from './PageLayout';
+export type { PageLayoutProps } from './PageLayout';

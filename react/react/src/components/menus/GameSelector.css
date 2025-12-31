@@ -1,36 +1,19 @@
 /* Game Selector (Saved Games) - Premium Poker Aesthetic */
+/* Container and ambient styles now handled by PageLayout */
 
-.game-selector {
-  min-height: 100vh;
-  width: 100%;
-  background: var(--gradient-bg-main);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-10) var(--space-6);
-  color: var(--color-text-primary);
-  position: relative;
-  color-scheme: dark;
+/* Loading state */
+.game-selector__loading {
+  font-family: var(--font-display);
+  color: var(--color-text-tertiary);
+  animation: loadingPulse 1.5s ease-in-out infinite;
 }
 
-/* Ambient glow effect */
-.game-selector::before {
-  content: '';
-  position: absolute;
-  top: -20%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 150%;
-  height: 60%;
-  background: radial-gradient(
-    ellipse 50% 40% at 50% 0%,
-    rgba(168, 85, 247, 0.04) 0%,
-    transparent 50%
-  );
-  pointer-events: none;
+@keyframes loadingPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
-.game-options {
+.game-selector__content {
   position: relative;
   max-width: var(--container-lg);
   width: 100%;
@@ -227,21 +210,7 @@ button.saved-game-card {
   gap: var(--space-1);
 }
 
-/* Loading State */
-.game-selector.loading {
-  justify-content: center;
-}
-
-.game-selector.loading h2 {
-  font-family: var(--font-display);
-  color: var(--color-text-tertiary);
-  animation: loadingPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes loadingPulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
+/* Loading state moved to top of file */
 
 /* No Saved Games */
 .no-saved-games {
@@ -288,10 +257,6 @@ button.saved-game-card {
 
 /* Responsive */
 @media (max-width: 640px) {
-  .game-selector {
-    padding: var(--space-6) var(--space-4);
-  }
-
   .new-game-button {
     padding: var(--space-5);
     flex-direction: column;

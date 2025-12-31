@@ -1,41 +1,5 @@
 /* Personality Manager - Premium Poker Aesthetic */
-
-.personality-manager {
-  min-height: 100vh;
-  background: var(--gradient-bg-main);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: var(--space-6);
-  overflow-y: auto;
-  position: relative;
-}
-
-/* Ambient glow effect */
-.personality-manager::before {
-  content: '';
-  position: fixed;
-  top: -20%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 150%;
-  height: 60%;
-  background: radial-gradient(
-    ellipse 50% 40% at 50% 0%,
-    rgba(59, 130, 246, 0.04) 0%,
-    transparent 50%
-  );
-  pointer-events: none;
-}
-
-.personality-manager__container {
-  width: 100%;
-  max-width: var(--container-xl);
-  margin: var(--space-10) 0;
-  animation: fadeInUp 0.6s var(--ease-out-expo);
-  position: relative;
-  z-index: 1;
-}
+/* Container and ambient styles now handled by PageLayout */
 
 /* Alert messages */
 .personality-manager__alert {
@@ -447,14 +411,6 @@
 }
 
 @media (max-width: 640px) {
-  .personality-manager {
-    padding: var(--space-4);
-  }
-
-  .personality-manager__container {
-    margin: var(--space-6) 0;
-  }
-
   .personality-manager__editor-panel {
     padding: var(--space-4);
   }

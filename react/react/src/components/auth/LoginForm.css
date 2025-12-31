@@ -1,48 +1,5 @@
 /* LoginForm - Premium Poker Aesthetic */
-
-.login-form {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  background: var(--gradient-bg-main);
-  padding: var(--space-6);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Ambient glow effects */
-.login-form::before {
-  content: '';
-  position: absolute;
-  top: -30%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 150%;
-  height: 80%;
-  background: radial-gradient(
-    ellipse 50% 40% at 50% 0%,
-    rgba(212, 165, 116, 0.06) 0%,
-    transparent 60%
-  );
-  pointer-events: none;
-}
-
-.login-form::after {
-  content: '';
-  position: absolute;
-  bottom: -30%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 120%;
-  height: 60%;
-  background: radial-gradient(
-    ellipse 60% 50% at 50% 100%,
-    rgba(52, 211, 153, 0.03) 0%,
-    transparent 50%
-  );
-  pointer-events: none;
-}
+/* Container and ambient styles now handled by PageLayout */
 
 .login-form__container {
   background: var(--gradient-card);
@@ -292,10 +249,6 @@
 
 /* Mobile responsiveness */
 @media (max-width: 480px) {
-  .login-form {
-    padding: var(--space-5);
-  }
-
   .login-form__container {
     padding: var(--space-8) var(--space-6);
   }

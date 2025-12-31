@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
-import { PageHeader } from '../shared';
+import { PageLayout, PageHeader } from '../shared';
 import './GameSelector.css';
 
 interface SavedGame {
@@ -76,14 +76,14 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
 
   if (loading) {
     return (
-      <div className="game-selector loading">
-        <h2>Loading saved games...</h2>
-      </div>
+      <PageLayout variant="centered" glowColor="amethyst" maxWidth="lg">
+        <h2 className="game-selector__loading">Loading saved games...</h2>
+      </PageLayout>
     );
   }
 
   return (
-    <div className="game-selector">
+    <PageLayout variant="top" glowColor="amethyst" maxWidth="lg">
       <PageHeader
         title="Saved Games"
         subtitle="Continue where you left off"
@@ -91,7 +91,7 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
         titleVariant="primary"
       />
 
-      <div className="game-options">
+      <div className="game-selector__content">
         {savedGames.length > 0 && (
           <div className="saved-games">
             <h2>Continue Playing</h2>
@@ -198,6 +198,6 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
           </div>
         )}
       </div>
-    </div>
+    </PageLayout>
   );
 }
