@@ -1615,6 +1615,27 @@ def get_targeted_chat_suggestions(game_id):
 
         context_str = ". ".join(context_parts)
 
+        # Build chat context from server-side messages (last 10)
+        game_messages = game_data.get('messages', [])[-10:]
+        chat_context = ""
+        if game_messages:
+            chat_lines = []
+            for msg in game_messages:
+                sender = msg.get('sender', 'Unknown')
+                text = msg.get('content', msg.get('message', ''))[:100]
+                if text:
+                    chat_lines.append(f"- {sender}: {text}")
+            if chat_lines:
+                chat_context = "\nRecent table talk:\n" + "\n".join(chat_lines)
+
+        # Build game situation using opponent_status (same as AI player decisions)
+        game_situation = "\n".join(game_state.opponent_status)
+
+        # Add board if available
+        if game_state.community_cards:
+            cards = [str(c) for c in game_state.community_cards]
+            game_situation = f"Board: {', '.join(cards)}\n" + game_situation
+
         # Load target personality if targeting specific player
         target_context = ""
         if target_player:
@@ -1648,12 +1669,15 @@ Their catchphrases: {', '.join(verbal_tics) if verbal_tics else 'none known'}"""
 
 Tone: {tone_desc}
 Game context: {context_str}
+Table situation:
+{game_situation}
+{chat_context}
 
 Requirements:
 - Each message should be 5-15 words
 - IMPORTANT: Include "{target_first_name}" or "{target_player}" in each message to make it clear who you're addressing
 - Match the {tone} tone perfectly
-- Reference poker/the game situation when possible
+- Reference the board, stacks, or recent conversation when relevant
 - If you know their personality, play off their quirks
 - Be playful but not offensive or mean-spirited
 - Messages should feel natural for poker table banter
@@ -1674,17 +1698,21 @@ Return as JSON:
 
 Tone: {tone_desc}
 Game context: {context_str}
+Table situation:
+{game_situation}
+{chat_context}
 
 Requirements:
 - Each message should be 5-15 words
 - Write in FIRST PERSON - these are things the player will say directly
 - Do NOT include the speaker's name - they are saying this themselves
 - Match the {tone} tone perfectly
+- Reference the board, stacks, or recent conversation when relevant
 - General table talk, not directed at anyone specific
 - Be playful and engaging
 - Messages should feel natural for poker table banter
 
-Good examples: "Anyone else feeling lucky tonight?", "This pot is getting interesting!", "I've got a good feeling about this one"
+Good examples: "Anyone else feeling lucky tonight?", "This pot is getting interesting!", "That ace on the turn changes everything!"
 Bad examples: "Jeff says he's feeling lucky" (don't use 3rd person), "Player announces confidence" (don't narrate)
 
 Return as JSON:
