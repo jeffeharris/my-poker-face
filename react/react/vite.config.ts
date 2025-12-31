@@ -57,7 +57,7 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: true, // Enable for testing (disable for normal dev to avoid caching issues)
+        enabled: false, // Disabled - was causing caching issues during dev
         type: 'module',
       },
     }),

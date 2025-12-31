@@ -49,6 +49,7 @@ export function usePokerGame({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
 
   const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
 
@@ -159,7 +160,8 @@ export function usePokerGame({
     });
   }, [onNewAiMessage]);
 
-  const refreshGameState = useCallback(async (gId: string): Promise<boolean> => {
+  // refreshGameState: silent=true means don't touch loading state (for reconnections)
+  const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
     try {
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
       const data = await res.json();
@@ -169,7 +171,9 @@ export function usePokerGame({
       }
 
       setGameState(data);
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
 
       if (data.messages) {
         setMessages(data.messages);
@@ -200,9 +204,12 @@ export function usePokerGame({
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Socket connected, joining game:', gId);
+      const isReconnect = !isInitialConnectionRef.current;
+      console.log(`Socket ${isReconnect ? 're' : ''}connected, joining game:`, gId);
       socket.emit('join_game', gId);
-      refreshGameState(gId);
+      // Use silent mode for reconnections to avoid loading flash
+      refreshGameState(gId, isReconnect);
+      isInitialConnectionRef.current = false;
     });
 
     setupSocketListeners(socket);
@@ -286,8 +293,9 @@ export function usePokerGame({
             createSocket(gameId);
           }
         } else {
-          console.log('Socket connected, refreshing game state...');
-          refreshGameState(gameId);
+          // Silent refresh - just update state in background, no loading flash
+          console.log('Socket connected, silently refreshing game state...');
+          refreshGameState(gameId, true);
         }
       }
     };

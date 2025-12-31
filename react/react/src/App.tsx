@@ -33,12 +33,32 @@ function App() {
   // Check localStorage for saved state on initial load
   const savedState = localStorage.getItem('pokerGameState');
   const parsedState = savedState ? JSON.parse(savedState) : null;
-  
-  // If we have a saved table view, validate it's not stale
-  const initialView = parsedState?.currentView === 'table' ? 'login' : (parsedState?.currentView || 'login');
-  
-  const [currentView, setCurrentView] = useState<ViewType>(initialView)
-  const [gameId, setGameId] = useState<string | null>(null) // Don't restore gameId to avoid loading non-existent games
+
+  // Check for active game that should be restored (from browser sleep/wake)
+  const activeGameId = localStorage.getItem('activePokerGameId');
+  // Check if user was logged in (auth will verify this, but we use it for initial view decision)
+  const storedUser = localStorage.getItem('currentUser');
+
+  // Determine initial view:
+  // 1. If there's an active game AND a stored user, go straight to table
+  // 2. If there's an active game but no user, go to login (auth effect will restore game after login)
+  // 3. Otherwise use saved view (but not 'table' without an active game)
+  const getInitialView = (): ViewType => {
+    if (activeGameId && storedUser) {
+      console.log('[App] Restoring to table with active game:', activeGameId);
+      return 'table';
+    }
+    if (activeGameId && !storedUser) {
+      return 'login';
+    }
+    if (parsedState?.currentView === 'table') {
+      return 'login';
+    }
+    return parsedState?.currentView || 'login';
+  };
+
+  const [currentView, setCurrentView] = useState<ViewType>(getInitialView())
+  const [gameId, setGameId] = useState<string | null>(activeGameId && storedUser ? activeGameId : null)
   const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
 
@@ -57,7 +77,15 @@ function App() {
   useEffect(() => {
     if (!authLoading && isAuthenticated && currentView === 'login') {
       setPlayerName(user?.name || '');
-      setCurrentView('game-menu');
+      // Check if there's an active game to restore after login
+      const activeGame = localStorage.getItem('activePokerGameId');
+      if (activeGame) {
+        console.log('[App] Restoring active game after login:', activeGame);
+        setGameId(activeGame);
+        setCurrentView('table');
+      } else {
+        setCurrentView('game-menu');
+      }
     }
   }, [authLoading, isAuthenticated, user, currentView]);
 
@@ -207,6 +235,7 @@ function App() {
           <BackButton
             onClick={() => {
               setGameId(null);
+              localStorage.removeItem('activePokerGameId');
               setCurrentView('game-menu');
             }}
             label="Back to Menu"
@@ -222,6 +251,7 @@ function App() {
           isGuest={user.is_guest}
           onLogout={async () => {
             await logout();
+            localStorage.removeItem('activePokerGameId');
             setCurrentView('login');
             setGameId(null);
           }}
@@ -273,6 +303,7 @@ function App() {
             onGameCreated={(newGameId) => setGameId(newGameId)}
             onBack={() => {
               setGameId(null);
+              localStorage.removeItem('activePokerGameId');
               setCurrentView('game-menu');
             }}
           />
