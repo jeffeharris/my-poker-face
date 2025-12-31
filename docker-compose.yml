@@ -50,7 +50,7 @@ services:
       - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
     depends_on:
       - backend
-    command: npm run dev -- --host 0.0.0.0
+    command: sh -c "rm -rf node_modules/.vite* && npm run dev -- --host 0.0.0.0"
     networks:
       - poker-network
 

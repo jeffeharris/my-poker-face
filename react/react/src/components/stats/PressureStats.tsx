@@ -44,7 +44,7 @@ interface PressureStatsProps {
   socket?: Socket | null;
 }
 
-export function PressureStats({ gameId, isOpen, socket }: PressureStatsProps) {
+export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStatsProps) {
   const [stats, setStats] = useState<SessionSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);

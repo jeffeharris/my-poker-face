@@ -1,5 +1,7 @@
 /* Playing Card Styles */
 .playing-card {
+    /* Override global border-box reset - card dimensions were designed with content-box */
+    box-sizing: content-box;
     display: inline-block;
     border-radius: 3px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);

@@ -138,14 +138,53 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    border: 2px solid transparent;
+}
+
+/* Winner highlighting */
+.player-showdown.winner {
+    background: linear-gradient(145deg, rgba(255, 215, 0, 0.15), rgba(255, 215, 0, 0.05));
+    border: 2px solid #ffd700;
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+}
+
+.showdown-player-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 80px;
 }
 
 .showdown-player-name {
     font-size: 13px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.9);
-    min-width: 80px;
     text-align: left;
+}
+
+.player-showdown.winner .showdown-player-name {
+    color: #ffd700;
+    font-weight: 700;
+}
+
+.showdown-hand-name {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    font-style: italic;
+    margin-top: 2px;
+}
+
+.showdown-kickers {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.player-showdown.winner .showdown-hand-name {
+    color: #fbbf24;
+}
+
+.player-showdown.winner .showdown-kickers {
+    color: #f59e0b;
 }
 
 .showdown-cards-row {
@@ -171,4 +210,47 @@
 
 .dismiss-btn:active {
     transform: scale(0.95);
+}
+
+/* Commentary Section */
+.mobile-commentary-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.mobile-commentary-bubble {
+    background: rgba(74, 158, 255, 0.15);
+    border: 1px solid rgba(74, 158, 255, 0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    animation: commentSlideIn 0.4s ease-out both;
+}
+
+@keyframes commentSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.mobile-commentary-bubble .commentary-player {
+    font-weight: 600;
+    color: #ffd700;
+    margin-right: 6px;
+    font-size: 13px;
+}
+
+.mobile-commentary-bubble .commentary-text {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    line-height: 1.4;
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { config } from '../../config';
+import { PageLayout } from '../shared';
 import './LoginForm.css';
 
 interface LoginFormProps {
@@ -38,7 +38,7 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
   };
 
   return (
-    <div className="login-form">
+    <PageLayout variant="centered" glowColor="gold" maxWidth="sm">
       <div className="login-form__container">
         <h2>Welcome to My Poker Face</h2>
         <p className="login-form__subtitle">Enter your name to start playing</p>
@@ -100,6 +100,6 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
           </p>
         </div>
       </div>
-    </div>
+    </PageLayout>
   );
 }

@@ -1,6 +1,10 @@
+/* Import Design System */
+@import './styles/design-tokens.css';
+@import './styles/animations.css';
+
 #root {
   min-height: 100vh;
-  background: #0a0e1b;
+  background: var(--color-bg-dark);
 }
 
 .logo {
@@ -43,4 +47,22 @@
 @keyframes loading {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+/* App-level navigation */
+.app-nav {
+  position: fixed;
+  z-index: var(--z-nav);
+  display: flex;
+  gap: var(--space-3);
+}
+
+.app-nav--left {
+  top: var(--space-3);
+  left: var(--space-3);
+}
+
+.app-nav--right {
+  top: var(--space-3);
+  right: var(--space-3);
 }

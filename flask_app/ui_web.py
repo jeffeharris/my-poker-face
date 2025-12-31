@@ -25,12 +25,18 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv(override=True)
 
+# AI model configuration - use fast/lightweight models for quick operations
+FAST_AI_MODEL = os.environ.get('OPENAI_FAST_MODEL', 'gpt-5-nano')
+
 from poker.controllers import AIPlayerController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.elasticity_manager import ElasticityManager
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
+from poker.memory import AIMemoryManager
+from poker.hand_evaluator import HandEvaluator
+from core.card import Card
 from poker.poker_game import PokerGameState, initialize_game_state, determine_winner, play_turn, \
     advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
@@ -181,6 +187,34 @@ def format_action_message(player_name: str, action: str, amount: int = 0, highes
         return f"{player_name} chose to {action}."
 
 
+def record_action_in_memory(game_data: dict, player_name: str, action: str,
+                            amount: int, game_state, state_machine) -> None:
+    """Record a player action in the memory manager if available.
+
+    Args:
+        game_data: The game data dictionary containing the memory_manager
+        player_name: Name of the player who acted
+        action: The action taken ('fold', 'check', 'call', 'raise', 'bet', 'all_in')
+        amount: Amount added to pot
+        game_state: Current game state (for pot total)
+        state_machine: State machine (for current phase)
+    """
+    if 'memory_manager' not in game_data:
+        return
+
+    memory_manager = game_data['memory_manager']
+    pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+    phase = state_machine.current_phase.name if hasattr(state_machine.current_phase, 'name') else str(state_machine.current_phase)
+
+    memory_manager.on_action(
+        player_name=player_name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_total=pot_total
+    )
+
+
 def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state."""
     ai_controllers = {}
@@ -306,22 +340,42 @@ def health_check():
 def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()
-    
+
     if current_user:
         # Get only the user's games
         saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
     else:
         # No games for anonymous users
         saved_games = []
-    
+
     games_data = []
     for game in saved_games:
-        # Parse game state to get player names
+        # Parse game state to get player data
         try:
             state = json.loads(game.game_state_json)
-            player_names = [p['name'] for p in state.get('players', [])]
+            players = state.get('players', [])
+            player_names = [p['name'] for p in players]
+
+            # Calculate player stats
+            total_players = len(players)
+            active_players = sum(1 for p in players if p.get('stack', 0) > 0)
+
+            # Get human player's stack (first human player found)
+            human_stack = None
+            for p in players:
+                if p.get('is_human', False):
+                    human_stack = p.get('stack', 0)
+                    break
+
+            # Get big blind (current_ante)
+            big_blind = state.get('current_ante', 20)
+
         except:
             player_names = []
+            total_players = game.num_players
+            active_players = game.num_players
+            human_stack = None
+            big_blind = 20
 
         # Convert numeric phase to readable string
         try:
@@ -338,9 +392,13 @@ def list_games():
             'num_players': game.num_players,
             'pot_size': game.pot_size,
             'player_names': player_names,
-            'is_owner': True  # Always true since we're filtering by owner
+            'is_owner': True,  # Always true since we're filtering by owner
+            'active_players': active_players,
+            'total_players': total_players,
+            'human_stack': human_stack,
+            'big_blind': big_blind
         })
-    
+
     return jsonify({'games': games_data})
 
 # Removed /api/my-games endpoint - consolidated with /games
@@ -402,13 +460,27 @@ def api_game_state(game_id):
                 
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
-                
+
+                # Initialize memory manager for AI learning (needed for commentary)
+                memory_manager = AIMemoryManager(game_id, persistence.db_path)
+                for player in state_machine.game_state.players:
+                    if not player.is_human and player.name in ai_controllers:
+                        memory_manager.initialize_for_player(player.name)
+                        # Connect memory to AI controller
+                        controller = ai_controllers[player.name]
+                        controller.session_memory = memory_manager.get_session_memory(player.name)
+                        controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+
+                # Start recording the current hand
+                memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
+
                 current_game_data = {
                     'state_machine': state_machine,
                     'ai_controllers': ai_controllers,
                     'elasticity_manager': elasticity_manager,
                     'pressure_detector': pressure_detector,
                     'pressure_stats': pressure_stats,
+                    'memory_manager': memory_manager,
                     'owner_id': owner_id,
                     'owner_name': owner_name,
                     'messages': db_messages,
@@ -553,12 +625,26 @@ def api_new_game():
     game_id = generate_game_id()
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
+    # Initialize memory manager for AI learning
+    memory_manager = AIMemoryManager(game_id, persistence.db_path)
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            memory_manager.initialize_for_player(player.name)
+            # Connect memory to AI controller
+            controller = ai_controllers[player.name]
+            controller.session_memory = memory_manager.get_session_memory(player.name)
+            controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+
+    # Start recording the first hand
+    memory_manager.on_hand_start(state_machine.game_state, hand_number=1)
+
     game_data = {
         'state_machine': state_machine,
         'ai_controllers': ai_controllers,
         'elasticity_manager': elasticity_manager,
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
+        'memory_manager': memory_manager,
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': llm_config,
@@ -604,10 +690,13 @@ def api_player_action(game_id):
     highest_bet = state_machine.game_state.highest_bet
     game_state = play_turn(state_machine.game_state, action, amount)
 
+    # Record human action in memory manager
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "table")
-    
+
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
     
@@ -748,7 +837,29 @@ def progress_game(game_id):
                         }
                     
                     socketio.emit('elasticity_update', elasticity_data, to=game_id)
-            
+
+            # Process hand completion with memory manager (skip commentary for now - generate async)
+            if 'memory_manager' in current_game_data:
+                memory_manager = current_game_data['memory_manager']
+                ai_controllers = current_game_data.get('ai_controllers', {})
+
+                # Build AI players dict for commentary generation
+                ai_players = {
+                    name: controller.ai_player
+                    for name, controller in ai_controllers.items()
+                }
+
+                # Complete hand recording (skip commentary - will generate async after showing winner)
+                try:
+                    memory_manager.on_hand_complete(
+                        winner_info=winner_info,
+                        game_state=game_state,
+                        ai_players=ai_players,
+                        skip_commentary=True
+                    )
+                except Exception as e:
+                    logger.warning(f"Memory manager hand completion failed: {e}")
+
             # Now award the pot winnings
             game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
@@ -781,12 +892,22 @@ def progress_game(game_id):
                 else:
                     winner_data['community_cards'].append({'rank': str(card), 'suit': ''})
 
-            # If it's a showdown, include player cards
+            # If it's a showdown, include player cards and hand info in a combined structure
             if is_showdown:
-                players_cards = {}
+                players_showdown = {}
+
+                # Prepare community cards for hand evaluation
+                community_cards_for_eval = []
+                for card in game_state.community_cards:
+                    if isinstance(card, Card):
+                        community_cards_for_eval.append(card)
+                    elif isinstance(card, dict):
+                        community_cards_for_eval.append(Card(card['rank'], card['suit']))
+
                 for player in active_players:
                     if player.hand:
                         formatted_cards = []
+                        player_cards_for_eval = []
                         for card in player.hand:
                             if hasattr(card, 'to_dict'):
                                 formatted_cards.append(card.to_dict())
@@ -794,8 +915,45 @@ def progress_game(game_id):
                                 formatted_cards.append(card)
                             else:
                                 formatted_cards.append({'rank': str(card), 'suit': ''})
-                        players_cards[player.name] = formatted_cards
-                winner_data['players_cards'] = players_cards
+
+                            # Prepare cards for hand evaluation
+                            if isinstance(card, Card):
+                                player_cards_for_eval.append(card)
+                            elif isinstance(card, dict):
+                                player_cards_for_eval.append(Card(card['rank'], card['suit']))
+
+                        # Evaluate hand to get hand name, rank, and kickers
+                        try:
+                            full_hand = player_cards_for_eval + community_cards_for_eval
+                            hand_result = HandEvaluator(full_hand).evaluate_hand()
+
+                            # Convert kicker values to readable card names
+                            kicker_values = hand_result.get('kicker_values', [])
+                            # Flatten if nested (some hands return nested lists)
+                            if kicker_values and isinstance(kicker_values[0], list):
+                                kicker_values = kicker_values[0] if kicker_values[0] else []
+
+                            value_names = {14: 'A', 13: 'K', 12: 'Q', 11: 'J', 10: '10',
+                                           9: '9', 8: '8', 7: '7', 6: '6', 5: '5',
+                                           4: '4', 3: '3', 2: '2'}
+                            kicker_names = [value_names.get(v, str(v)) for v in kicker_values if isinstance(v, int)]
+
+                            players_showdown[player.name] = {
+                                'cards': formatted_cards,
+                                'hand_name': hand_result.get('hand_name', 'Unknown'),
+                                'hand_rank': hand_result.get('hand_rank', 10),  # Lower is better (1=Royal Flush)
+                                'kickers': kicker_names  # Readable kicker card names
+                            }
+                        except Exception as e:
+                            logger.warning(f"Failed to evaluate hand for {player.name}: {e}")
+                            players_showdown[player.name] = {
+                                'cards': formatted_cards,
+                                'hand_name': None,
+                                'hand_rank': 99,
+                                'kickers': []
+                            }
+
+                winner_data['players_showdown'] = players_showdown
 
             if is_showdown:
                 message_content = (
@@ -806,13 +964,50 @@ def progress_game(game_id):
                 message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
             
             send_message(game_id, "Table", message_content, "table", 1)
-            
+
             # Emit winner announcement event
             socketio.emit('winner_announcement', winner_data, to=game_id)
-            
+
+            # Generate AI commentary (parallel LLM calls for all AI players)
+            # This runs after winner is displayed but before next hand starts
+            if 'memory_manager' in current_game_data:
+                memory_manager = current_game_data['memory_manager']
+                ai_controllers = current_game_data.get('ai_controllers', {})
+                ai_players = {
+                    name: controller.ai_player
+                    for name, controller in ai_controllers.items()
+                }
+
+                try:
+                    logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
+                    commentaries = memory_manager.generate_commentary_for_hand(ai_players)
+                    logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
+
+                    # Send AI commentary as chat messages
+                    for player_name, commentary in commentaries.items():
+                        if commentary and commentary.table_comment:
+                            logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
+                            send_message(game_id, player_name, commentary.table_comment, "ai")
+
+                    # Apply learned adjustments to AI personalities
+                    for name, controller in ai_controllers.items():
+                        if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
+                            memory_manager.apply_learned_adjustments(
+                                name,
+                                controller.ai_player.elastic_personality
+                            )
+                except Exception as e:
+                    logger.warning(f"Commentary generation failed: {e}")
+
             # Delay before dealing new hand
             socketio.sleep(4 if is_showdown else 2)
             send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
+
+            # Start recording the new hand in memory manager
+            if 'memory_manager' in current_game_data:
+                memory_manager = current_game_data['memory_manager']
+                new_hand_number = memory_manager.hand_count + 1
+                memory_manager.on_hand_start(game_state, hand_number=new_hand_number)
 
             # Update the state_machine to be ready for it's next run through the game progression
             state_machine.update_phase()
@@ -888,13 +1083,17 @@ def handle_player_action(data):
     # Generate a message to be added to the game table
     table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
     send_message(game_id, "Table", table_message_content, "table")
+
+    # Record action in memory manager
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
 
     # Update the game session states (global variables right now)
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    
+
     # Save game after human action
     owner_id, owner_name = get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
@@ -1030,16 +1229,18 @@ def handle_ai_action(game_id: str) -> None:
                     f"[{current_player.name} takes a moment to consider]",
                     "table")
 
-    # Build table message (capture highest_bet before play_turn modifies state)
+    # Build action text (capture highest_bet before play_turn modifies state)
     highest_bet = state_machine.game_state.highest_bet
-    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+    action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
-    # Only send AI message if they actually spoke
+    # Send AI message with action included, or just table message if no chat
     if player_message and player_message != '...':
         full_message = f"{player_message} {player_physical_description}".strip()
-        send_message(game_id, current_player.name, full_message, "ai", 1)
-
-    send_message(game_id, "Table", table_message_content, "table")
+        # Combined message: action + chat in one (action shown in floating bubble)
+        send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+    else:
+        # No chat, just send the action as a table message
+        send_message(game_id, "Table", action_text, "table")
 
     # Detect pressure events based on AI action
     if action == 'fold':
@@ -1048,11 +1249,15 @@ def handle_ai_action(game_id: str) -> None:
         detect_and_apply_pressure(game_id, 'big_bet', player_name=current_player.name, bet_size=amount)
 
     game_state = play_turn(state_machine.game_state, action, amount)
+
+    # Record action in memory manager
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+
     game_state = advance_to_next_active_player(game_state)
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     games[game_id] = current_game_data
-    
+
     # Save game after AI action
     owner_id, owner_name = get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
@@ -1084,7 +1289,8 @@ def handle_send_message(data):
 
     send_message(game_id, sender, content, message_type)
 
-def send_message(game_id: str, sender: str, content: str, message_type: str, sleep: Optional[int] = None) -> None:
+def send_message(game_id: str, sender: str, content: str, message_type: str,
+                 sleep: Optional[int] = None, action: Optional[str] = None) -> None:
     """
     Send a message to the specified game chat.
 
@@ -1098,6 +1304,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
         The type of the message ['ai', 'table', 'user'].
     :param sleep: (Optional[int])
         Optional time to sleep after sending the message, in seconds.
+    :param action: (Optional[str])
+        Optional action text to include with AI messages (e.g., "raised to $50").
     :return: (None)
         None
     """
@@ -1112,6 +1320,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str, sle
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
         "message_type": message_type
     }
+    # Include action for AI messages (shown in floating bubble)
+    if action:
+        new_message["action"] = action
     game_messages.append(new_message)
 
     # Update the messages session state
@@ -1206,6 +1417,68 @@ def get_elasticity_data(game_id):
     return jsonify(elasticity_data)
 
 
+@app.route('/api/game/<game_id>/memory-debug', methods=['GET'])
+def get_memory_debug(game_id):
+    """Get current memory state for debugging - shows if AI memory system is working."""
+    game_data = games.get(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    if 'memory_manager' not in game_data:
+        return jsonify({'error': 'Memory manager not initialized', 'working': False}), 200
+
+    memory_manager = game_data['memory_manager']
+
+    # Build debug info
+    debug_info = {
+        'working': True,
+        'game_id': memory_manager.game_id,
+        'hand_count': memory_manager.hand_count,
+        'initialized_players': list(memory_manager.initialized_players),
+        'session_memories': {},
+        'opponent_models': {},
+        'current_hand': None,
+        'completed_hands_count': len(memory_manager.hand_recorder.completed_hands)
+    }
+
+    # Session memory info
+    for player_name, session in memory_manager.session_memories.items():
+        debug_info['session_memories'][player_name] = {
+            'hands_played': session.context.hands_played,
+            'hands_won': session.context.hands_won,
+            'current_streak': session.context.current_streak,
+            'streak_count': session.context.streak_count,
+            'total_winnings': session.context.total_winnings,
+            'hand_memories_count': len(session.hand_memories),
+            'context_preview': session.get_context_for_prompt(100)[:200] if session.hand_memories else 'No hands yet'
+        }
+
+    # Opponent model info
+    all_models = memory_manager.opponent_model_manager.models
+    for observer, targets in all_models.items():
+        debug_info['opponent_models'][observer] = {}
+        for target, model in targets.items():
+            debug_info['opponent_models'][observer][target] = {
+                'hands_observed': model.tendencies.hands_observed,
+                'vpip': round(model.tendencies.vpip, 2),
+                'pfr': round(model.tendencies.pfr, 2),
+                'aggression_factor': round(model.tendencies.aggression_factor, 2),
+                'play_style': model.tendencies.get_play_style_label(),
+                'summary': model.get_prompt_summary()
+            }
+
+    # Current hand in progress
+    if memory_manager.hand_recorder.current_hand:
+        current = memory_manager.hand_recorder.current_hand
+        debug_info['current_hand'] = {
+            'hand_number': current.hand_number,
+            'actions_recorded': len(current.actions),
+            'phase': current.actions[-1].phase if current.actions else 'PRE_FLOP'
+        }
+
+    return jsonify(debug_info)
+
+
 @app.route('/api/game/<game_id>/chat-suggestions', methods=['POST'])
 @limiter.limit(os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour'))
 def get_chat_suggestions(game_id):
@@ -1271,7 +1544,7 @@ Return as JSON with this format:
         
         # Use the OpenAI assistant
         assistant = OpenAILLMAssistant(
-            ai_model="gpt-5-mini",  # Faster model for quick suggestions
+            ai_model=FAST_AI_MODEL,
             ai_temp=0.8,  # Slightly creative but not too random
             system_message="You are a friendly poker player giving brief chat suggestions."
         )
@@ -1296,6 +1569,186 @@ Return as JSON with this format:
                 {"text": "Let's go!", "type": "social"}
             ]
         })
+
+
+@app.route('/api/game/<game_id>/targeted-chat-suggestions', methods=['POST'])
+@limiter.limit(os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour'))
+def get_targeted_chat_suggestions(game_id):
+    """Generate targeted chat suggestions to engage specific AI players."""
+    if game_id not in games:
+        return jsonify({"error": "Game not found"}), 404
+
+    try:
+        data = request.get_json()
+        game_data = games[game_id]
+        state_machine = game_data['state_machine']
+        game_state = state_machine.game_state
+
+        # Get request parameters
+        player_name = data.get('playerName', 'Player')
+        target_player = data.get('targetPlayer')  # None = table talk
+        tone = data.get('tone', 'encourage')
+
+        # Define tone descriptions for the prompt
+        tone_descriptions = {
+            'encourage': 'supportive, friendly, complimentary about their play',
+            'antagonize': 'playful trash talk, teasing, challenging their decisions (keep it fun, not mean)',
+            'confuse': 'random non-sequiturs, weird observations, misdirection to throw them off',
+            'flatter': 'over-the-top compliments, acknowledge their skill, be impressed',
+            'challenge': 'direct dares, betting challenges, call them out to make a move'
+        }
+
+        tone_desc = tone_descriptions.get(tone, tone_descriptions['encourage'])
+
+        # Build game context
+        context_parts = []
+        context_parts.append(f"Game phase: {str(state_machine.current_phase).split('.')[-1]}")
+        context_parts.append(f"Pot size: ${game_state.pot['total']}")
+
+        # Get last action if provided
+        last_action = data.get('lastAction')
+        if last_action:
+            action_text = f"{last_action.get('player', 'Someone')} just {last_action.get('type', 'acted')}"
+            if last_action.get('amount'):
+                action_text += f" ${last_action['amount']}"
+            context_parts.append(action_text)
+
+        context_str = ". ".join(context_parts)
+
+        # Load target personality if targeting specific player
+        target_context = ""
+        if target_player:
+            # Try to load personality from file
+            try:
+                personalities_file = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+                with open(personalities_file, 'r') as f:
+                    personalities_data = json.load(f)
+
+                if target_player in personalities_data.get('personalities', {}):
+                    personality = personalities_data['personalities'][target_player]
+                    play_style = personality.get('play_style', 'unknown')
+                    verbal_tics = personality.get('verbal_tics', [])[:3]  # First 3 tics
+                    attitude = personality.get('default_attitude', 'neutral')
+
+                    target_context = f"""
+Target player: {target_player}
+Their personality: {play_style}
+Their attitude: {attitude}
+Their catchphrases: {', '.join(verbal_tics) if verbal_tics else 'none known'}"""
+            except Exception as e:
+                logger.warning(f"Could not load personality for {target_player}: {e}")
+                target_context = f"\nTarget player: {target_player}"
+
+        # Build the prompt
+        if target_player:
+            # Get first name for more natural addressing
+            target_first_name = target_player.split()[0] if target_player else "them"
+            prompt = f"""Generate exactly 2 short poker table chat messages for player "{player_name}" to say directly to {target_player}.
+{target_context}
+
+Tone: {tone_desc}
+Game context: {context_str}
+
+Requirements:
+- Each message should be 5-15 words
+- IMPORTANT: Include "{target_first_name}" or "{target_player}" in each message to make it clear who you're addressing
+- Match the {tone} tone perfectly
+- Reference poker/the game situation when possible
+- If you know their personality, play off their quirks
+- Be playful but not offensive or mean-spirited
+- Messages should feel natural for poker table banter
+
+Example formats: "Hey {target_first_name}, ...", "{target_first_name}, you really think...", "What's the matter {target_first_name}..."
+
+Return as JSON:
+{{
+    "suggestions": [
+        {{"text": "message here", "tone": "{tone}"}},
+        {{"text": "message here", "tone": "{tone}"}}
+    ],
+    "targetPlayer": "{target_player}"
+}}"""
+        else:
+            # General table talk
+            prompt = f"""Generate exactly 2 short poker table chat messages to announce to the whole table.
+
+Tone: {tone_desc}
+Game context: {context_str}
+
+Requirements:
+- Each message should be 5-15 words
+- Write in FIRST PERSON - these are things the player will say directly
+- Do NOT include the speaker's name - they are saying this themselves
+- Match the {tone} tone perfectly
+- General table talk, not directed at anyone specific
+- Be playful and engaging
+- Messages should feel natural for poker table banter
+
+Good examples: "Anyone else feeling lucky tonight?", "This pot is getting interesting!", "I've got a good feeling about this one"
+Bad examples: "Jeff says he's feeling lucky" (don't use 3rd person), "Player announces confidence" (don't narrate)
+
+Return as JSON:
+{{
+    "suggestions": [
+        {{"text": "message here", "tone": "{tone}"}},
+        {{"text": "message here", "tone": "{tone}"}}
+    ],
+    "targetPlayer": null
+}}"""
+
+        # Check if OpenAI API key is available
+        if not os.environ.get("OPENAI_API_KEY"):
+            logger.warning("No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+
+        # Debug logging
+        logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}")
+        logger.info(f"[QuickChat] Prompt: {prompt[:500]}...")
+
+        # Use the OpenAI assistant - minimal reasoning for fast responses
+        assistant = OpenAILLMAssistant(
+            ai_model=FAST_AI_MODEL,
+            reasoning_effort="minimal",
+            system_message="You are a witty poker player helping generate fun table talk. Keep it light and entertaining."
+        )
+
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+
+        response = assistant.get_json_response(messages)
+        raw_content = response.choices[0].message.content
+        logger.info(f"[QuickChat] Raw response: {raw_content}")
+        result = json.loads(raw_content)
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[QuickChat] ERROR generating suggestions: {str(e)}")
+        logger.exception("[QuickChat] Full traceback:")
+        # Return fallback suggestions with error flag
+        target = data.get('targetPlayer') if 'data' in dir() else None
+        fallback_messages = {
+            'encourage': ["Nice hand!", "Good play there!"],
+            'antagonize': ["You sure about that?", "Interesting choice..."],
+            'confuse': ["Did anyone else hear that?", "The cards speak to me."],
+            'flatter': ["Impressive as always!", "You're too good!"],
+            'challenge': ["Prove it!", "Show me what you got!"]
+        }
+        tone = data.get('tone', 'encourage') if 'data' in dir() else 'encourage'
+        msgs = fallback_messages.get(tone, fallback_messages['encourage'])
+
+        return jsonify({
+            "suggestions": [
+                {"text": msgs[0], "tone": tone},
+                {"text": msgs[1], "tone": tone}
+            ],
+            "targetPlayer": target,
+            "error": str(e),
+            "fallback": True
+        })
+
 
 @app.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
 def get_pressure_stats(game_id):
@@ -1552,43 +2005,49 @@ No other text or explanation."""
         # Call OpenAI
         from core.assistants import OpenAILLMAssistant
         assistant = OpenAILLMAssistant(
-            system_prompt="You are a game designer selecting personalities for themed poker games.",
-            ai_model="gpt-5-mini"
+            system_message="You are a game designer selecting personalities for themed poker games.",
+            ai_model=FAST_AI_MODEL
         )
-        
-        response = assistant.get_response(prompt)
-        
+
+        messages = [
+            {"role": "system", "content": assistant.system_message},
+            {"role": "user", "content": prompt}
+        ]
+        response = assistant.get_response(messages)
+        response_content = response.choices[0].message.content or ""
+
         # Parse the response
         import json
         try:
             # Clean up the response in case it has extra text
-            response_text = response.strip()
+            response_text = response_content.strip()
             if response_text.startswith('```'):
                 # Remove code blocks if present
                 response_text = response_text.split('```')[1]
                 if response_text.startswith('json'):
                     response_text = response_text[4:]
-            
+
             personalities = json.loads(response_text)
-            
+
             # Validate that all personalities exist
             valid_personalities = []
             for name in personalities:
                 if name in personality_sample:
                     valid_personalities.append(name)
-            
+
             # Ensure we have at least 3
             if len(valid_personalities) < 3:
-                # Fallback to random selection
+                logger.warning(f"Theme generation returned insufficient valid personalities ({len(valid_personalities)}), using random fallback")
                 valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
-            
+
             return jsonify({
                 'success': True,
                 'personalities': valid_personalities[:5]  # Max 5 AI players
             })
-            
-        except json.JSONDecodeError:
-            # Fallback to random selection
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse theme generation response: {e}. Response was: {response_content}")
+            logger.warning("Theme generation using random fallback due to JSON parse error")
             personalities = random.sample(personality_sample, min(4, len(personality_sample)))
             return jsonify({
                 'success': True,
@@ -1598,7 +2057,7 @@ No other text or explanation."""
             
     except Exception as e:
         logger.error(f"Error generating theme: {e}")
-        # Fallback to random selection
+        logger.warning("Theme generation using random fallback due to exception")
         try:
             all_personalities = list(get_celebrities())
             personalities = random.sample(all_personalities, min(4, len(all_personalities)))

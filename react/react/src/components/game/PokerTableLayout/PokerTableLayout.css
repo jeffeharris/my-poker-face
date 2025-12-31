@@ -10,31 +10,33 @@
   position: relative;
 }
 
-/* Main game area */
+/* Main game area - fixed to viewport */
 .poker-layout__main {
   grid-column: 1;
   grid-row: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 10px; /* Reduced padding to give more space to table */
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
-/* Table container - takes up most space */
+/* Table container - fills entire main area */
 .poker-layout__table-container {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  min-height: 0; /* Important for flex children */
-  padding: 0; /* Remove any padding that constrains the table */
+  padding: 10px;
 }
 
-/* Action buttons - fixed at bottom */
+/* Action buttons - overlay at bottom, doesn't affect table size */
 .poker-layout__actions {
-  flex-shrink: 0;
-  padding: 20px 0 0 0;
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
   display: flex;
   justify-content: center;
 }

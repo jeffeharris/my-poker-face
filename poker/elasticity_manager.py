@@ -141,7 +141,37 @@ class ElasticPersonality:
         if trait_name in self.traits:
             return self.traits[trait_name].value
         return 0.5  # Default neutral value
-    
+
+    def apply_learned_adjustment(self, opponent_tendencies: Dict[str, float]) -> None:
+        """Adjust traits based on learned opponent patterns.
+
+        This allows AI players to strategically adapt their play style
+        based on what they've learned about their opponents.
+
+        Args:
+            opponent_tendencies: Dict with keys like 'aggression_factor', 'bluff_frequency', 'vpip', etc.
+        """
+        # If opponent is very aggressive, become more cautious
+        aggression = opponent_tendencies.get('aggression_factor', 1.0)
+        if aggression > 2.0 and 'aggression' in self.traits:
+            # Counter aggressive opponents by tightening up
+            self.traits['aggression'].apply_pressure(-0.1)
+
+        # If opponent bluffs a lot, reduce own bluff tendency (they'll call more)
+        bluff_freq = opponent_tendencies.get('bluff_frequency', 0.3)
+        if bluff_freq > 0.5 and 'bluff_tendency' in self.traits:
+            self.traits['bluff_tendency'].apply_pressure(-0.15)
+
+        # If opponent is very tight (low VPIP), can bluff more against them
+        vpip = opponent_tendencies.get('vpip', 0.5)
+        if vpip < 0.2 and 'bluff_tendency' in self.traits:
+            self.traits['bluff_tendency'].apply_pressure(0.1)
+
+        # If opponent folds a lot to pressure, be more aggressive
+        fold_to_cbet = opponent_tendencies.get('fold_to_cbet', 0.5)
+        if fold_to_cbet > 0.7 and 'aggression' in self.traits:
+            self.traits['aggression'].apply_pressure(0.15)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {

@@ -107,7 +107,8 @@ export function usePokerGame({
         sender: msg.sender,
         message: msg.content,
         timestamp: msg.timestamp,
-        type: msg.message_type
+        type: msg.message_type,
+        action: msg.action  // Include action for AI messages
       };
 
       messageIdsRef.current.add(msgId);

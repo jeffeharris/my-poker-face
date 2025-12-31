@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage, Player } from '../../../types';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
 import { QuickChatSuggestions } from '../QuickChatSuggestions';
 import './ChatSidebar.css';
@@ -9,7 +9,7 @@ interface ChatSidebarProps {
   onSendMessage: (message: string) => void;
   playerName?: string;
   gameId?: string;
-  isPlayerTurn?: boolean;
+  players?: Player[];
 }
 
 // Available colors for players
@@ -26,13 +26,13 @@ const AVAILABLE_COLORS = [
 
 type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
 
-export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, isPlayerTurn }: ChatSidebarProps) {
+export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, players = [] }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<MessageFilter>('all');
   const [selectedPlayer, setSelectedPlayer] = useState<string>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
-  const [colorUpdateTrigger, setColorUpdateTrigger] = useState(0);
+  const [, setColorUpdateTrigger] = useState(0);
   const [lastAction, setLastAction] = useState<any>(null);
   const featureFlags = useFeatureFlags();
 
@@ -169,18 +169,22 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
       const grouped = filtered.map((msg, index) => {
         const prevMsg = index > 0 ? filtered[index - 1] : null;
         const nextMsg = index < filtered.length - 1 ? filtered[index + 1] : null;
-        
+
         // For action messages, check the parsed player name
-        const currentSender = msg.displayType === 'action' && msg.parsedAction 
-          ? msg.parsedAction.player 
+        const msgAny = msg as any;
+        const prevMsgAny = prevMsg as any;
+        const nextMsgAny = nextMsg as any;
+
+        const currentSender = msg.displayType === 'action' && msgAny.parsedAction
+          ? msgAny.parsedAction.player
           : msg.sender;
-        
-        const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsg.parsedAction
-          ? prevMsg.parsedAction.player
+
+        const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsgAny?.parsedAction
+          ? prevMsgAny.parsedAction.player
           : prevMsg?.sender;
-          
-        const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsg.parsedAction
-          ? nextMsg.parsedAction.player
+
+        const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsgAny?.parsedAction
+          ? nextMsgAny.parsedAction.player
           : nextMsg?.sender;
         
         // Check if this message is part of a group
@@ -288,23 +292,26 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
 
   const renderActionMessage = (msg: any, index: number) => {
     const { player, action, amount } = msg.parsedAction;
-    const actionEmoji = {
+    const actionKey = action.toLowerCase() as keyof typeof actionEmojiMap;
+    const actionEmojiMap = {
       'fold': '🏳️',
       'check': '✅',
       'call': '📞',
       'raise': '📈',
       'all-in': '🚀',
       'all_in': '🚀'
-    }[action.toLowerCase()] || '🎮';
+    } as const;
+    const actionEmoji = actionEmojiMap[actionKey] || '🎮';
 
-    const actionText = {
+    const actionTextMap = {
       'fold': 'folded',
       'check': 'checked',
       'call': amount ? `called $${amount}` : 'called',
       'raise': amount ? `raised to $${amount}` : 'raised',
       'all-in': 'went all-in!',
       'all_in': 'went all-in!'
-    }[action.toLowerCase()] || action;
+    } as Record<string, string>;
+    const actionText = actionTextMap[actionKey] || action;
 
     const actionClasses = [
       'chat-message',
@@ -424,13 +431,14 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
               msg.eventType ? `event-${msg.eventType}` : ''
             ].filter(Boolean).join(' ');
             
-            const eventEmoji = msg.eventType ? {
+            const eventEmojiMap: Record<string, string> = {
               'win': '🏆',
               'all-in': '📢',
               'big-pot': '💰',
               'showdown': '🎭',
               'elimination': '💀'
-            }[msg.eventType] : null;
+            };
+            const eventEmoji = msg.eventType ? eventEmojiMap[msg.eventType as string] : null;
 
             return (
               <div 
@@ -469,16 +477,14 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         <div ref={messagesEndRef} />
       </div>
       
-      {featureFlags.quickSuggestions && gameId && (
+      {gameId && players.length > 0 && (
         <QuickChatSuggestions
           gameId={gameId}
           playerName={playerName}
-          isPlayerTurn={isPlayerTurn || false}
+          players={players}
           lastAction={lastAction}
           onSelectSuggestion={(text) => {
             setInputValue(text);
-            // Optionally auto-send
-            // onSendMessage(text);
           }}
         />
       )}

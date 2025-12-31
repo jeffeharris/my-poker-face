@@ -3,11 +3,11 @@ import './LoadingIndicator.css';
 
 interface LoadingIndicatorProps {
   currentPlayerName: string;
-  playerIndex: number;
+  playerIndex?: number;
   totalPlayers: number;
 }
 
-export function LoadingIndicator({ currentPlayerName, playerIndex, totalPlayers }: LoadingIndicatorProps) {
+export function LoadingIndicator({ currentPlayerName, playerIndex: _playerIndex, totalPlayers }: LoadingIndicatorProps) {
   const [dots, setDots] = useState(1);
   const [showThinkingBubble, setShowThinkingBubble] = useState(false);
 

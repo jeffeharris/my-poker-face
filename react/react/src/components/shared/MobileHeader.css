@@ -1,0 +1,142 @@
+/**
+ * MobileHeader - Unified mobile navigation header
+ *
+ * Uses design tokens for consistent styling
+ */
+
+.mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  padding-top: max(var(--space-3), var(--safe-area-top));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
+  position: relative;
+  z-index: var(--z-nav);
+}
+
+/* Layout slots */
+.mobile-header__left,
+.mobile-header__right {
+  flex: 0 0 auto;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.mobile-header__left {
+  justify-content: flex-start;
+}
+
+.mobile-header__right {
+  justify-content: flex-end;
+}
+
+.mobile-header__center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===========================================
+   POT DISPLAY WIDGET
+   =========================================== */
+
+.mobile-pot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-2xl);
+  backdrop-filter: blur(8px);
+}
+
+.mobile-pot__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.mobile-pot__amount {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-green);
+}
+
+/* ===========================================
+   CHAT TOGGLE WIDGET
+   =========================================== */
+
+.mobile-chat-toggle {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.mobile-chat-toggle:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.mobile-chat-toggle:active {
+  transform: scale(0.95);
+}
+
+.mobile-chat-toggle__icon {
+  font-size: var(--font-size-xl);
+}
+
+.mobile-chat-toggle__badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-red);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-1);
+}
+
+/* ===========================================
+   GENERIC HEADER BUTTON
+   =========================================== */
+
+.mobile-header-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  border-radius: var(--radius-full);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.mobile-header-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.mobile-header-btn:active {
+  transform: scale(0.95);
+}

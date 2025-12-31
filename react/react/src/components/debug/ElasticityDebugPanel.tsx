@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 import { config } from '../../config';
 import './ElasticityDebugPanel.css';

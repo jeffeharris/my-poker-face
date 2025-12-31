@@ -6,7 +6,7 @@ import sqlite3
 import json
 import os
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass
 
 from poker.poker_game import PokerGameState, Player
@@ -15,6 +15,9 @@ from core.card import Card
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Current schema version - increment when adding migrations
+SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -33,10 +36,11 @@ class SavedGame:
 
 class GamePersistence:
     """Handles persistence of poker games to SQLite database."""
-    
+
     def __init__(self, db_path: str = "poker_games.db"):
         self.db_path = db_path
         self._init_db()
+        self._run_migrations()
     
     def _serialize_card(self, card) -> Dict[str, Any]:
         """Ensure card is properly serialized."""
@@ -75,6 +79,15 @@ class GamePersistence:
     def _init_db(self):
         """Initialize the database schema."""
         with sqlite3.connect(self.db_path) as conn:
+            # Schema version tracking table - must be created first
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    description TEXT
+                )
+            """)
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS games (
                     game_id TEXT PRIMARY KEY,
@@ -190,23 +203,165 @@ class GamePersistence:
                     times_used INTEGER DEFAULT 0
                 )
             """)
-            
-            # Add owner_id column if it doesn't exist (migration)
-            cursor = conn.execute("PRAGMA table_info(games)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'owner_id' not in columns:
-                conn.execute("ALTER TABLE games ADD COLUMN owner_id TEXT")
-                conn.execute("ALTER TABLE games ADD COLUMN owner_name TEXT")
-                # Purge old games without owners
-                conn.execute("DELETE FROM games")
-                logger.info("Migrated games table: added owner_id column and purged old games")
+
+            # Hand history for AI memory and learning
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS hand_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    hand_number INTEGER NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    players_json TEXT NOT NULL,
+                    hole_cards_json TEXT,
+                    community_cards_json TEXT,
+                    actions_json TEXT NOT NULL,
+                    winners_json TEXT,
+                    pot_size INTEGER,
+                    showdown BOOLEAN,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, hand_number)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hand_history_game
+                ON hand_history(game_id)
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp
+                ON hand_history(timestamp DESC)
+            """)
+
+            # Opponent models for AI learning across sessions
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS opponent_models (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    observer_name TEXT NOT NULL,
+                    opponent_name TEXT NOT NULL,
+                    hands_observed INTEGER DEFAULT 0,
+                    vpip REAL DEFAULT 0.5,
+                    pfr REAL DEFAULT 0.5,
+                    aggression_factor REAL DEFAULT 1.0,
+                    fold_to_cbet REAL DEFAULT 0.5,
+                    bluff_frequency REAL DEFAULT 0.3,
+                    showdown_win_rate REAL DEFAULT 0.5,
+                    recent_trend TEXT,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(observer_name, opponent_name)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opponent_models_observer
+                ON opponent_models(observer_name)
+            """)
+
+            # Memorable hands that AI players remember
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memorable_hands (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    observer_name TEXT NOT NULL,
+                    opponent_name TEXT NOT NULL,
+                    hand_id INTEGER NOT NULL,
+                    memory_type TEXT NOT NULL,
+                    impact_score REAL,
+                    narrative TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (hand_id) REFERENCES hand_history(id)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memorable_observer
+                ON memorable_hands(observer_name)
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memorable_opponent
+                ON memorable_hands(opponent_name)
+            """)
             
             # Add index for owner_id
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_games_owner 
+                CREATE INDEX IF NOT EXISTS idx_games_owner
                 ON games(owner_id)
             """)
-    
+
+    def _get_current_schema_version(self) -> int:
+        """Get the current schema version from the database."""
+        with sqlite3.connect(self.db_path) as conn:
+            try:
+                cursor = conn.execute("SELECT MAX(version) FROM schema_version")
+                result = cursor.fetchone()[0]
+                return result if result is not None else 0
+            except sqlite3.OperationalError:
+                # Table doesn't exist yet
+                return 0
+
+    def _run_migrations(self) -> None:
+        """Run any pending schema migrations."""
+        current_version = self._get_current_schema_version()
+
+        if current_version >= SCHEMA_VERSION:
+            return
+
+        logger.info(f"Running database migrations from version {current_version} to {SCHEMA_VERSION}")
+
+        migrations: Dict[int, tuple] = {
+            1: (self._migrate_v1_add_owner_columns, "Add owner_id and owner_name to games table"),
+            2: (self._migrate_v2_add_memory_tables, "Add AI memory and learning tables"),
+        }
+
+        with sqlite3.connect(self.db_path) as conn:
+            for version in range(current_version + 1, SCHEMA_VERSION + 1):
+                if version in migrations:
+                    migrate_func, description = migrations[version]
+                    try:
+                        migrate_func(conn)
+                        conn.execute(
+                            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+                            (version, description)
+                        )
+                        conn.commit()
+                        logger.info(f"Applied migration v{version}: {description}")
+                    except Exception as e:
+                        logger.error(f"Migration v{version} failed: {e}")
+                        raise
+
+    def _migrate_v1_add_owner_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v1: Add owner_id and owner_name columns to games table."""
+        cursor = conn.execute("PRAGMA table_info(games)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'owner_id' not in columns:
+            conn.execute("ALTER TABLE games ADD COLUMN owner_id TEXT")
+            conn.execute("ALTER TABLE games ADD COLUMN owner_name TEXT")
+            # Purge old games without owners
+            conn.execute("DELETE FROM games")
+            logger.info("Added owner_id column and purged old games without owners")
+
+    def _migrate_v2_add_memory_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v2: Add AI memory and learning tables.
+
+        These tables may already exist from _init_db, but this migration
+        ensures the schema_version table tracks their addition.
+        """
+        # Verify tables exist (they should from _init_db)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
+            ('hand_history', 'opponent_models', 'memorable_hands')
+        )
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        expected_tables = {'hand_history', 'opponent_models', 'memorable_hands'}
+        missing_tables = expected_tables - existing_tables
+
+        if missing_tables:
+            logger.warning(f"Memory tables missing (will be created by _init_db): {missing_tables}")
+
+        logger.info("AI memory tables verified/registered in schema version")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
