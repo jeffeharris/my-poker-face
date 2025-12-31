@@ -1203,6 +1203,43 @@ def progress_game(game_id):
                     except Exception as e:
                         logger.warning(f"Memory manager hand completion failed: {e}")
 
+                # Update tilt state for AI players based on hand outcome
+                if 'ai_controllers' in current_game_data and 'pressure_detector' in current_game_data:
+                    ai_controllers = current_game_data['ai_controllers']
+                    pressure_detector = current_game_data['pressure_detector']
+
+                    for player in game_state.players:
+                        if player.name in ai_controllers:
+                            controller = ai_controllers[player.name]
+                            if hasattr(controller, 'tilt_state'):
+                                # Determine outcome for this player
+                                player_won = player.name in winning_player_names
+                                amount = winner_info['winnings'].get(player.name, 0) if player_won else -pot_size
+
+                                # Check for bad beat (lost with strong hand)
+                                was_bad_beat = False
+                                was_bluff_called = False
+                                if not player_won and not player.is_folded:
+                                    # Player went to showdown and lost
+                                    hand_rank = winner_info.get('hand_rank', 0)
+                                    # If loser had a decent hand (pair or better) it might be a bad beat
+                                    was_bad_beat = hand_rank >= 2  # Pair or better
+
+                                # Determine nemesis (who took their chips)
+                                nemesis = winning_player_names[0] if not player_won and winning_player_names else None
+
+                                controller.tilt_state.update_from_hand(
+                                    outcome='won' if player_won else ('folded' if player.is_folded else 'lost'),
+                                    amount=amount,
+                                    opponent=nemesis,
+                                    was_bad_beat=was_bad_beat,
+                                    was_bluff_called=was_bluff_called
+                                )
+                                logger.debug(
+                                    f"Tilt update for {player.name}: level={controller.tilt_state.tilt_level:.2f} "
+                                    f"({controller.tilt_state.get_tilt_category()})"
+                                )
+
                 # Now award the pot winnings
                 game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
