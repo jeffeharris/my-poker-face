@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { Player } from '../../types';
 import type { ChatTone, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
@@ -45,7 +45,7 @@ export function QuickChatSuggestions({
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
-  const [lastFetchTime, setLastFetchTime] = useState(0);
+  const lastFetchTimeRef = useRef(0);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   // Get AI players (non-human, not folded)
@@ -54,7 +54,7 @@ export function QuickChatSuggestions({
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone) => {
     // Cooldown check (15 seconds)
     const now = Date.now();
-    if (now - lastFetchTime < 15000) {
+    if (now - lastFetchTimeRef.current < 15000) {
       return;
     }
 
@@ -80,7 +80,7 @@ export function QuickChatSuggestions({
     } finally {
       setLoading(false);
     }
-  }, [gameId, playerName, lastAction, lastFetchTime]);
+  }, [gameId, playerName, lastAction]);
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);
@@ -110,7 +110,7 @@ export function QuickChatSuggestions({
 
   const handleRefresh = () => {
     if (selectedTone) {
-      setLastFetchTime(0); // Reset cooldown
+      lastFetchTimeRef.current = 0; // Reset cooldown
       fetchSuggestions(selectedTarget, selectedTone);
     }
   };
