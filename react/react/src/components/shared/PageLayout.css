@@ -8,9 +8,9 @@
    BASE LAYOUT
    =========================================== */
 .page-layout {
-  min-height: 100vh;
-  min-height: 100dvh; /* Dynamic viewport height for mobile */
-  width: 100%;
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height for mobile */
+  width: 100vw;
   background: var(--gradient-bg-main);
   display: flex;
   justify-content: center;
@@ -19,7 +19,8 @@
   padding-bottom: max(var(--space-6), env(safe-area-inset-bottom));
   padding-left: max(var(--space-6), env(safe-area-inset-left));
   padding-right: max(var(--space-6), env(safe-area-inset-right));
-  position: relative;
+  position: fixed;
+  inset: 0;
   overflow-x: hidden;
   overflow-y: auto;
   box-sizing: border-box;
