@@ -34,9 +34,10 @@ export function MobileActionButtons({
   const safeStack = Math.max(0, currentPlayerStack || 0);
   const callAmount = Math.max(0, safeHighestBet - safeCurrentBet);
 
+  const oneQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize / 4));
   const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
-  const fullPot = Math.max(safeMinRaise, safePotSize);
   const threeQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.75));
+  const fullPot = Math.max(safeMinRaise, safePotSize);
 
   const handleRaise = () => {
     setRaiseAmount(safeMinRaise);
@@ -51,12 +52,13 @@ export function MobileActionButtons({
   };
 
   const quickBets = [
-    { label: 'Min', amount: safeMinRaise },
-    { label: '½ Pot', amount: halfPot },
-    { label: '¾ Pot', amount: threeQuarterPot },
-    { label: 'Pot', amount: fullPot },
-    { label: 'All-In', amount: safeStack },
-  ].filter(b => b.amount <= safeStack);
+    { label: 'Min', amount: safeMinRaise, alwaysShow: true },
+    { label: '¼ Pot', amount: oneQuarterPot, alwaysShow: false },
+    { label: '½ Pot', amount: halfPot, alwaysShow: false },
+    { label: '¾ Pot', amount: threeQuarterPot, alwaysShow: false },
+    { label: 'Pot', amount: fullPot, alwaysShow: false },
+    { label: 'All-In', amount: safeStack, alwaysShow: true },
+  ].filter(b => b.amount <= safeStack && (b.alwaysShow || b.amount > safeMinRaise));
 
   if (showRaiseSheet) {
     return (
@@ -79,7 +81,16 @@ export function MobileActionButtons({
 
         <div className="raise-amount-display">
           <span className="amount-label">Amount</span>
-          <span className="amount-value">${raiseAmount}</span>
+          <div className="amount-with-2x">
+            <span className="amount-value">${raiseAmount}</span>
+            <button
+              className="double-btn"
+              onClick={() => setRaiseAmount(Math.min(safeStack, raiseAmount * 2))}
+              disabled={raiseAmount * 2 > safeStack}
+            >
+              2x
+            </button>
+          </div>
         </div>
 
         <div className="quick-bet-buttons">

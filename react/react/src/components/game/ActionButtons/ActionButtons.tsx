@@ -42,6 +42,7 @@ export function ActionButtons({
 
   // Calculate raise amounts as pot fractions
   // These are the TOTAL amounts to raise TO (displayed to user, converted to "raise BY" when sent)
+  const oneQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize / 4));
   const oneThirdPot = Math.max(safeMinRaise, Math.floor(safePotSize / 3));
   const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
   const twoThirdsPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.67));
@@ -196,42 +197,59 @@ export function ActionButtons({
         <div className="bet-options">
           {/* Quick bet buttons */}
           <div className="quick-bets">
-            <button 
+            <button
               className={`bet-button ${selectedQuickBet === 'min' && betAmount === safeMinRaise ? 'selected' : ''}`}
               onClick={() => selectBetAmount(safeMinRaise, 'min')}
               disabled={safeMinRaise > safeStack}
             >
               Min<br/>${safeMinRaise}
             </button>
-            <button 
-              className={`bet-button ${selectedQuickBet === '1/3' && betAmount === oneThirdPot ? 'selected' : ''}`}
-              onClick={() => selectBetAmount(oneThirdPot, '1/3')}
-              disabled={oneThirdPot > safeStack}
-            >
-              ⅓ Pot<br/>${oneThirdPot}
-            </button>
-            <button 
-              className={`bet-button ${selectedQuickBet === '1/2' && betAmount === halfPot ? 'selected' : ''}`}
-              onClick={() => selectBetAmount(halfPot, '1/2')}
-              disabled={halfPot > safeStack}
-            >
-              ½ Pot<br/>${halfPot}
-            </button>
-            <button 
-              className={`bet-button ${selectedQuickBet === '2/3' && betAmount === twoThirdsPot ? 'selected' : ''}`}
-              onClick={() => selectBetAmount(twoThirdsPot, '2/3')}
-              disabled={twoThirdsPot > safeStack}
-            >
-              ⅔ Pot<br/>${twoThirdsPot}
-            </button>
-            <button 
-              className={`bet-button ${selectedQuickBet === 'pot' && betAmount === fullPot ? 'selected' : ''}`}
-              onClick={() => selectBetAmount(fullPot, 'pot')}
-              disabled={fullPot > safeStack}
-            >
-              Pot<br/>${fullPot}
-            </button>
-            <button 
+            {oneQuarterPot > safeMinRaise && (
+              <button
+                className={`bet-button ${selectedQuickBet === '1/4' && betAmount === oneQuarterPot ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(oneQuarterPot, '1/4')}
+                disabled={oneQuarterPot > safeStack}
+              >
+                ¼ Pot<br/>${oneQuarterPot}
+              </button>
+            )}
+            {oneThirdPot > safeMinRaise && (
+              <button
+                className={`bet-button ${selectedQuickBet === '1/3' && betAmount === oneThirdPot ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(oneThirdPot, '1/3')}
+                disabled={oneThirdPot > safeStack}
+              >
+                ⅓ Pot<br/>${oneThirdPot}
+              </button>
+            )}
+            {halfPot > safeMinRaise && (
+              <button
+                className={`bet-button ${selectedQuickBet === '1/2' && betAmount === halfPot ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(halfPot, '1/2')}
+                disabled={halfPot > safeStack}
+              >
+                ½ Pot<br/>${halfPot}
+              </button>
+            )}
+            {twoThirdsPot > safeMinRaise && (
+              <button
+                className={`bet-button ${selectedQuickBet === '2/3' && betAmount === twoThirdsPot ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(twoThirdsPot, '2/3')}
+                disabled={twoThirdsPot > safeStack}
+              >
+                ⅔ Pot<br/>${twoThirdsPot}
+              </button>
+            )}
+            {fullPot > safeMinRaise && (
+              <button
+                className={`bet-button ${selectedQuickBet === 'pot' && betAmount === fullPot ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(fullPot, 'pot')}
+                disabled={fullPot > safeStack}
+              >
+                Pot<br/>${fullPot}
+              </button>
+            )}
+            <button
               className={`bet-button all-in ${selectedQuickBet === 'all-in' && betAmount === safeStack ? 'selected' : ''}`}
               onClick={() => selectBetAmount(safeStack, 'all-in')}
             >
