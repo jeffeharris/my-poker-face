@@ -157,16 +157,17 @@ export function MobilePokerTable({
         })}
       </div>
 
-      {/* Community Cards */}
+      {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
-          {gameState.community_cards.length > 0 ? (
-            gameState.community_cards.map((card, i) => (
-              <Card key={i} card={card} faceDown={false} size="medium" />
-            ))
-          ) : (
-            <div className="waiting-for-flop">Waiting for flop...</div>
-          )}
+          {/* Show dealt cards */}
+          {gameState.community_cards.map((card, i) => (
+            <Card key={i} card={card} faceDown={false} size="medium" />
+          ))}
+          {/* Show placeholders for remaining cards */}
+          {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
+            <div key={`placeholder-${i}`} className="community-card-placeholder" />
+          ))}
         </div>
         <div className="phase-indicator">{gameState.phase.replace('_', ' ')}</div>
       </div>

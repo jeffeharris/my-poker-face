@@ -234,9 +234,20 @@
     flex-wrap: wrap;
 }
 
-.waiting-for-flop {
-    color: rgba(255, 255, 255, 0.5);
-    font-style: italic;
+/* Community card placeholder - matches medium card size */
+.community-card-placeholder {
+    width: 80px;
+    height: 107px; /* 86px + 21px padding to match card total height */
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+}
+
+@media (max-width: 768px) {
+    .community-card-placeholder {
+        width: 65px;
+        height: 86px; /* 69px + 17px padding for mobile */
+    }
 }
 
 .phase-indicator {
