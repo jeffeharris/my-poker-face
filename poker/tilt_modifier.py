@@ -139,6 +139,42 @@ class TiltState:
             return 'mild'
         return 'none'
 
+    def apply_pressure_event(self, event_name: str, opponent: Optional[str] = None):
+        """Apply a pressure event to tilt state.
+
+        Maps pressure detector events to tilt changes.
+        """
+        # Events that INCREASE tilt
+        tilt_increases = {
+            'bad_beat': 0.25,           # Lost with strong hand
+            'bluff_called': 0.20,       # Your bluff failed
+            'big_loss': 0.15,           # Lost a big pot
+            'rivalry_trigger': 0.10,    # Trash talked / taunted
+            'fold_under_pressure': 0.05,  # Pressured into folding
+        }
+
+        # Events that DECREASE tilt
+        tilt_decreases = {
+            'successful_bluff': 0.15,   # Successfully bluffed
+            'big_win': 0.20,            # Won big pot
+            'win': 0.10,                # Any win
+            'eliminated_opponent': 0.15,  # Knocked someone out
+            'friendly_chat': 0.05,      # Friendly interaction
+        }
+
+        if event_name in tilt_increases:
+            amount = tilt_increases[event_name]
+            self.tilt_level = min(1.0, self.tilt_level + amount)
+            self.tilt_source = event_name
+            if opponent:
+                self.nemesis = opponent
+
+        elif event_name in tilt_decreases:
+            amount = tilt_decreases[event_name]
+            self.tilt_level = max(0.0, self.tilt_level - amount)
+            if event_name in ('big_win', 'win', 'successful_bluff'):
+                self.losing_streak = 0
+
 
 class TiltPromptModifier:
     """Modifies AI prompts based on tilt state."""

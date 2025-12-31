@@ -1134,10 +1134,11 @@ def progress_game(game_id):
                         event_names = [e[0] for e in events]
                         send_message(game_id, "System", f"[Debug] Pressure events: {', '.join(event_names)}", "system")
 
-                        # Record events in stats tracker
+                        # Record events in stats tracker and update tilt
                         if 'pressure_stats' in current_game_data:
                             pressure_stats = current_game_data['pressure_stats']
                             pot_size = pot_size_before_award
+                            ai_controllers = current_game_data.get('ai_controllers', {})
 
                             for event_name, affected_players in events:
                                 details = {
@@ -1146,6 +1147,15 @@ def progress_game(game_id):
                                     'hand_name': winner_info.get('hand_name')
                                 }
                                 pressure_stats.record_event(event_name, affected_players, details)
+
+                                # Update tilt for affected AI players
+                                for player_name in affected_players:
+                                    if player_name in ai_controllers:
+                                        controller = ai_controllers[player_name]
+                                        if hasattr(controller, 'tilt_state'):
+                                            # Determine opponent (for nemesis tracking)
+                                            opponent = winner_names[0] if winner_names and player_name not in winner_names else None
+                                            controller.tilt_state.apply_pressure_event(event_name, opponent)
 
                         # Update AI controllers with new elasticity values
                         elasticity_manager = current_game_data['elasticity_manager']
@@ -1670,6 +1680,27 @@ def handle_send_message(data):
     message_type = data.get('message_type', 'user')
 
     send_message(game_id, sender, content, message_type)
+
+    # Detect chat events that might affect tilt (trash talk, etc.)
+    if game_id in games and content:
+        game_data = games[game_id]
+        if 'pressure_detector' in game_data and 'ai_controllers' in game_data:
+            pressure_detector = game_data['pressure_detector']
+            ai_controllers = game_data['ai_controllers']
+
+            # Get list of AI players who might be affected by this message
+            ai_player_names = list(ai_controllers.keys())
+
+            # Detect chat events (rivalry_trigger, friendly_chat)
+            chat_events = pressure_detector.detect_chat_events(sender, content, ai_player_names)
+
+            # Apply to tilt
+            for event_name, affected_players in chat_events:
+                for player_name in affected_players:
+                    if player_name in ai_controllers:
+                        controller = ai_controllers[player_name]
+                        if hasattr(controller, 'tilt_state'):
+                            controller.tilt_state.apply_pressure_event(event_name, sender)
 
 def send_message(game_id: str, sender: str, content: str, message_type: str,
                  sleep: Optional[int] = None, action: Optional[str] = None) -> None:
