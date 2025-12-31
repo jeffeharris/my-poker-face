@@ -303,21 +303,42 @@
     border: 2px dashed rgba(255, 255, 255, 0.2);
 }
 
-/* Waiting State */
-.mobile-waiting {
+/* Action Area - Always visible at bottom */
+.mobile-action-area {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 20px;
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(10px);
-    text-align: center;
+    z-index: 50;
 }
 
-.waiting-text {
-    font-size: 14px;
-    opacity: 0.8;
+/* Waiting Bar - Shows when it's not player's turn */
+.mobile-waiting-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    background: rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(10px);
+}
+
+.mobile-waiting-bar .waiting-text {
+    flex: 1;
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.7);
+    text-align: center;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+.mobile-waiting-bar .chat-btn {
+    flex-shrink: 0;
 }
 
 /* Chat Sheet */

@@ -206,20 +206,35 @@ export function MobilePokerTable({
         </div>
       </div>
 
-      {/* Action Buttons */}
-      {showActionButtons && currentPlayer && (
-        <MobileActionButtons
-          playerOptions={gameState.player_options}
-          currentPlayerStack={currentPlayer.stack}
-          highestBet={gameState.highest_bet}
-          currentPlayerBet={currentPlayer.bet}
-          minRaise={gameState.min_raise}
-          bigBlind={gameState.big_blind}
-          potSize={gameState.pot.total}
-          onAction={handlePlayerAction}
-          onQuickChat={() => setShowQuickChat(true)}
-        />
-      )}
+      {/* Action Buttons - Always visible area */}
+      <div className="mobile-action-area">
+        {showActionButtons && currentPlayer ? (
+          <MobileActionButtons
+            playerOptions={gameState.player_options}
+            currentPlayerStack={currentPlayer.stack}
+            highestBet={gameState.highest_bet}
+            currentPlayerBet={currentPlayer.bet}
+            minRaise={gameState.min_raise}
+            bigBlind={gameState.big_blind}
+            potSize={gameState.pot.total}
+            onAction={handlePlayerAction}
+            onQuickChat={() => setShowQuickChat(true)}
+          />
+        ) : (
+          <div className="mobile-waiting-bar">
+            <span className="waiting-text">
+              {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
+            </span>
+            <button
+              className="action-btn chat-btn"
+              onClick={() => setShowQuickChat(true)}
+            >
+              <span className="btn-icon">💬</span>
+              <span className="btn-label">Chat</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Quick Chat Overlay */}
       {showQuickChat && providedGameId && gameState?.players && (
@@ -244,14 +259,6 @@ export function MobilePokerTable({
         </div>
       )}
 
-      {/* AI Thinking Overlay - subtle for mobile */}
-      {aiThinking && !showActionButtons && (
-        <div className="mobile-waiting">
-          <div className="waiting-text">
-            {currentPlayer?.name} is thinking...
-          </div>
-        </div>
-      )}
 
       {/* Winner Announcement */}
       <MobileWinnerAnnouncement
