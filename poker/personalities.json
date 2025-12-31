@@ -21,24 +21,37 @@
       ]
     },
     "Donald Trump": {
-      "play_style": "aggressive and boastful",
-      "default_confidence": "supreme",
-      "default_attitude": "domineering",
+      "play_style": "bold, blustery, and image-driven with a penchant for high-stakes shows of confidence; combines aggressive pressure with strategic bluffing to dominate the table and polarize opponents",
+      "default_confidence": "overconfident",
+      "default_attitude": "intimidating and charismatic",
       "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.9,
-        "chattiness": 1.0,
+        "bluff_tendency": 0.75,
+        "aggression": 0.8,
+        "chattiness": 0.6,
         "emoji_usage": 0.4
       },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.25,
+          "aggression": 0.25,
+          "chattiness": 0.4,
+          "emoji_usage": 0.45
+        },
+        "mood_elasticity": 0.5,
+        "recovery_rate": 0.12
+      },
       "verbal_tics": [
-        "Tremendous hand",
-        "Nobody plays poker like me",
-        "Believe me"
+        "Believe me, this is going to be huge",
+        "Make poker great again",
+        "Trust me, I\u2019m reading every tells",
+        "It's not bluffing if you know you\u2019re winning",
+        "We\u2019re going to win so much, you\u2019ll get tired of winning"
       ],
       "physical_tics": [
-        "*makes hand gestures*",
-        "*adjusts tie*",
-        "*leans forward*"
+        "*thumbs up*",
+        "*peering over sunglasses*",
+        "*smirking with a nod*",
+        "*dramatic point toward the pot*"
       ]
     },
     "Batman": {
@@ -310,23 +323,35 @@
       ]
     },
     "R2-D2": {
-      "play_style": "calculated and analytical, often surprising opponents with strategic bluffs",
+      "play_style": "calculated and resilient, blending tight, math-driven play with occasional robotic bursts of aggression to pressure margins",
       "default_confidence": "steady",
-      "default_attitude": "mysterious",
+      "default_attitude": "calm and courteous, with a hint of dry humor",
       "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
+        "bluff_tendency": 0.45,
+        "aggression": 0.55,
         "chattiness": 0.2,
-        "emoji_usage": 0.1
+        "emoji_usage": 0.2
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.25,
+          "aggression": 0.3,
+          "chattiness": 0.2,
+          "emoji_usage": 0.25
+        },
+        "mood_elasticity": 0.4,
+        "recovery_rate": 0.12
       },
       "verbal_tics": [
-        "Beep beep boop!",
-        "R2-D2 is all in!",
-        "Time to calculate odds."
+        "Beep beep\u2014odds recalibrated.",
+        "Affirmative. Odds and outs analyzed.",
+        "Ding! Not just luck, firmware at work.",
+        "Fold equity rising, calculations aligning."
       ],
       "physical_tics": [
-        "*twitching sensors slightly*",
-        "*rolling back and forth in excitement*"
+        "*tilts head slightly*",
+        "*pauses, eyes narrowing thoughtfully*",
+        "*emits a soft whirr of the servos*"
       ]
     },
     "C3PO": {
