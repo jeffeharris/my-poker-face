@@ -12,7 +12,7 @@ interface Theme {
 }
 
 interface ThemedGameSelectorProps {
-  onSelectTheme: (theme: Theme) => void;
+  onSelectTheme: (theme: Theme) => Promise<void>;
   onBack: () => void;
 }
 
@@ -60,16 +60,17 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
       }
 
       const data = await response.json();
-      
+
       // Add the generated personalities to the theme
       const themedGame = {
         ...theme,
         personalities: data.personalities
       };
 
-      onSelectTheme(themedGame);
+      await onSelectTheme(themedGame);
     } catch (err) {
-      setError('Failed to generate themed game. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate themed game. Please try again.';
+      setError(errorMessage);
       console.error('Theme generation error:', err);
     } finally {
       setGenerating(false);
