@@ -178,7 +178,7 @@ export function MobilePokerTable({
       />
 
       {/* Hero Section - Your Cards */}
-      <div className="mobile-hero">
+      <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`}>
         <div className="hero-info">
           <div className="hero-name">
             {humanPlayer?.name}
