@@ -104,7 +104,9 @@ export function ActionButtons({
   };
 
   const submitBet = () => {
-    if (betAmount >= safeMinRaise && betAmount <= safeStack) {
+    // Allow bet if it meets min raise OR if it's an all-in (even below min)
+    const isValidBet = (betAmount >= safeMinRaise || betAmount === safeStack) && betAmount <= safeStack;
+    if (isValidBet) {
       // Convert "raise TO" (what user sees) to "raise BY" (what backend expects)
       // Backend's player_raise adds cost_to_call internally, so we send the raise increment
       const raiseByAmount = betAmount - safeHighestBet;
@@ -391,10 +393,10 @@ export function ActionButtons({
           <button className="action-button cancel" onClick={cancelBet}>
             Cancel
           </button>
-          <button 
-            className="action-button confirm" 
+          <button
+            className="action-button confirm"
             onClick={submitBet}
-            disabled={betAmount < safeMinRaise || betAmount > safeStack}
+            disabled={(betAmount < safeMinRaise && betAmount !== safeStack) || betAmount > safeStack}
           >
             {playerOptions.includes('raise') ? `Raise $${betAmount}` : `Bet $${betAmount}`}
           </button>

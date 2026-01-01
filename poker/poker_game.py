@@ -627,7 +627,8 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     new_players = [player for player in new_players if player.stack > 0]
 
     # Create a new game state with just the properties we want to carry over (just the new players queue and the ante)
-    return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante)
+    # last_raise_amount must be set to current_ante so the min raise is correct for the current blind level
+    return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante, last_raise_amount=game_state.current_ante)
 
 
 def determine_winner(game_state: PokerGameState) -> Dict:

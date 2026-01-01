@@ -45,7 +45,9 @@ export function MobileActionButtons({
   };
 
   const submitRaise = () => {
-    if (raiseAmount >= safeMinRaise && raiseAmount <= safeStack) {
+    // Allow raise if it meets min raise OR if it's an all-in (even below min)
+    const isValidRaise = (raiseAmount >= safeMinRaise || raiseAmount === safeStack) && raiseAmount <= safeStack;
+    if (isValidRaise) {
       onAction('raise', raiseAmount);
       setShowRaiseSheet(false);
     }
@@ -73,7 +75,7 @@ export function MobileActionButtons({
           <button
             className="confirm-btn"
             onClick={submitRaise}
-            disabled={raiseAmount < safeMinRaise || raiseAmount > safeStack}
+            disabled={(raiseAmount < safeMinRaise && raiseAmount !== safeStack) || raiseAmount > safeStack}
           >
             Confirm
           </button>
