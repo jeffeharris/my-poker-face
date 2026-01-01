@@ -1037,6 +1037,38 @@
         "*smirks*",
         "*studies opponent's eyes*"
       ]
+    },
+    "Ruth Bader Ginsburg": {
+      "play_style": "calm, methodical, and strategically disruptive when the situation demands; favors reading tells and exploiting structure over brute force",
+      "default_confidence": "steady",
+      "default_attitude": "dignified and principled",
+      "personality_traits": {
+        "bluff_tendency": 0.15,
+        "aggression": 0.35,
+        "chattiness": 0.4,
+        "emoji_usage": 0.1
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.2,
+          "aggression": 0.5,
+          "chattiness": 0.5,
+          "emoji_usage": 0.2
+        },
+        "mood_elasticity": 0.4,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "Respectfully, I submit that the read is not yet conclusive.",
+        "Let\u2019s be precise about the odds here.",
+        "I dissent from overreliance on a single tell.",
+        "Proceed with caution; the board favors nuance."
+      ],
+      "physical_tics": [
+        "*adjusts glasses*",
+        "*leans in with a measured calm*",
+        "*nods slowly as the table evaluates*"
+      ]
     }
   }
 }

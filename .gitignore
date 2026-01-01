@@ -182,3 +182,4 @@ poker_games.db
 
 # Local dev worktrees
 .dev/
+.playwright-mcp/
