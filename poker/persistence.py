@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -311,6 +311,7 @@ class GamePersistence:
         migrations: Dict[int, tuple] = {
             1: (self._migrate_v1_add_owner_columns, "Add owner_id and owner_name to games table"),
             2: (self._migrate_v2_add_memory_tables, "Add AI memory and learning tables"),
+            3: (self._migrate_v3_add_controller_state_tables, "Add emotional state and controller state tables"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -361,6 +362,59 @@ class GamePersistence:
             logger.warning(f"Memory tables missing (will be created by _init_db): {missing_tables}")
 
         logger.info("AI memory tables verified/registered in schema version")
+
+    def _migrate_v3_add_controller_state_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v3: Add tables for emotional state and controller state persistence.
+
+        This fixes the issue where TiltState and ElasticPersonality were lost on game reload.
+        """
+        # Emotional state table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS emotional_state (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                valence REAL DEFAULT 0.0,
+                arousal REAL DEFAULT 0.5,
+                control REAL DEFAULT 0.5,
+                focus REAL DEFAULT 0.5,
+                narrative TEXT,
+                inner_voice TEXT,
+                generated_at_hand INTEGER DEFAULT 0,
+                source_events TEXT,
+                metadata_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(game_id),
+                UNIQUE(game_id, player_name)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_emotional_state_game
+            ON emotional_state(game_id, player_name)
+        """)
+
+        # Controller state table (for tilt and other controller-specific state)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS controller_state (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                tilt_state_json TEXT,
+                elastic_personality_json TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(game_id),
+                UNIQUE(game_id, player_name)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_controller_state_game
+            ON controller_state(game_id, player_name)
+        """)
+
+        logger.info("Created emotional_state and controller_state tables")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -739,3 +793,193 @@ class GamePersistence:
         except Exception as e:
             logger.error(f"Error deleting personality {name}: {e}")
             return False
+
+    # Emotional State Persistence Methods
+    def save_emotional_state(self, game_id: str, player_name: str,
+                             emotional_state) -> None:
+        """Save emotional state for a player.
+
+        Args:
+            game_id: The game identifier
+            player_name: The player's name
+            emotional_state: EmotionalState object or dict from EmotionalState.to_dict()
+        """
+        # Convert to dict if it's an EmotionalState object
+        if hasattr(emotional_state, 'to_dict'):
+            state_dict = emotional_state.to_dict()
+        else:
+            state_dict = emotional_state
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO emotional_state
+                (game_id, player_name, valence, arousal, control, focus,
+                 narrative, inner_voice, generated_at_hand, source_events,
+                 metadata_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                game_id,
+                player_name,
+                state_dict.get('valence', 0.0),
+                state_dict.get('arousal', 0.5),
+                state_dict.get('control', 0.5),
+                state_dict.get('focus', 0.5),
+                state_dict.get('narrative', ''),
+                state_dict.get('inner_voice', ''),
+                state_dict.get('generated_at_hand', 0),
+                json.dumps(state_dict.get('source_events', [])),
+                json.dumps({
+                    'created_at': state_dict.get('created_at'),
+                    'used_fallback': state_dict.get('used_fallback', False)
+                })
+            ))
+
+    def load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+        """Load emotional state for a player.
+
+        Returns:
+            Dict suitable for EmotionalState.from_dict(), or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM emotional_state
+                WHERE game_id = ? AND player_name = ?
+            """, (game_id, player_name))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
+
+            return {
+                'valence': row['valence'],
+                'arousal': row['arousal'],
+                'control': row['control'],
+                'focus': row['focus'],
+                'narrative': row['narrative'] or '',
+                'inner_voice': row['inner_voice'] or '',
+                'generated_at_hand': row['generated_at_hand'],
+                'source_events': json.loads(row['source_events']) if row['source_events'] else [],
+                'created_at': metadata.get('created_at'),
+                'used_fallback': metadata.get('used_fallback', False)
+            }
+
+    def load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
+        """Load all emotional states for a game.
+
+        Returns:
+            Dict mapping player_name -> emotional_state dict
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM emotional_state
+                WHERE game_id = ?
+            """, (game_id,))
+
+            states = {}
+            for row in cursor.fetchall():
+                metadata = json.loads(row['metadata_json']) if row['metadata_json'] else {}
+                states[row['player_name']] = {
+                    'valence': row['valence'],
+                    'arousal': row['arousal'],
+                    'control': row['control'],
+                    'focus': row['focus'],
+                    'narrative': row['narrative'] or '',
+                    'inner_voice': row['inner_voice'] or '',
+                    'generated_at_hand': row['generated_at_hand'],
+                    'source_events': json.loads(row['source_events']) if row['source_events'] else [],
+                    'created_at': metadata.get('created_at'),
+                    'used_fallback': metadata.get('used_fallback', False)
+                }
+
+            return states
+
+    # Controller State Persistence Methods (Tilt + ElasticPersonality)
+    def save_controller_state(self, game_id: str, player_name: str,
+                              controller_state: Optional[Dict[str, Any]] = None,
+                              tilt_state: Optional[Dict[str, Any]] = None,
+                              elastic_personality: Optional[Dict[str, Any]] = None) -> None:
+        """Save controller state (tilt and elastic personality) for a player.
+
+        Args:
+            game_id: The game identifier
+            player_name: The player's name
+            controller_state: Combined dict with 'tilt_state' and 'elastic_personality' keys
+            tilt_state: Dict from TiltState serialization (alternative to controller_state)
+            elastic_personality: Dict from ElasticPersonality.to_dict() (alternative)
+        """
+        # Support both calling styles
+        if controller_state is not None:
+            tilt_state = controller_state.get('tilt_state')
+            elastic_personality = controller_state.get('elastic_personality')
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO controller_state
+                (game_id, player_name, tilt_state_json, elastic_personality_json, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                game_id,
+                player_name,
+                json.dumps(tilt_state) if tilt_state else None,
+                json.dumps(elastic_personality) if elastic_personality else None
+            ))
+
+    def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+        """Load controller state for a player.
+
+        Returns:
+            Dict with 'tilt_state' and 'elastic_personality' keys, or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT tilt_state_json, elastic_personality_json
+                FROM controller_state
+                WHERE game_id = ? AND player_name = ?
+            """, (game_id, player_name))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
+                'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None
+            }
+
+    def load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
+        """Load all controller states for a game.
+
+        Returns:
+            Dict mapping player_name -> controller state dict
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT player_name, tilt_state_json, elastic_personality_json
+                FROM controller_state
+                WHERE game_id = ?
+            """, (game_id,))
+
+            states = {}
+            for row in cursor.fetchall():
+                states[row['player_name']] = {
+                    'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
+                    'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None
+                }
+
+            return states
+
+    def delete_emotional_state_for_game(self, game_id: str) -> None:
+        """Delete all emotional states for a game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM emotional_state WHERE game_id = ?", (game_id,))
+
+    def delete_controller_state_for_game(self, game_id: str) -> None:
+        """Delete all controller states for a game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))

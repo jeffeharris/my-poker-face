@@ -32,7 +32,9 @@ FAST_AI_MODEL = os.environ.get('OPENAI_FAST_MODEL', 'gpt-5-nano')
 from poker.controllers import AIPlayerController
 from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
 from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
-from poker.elasticity_manager import ElasticityManager
+from poker.elasticity_manager import ElasticityManager, ElasticPersonality
+from poker.tilt_modifier import TiltState
+from poker.emotional_state import EmotionalState
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
@@ -231,22 +233,31 @@ def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str
     """Restore AI controllers with their saved state."""
     ai_controllers = {}
     ai_states = persistence.load_ai_player_states(game_id)
-    
+
+    # Load controller states (tilt, elastic personality)
+    controller_states = {}
+    emotional_states = {}
+    try:
+        controller_states = persistence.load_all_controller_states(game_id)
+        emotional_states = persistence.load_all_emotional_states(game_id)
+    except Exception as e:
+        logger.warning(f"Could not load controller/emotional states: {e}")
+
     for player in state_machine.game_state.players:
         if not player.is_human:
             controller = AIPlayerController(player.name, state_machine)
-            
+
             # Restore AI state if available
             if player.name in ai_states:
                 saved_state = ai_states[player.name]
-                
+
                 # Restore conversation history (memory, excluding system message)
                 if hasattr(controller, 'assistant') and controller.assistant:
                     saved_messages = saved_state.get('messages', [])
                     # Filter out system messages - only restore user/assistant exchanges
                     memory = [m for m in saved_messages if m.get('role') != 'system']
                     controller.assistant.memory = memory
-                
+
                 # Restore personality state
                 if 'personality_state' in saved_state:
                     ps = saved_state['personality_state']
@@ -255,11 +266,37 @@ def restore_ai_controllers(game_id: str, state_machine, persistence) -> Dict[str
                     if hasattr(controller, 'ai_player'):
                         controller.ai_player.confidence = ps.get('confidence', 'Normal')
                         controller.ai_player.attitude = ps.get('attitude', 'Neutral')
-                
+
                 print(f"Restored AI state for {player.name} with {len(saved_state.get('messages', []))} messages")
-            
+
+            # Restore controller state (tilt + elastic personality)
+            if player.name in controller_states:
+                ctrl_state = controller_states[player.name]
+
+                # Restore tilt state
+                if ctrl_state.get('tilt_state') and hasattr(controller, 'tilt_state'):
+                    controller.tilt_state = TiltState.from_dict(ctrl_state['tilt_state'])
+                    logger.debug(f"Restored tilt state for {player.name}: level={controller.tilt_state.tilt_level:.2f}")
+
+                # Restore elastic personality
+                if ctrl_state.get('elastic_personality') and hasattr(controller, 'ai_player'):
+                    if hasattr(controller.ai_player, 'elastic_personality'):
+                        controller.ai_player.elastic_personality = ElasticPersonality.from_dict(
+                            ctrl_state['elastic_personality']
+                        )
+                        logger.debug(f"Restored elastic personality for {player.name}")
+
+            # Restore emotional state
+            if player.name in emotional_states:
+                if hasattr(controller, 'emotional_state'):
+                    controller.emotional_state = EmotionalState.from_dict(emotional_states[player.name])
+                    logger.debug(
+                        f"Restored emotional state for {player.name}: "
+                        f"valence={controller.emotional_state.valence:.2f}"
+                    )
+
             ai_controllers[player.name] = controller
-    
+
     return ai_controllers
 
 
@@ -1250,6 +1287,42 @@ def progress_game(game_id):
                                     f"({controller.tilt_state.get_tilt_category()})"
                                 )
 
+                                # Generate emotional state for the player
+                                if hasattr(controller, 'generate_emotional_state'):
+                                    try:
+                                        # Build hand outcome dict
+                                        hand_outcome = {
+                                            'outcome': 'won' if player_won else ('folded' if player.is_folded else 'lost'),
+                                            'amount': amount,
+                                            'opponent': nemesis,
+                                            'key_moment': 'bad_beat' if was_bad_beat else (
+                                                'bluff_called' if was_bluff_called else None
+                                            )
+                                        }
+
+                                        # Get session context from memory manager
+                                        session_context = {}
+                                        if 'memory_manager' in current_game_data:
+                                            mm = current_game_data['memory_manager']
+                                            if hasattr(mm, 'session_memory') and mm.session_memory:
+                                                ctx = mm.session_memory.get_context(player.name)
+                                                if ctx:
+                                                    session_context = {
+                                                        'net_change': getattr(ctx, 'total_winnings', 0),
+                                                        'streak_type': getattr(ctx, 'current_streak', 'neutral'),
+                                                        'streak_count': getattr(ctx, 'streak_count', 0)
+                                                    }
+
+                                        # Generate emotional state
+                                        hand_number = game_state.hand_count if hasattr(game_state, 'hand_count') else 0
+                                        controller.generate_emotional_state(
+                                            hand_outcome=hand_outcome,
+                                            session_context=session_context,
+                                            hand_number=hand_number
+                                        )
+                                    except Exception as e:
+                                        logger.warning(f"Emotional state generation failed for {player.name}: {e}")
+
                 # Now award the pot winnings
                 game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
@@ -1662,12 +1735,36 @@ def handle_ai_action(game_id: str) -> None:
             'attitude': getattr(controller.ai_player, 'attitude', 'Neutral')
         }
         persistence.save_ai_player_state(
-            game_id, 
+            game_id,
             current_player.name,
             controller.assistant.messages,
             personality_state
         )
-    
+
+        # Save controller state (tilt + elastic personality)
+        tilt_dict = None
+        elastic_dict = None
+        if hasattr(controller, 'tilt_state'):
+            tilt_dict = controller.tilt_state.to_dict()
+        if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
+            elastic_dict = controller.ai_player.elastic_personality.to_dict()
+
+        if tilt_dict or elastic_dict:
+            persistence.save_controller_state(
+                game_id,
+                current_player.name,
+                tilt_state=tilt_dict,
+                elastic_personality=elastic_dict
+            )
+
+        # Save emotional state
+        if hasattr(controller, 'emotional_state') and controller.emotional_state:
+            persistence.save_emotional_state(
+                game_id,
+                current_player.name,
+                controller.emotional_state.to_dict()
+            )
+
     update_and_emit_game_state(game_id)
 
 

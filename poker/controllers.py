@@ -20,6 +20,7 @@ from .ai_resilience import (
     AIFallbackStrategy
 )
 from .tilt_modifier import TiltState, TiltPromptModifier
+from .emotional_state import EmotionalState, EmotionalStateGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,9 @@ class AIPlayerController:
         self.opponent_model_manager = opponent_model_manager
         # Tilt state tracking
         self.tilt_state = TiltState()
+        # Emotional state (generated at end of each hand)
+        self.emotional_state: Optional[EmotionalState] = None
+        self.emotional_state_generator = EmotionalStateGenerator()
         
     def get_current_personality_traits(self):
         """Get current trait values from elastic personality if available."""
@@ -130,7 +134,10 @@ class AIPlayerController:
         )
         message = message + "\n\n" + chattiness_guidance
 
-        # Apply tilt effects if player is tilted
+        # Inject emotional state context (before tilt effects)
+        message = self._inject_emotional_state(message)
+
+        # Apply tilt effects if player is tilted (after emotional state)
         message = self._apply_tilt_effects(message)
 
         print(message)
@@ -318,6 +325,82 @@ class AIPlayerController:
                 parts.append(f"=== Opponent Intel ===\n{opponent_ctx}")
 
         return "\n\n".join(parts) if parts else ""
+
+    def _inject_emotional_state(self, message: str) -> str:
+        """Inject emotional state context into the prompt.
+
+        Emotional state is generated at the end of each hand and provides
+        dimensional (valence, arousal, control, focus) + narrative context
+        about how the AI is feeling.
+
+        This runs BEFORE tilt effects so that tilt can modify/override as needed.
+        """
+        if not self.emotional_state:
+            return message
+
+        # Skip emotional state injection at severe tilt (tilt will override anyway)
+        if self.tilt_state.tilt_level > 0.6:
+            logger.debug(
+                f"{self.player_name}: Skipping emotional state injection due to severe tilt "
+                f"({self.tilt_state.tilt_level:.2f})"
+            )
+            return message
+
+        # Generate the emotional state section
+        emotional_section = self.emotional_state.to_prompt_section()
+
+        logger.debug(
+            f"{self.player_name} emotional state: "
+            f"valence={self.emotional_state.valence:.2f}, "
+            f"arousal={self.emotional_state.arousal:.2f}, "
+            f"control={self.emotional_state.control:.2f}, "
+            f"focus={self.emotional_state.focus:.2f}"
+        )
+
+        # Prepend emotional state to message
+        return emotional_section + "\n\n" + message
+
+    def generate_emotional_state(self, hand_outcome: dict, session_context: dict,
+                                  hand_number: int) -> None:
+        """Generate emotional state after a hand completes.
+
+        Called from the hand completion flow to update the player's emotional state.
+
+        Args:
+            hand_outcome: Dict with outcome, amount, key_moment, opponent, etc.
+            session_context: Session memory context (streaks, win rate, etc.)
+            hand_number: Current hand number
+        """
+        # Gather elastic trait data
+        elastic_traits = {}
+        if hasattr(self.ai_player, 'elastic_personality'):
+            ep = self.ai_player.elastic_personality
+            for trait_name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']:
+                if trait_name in ep.traits:
+                    trait = ep.traits[trait_name]
+                    elastic_traits[trait_name] = {
+                        'value': trait.value,
+                        'anchor': trait.anchor,
+                        'pressure': trait.pressure
+                    }
+
+        # Generate emotional state
+        self.emotional_state = self.emotional_state_generator.generate(
+            personality_name=self.player_name,
+            personality_config=self.ai_player.personality_config,
+            hand_outcome=hand_outcome,
+            elastic_traits=elastic_traits,
+            tilt_state=self.tilt_state,
+            session_context=session_context,
+            hand_number=hand_number
+        )
+
+        logger.info(
+            f"{self.player_name} emotional state generated: "
+            f"{self.emotional_state.valence_descriptor} mood, "
+            f"{self.emotional_state.arousal_descriptor}, "
+            f"{self.emotional_state.control_descriptor}"
+        )
 
     def _apply_tilt_effects(self, message: str) -> str:
         """Apply tilt effects to the prompt if player is tilted.

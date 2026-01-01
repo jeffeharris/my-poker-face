@@ -86,6 +86,27 @@ class TiltState:
     recent_losses: List[Dict[str, Any]] = field(default_factory=list)
     losing_streak: int = 0
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary for persistence."""
+        return {
+            'tilt_level': self.tilt_level,
+            'tilt_source': self.tilt_source,
+            'nemesis': self.nemesis,
+            'recent_losses': self.recent_losses,
+            'losing_streak': self.losing_streak
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TiltState':
+        """Deserialize from dictionary."""
+        return cls(
+            tilt_level=data.get('tilt_level', 0.0),
+            tilt_source=data.get('tilt_source', ''),
+            nemesis=data.get('nemesis'),
+            recent_losses=data.get('recent_losses', []),
+            losing_streak=data.get('losing_streak', 0)
+        )
+
     def update_from_hand(self, outcome: str, amount: int, opponent: Optional[str] = None,
                          was_bad_beat: bool = False, was_bluff_called: bool = False):
         """Update tilt state based on hand outcome."""
