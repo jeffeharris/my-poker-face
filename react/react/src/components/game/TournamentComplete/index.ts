@@ -1,0 +1,1 @@
+export { TournamentComplete } from './TournamentComplete';

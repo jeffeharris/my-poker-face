@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CommunityCard, HoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import { ChatSidebar } from '../../chat/ChatSidebar';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
+import { TournamentComplete } from '../TournamentComplete';
 import { ElasticityDebugPanel } from '../../debug/ElasticityDebugPanel';
 import { PressureStats } from '../../stats';
 import { PokerTableLayout } from '../PokerTableLayout';
@@ -39,15 +40,35 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     messages,
     aiThinking,
     winnerInfo,
+    tournamentResult,
     socketRef,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
+    clearTournamentResult,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
   });
+
+  // Handle tournament completion - clean up and return to menu
+  const handleTournamentComplete = useCallback(async () => {
+    if (gameId) {
+      try {
+        await fetch(`${config.API_URL}/end_game/${gameId}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (err) {
+        console.error('Failed to end game:', err);
+      }
+    }
+    clearTournamentResult();
+    localStorage.removeItem('activePokerGameId');
+    // Navigate back to menu by reloading
+    window.location.href = '/';
+  }, [gameId, clearTournamentResult]);
 
   // Desktop-specific state
   const [useOverlayLoading] = useState(false);
@@ -458,6 +479,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         <WinnerAnnouncement
           winnerInfo={winnerInfo}
           onComplete={clearWinnerInfo}
+        />
+
+        {/* Tournament Complete */}
+        <TournamentComplete
+          result={tournamentResult}
+          onComplete={handleTournamentComplete}
         />
       </div>
       </PokerTableLayout>

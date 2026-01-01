@@ -47,6 +47,7 @@ from poker.utils import get_celebrities
 from poker.persistence import GamePersistence
 from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.auth import AuthManager
+from poker.tournament_tracker import TournamentTracker
 from .game_adapter import StateMachineAdapter, GameStateAdapter
 from core.assistants import OpenAILLMAssistant
 from openai import OpenAI
@@ -723,6 +724,19 @@ def api_game_state(game_id):
                 # Start recording the current hand
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
+                # Initialize tournament tracker for loaded game
+                # Note: We create a fresh tracker since eliminations are reflected in player list
+                starting_players = [
+                    {'name': p.name, 'is_human': p.is_human}
+                    for p in state_machine.game_state.players
+                ]
+                tournament_tracker = TournamentTracker(
+                    game_id=game_id,
+                    starting_players=starting_players
+                )
+                # Set hand count from memory manager
+                tournament_tracker.hand_count = memory_manager.hand_count
+
                 current_game_data = {
                     'state_machine': state_machine,
                     'ai_controllers': ai_controllers,
@@ -730,6 +744,7 @@ def api_game_state(game_id):
                     'pressure_detector': pressure_detector,
                     'pressure_stats': pressure_stats,
                     'memory_manager': memory_manager,
+                    'tournament_tracker': tournament_tracker,
                     'owner_id': owner_id,
                     'owner_name': owner_name,
                     'messages': db_messages,
@@ -1011,6 +1026,16 @@ def api_new_game():
     # Start recording the first hand
     memory_manager.on_hand_start(state_machine.game_state, hand_number=1)
 
+    # Initialize tournament tracker
+    starting_players = [
+        {'name': p.name, 'is_human': p.is_human}
+        for p in state_machine.game_state.players
+    ]
+    tournament_tracker = TournamentTracker(
+        game_id=game_id,
+        starting_players=starting_players
+    )
+
     game_data = {
         'state_machine': state_machine,
         'ai_controllers': ai_controllers,
@@ -1018,6 +1043,7 @@ def api_new_game():
         'pressure_detector': pressure_detector,
         'pressure_stats': pressure_stats,
         'memory_manager': memory_manager,
+        'tournament_tracker': tournament_tracker,
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': llm_config,
@@ -1135,8 +1161,8 @@ def progress_game(game_id):
             owner_id, owner_name = get_game_owner_info(game_id)
             persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-            if len([p.name for p in game_state.players if p.is_human]) < 1 or len(game_state.players) == 1:
-                return redirect(url_for('end_game', game_id=game_id))
+            # Note: Tournament end handling is now done after EVALUATING_HAND phase
+            # when we detect eliminated players and check if only 1 remains
 
             if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER] and game_state.no_action_taken:
                 # Send a table messages with the cards that were dealt
@@ -1326,6 +1352,79 @@ def progress_game(game_id):
                 # Now award the pot winnings
                 game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
+                # Track tournament progress
+                if 'tournament_tracker' in current_game_data:
+                    tracker = current_game_data['tournament_tracker']
+                    tracker.on_hand_complete(pot_size_before_award)
+
+                    # Detect eliminated players (those with stack == 0 after winnings awarded)
+                    eliminated_players = [p for p in game_state.players if p.stack == 0]
+                    eliminator = winning_player_names[0] if winning_player_names else None
+
+                    human_eliminated = False
+                    human_elimination_event = None
+
+                    for player in eliminated_players:
+                        try:
+                            event = tracker.on_player_eliminated(
+                                player_name=player.name,
+                                eliminator=eliminator,
+                                pot_size=pot_size_before_award
+                            )
+                            # Track if human was eliminated
+                            if player.is_human:
+                                human_eliminated = True
+                                human_elimination_event = event
+
+                            # Emit elimination event to frontend
+                            socketio.emit('player_eliminated', {
+                                'eliminated': player.name,
+                                'eliminator': eliminator,
+                                'finishing_position': event.finishing_position,
+                                'hand_number': event.hand_number,
+                                'remaining_players': tracker.active_player_count
+                            }, to=game_id)
+                            send_message(game_id, "Table",
+                                f"{player.name} has been eliminated in {event.finishing_position}{'st' if event.finishing_position == 1 else 'nd' if event.finishing_position == 2 else 'rd' if event.finishing_position == 3 else 'th'} place!",
+                                "system")
+                        except ValueError:
+                            # Player already eliminated or not in tracker
+                            pass
+
+                    # If human was eliminated, end the tournament for them
+                    if human_eliminated and human_elimination_event:
+                        result = tracker.get_result()
+                        # Override winner since tournament isn't actually complete
+                        result['winner_name'] = None  # No winner yet
+                        result['human_eliminated'] = True
+
+                        # Save partial tournament result
+                        try:
+                            persistence.save_tournament_result(game_id, result)
+                            human_player = tracker.get_human_player()
+                            if human_player:
+                                persistence.update_career_stats(human_player['name'], result)
+                        except Exception as e:
+                            logger.error(f"Failed to save tournament result after human elimination: {e}")
+
+                        # Emit tournament complete with human's elimination info
+                        socketio.emit('tournament_complete', {
+                            'winner': None,  # Tournament still ongoing for AIs
+                            'standings': result['standings'],
+                            'total_hands': result['total_hands'],
+                            'biggest_pot': result['biggest_pot'],
+                            'human_position': human_elimination_event.finishing_position,
+                            'human_eliminated': True,
+                            'game_id': game_id
+                        }, to=game_id)
+
+                        send_message(game_id, "Table",
+                            f"You finished in {human_elimination_event.finishing_position}{'st' if human_elimination_event.finishing_position == 1 else 'nd' if human_elimination_event.finishing_position == 2 else 'rd' if human_elimination_event.finishing_position == 3 else 'th'} place!",
+                            "system")
+
+                        # End the game for the human
+                        return
+
                 winning_players_string = (', '.join(winning_player_names[:-1]) +
                                           f" and {winning_player_names[-1]}") \
                                           if len(winning_player_names) > 1 else winning_player_names[0]
@@ -1461,6 +1560,43 @@ def progress_game(game_id):
                                 )
                     except Exception as e:
                         logger.warning(f"Commentary generation failed: {e}")
+
+                # Check if tournament is complete (only 1 player remaining)
+                if 'tournament_tracker' in current_game_data:
+                    tracker = current_game_data['tournament_tracker']
+                    if tracker.is_complete():
+                        # Tournament is over!
+                        result = tracker.get_result()
+
+                        # Save tournament result to database
+                        try:
+                            persistence.save_tournament_result(game_id, result)
+                            logger.info(f"Tournament {game_id} saved: winner={result['winner_name']}")
+
+                            # Update career stats for human player
+                            human_player_name = result.get('human_player_name')
+                            if human_player_name:
+                                persistence.update_career_stats(human_player_name, result)
+                                logger.info(f"Career stats updated for {human_player_name}")
+                        except Exception as e:
+                            logger.error(f"Failed to save tournament result: {e}")
+
+                        # Emit tournament complete event
+                        socketio.emit('tournament_complete', {
+                            'winner': result['winner_name'],
+                            'standings': result['standings'],
+                            'total_hands': result['total_hands'],
+                            'biggest_pot': result['biggest_pot'],
+                            'human_position': result.get('human_finishing_position'),
+                            'game_id': game_id
+                        }, to=game_id)
+
+                        send_message(game_id, "Table",
+                            f"TOURNAMENT OVER! {result['winner_name']} wins!",
+                            "system")
+
+                        # Don't advance to new hand - game is over
+                        return
 
                 # Delay before dealing new hand
                 socketio.sleep(4 if is_showdown else 2)
@@ -1869,13 +2005,44 @@ def delete_game(game_id):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/end_game/<game_id>', methods=['GET'])
+@app.route('/end_game/<game_id>', methods=['GET', 'POST'])
 def end_game(game_id):
-    if game_id not in games:
-        return jsonify({'error': 'Game not found'}), 404
+    """Clean up game after tournament completes or user exits.
+
+    This removes the game from memory and deletes game state from the database,
+    but tournament results are preserved for career stats and history.
+    """
+    # Clean up from memory
     games.pop(game_id, None)
     messages.pop(game_id, None)
+
+    # Delete game state from database (tournament results are kept)
+    try:
+        persistence.delete_game(game_id)
+    except Exception as e:
+        print(f"Error deleting game {game_id} from database: {e}")
+
     return jsonify({'message': 'Game ended successfully'})
+
+
+@app.route('/api/career-stats', methods=['GET'])
+def get_career_stats():
+    """Get career stats for the authenticated user."""
+    current_user = auth_manager.get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    player_name = current_user.get('name')
+    if not player_name:
+        return jsonify({'error': 'No player name found'}), 400
+
+    stats = persistence.get_career_stats(player_name)
+    history = persistence.get_tournament_history(player_name, limit=10)
+
+    return jsonify({
+        'stats': stats,
+        'recent_tournaments': history
+    })
 
 
 @app.route('/settings/<game_id>')

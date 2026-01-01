@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ChatMessage, GameState } from '../types';
+import type { TournamentResult, EliminationEvent } from '../types/tournament';
 import { config } from '../config';
 
 interface UsePokerGameOptions {
@@ -19,10 +20,13 @@ interface UsePokerGameResult {
   messages: ChatMessage[];
   aiThinking: boolean;
   winnerInfo: any;
+  tournamentResult: TournamentResult | null;
+  eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
   handlePlayerAction: (action: string, amount?: number) => Promise<void>;
   handleSendMessage: (message: string) => Promise<void>;
   clearWinnerInfo: () => void;
+  clearTournamentResult: () => void;
   refreshGameState: (gId: string) => Promise<boolean>;
 }
 
@@ -49,9 +53,12 @@ export function usePokerGame({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
+  const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
   const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
 
   const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
+  const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
 
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
@@ -157,6 +164,16 @@ export function usePokerGame({
     socket.on('winner_announcement', (data: any) => {
       console.log('Winner announcement received:', data);
       setWinnerInfo(data);
+    });
+
+    socket.on('player_eliminated', (data: EliminationEvent) => {
+      console.log('Player eliminated:', data);
+      setEliminationEvents(prev => [...prev, data]);
+    });
+
+    socket.on('tournament_complete', (data: TournamentResult) => {
+      console.log('Tournament complete:', data);
+      setTournamentResult(data);
     });
   }, [onNewAiMessage]);
 
@@ -372,10 +389,13 @@ export function usePokerGame({
     messages,
     aiThinking,
     winnerInfo,
+    tournamentResult,
+    eliminationEvents,
     socketRef,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
+    clearTournamentResult,
     refreshGameState,
   };
 }

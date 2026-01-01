@@ -4,9 +4,11 @@ import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
+import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
+import { config } from '../../config';
 import './MobilePokerTable.css';
 
 interface MobilePokerTableProps {
@@ -41,18 +43,43 @@ export function MobilePokerTable({
   const {
     gameState,
     loading,
+    gameId,
     messages,
     aiThinking,
     winnerInfo,
+    tournamentResult,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
+    clearTournamentResult,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
   });
+
+  // Handle tournament completion - clean up and return to menu
+  const handleTournamentComplete = useCallback(async () => {
+    if (gameId) {
+      try {
+        await fetch(`${config.API_URL}/end_game/${gameId}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (err) {
+        console.error('Failed to end game:', err);
+      }
+    }
+    clearTournamentResult();
+    localStorage.removeItem('activePokerGameId');
+    // Call onBack if available, otherwise reload
+    if (onBack) {
+      onBack();
+    } else {
+      window.location.href = '/';
+    }
+  }, [gameId, clearTournamentResult, onBack]);
 
   // Scroll chat to bottom only when first opened
   useEffect(() => {
@@ -265,6 +292,12 @@ export function MobilePokerTable({
       <MobileWinnerAnnouncement
         winnerInfo={winnerInfo}
         onComplete={clearWinnerInfo}
+      />
+
+      {/* Tournament Complete */}
+      <TournamentComplete
+        result={tournamentResult}
+        onComplete={handleTournamentComplete}
       />
 
       {/* Chat Sheet (bottom drawer) */}

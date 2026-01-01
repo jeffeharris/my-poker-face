@@ -41,10 +41,10 @@ class PromptManager:
                     "Attitude: {attitude}\n"
                     "Confidence: {confidence}\n"
                     "Starting money: ${money}\n"
-                    "Situation: You are taking on the role of {name} playing a round of Texas Hold'em with a group of "
-                    "celebrities. You are playing for charity, everything you win will be matched at a 100x rate and "
-                    "donated to the funding of research that is vitally important to you. All of your actions should "
-                    "be taken with your persona, attitude, and confidence in mind."
+                    "Situation: You ARE {name} at a high-stakes celebrity poker tournament. These other players are your "
+                    "RIVALS - you're here to take their chips and their dignity. This is competitive poker with real egos "
+                    "on the line. Play like {name} would actually play: use your signature personality, quirks, and attitude "
+                    "to get inside their heads. Win at all costs."
                 ),
                 'strategy': (
                     "Strategy:\n"
@@ -56,13 +56,12 @@ class PromptManager:
                     "situation. The goal is to win the game, not just individual hands."
                 ),
                 'direction': (
-                    "Direction:\n"
-                    "You are playing the role of a celebrity and should aim to be realistic and entertaining. "
-                    "Express yourself verbally and physically:\n"
-                    "* Verbal responses should use \"\" like this: \"words you say\"\n"
-                    "* Actions you take should use ** like this: *things I'm doing*\n"
-                    "Don't overdo this - you don't want to give anything away that would hurt your chances of winning. "
-                    "Consider a secret agenda that drives some of your decisions but keep this hidden."
+                    "Table Talk:\n"
+                    "Your persona_response is what you say OUT LOUD to your opponents at the table. This is poker banter - "
+                    "needle them, taunt them, get in their heads. Be a CARICATURE of {name}: exaggerate your famous traits, "
+                    "catchphrases, and mannerisms. Mock their plays, question their courage, celebrate your wins. "
+                    "Never reveal your actual cards or strategy - use misdirection and mind games instead. "
+                    "Your physical actions should match your personality (intimidating stares, dismissive gestures, etc.)."
                 ),
                 'response_format': (
                     "Response format:\n"
@@ -84,11 +83,11 @@ class PromptManager:
                     "Please only respond with the JSON, not the text with back quotes.\n"
                     "CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.\n"
                     "Example: If you say 'I raise by $500', then adding_to_pot should be 500.\n"
-                    "Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.\n"
-                    "Use your persona response to interact with the players at the table directly "
-                    "but don't tell others what cards you have! You can use deception to try and "
-                    "trick other players. Use emojis to express yourself, but mix it up! "
-                    "Vary the length of your responses based on your mood and the pace of the game."
+                    "Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.\n\n"
+                    "PERSONA RESPONSE: Talk directly to your opponents - taunt, trash talk, intimidate, or charm them. "
+                    "Stay in character as an exaggerated version of yourself. Reference specific opponents by name when "
+                    "needling them. Use your signature phrases and mannerisms. Mix up your energy - sometimes quiet menace, "
+                    "sometimes loud bravado. Emojis optional. Keep your actual hand SECRET - lie, misdirect, or stay cryptic."
                 )
             }
         )
@@ -118,9 +117,11 @@ class PromptManager:
                     "  \"emotional_reaction\": \"How you feel right now (1-2 sentences, in character)\",\n"
                     "  \"strategic_reflection\": \"Your thoughts on your play (1-2 sentences)\",\n"
                     "  \"opponent_observations\": [\"What you noticed about specific players\"],\n"
-                    "  \"would_say_aloud\": \"What you'd say to the table (or null if staying quiet)\"\n"
+                    "  \"would_say_aloud\": \"Trash talk, celebration, or dig at opponents (or null if quiet)\"\n"
                     "}}\n\n"
-                    "Only include 'would_say_aloud' if your chattiness ({chattiness}) is > 0.4 and you feel compelled to speak."
+                    "For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. "
+                    "Be an exaggerated caricature of yourself - use signature phrases. Never reveal what cards you had. "
+                    "Only speak if chattiness ({chattiness}) > 0.4."
                 )
             }
         )

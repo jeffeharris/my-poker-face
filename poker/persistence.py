@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 @dataclass
@@ -312,6 +312,7 @@ class GamePersistence:
             1: (self._migrate_v1_add_owner_columns, "Add owner_id and owner_name to games table"),
             2: (self._migrate_v2_add_memory_tables, "Add AI memory and learning tables"),
             3: (self._migrate_v3_add_controller_state_tables, "Add emotional state and controller state tables"),
+            4: (self._migrate_v4_add_tournament_tables, "Add tournament results and career stats tables"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -415,6 +416,79 @@ class GamePersistence:
         """)
 
         logger.info("Created emotional_state and controller_state tables")
+
+    def _migrate_v4_add_tournament_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v4: Add tournament results and career stats tables."""
+        # Tournament results - one row per completed game
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournament_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL UNIQUE,
+                winner_name TEXT,
+                total_hands INTEGER DEFAULT 0,
+                biggest_pot INTEGER DEFAULT 0,
+                starting_player_count INTEGER,
+                human_player_name TEXT,
+                human_finishing_position INTEGER,
+                started_at TIMESTAMP,
+                ended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(game_id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tournament_results_winner
+            ON tournament_results(winner_name)
+        """)
+
+        # Tournament standings - one row per player per tournament
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournament_standings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                is_human BOOLEAN DEFAULT 0,
+                finishing_position INTEGER,
+                eliminated_by TEXT,
+                eliminated_at_hand INTEGER,
+                FOREIGN KEY (game_id) REFERENCES games(game_id),
+                UNIQUE(game_id, player_name)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tournament_standings_game
+            ON tournament_standings(game_id)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tournament_standings_player
+            ON tournament_standings(player_name)
+        """)
+
+        # Player career stats - human player only, aggregated across games
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_career_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_name TEXT NOT NULL UNIQUE,
+                games_played INTEGER DEFAULT 0,
+                games_won INTEGER DEFAULT 0,
+                total_eliminations INTEGER DEFAULT 0,
+                best_finish INTEGER,
+                worst_finish INTEGER,
+                avg_finish REAL,
+                biggest_pot_ever INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_career_stats_player
+            ON player_career_stats(player_name)
+        """)
+
+        logger.info("Created tournament_results, tournament_standings, and player_career_stats tables")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -983,3 +1057,241 @@ class GamePersistence:
         """Delete all controller states for a game."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
+
+    # Tournament Results Persistence Methods
+    def save_tournament_result(self, game_id: str, result: Dict[str, Any]) -> None:
+        """Save tournament result when game completes.
+
+        Args:
+            game_id: The game identifier
+            result: Dict with keys: winner_name, total_hands, biggest_pot,
+                   starting_player_count, human_player_name, human_finishing_position,
+                   started_at, standings (list of player standings)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Save main tournament result
+            conn.execute("""
+                INSERT OR REPLACE INTO tournament_results
+                (game_id, winner_name, total_hands, biggest_pot, starting_player_count,
+                 human_player_name, human_finishing_position, started_at, ended_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                game_id,
+                result.get('winner_name'),
+                result.get('total_hands', 0),
+                result.get('biggest_pot', 0),
+                result.get('starting_player_count'),
+                result.get('human_player_name'),
+                result.get('human_finishing_position'),
+                result.get('started_at')
+            ))
+
+            # Save individual standings
+            standings = result.get('standings', [])
+            for standing in standings:
+                conn.execute("""
+                    INSERT OR REPLACE INTO tournament_standings
+                    (game_id, player_name, is_human, finishing_position,
+                     eliminated_by, eliminated_at_hand)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    game_id,
+                    standing.get('player_name'),
+                    standing.get('is_human', False),
+                    standing.get('finishing_position'),
+                    standing.get('eliminated_by'),
+                    standing.get('eliminated_at_hand')
+                ))
+
+    def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Load tournament result for a completed game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get main result
+            cursor = conn.execute("""
+                SELECT * FROM tournament_results WHERE game_id = ?
+            """, (game_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            # Get standings
+            standings_cursor = conn.execute("""
+                SELECT * FROM tournament_standings
+                WHERE game_id = ?
+                ORDER BY finishing_position ASC
+            """, (game_id,))
+
+            standings = []
+            for s_row in standings_cursor.fetchall():
+                standings.append({
+                    'player_name': s_row['player_name'],
+                    'is_human': bool(s_row['is_human']),
+                    'finishing_position': s_row['finishing_position'],
+                    'eliminated_by': s_row['eliminated_by'],
+                    'eliminated_at_hand': s_row['eliminated_at_hand']
+                })
+
+            return {
+                'game_id': row['game_id'],
+                'winner_name': row['winner_name'],
+                'total_hands': row['total_hands'],
+                'biggest_pot': row['biggest_pot'],
+                'starting_player_count': row['starting_player_count'],
+                'human_player_name': row['human_player_name'],
+                'human_finishing_position': row['human_finishing_position'],
+                'started_at': row['started_at'],
+                'ended_at': row['ended_at'],
+                'standings': standings
+            }
+
+    def update_career_stats(self, player_name: str, tournament_result: Dict[str, Any]) -> None:
+        """Update career stats for a player after a tournament.
+
+        Args:
+            player_name: The human player's name
+            tournament_result: Dict with tournament result data
+        """
+        # Find the player's standing in this tournament
+        standings = tournament_result.get('standings', [])
+        player_standing = next(
+            (s for s in standings if s.get('player_name') == player_name),
+            None
+        )
+
+        if not player_standing:
+            logger.warning(f"Player {player_name} not found in tournament standings")
+            return
+
+        finishing_position = player_standing.get('finishing_position', 0)
+        is_winner = finishing_position == 1
+
+        # Count eliminations by this player
+        eliminations_this_game = sum(
+            1 for s in standings
+            if s.get('eliminated_by') == player_name
+        )
+
+        biggest_pot = tournament_result.get('biggest_pot', 0)
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Check if player exists
+            cursor = conn.execute("""
+                SELECT * FROM player_career_stats WHERE player_name = ?
+            """, (player_name,))
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing stats
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT * FROM player_career_stats WHERE player_name = ?
+                """, (player_name,))
+                row = cursor.fetchone()
+
+                games_played = row['games_played'] + 1
+                games_won = row['games_won'] + (1 if is_winner else 0)
+                total_eliminations = row['total_eliminations'] + eliminations_this_game
+
+                # Update best/worst finish
+                best_finish = row['best_finish']
+                if best_finish is None or finishing_position < best_finish:
+                    best_finish = finishing_position
+
+                worst_finish = row['worst_finish']
+                if worst_finish is None or finishing_position > worst_finish:
+                    worst_finish = finishing_position
+
+                # Calculate new average
+                old_avg = row['avg_finish'] or finishing_position
+                avg_finish = ((old_avg * (games_played - 1)) + finishing_position) / games_played
+
+                # Update biggest pot
+                biggest_pot_ever = max(row['biggest_pot_ever'] or 0, biggest_pot)
+
+                conn.execute("""
+                    UPDATE player_career_stats
+                    SET games_played = ?,
+                        games_won = ?,
+                        total_eliminations = ?,
+                        best_finish = ?,
+                        worst_finish = ?,
+                        avg_finish = ?,
+                        biggest_pot_ever = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE player_name = ?
+                """, (
+                    games_played, games_won, total_eliminations,
+                    best_finish, worst_finish, avg_finish, biggest_pot_ever,
+                    player_name
+                ))
+            else:
+                # Insert new player
+                conn.execute("""
+                    INSERT INTO player_career_stats
+                    (player_name, games_played, games_won, total_eliminations,
+                     best_finish, worst_finish, avg_finish, biggest_pot_ever)
+                    VALUES (?, 1, ?, ?, ?, ?, ?, ?)
+                """, (
+                    player_name,
+                    1 if is_winner else 0,
+                    eliminations_this_game,
+                    finishing_position,
+                    finishing_position,
+                    float(finishing_position),
+                    biggest_pot
+                ))
+
+    def get_career_stats(self, player_name: str) -> Optional[Dict[str, Any]]:
+        """Get career stats for a player."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM player_career_stats WHERE player_name = ?
+            """, (player_name,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'player_name': row['player_name'],
+                'games_played': row['games_played'],
+                'games_won': row['games_won'],
+                'total_eliminations': row['total_eliminations'],
+                'best_finish': row['best_finish'],
+                'worst_finish': row['worst_finish'],
+                'avg_finish': row['avg_finish'],
+                'biggest_pot_ever': row['biggest_pot_ever'],
+                'win_rate': row['games_won'] / row['games_played'] if row['games_played'] > 0 else 0
+            }
+
+    def get_tournament_history(self, player_name: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get tournament history for a player."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT tr.*, ts.finishing_position, ts.eliminated_by
+                FROM tournament_results tr
+                JOIN tournament_standings ts ON tr.game_id = ts.game_id
+                WHERE ts.player_name = ?
+                ORDER BY tr.ended_at DESC
+                LIMIT ?
+            """, (player_name, limit))
+
+            history = []
+            for row in cursor.fetchall():
+                history.append({
+                    'game_id': row['game_id'],
+                    'winner_name': row['winner_name'],
+                    'total_hands': row['total_hands'],
+                    'biggest_pot': row['biggest_pot'],
+                    'player_count': row['starting_player_count'],
+                    'your_position': row['finishing_position'],
+                    'eliminated_by': row['eliminated_by'],
+                    'ended_at': row['ended_at']
+                })
+
+            return history
