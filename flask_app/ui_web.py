@@ -1379,11 +1379,11 @@ def progress_game(game_id):
                                 else:
                                     formatted_cards.append({'rank': str(card), 'suit': ''})
 
-                            # Prepare cards for hand evaluation
-                            if isinstance(card, Card):
-                                player_cards_for_eval.append(card)
-                            elif isinstance(card, dict):
-                                player_cards_for_eval.append(Card(card['rank'], card['suit']))
+                                # Prepare cards for hand evaluation
+                                if isinstance(card, Card):
+                                    player_cards_for_eval.append(card)
+                                elif isinstance(card, dict):
+                                    player_cards_for_eval.append(Card(card['rank'], card['suit']))
 
                         # Evaluate hand to get hand name, rank, and kickers
                         try:
