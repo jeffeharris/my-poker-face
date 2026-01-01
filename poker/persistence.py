@@ -1295,3 +1295,33 @@ class GamePersistence:
                 })
 
             return history
+
+    def get_eliminated_personalities(self, player_name: str) -> List[Dict[str, Any]]:
+        """Get all unique personalities eliminated by this player across all games.
+
+        Returns a list of personalities with the first time they were eliminated.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # Get unique personalities eliminated by this player, with first elimination date
+            cursor = conn.execute("""
+                SELECT
+                    ts.player_name as personality_name,
+                    MIN(tr.ended_at) as first_eliminated_at,
+                    COUNT(*) as times_eliminated
+                FROM tournament_standings ts
+                JOIN tournament_results tr ON ts.game_id = tr.game_id
+                WHERE ts.eliminated_by = ? AND ts.is_human = 0
+                GROUP BY ts.player_name
+                ORDER BY MIN(tr.ended_at) ASC
+            """, (player_name,))
+
+            personalities = []
+            for row in cursor.fetchall():
+                personalities.append({
+                    'name': row['personality_name'],
+                    'first_eliminated_at': row['first_eliminated_at'],
+                    'times_eliminated': row['times_eliminated']
+                })
+
+            return personalities

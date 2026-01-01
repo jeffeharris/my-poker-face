@@ -9,6 +9,7 @@ import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
 import { LoginForm } from './components/auth/LoginForm'
+import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
 import { BackButton, UserBadge } from './components/shared'
 import { useAuth } from './hooks/useAuth'
@@ -16,7 +17,7 @@ import { useViewport } from './hooks/useViewport'
 import { config } from './config'
 import './App.css'
 
-type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo'
+type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats'
 
 interface Theme {
   id: string;
@@ -104,7 +105,8 @@ function App() {
       'personalities': 'Manage Personalities - My Poker Face',
       'themed-game': 'Themed Game - My Poker Face',
       'custom-game': 'Custom Game - My Poker Face',
-      'elasticity-demo': 'Elasticity Demo - My Poker Face'
+      'elasticity-demo': 'Elasticity Demo - My Poker Face',
+      'stats': 'My Stats - My Poker Face'
     };
     
     document.title = titles[currentView] || 'My Poker Face';
@@ -274,6 +276,7 @@ function App() {
           onThemedGame={handleThemedGame}
           onContinueGame={handleContinueGame}
           onManagePersonalities={() => setCurrentView('personalities')}
+          onViewStats={() => setCurrentView('stats')}
           savedGamesCount={savedGamesCount}
         />
       )}
@@ -319,6 +322,9 @@ function App() {
         <PersonalityManagerHTML onBack={() => setCurrentView('game-menu')} />
       )}
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
+      {currentView === 'stats' && (
+        <CareerStats onBack={() => setCurrentView('game-menu')} />
+      )}
 
       {/* PWA Install Prompt */}
       <InstallPrompt />

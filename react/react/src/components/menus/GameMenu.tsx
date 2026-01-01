@@ -9,6 +9,7 @@ interface GameMenuProps {
   onThemedGame: () => void;
   onContinueGame: () => void;
   onManagePersonalities: () => void;
+  onViewStats?: () => void;
   savedGamesCount: number;
 }
 
@@ -19,6 +20,7 @@ export function GameMenu({
   onThemedGame,
   onContinueGame,
   onManagePersonalities,
+  onViewStats,
   savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
@@ -105,6 +107,22 @@ export function GameMenu({
             </div>
             <div className="option-arrow">→</div>
           </button>
+
+          {onViewStats && (
+            <button
+              className="menu-option view-stats"
+              onClick={onViewStats}
+              onMouseEnter={() => setHoveredOption('stats')}
+              onMouseLeave={() => setHoveredOption(null)}
+            >
+              <div className="option-icon">📊</div>
+              <div className="option-content">
+                <h3>My Stats</h3>
+                <p>View your career statistics and history</p>
+              </div>
+              <div className="option-arrow">→</div>
+            </button>
+          )}
         </div>
 
       <div className="game-menu__footer">
@@ -114,6 +132,7 @@ export function GameMenu({
           {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
           {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
           {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
+          {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
           {!hoveredOption && "Ready to test your poker face?"}
         </p>
       </div>

@@ -1,0 +1,524 @@
+.career-stats {
+  padding: 1rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Loading State */
+.career-stats-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem;
+  color: #9ca3af;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error State */
+.career-stats-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem;
+  text-align: center;
+}
+
+.error-icon {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.2);
+  border: 2px solid #ef4444;
+  border-radius: 50%;
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #ef4444;
+}
+
+.career-stats-error p {
+  color: #9ca3af;
+  margin: 0;
+}
+
+.retry-button {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.retry-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+/* Empty State */
+.career-stats-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  filter: grayscale(50%);
+}
+
+.career-stats-empty h2 {
+  color: #fff;
+  margin: 0;
+}
+
+.career-stats-empty p {
+  color: #9ca3af;
+  margin: 0;
+}
+
+.start-playing-button {
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #ffd700 0%, #f59e0b 100%);
+  color: #1a1a2e;
+  border: none;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.start-playing-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+}
+
+/* Hero Stats */
+.stats-hero {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  flex: 1;
+  max-width: 120px;
+  padding: 1.25rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: center;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.stat-card.highlight {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(245, 158, 11, 0.1) 100%);
+  border-color: rgba(255, 215, 0, 0.3);
+}
+
+.stat-card .stat-value {
+  display: block;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+
+.stat-card.highlight .stat-value {
+  color: #ffd700;
+}
+
+.stat-card .stat-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.5rem;
+}
+
+/* Takeout Section */
+.takeout-section {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 1rem 0;
+}
+
+.takeout-display {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.takeout-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80px;
+}
+
+.takeout-number {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #ef4444;
+  line-height: 1;
+}
+
+.takeout-label {
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  text-align: center;
+  margin-top: 0.25rem;
+}
+
+.takeout-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.takeout-badge {
+  font-size: 1.25rem;
+  opacity: 0.8;
+  transition: transform 0.2s, opacity 0.2s;
+}
+
+.takeout-badge:hover {
+  transform: scale(1.2);
+  opacity: 1;
+}
+
+.takeout-overflow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.5rem;
+  background: rgba(239, 68, 68, 0.2);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #ef4444;
+}
+
+/* Achievements Row */
+.achievements-row {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.achievement {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  min-width: 100px;
+}
+
+.achievement-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.achievement-label {
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.achievement-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #fff;
+  margin-top: 0.25rem;
+}
+
+/* Tournament History */
+.history-section {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tournament-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tournament-row {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.tournament-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tournament-row.winner {
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+}
+
+.position-badge {
+  font-weight: 600;
+  min-width: 70px;
+  color: #fff;
+}
+
+.tournament-row.winner .position-badge {
+  color: #ffd700;
+}
+
+.tournament-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.tournament-hands {
+  font-size: 0.875rem;
+  color: #d1d5db;
+}
+
+.eliminated-by {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.tournament-date {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .career-stats {
+    padding: 0.75rem;
+  }
+
+  .stats-hero {
+    gap: 0.5rem;
+  }
+
+  .stat-card {
+    padding: 1rem 0.5rem;
+  }
+
+  .stat-card .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .takeout-display {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .achievements-row {
+    gap: 0.5rem;
+  }
+
+  .achievement {
+    padding: 0.75rem;
+    min-width: 90px;
+  }
+}
+
+/* Badges Collection */
+.badges-section {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.badges-section .section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.badges-section .badge-count {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #6b7280;
+  text-transform: none;
+}
+
+.badges-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.personality-badge {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+  border: 2px solid #4b5563;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.personality-badge:hover {
+  transform: scale(1.1);
+  border-color: #9ca3af;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.personality-badge.selected {
+  border-color: #ffd700;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.4);
+}
+
+.badge-initial {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.badge-count-indicator {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* Badge Info Panel */
+.badge-info {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 8px;
+}
+
+.badge-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.badge-info-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffd700;
+}
+
+.badge-info-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.badge-info-close:hover {
+  color: #fff;
+}
+
+.badge-info-details {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.875rem;
+  color: #d1d5db;
+}
+
+.badges-empty {
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.badges-empty p {
+  color: #6b7280;
+  margin: 0;
+  font-style: italic;
+}
+
+/* Mobile adjustments for badges */
+@media (max-width: 480px) {
+  .personality-badge {
+    width: 40px;
+    height: 40px;
+  }
+
+  .badge-initial {
+    font-size: 1rem;
+  }
+
+  .badge-info-details {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}

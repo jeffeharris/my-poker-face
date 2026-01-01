@@ -50,6 +50,12 @@ export interface TournamentHistoryEntry {
   ended_at: string;
 }
 
+export interface EliminatedPersonality {
+  name: string;
+  first_eliminated_at: string;
+  times_eliminated: number;
+}
+
 /**
  * Helper to get ordinal suffix for a number (1st, 2nd, 3rd, etc.)
  */

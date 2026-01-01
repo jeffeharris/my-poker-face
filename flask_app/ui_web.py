@@ -2038,10 +2038,12 @@ def get_career_stats():
 
     stats = persistence.get_career_stats(player_name)
     history = persistence.get_tournament_history(player_name, limit=10)
+    eliminated = persistence.get_eliminated_personalities(player_name)
 
     return jsonify({
         'stats': stats,
-        'recent_tournaments': history
+        'recent_tournaments': history,
+        'eliminated_personalities': eliminated
     })
 
 
