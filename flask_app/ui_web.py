@@ -35,6 +35,8 @@ from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.elasticity_manager import ElasticityManager, ElasticPersonality
 from poker.tilt_modifier import TiltState
 from poker.emotional_state import EmotionalState
+from poker.character_images import get_avatar_url, has_character_images, generate_character_images, init_character_image_service
+from poker.personality_generator import PersonalityGenerator
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
@@ -162,10 +164,62 @@ event_repository = PressureEventRepository(db_path)
 # Initialize authentication
 auth_manager = AuthManager(app, persistence)
 
+# Initialize personality generator and character image service
+personality_generator = PersonalityGenerator(persistence=persistence)
+init_character_image_service(personality_generator)
+
 
 # Helper function to generate unique game ID
 def generate_game_id():
     return str(int(time.time() * 1000))  # Use current time in milliseconds as a unique ID
+
+
+def generate_avatars_background(game_id: str, player_names: list):
+    """
+    Generate avatar images for players in the background.
+    Emits avatar_update events via Socket.IO when each player's images are ready.
+    """
+    logger.info(f"Background avatar generation started for game={game_id}, players={player_names}")
+    for player_name in player_names:
+        if has_character_images(player_name):
+            logger.debug(f"Avatar images already exist for {player_name}")
+            continue
+
+        logger.info(f"Generating avatars for {player_name}...")
+        try:
+            result = generate_character_images(player_name)
+            if result.get('success') or result.get('generated', 0) > 0:
+                avatar_url = get_avatar_url(player_name, 'confident')
+                logger.info(f"Avatar generation complete for {player_name}: {avatar_url}")
+
+                # Emit avatar update to the game room
+                socketio.emit('avatar_update', {
+                    'player_name': player_name,
+                    'avatar_url': avatar_url,
+                    'avatar_emotion': 'confident'
+                }, room=game_id)
+            else:
+                logger.warning(f"Avatar generation failed for {player_name}: {result.get('errors', [])}")
+        except Exception as e:
+            logger.error(f"Error generating avatars for {player_name}: {e}")
+    logger.info(f"Background avatar generation finished for game={game_id}")
+
+
+def start_background_avatar_generation(game_id: str, ai_player_names: list):
+    """Start background thread to generate missing avatars."""
+    players_needing_images = [
+        name for name in ai_player_names
+        if not has_character_images(name)
+    ]
+
+    if players_needing_images:
+        logger.info(f"Starting background avatar generation for: {players_needing_images}")
+        thread = threading.Thread(
+            target=generate_avatars_background,
+            args=(game_id, players_needing_images),
+            daemon=True
+        )
+        thread.start()
 
 
 def get_game_owner_info(game_id: str) -> tuple:
@@ -305,10 +359,30 @@ def update_and_emit_game_state(game_id):
     current_game_data = games.get(game_id)
     if not current_game_data:
         return
-        
+
     game_state = current_game_data['state_machine'].game_state
     game_state_dict = game_state.to_dict()
-    
+
+    # Add avatar data to AI players
+    ai_controllers = current_game_data.get('ai_controllers', {})
+    for player_dict in game_state_dict.get('players', []):
+        player_name = player_dict.get('name', '')
+        if not player_dict.get('is_human', True) and player_name in ai_controllers:
+            controller = ai_controllers[player_name]
+            # Get emotional state and map to display emotion
+            emotional_state = getattr(controller, 'emotional_state', None)
+            if emotional_state:
+                display_emotion = emotional_state.get_display_emotion()
+            else:
+                display_emotion = 'confident'  # Default
+
+            # Get avatar URL
+            avatar_url = get_avatar_url(player_name, display_emotion)
+
+            # Add to player dict
+            player_dict['avatar_emotion'] = display_emotion
+            player_dict['avatar_url'] = avatar_url
+
     # Include messages in the game state (transform to frontend format)
     messages = []
     for msg in current_game_data.get('messages', []):
@@ -319,7 +393,7 @@ def update_and_emit_game_state(game_id):
             'timestamp': msg.get('timestamp', datetime.now().isoformat()),
             'type': msg.get('message_type', msg.get('type', 'system'))
         })
-    
+
     game_state_dict['messages'] = messages
     # Ensure the dealer and blind indices are included
     game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
@@ -786,12 +860,26 @@ def api_game_state(game_id):
     
     # Convert game state to API format
     # Use dict format for cards to match WebSocket format (more robust than string parsing)
+    ai_controllers = current_game_data.get('ai_controllers', {})
     players = []
     for player in game_state.players:
         if player.is_human and player.hand:
             hand = [card.to_dict() if hasattr(card, 'to_dict') else card for card in player.hand]
         else:
             hand = None
+
+        # Get avatar data for AI players
+        avatar_url = None
+        avatar_emotion = None
+        if not player.is_human and player.name in ai_controllers:
+            controller = ai_controllers[player.name]
+            emotional_state = getattr(controller, 'emotional_state', None)
+            if emotional_state:
+                avatar_emotion = emotional_state.get_display_emotion()
+            else:
+                avatar_emotion = 'confident'
+            avatar_url = get_avatar_url(player.name, avatar_emotion)
+
         players.append({
             'name': player.name,
             'stack': player.stack,
@@ -799,7 +887,9 @@ def api_game_state(game_id):
             'is_folded': player.is_folded,
             'is_all_in': player.is_all_in,
             'is_human': player.is_human,
-            'hand': hand
+            'hand': hand,
+            'avatar_url': avatar_url,
+            'avatar_emotion': avatar_emotion
         })
 
     # Convert community cards (dict format to match WebSocket)
@@ -1056,9 +1146,12 @@ def api_new_game():
         }]
     }
     games[game_id] = game_data
-    
+
     # Save the new game to database
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+
+    # Start background avatar generation for AI players without images
+    start_background_avatar_generation(game_id, ai_player_names)
 
     # Game progression is triggered later by server-side events (e.g., player joins or actions).
     # This endpoint only initializes the game so the table UI can load immediately.
@@ -2909,6 +3002,492 @@ def generate_personality():
             'error': str(e),
             'message': 'Failed to generate personality. Please check your OpenAI API key.'
         })
+
+# Character image preview routes
+GENERATED_IMAGES_DIR = Path(__file__).parent.parent / 'generated_images'
+
+@app.route('/api/character-images', methods=['GET'])
+def list_character_images():
+    """List all generated character images."""
+    try:
+        if not GENERATED_IMAGES_DIR.exists():
+            return jsonify({'images': [], 'icons': []})
+
+        images = []
+        icons = []
+
+        # Full size images
+        for f in GENERATED_IMAGES_DIR.glob('*.png'):
+            parts = f.stem.split('_')
+            emotion = parts[-1] if len(parts) > 1 else 'unknown'
+            character = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
+            images.append({
+                'filename': f.name,
+                'character': character,
+                'emotion': emotion,
+                'url': f'/api/character-images/{f.name}'
+            })
+
+        # Circular icons
+        icons_dir = GENERATED_IMAGES_DIR / 'icons'
+        if icons_dir.exists():
+            for f in icons_dir.glob('*.png'):
+                # Parse: character_style_icon.png
+                stem = f.stem.replace('_icon', '')
+                parts = stem.split('_')
+                style = parts[-1] if len(parts) > 1 else 'default'
+                character = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
+                icons.append({
+                    'filename': f.name,
+                    'character': character,
+                    'style': style,
+                    'url': f'/api/character-images/icons/{f.name}'
+                })
+
+        return jsonify({'images': images, 'icons': icons})
+    except Exception as e:
+        logger.error(f"Error listing character images: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/character-images/<filename>')
+def serve_character_image(filename):
+    """Serve a generated character image."""
+    try:
+        if not GENERATED_IMAGES_DIR.exists():
+            return jsonify({'error': 'Images directory not found'}), 404
+        return send_from_directory(GENERATED_IMAGES_DIR, filename)
+    except Exception as e:
+        logger.error(f"Error serving character image: {e}")
+        return jsonify({'error': str(e)}), 404
+
+@app.route('/api/character-images/icons/<filename>')
+def serve_character_icon(filename):
+    """Serve a circular character icon."""
+    try:
+        icons_dir = GENERATED_IMAGES_DIR / 'icons'
+        if not icons_dir.exists():
+            return jsonify({'error': 'Icons directory not found'}), 404
+        return send_from_directory(icons_dir, filename)
+    except Exception as e:
+        logger.error(f"Error serving character icon: {e}")
+        return jsonify({'error': str(e)}), 404
+
+@app.route('/character-images')
+def character_images_preview():
+    """Serve the character images preview page."""
+    return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Character Image Preview</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        h1 { text-align: center; margin-bottom: 2rem; color: #4ecca3; }
+        .stats { text-align: center; margin-bottom: 1rem; color: #888; }
+        .controls {
+            display: flex; justify-content: center; gap: 1rem;
+            margin-bottom: 2rem; flex-wrap: wrap;
+        }
+        button {
+            background: #4ecca3; color: #1a1a2e; border: none;
+            padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer;
+            font-size: 1rem; font-weight: 600; transition: all 0.2s;
+        }
+        button:hover { background: #3db892; transform: translateY(-2px); }
+        button.active { background: #e94560; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1.5rem; max-width: 1400px; margin: 0 auto;
+        }
+        .grid.icons {
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 1rem;
+        }
+        .card {
+            background: #16213e; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3); transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-4px); }
+        .card img {
+            width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
+        }
+        .card.icon { background: transparent; box-shadow: none; text-align: center; }
+        .card.icon img { border-radius: 50%; }
+        .card-info { padding: 1rem; }
+        .card.icon .card-info { padding: 0.5rem; }
+        .card-info h3 { color: #4ecca3; margin-bottom: 0.25rem; text-transform: capitalize; font-size: 0.9rem; }
+        .card-info p { color: #888; font-size: 0.75rem; text-transform: capitalize; }
+        .empty { text-align: center; padding: 4rem; color: #666; }
+        .loading { text-align: center; padding: 2rem; color: #4ecca3; }
+    </style>
+</head>
+<body>
+    <h1>Character Image Preview</h1>
+    <div class="stats" id="stats"></div>
+    <div class="controls">
+        <button id="btnFull" onclick="showFull()">Full Images</button>
+        <button id="btnIcons" onclick="showIcons()">Circular Icons</button>
+        <button onclick="loadImages()">Refresh</button>
+    </div>
+    <div class="loading" id="loading">Loading images...</div>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">
+        No images generated yet. Run the generation script to create some!
+    </div>
+    <script>
+        const grid = document.getElementById('grid');
+        const empty = document.getElementById('empty');
+        const stats = document.getElementById('stats');
+        const loading = document.getElementById('loading');
+        const btnFull = document.getElementById('btnFull');
+        const btnIcons = document.getElementById('btnIcons');
+
+        let currentData = { images: [], icons: [] };
+        let showingIcons = true;
+
+        function showFull() {
+            showingIcons = false;
+            btnFull.classList.add('active');
+            btnIcons.classList.remove('active');
+            renderGrid();
+        }
+
+        function showIcons() {
+            showingIcons = true;
+            btnIcons.classList.add('active');
+            btnFull.classList.remove('active');
+            renderGrid();
+        }
+
+        function renderGrid() {
+            const items = showingIcons ? currentData.icons : currentData.images;
+
+            if (!items || items.length === 0) {
+                grid.innerHTML = '';
+                empty.style.display = 'block';
+                stats.textContent = '';
+                return;
+            }
+
+            empty.style.display = 'none';
+            stats.textContent = items.length + (showingIcons ? ' icon(s)' : ' image(s)');
+            grid.className = showingIcons ? 'grid icons' : 'grid';
+
+            if (showingIcons) {
+                grid.innerHTML = items.map(img => `
+                    <div class="card icon">
+                        <img src="${img.url}" alt="${img.character} - ${img.style}">
+                        <div class="card-info">
+                            <h3>${img.character}</h3>
+                            <p>${img.style}</p>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                grid.innerHTML = items.map(img => `
+                    <div class="card">
+                        <img src="${img.url}" alt="${img.character} - ${img.emotion}">
+                        <div class="card-info">
+                            <h3>${img.character}</h3>
+                            <p>${img.emotion}</p>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        async function loadImages() {
+            loading.style.display = 'block';
+            grid.innerHTML = '';
+            try {
+                const res = await fetch('/api/character-images');
+                currentData = await res.json();
+                loading.style.display = 'none';
+                renderGrid();
+            } catch (err) {
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                empty.textContent = 'Error loading images: ' + err.message;
+            }
+        }
+
+        btnIcons.classList.add('active');
+        loadImages();
+    </script>
+</body>
+</html>'''
+
+@app.route('/api/character-grid')
+def get_character_grid():
+    """Get grid images organized by character and emotion."""
+    try:
+        grid_dir = GENERATED_IMAGES_DIR / 'grid'
+        icons_dir = grid_dir / 'icons'
+
+        if not icons_dir.exists():
+            return jsonify({'characters': [], 'emotions': []})
+
+        # Parse all icons
+        data = {}
+        emotions_set = set()
+
+        for f in icons_dir.glob('*.png'):
+            parts = f.stem.split('_')
+            emotion = parts[-1]
+            character = ' '.join(parts[:-1])
+
+            emotions_set.add(emotion)
+            if character not in data:
+                data[character] = {}
+            data[character][emotion] = f'/api/character-grid/icons/{f.name}'
+
+        # Sort for consistent display
+        characters = sorted(data.keys())
+        emotions = ['confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked']  # Fixed order
+
+        return jsonify({
+            'characters': characters,
+            'emotions': emotions,
+            'grid': data
+        })
+    except Exception as e:
+        logger.error(f"Error getting character grid: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/character-grid/icons/<filename>')
+def serve_grid_icon(filename):
+    """Serve a grid icon."""
+    try:
+        icons_dir = GENERATED_IMAGES_DIR / 'grid' / 'icons'
+        return send_from_directory(icons_dir, filename)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 404
+
+
+@app.route('/api/generate-character-images/<personality_name>', methods=['POST'])
+def generate_character_images_endpoint(personality_name):
+    """
+    Generate images for a personality on-demand.
+
+    This endpoint triggers DALL-E image generation for a personality that
+    doesn't have existing images. It generates 6 emotion images and processes
+    them into circular icons.
+
+    Args:
+        personality_name: Name of the personality to generate images for
+
+    Request Body (optional):
+        {
+            "emotions": ["confident", "happy", ...],  // specific emotions to generate
+            "api_key": "sk-..."  // optional API key override
+        }
+
+    Returns:
+        JSON with generation results and URLs for generated images
+    """
+    try:
+        # Get optional request body
+        data = request.get_json() or {}
+        emotions = data.get('emotions')
+        api_key = data.get('api_key')
+
+        # Check if images already exist
+        if has_character_images(personality_name):
+            return jsonify({
+                'status': 'exists',
+                'message': f'Images already exist for {personality_name}',
+                'personality': personality_name
+            })
+
+        # Generate images (this is a blocking operation that may take ~30s)
+        logger.info(f"Starting on-demand image generation for {personality_name}")
+        result = generate_character_images(personality_name, emotions=emotions, api_key=api_key)
+
+        if result.get('success'):
+            return jsonify({
+                'status': 'generated',
+                'message': f'Successfully generated images for {personality_name}',
+                'personality': personality_name,
+                'images': result.get('images', {}),
+                'errors': result.get('errors', [])
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to generate images',
+                'personality': personality_name,
+                'errors': result.get('errors', ['Unknown error'])
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error generating character images for {personality_name}: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'personality': personality_name
+        }), 500
+
+
+@app.route('/api/character-images/status/<personality_name>')
+def character_images_status(personality_name):
+    """Check if images exist for a personality."""
+    try:
+        has_images = has_character_images(personality_name)
+        return jsonify({
+            'personality': personality_name,
+            'has_images': has_images
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/character-grid')
+def character_grid_preview():
+    """Serve the character grid preview page."""
+    return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Character Emotion Grid</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        h1 { text-align: center; margin-bottom: 0.5rem; color: #4ecca3; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 2rem; }
+        .controls {
+            display: flex; justify-content: center; gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        button {
+            background: #4ecca3; color: #1a1a2e; border: none;
+            padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer;
+            font-size: 1rem; font-weight: 600;
+        }
+        button:hover { background: #3db892; }
+        .grid-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #16213e;
+            border-radius: 16px;
+            padding: 1.5rem;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            color: #4ecca3;
+            font-size: 1rem;
+            padding: 1rem;
+            text-transform: capitalize;
+        }
+        th.emotion { font-weight: 600; }
+        th.character {
+            text-align: left;
+            font-weight: 600;
+            padding-right: 2rem;
+        }
+        td {
+            text-align: center;
+            padding: 0.75rem;
+        }
+        td img {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+        td img:hover {
+            transform: scale(1.1);
+        }
+        .loading { text-align: center; padding: 3rem; color: #4ecca3; }
+        .empty { text-align: center; padding: 3rem; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Character Emotion Grid</h1>
+    <p class="subtitle">4 Characters × 6 Emotions</p>
+    <div class="controls">
+        <button onclick="loadGrid()">Refresh</button>
+        <button onclick="location.href='/character-images'">All Images</button>
+    </div>
+    <div class="grid-container">
+        <div class="loading" id="loading">Loading grid...</div>
+        <table id="grid" style="display:none"></table>
+        <div class="empty" id="empty" style="display:none">No grid images found.</div>
+    </div>
+    <script>
+        const grid = document.getElementById('grid');
+        const loading = document.getElementById('loading');
+        const empty = document.getElementById('empty');
+
+        async function loadGrid() {
+            loading.style.display = 'block';
+            grid.style.display = 'none';
+            empty.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/character-grid');
+                const data = await res.json();
+
+                loading.style.display = 'none';
+
+                if (!data.characters || data.characters.length === 0) {
+                    empty.style.display = 'block';
+                    return;
+                }
+
+                // Build table
+                let html = '<thead><tr><th></th>';
+                data.emotions.forEach(e => {
+                    html += `<th class="emotion">${e}</th>`;
+                });
+                html += '</tr></thead><tbody>';
+
+                data.characters.forEach(char => {
+                    html += `<tr><th class="character">${char}</th>`;
+                    data.emotions.forEach(emotion => {
+                        const url = data.grid[char]?.[emotion] || '';
+                        if (url) {
+                            html += `<td><img src="${url}" alt="${char} ${emotion}"></td>`;
+                        } else {
+                            html += `<td>-</td>`;
+                        }
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody>';
+
+                grid.innerHTML = html;
+                grid.style.display = 'table';
+            } catch (err) {
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                empty.textContent = 'Error: ' + err.message;
+            }
+        }
+
+        loadGrid();
+    </script>
+</body>
+</html>'''
 
 if __name__ == '__main__':
     import os

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, Player } from '../../types';
+import { config } from '../../config';
 import './FloatingChat.css';
 
 interface MessageWithMeta extends ChatMessage {
@@ -11,11 +12,18 @@ interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
   duration?: number;
+  players?: Player[];
 }
 
-export function FloatingChat({ message, onDismiss, duration = 8000 }: FloatingChatProps) {
+export function FloatingChat({ message, onDismiss, duration = 8000, players = [] }: FloatingChatProps) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
+
+  // Get avatar URL for a player by name
+  const getPlayerAvatar = (senderName: string): string | null => {
+    const player = players.find(p => p.name === senderName);
+    return player?.avatar_url ? `${config.API_URL}${player.avatar_url}` : null;
+  };
 
   // Add new message to stack when it arrives
   useEffect(() => {
@@ -86,15 +94,21 @@ export function FloatingChat({ message, onDismiss, duration = 8000 }: FloatingCh
         const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
         const isAI = msg.type === 'ai';
 
+        const avatarUrl = isAI ? getPlayerAvatar(msg.sender || '') : null;
+
         return (
           <div
             key={msg.id}
             className={`floating-chat ${msg.isExiting ? 'exiting' : 'entering'}`}
             onClick={() => handleDismiss(msg.id)}
           >
-            <div className="floating-chat-avatar">
-              {senderInitial}
-              {isAI && <span className="ai-badge">AI</span>}
+            <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}>
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
+              ) : (
+                senderInitial
+              )}
+              {isAI && !avatarUrl && <span className="ai-badge">AI</span>}
             </div>
             <div className="floating-chat-content">
               <div className="floating-chat-sender">

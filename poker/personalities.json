@@ -197,7 +197,8 @@
       "physical_tics": [
         "*leans forward slightly when in a big hand*",
         "*adjusts sunglasses before a crucial bet*"
-      ]
+      ],
+      "avatar_description": "a muscular bald male action star character with a charming smile, raised eyebrow, confident presence"
     },
     "Hulk Hogan": {
       "play_style": "aggressive and theatrical, often using theatrics to intimidate opponents",
@@ -217,6 +218,14 @@
       "physical_tics": [
         "*flexes arms dramatically*",
         "*points at opponents with a grin*"
+      ],
+      "avatar_images": [
+        "confident",
+        "happy",
+        "thinking",
+        "nervous",
+        "angry",
+        "shocked"
       ]
     },
     "Tyler Durden": {
@@ -237,6 +246,14 @@
       "physical_tics": [
         "*leans forward with a smirk*",
         "*adjusts sunglasses dramatically*"
+      ],
+      "avatar_images": [
+        "confident",
+        "happy",
+        "thinking",
+        "nervous",
+        "angry",
+        "shocked"
       ]
     },
     "Crocodile Dundee": {
@@ -539,7 +556,8 @@
         "*leans forward with a smirk*",
         "*taps fingers rhythmically on the table*",
         "*winks playfully at opponents*"
-      ]
+      ],
+      "avatar_description": "a dark-haired female comedian character with bold eyebrows, playful smirk, mischievous eyes"
     },
     "Chris Rock": {
       "play_style": "charismatic and entertaining, often using humor to mislead opponents",
@@ -560,7 +578,8 @@
         "*winks playfully*",
         "*leans back with a grin*",
         "*gestures animatedly while speaking*"
-      ]
+      ],
+      "avatar_description": "an energetic African American male comedian character with a lean build, animated expressions, bright eyes"
     },
     "Dave Chappelle": {
       "play_style": "quirky and entertaining, often using humor to throw opponents off balance",
@@ -581,7 +600,8 @@
         "*leans back with a smirk*",
         "*waves hands dramatically while talking*",
         "*raises an eyebrow playfully*"
-      ]
+      ],
+      "avatar_description": "a witty African American male comedian character with a slim build, short hair, expressive animated face"
     },
     "Whoopi Goldberg": {
       "play_style": "charismatic and adaptable, often leveraging humor to unsettle opponents",
@@ -601,7 +621,8 @@
       "physical_tics": [
         "*winks playfully*",
         "*leans in with an exaggerated expression*"
-      ]
+      ],
+      "avatar_description": "an African American female entertainer character with distinctive dreadlocks, warm expressive eyes, bold presence"
     },
     "Jay Gatsby": {
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
@@ -682,6 +703,14 @@
         "*mockingly rolls eyes*",
         "*leans back in chair with a smirk*",
         "*waves paw dismissively*"
+      ],
+      "avatar_images": [
+        "confident",
+        "happy",
+        "thinking",
+        "nervous",
+        "angry",
+        "shocked"
       ]
     },
     "Jesus Christ": {
@@ -807,7 +836,8 @@
         "*leans in when making a point*",
         "*winks after a successful bluff*",
         "*gestures dramatically when revealing cards*"
-      ]
+      ],
+      "avatar_description": "an energetic balding male TV personality character with rolled-up sleeves, intense animated expressions"
     },
     "Jon Stewart": {
       "play_style": "strategically opportunistic, blending calculated risks with occasional bold moves",
@@ -827,7 +857,8 @@
       "physical_tics": [
         "*leans forward with a playful grin*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "avatar_description": "a silver-haired male comedian character with an expressive face, sardonic wit, smart casual look"
     },
     "James Bond": {
       "play_style": "calculated and suave, blending strategic precision with occasional flair for the dramatic",
@@ -887,7 +918,8 @@
       "physical_tics": [
         "*leans back with a smirk*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "avatar_description": "a male rock singer character with backwards red cap, goatee, nu-metal aesthetic"
     },
     "Khloe and Kim Khardashian": {
       "play_style": "flashy and theatrical, often making bold moves to keep opponents guessing",
@@ -950,7 +982,8 @@
         "*slams table*",
         "*points aggressively*",
         "*shakes head in disgust*"
-      ]
+      ],
+      "avatar_description": "an intense blonde male chef character with furrowed brow, commanding presence, fiery personality"
     },
     "Bob Ross": {
       "play_style": "calm and optimistic",

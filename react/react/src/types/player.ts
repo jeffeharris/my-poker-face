@@ -6,4 +6,6 @@ export interface Player {
   is_all_in: boolean;
   is_human: boolean;
   hand?: string[];
+  avatar_url?: string;
+  avatar_emotion?: string;
 }

@@ -167,7 +167,15 @@ export function MobilePokerTable({
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''}`}
             >
               <div className="opponent-avatar">
-                {opponent.name.charAt(0).toUpperCase()}
+                {opponent.avatar_url ? (
+                  <img
+                    src={`${config.API_URL}${opponent.avatar_url}`}
+                    alt={`${opponent.name} - ${opponent.avatar_emotion || 'avatar'}`}
+                    className="avatar-image"
+                  />
+                ) : (
+                  opponent.name.charAt(0).toUpperCase()
+                )}
                 {isDealer && <span className="dealer-badge">D</span>}
               </div>
               <div className="opponent-info">
@@ -203,6 +211,7 @@ export function MobilePokerTable({
       <FloatingChat
         message={recentAiMessage}
         onDismiss={dismissRecentAiMessage}
+        players={gameState.players}
       />
 
       {/* Hero Section - Your Cards */}

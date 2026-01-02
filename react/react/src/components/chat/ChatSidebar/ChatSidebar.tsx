@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import type { ChatMessage, Player } from '../../../types';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
 import { QuickChatSuggestions } from '../QuickChatSuggestions';
+import { config } from '../../../config';
 import './ChatSidebar.css';
 
 interface ChatSidebarProps {
@@ -263,6 +264,12 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     }
   };
 
+  // Get avatar URL for a player by name
+  const getPlayerAvatar = (senderName: string): string | null => {
+    const player = players.find(p => p.name === senderName);
+    return player?.avatar_url ? `${config.API_URL}${player.avatar_url}` : null;
+  };
+
   const getPlayerColor = (name: string) => {
     if (!name || name.toLowerCase() === 'table' || name.toLowerCase() === 'system') return '#666666';
     
@@ -452,13 +459,21 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
               >
                 {(!featureFlags.messageGrouping || msg.showHeader) && (
                   <div className="message-header">
-                    <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
-                    <span 
+                    {msg.type === 'ai' && getPlayerAvatar(msg.sender) ? (
+                      <img
+                        src={getPlayerAvatar(msg.sender)!}
+                        alt={msg.sender}
+                        className="chat-avatar"
+                      />
+                    ) : (
+                      <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                    )}
+                    <span
                       className="message-sender"
-                      style={{ 
-                        color: msg.type === 'player' || msg.type === 'ai' 
-                          ? playerColor 
-                          : undefined 
+                      style={{
+                        color: msg.type === 'player' || msg.type === 'ai'
+                          ? playerColor
+                          : undefined
                       }}
                     >
                       {msg.sender}

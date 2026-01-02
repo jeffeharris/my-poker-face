@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { Player } from '../../types';
 import type { ChatTone, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
+import { config } from '../../config';
 import './QuickChatSuggestions.css';
 
 interface QuickChatSuggestionsProps {
@@ -179,8 +180,16 @@ export function QuickChatSuggestions({
               onClick={() => handleTargetSelect(player.name)}
               title={`Talk to ${player.name}`}
             >
-              <span className="target-avatar">
-                {player.name.charAt(0).toUpperCase()}
+              <span className={`target-avatar ${player.avatar_url ? 'has-image' : ''}`}>
+                {player.avatar_url ? (
+                  <img
+                    src={`${config.API_URL}${player.avatar_url}`}
+                    alt={player.name}
+                    className="target-avatar-img"
+                  />
+                ) : (
+                  player.name.charAt(0).toUpperCase()
+                )}
               </span>
               <span className="target-name">
                 {player.name.split(' ')[0]}

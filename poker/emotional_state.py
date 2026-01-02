@@ -146,6 +146,40 @@ class EmotionalState:
             return "distracted"
         return "tunnel vision"
 
+    def get_display_emotion(self) -> str:
+        """
+        Map dimensional emotional state to discrete display emotion for avatar.
+
+        Returns one of: confident, happy, thinking, nervous, angry, shocked
+        Priority order handles overlapping conditions.
+        """
+        # Angry: very negative mood with high agitation
+        if self.valence < -0.3 and self.arousal > 0.7:
+            return "angry"
+
+        # Shocked: extreme arousal (surprise/overwhelm)
+        if self.arousal > 0.8:
+            return "shocked"
+
+        # Nervous: negative mood, losing control, agitated
+        if self.valence < 0 and self.control < 0.5 and self.arousal > 0.5:
+            return "nervous"
+
+        # Happy: positive mood, not too agitated
+        if self.valence > 0.5 and self.arousal < 0.6:
+            return "happy"
+
+        # Thinking: focused and calm (contemplating)
+        if self.focus > 0.6 and self.arousal < 0.5:
+            return "thinking"
+
+        # Confident: positive mood with good control (default positive state)
+        if self.valence > 0.3 and self.control > 0.5:
+            return "confident"
+
+        # Default fallback
+        return "confident"
+
     def to_prompt_section(self) -> str:
         """Generate the prompt section for this emotional state."""
         lines = ["[YOUR EMOTIONAL STATE]"]

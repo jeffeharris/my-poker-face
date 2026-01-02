@@ -388,10 +388,23 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 </div>
 
                 <div className="player-info">
-                  <div className="player-name">{player.name}</div>
-                  <div className="player-stack">${player.stack}</div>
-                  {player.is_folded && <div className="status">FOLDED</div>}
-                  {player.is_all_in && <div className="status">ALL-IN</div>}
+                  <div className="player-avatar">
+                    {player.avatar_url ? (
+                      <img
+                        src={`${config.API_URL}${player.avatar_url}`}
+                        alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
+                        className="avatar-image"
+                      />
+                    ) : (
+                      <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="player-details">
+                    <div className="player-name">{player.name}</div>
+                    <div className="player-stack">${player.stack}</div>
+                    {player.is_folded && <div className="status">FOLDED</div>}
+                    {player.is_all_in && <div className="status">ALL-IN</div>}
+                  </div>
                 </div>
 
                 {/* Player cards */}

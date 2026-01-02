@@ -221,18 +221,124 @@ Respond with ONLY a JSON object in this exact format:
     
     def bulk_generate(self, names: list[str], save: bool = True) -> Dict[str, Dict[str, Any]]:
         """Generate personalities for multiple characters at once.
-        
+
         Args:
             names: List of character names
             save: Whether to save to database
-            
+
         Returns:
             Dict mapping names to personality configs
         """
         results = {}
-        
+
         for name in names:
             personality = self.get_personality(name)
             results[name] = personality
-        
+
         return results
+
+    # ==================== Avatar Management ====================
+
+    def get_avatar_description(self, name: str) -> Optional[str]:
+        """Get avatar description for a personality.
+
+        Args:
+            name: Character name
+
+        Returns:
+            Avatar description string or None if not set
+        """
+        personality = self.get_personality(name)
+        return personality.get('avatar_description')
+
+    def set_avatar_description(self, name: str, description: str, save_to_json: bool = True) -> None:
+        """Set avatar description for a personality.
+
+        Args:
+            name: Character name
+            description: Avatar description for image generation
+            save_to_json: Whether to save back to personalities.json
+        """
+        # Update in cache
+        if name in self._cache:
+            self._cache[name]['avatar_description'] = description
+
+        # Update in database
+        personality = self.get_personality(name)
+        personality['avatar_description'] = description
+        self.persistence.save_personality(name, personality, source='updated')
+
+        # Optionally save to JSON file
+        if save_to_json:
+            self._save_field_to_json(name, 'avatar_description', description)
+
+    def get_avatar_images(self, name: str) -> list:
+        """Get list of generated avatar emotions for a personality.
+
+        Args:
+            name: Character name
+
+        Returns:
+            List of emotion names that have generated images
+        """
+        personality = self.get_personality(name)
+        return personality.get('avatar_images', [])
+
+    def set_avatar_images(self, name: str, emotions: list, save_to_json: bool = True) -> None:
+        """Set list of generated avatar emotions for a personality.
+
+        Args:
+            name: Character name
+            emotions: List of emotion names that have been generated
+            save_to_json: Whether to save back to personalities.json
+        """
+        # Update in cache
+        if name in self._cache:
+            self._cache[name]['avatar_images'] = emotions
+
+        # Update in database
+        personality = self.get_personality(name)
+        personality['avatar_images'] = emotions
+        self.persistence.save_personality(name, personality, source='updated')
+
+        # Optionally save to JSON file
+        if save_to_json:
+            self._save_field_to_json(name, 'avatar_images', emotions)
+
+    def add_avatar_image(self, name: str, emotion: str, save_to_json: bool = True) -> None:
+        """Add a single emotion to the list of generated avatars.
+
+        Args:
+            name: Character name
+            emotion: Emotion name that was generated
+            save_to_json: Whether to save back to personalities.json
+        """
+        current = self.get_avatar_images(name)
+        if emotion not in current:
+            current.append(emotion)
+            self.set_avatar_images(name, current, save_to_json)
+
+    def _save_field_to_json(self, name: str, field: str, value: Any) -> None:
+        """Save a single field back to personalities.json.
+
+        Args:
+            name: Character name
+            field: Field name to update
+            value: Value to set
+        """
+        json_path = Path(__file__).parent / 'personalities.json'
+
+        if not json_path.exists():
+            return
+
+        try:
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+
+            if name in data.get('personalities', {}):
+                data['personalities'][name][field] = value
+
+                with open(json_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error saving {field} to JSON for {name}: {e}")

@@ -175,6 +175,22 @@ export function usePokerGame({
       console.log('Tournament complete:', data);
       setTournamentResult(data);
     });
+
+    // Listen for avatar updates (when background generation completes)
+    socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+      console.log('Avatar update received:', data);
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map(player =>
+            player.name === data.player_name
+              ? { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion }
+              : player
+          )
+        };
+      });
+    });
   }, [onNewAiMessage]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
