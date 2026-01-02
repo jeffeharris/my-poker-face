@@ -38,23 +38,32 @@ class ConsolePlayerController:
 
 def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
     # Find the index of the last message from the Player with 'name'
-    # Search the list of messages for the last message from the player
-    # Change the message to a string from a dict
     last_message_index = -1
     for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
         if messages[i]['sender'] == name:
             last_message_index = i
             break
 
-    # Convert messages to strings with less text than the dict representation
+    # Convert messages to strings, including action if present
     converted_messages = []
     for msg in messages:
-        converted_messages.append(f"{msg['sender']}: {msg['content']}")
+        sender = msg['sender']
+        content = msg.get('content', msg.get('message', ''))
+        action = msg.get('action', '')
+
+        if action and content:
+            # Action + chat: "Trump raises $100: You're gonna lose!"
+            converted_messages.append(f"{sender} {action}: {content}")
+        elif action:
+            # Action only
+            converted_messages.append(f"{sender} {action}")
+        else:
+            # Chat/system message only
+            converted_messages.append(f"{sender}: {content}")
 
     # Return the messages since the player's last message
     if last_message_index >= 0:
-        messages_since_last_message = converted_messages[last_message_index:]
-        return messages_since_last_message
+        return converted_messages[last_message_index:]
     else:
         return converted_messages
 
