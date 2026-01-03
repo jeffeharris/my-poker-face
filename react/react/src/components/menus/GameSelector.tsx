@@ -56,7 +56,7 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
     setDeletingGameId(gameId);
     
     try {
-      const response = await fetch(`${config.API_URL}/game/${gameId}`, {
+      const response = await fetch(`${config.API_URL}/api/game/${gameId}`, {
         method: 'DELETE',
         credentials: 'include'
       });

@@ -477,7 +477,7 @@ def api_retry_game(game_id):
     }), 200
 
 
-@game_bp.route('/game/<game_id>', methods=['DELETE'])
+@game_bp.route('/api/game/<game_id>', methods=['DELETE'])
 def delete_game(game_id):
     """Delete a saved game."""
     try:
@@ -495,7 +495,7 @@ def delete_game(game_id):
         return jsonify({'error': str(e)}), 500
 
 
-@game_bp.route('/end_game/<game_id>', methods=['GET', 'POST'])
+@game_bp.route('/api/end_game/<game_id>', methods=['GET', 'POST'])
 def end_game(game_id):
     """Clean up game after tournament completes or user exits."""
     game_state_service.delete_game(game_id)

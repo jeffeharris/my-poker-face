@@ -56,7 +56,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const handleTournamentComplete = useCallback(async () => {
     if (gameId) {
       try {
-        await fetch(`${config.API_URL}/end_game/${gameId}`, {
+        await fetch(`${config.API_URL}/api/end_game/${gameId}`, {
           method: 'POST',
           credentials: 'include',
         });
