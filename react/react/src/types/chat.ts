@@ -39,4 +39,6 @@ export interface TargetedSuggestion {
 export interface TargetedSuggestionsResponse {
   suggestions: TargetedSuggestion[];
   targetPlayer: string | null;
+  fallback?: boolean;
+  error?: string;
 }

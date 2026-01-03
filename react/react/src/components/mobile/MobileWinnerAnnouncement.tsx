@@ -39,7 +39,8 @@ export function MobileWinnerAnnouncement({
     onComplete,
 }: MobileWinnerAnnouncementProps) {
     const [showCards, setShowCards] = useState(false);
-    const [visibleComments, setVisibleComments] = useState<CommentaryItem[]>([]);
+    // Track visible comments for TTL-based expiration
+    const [, setVisibleComments] = useState<CommentaryItem[]>([]);
 
     // Handle comment TTL expiration
     useEffect(() => {

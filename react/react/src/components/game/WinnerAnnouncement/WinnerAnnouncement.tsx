@@ -42,7 +42,7 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
       setShow(true);
       
       // If it's a showdown, reveal cards after a delay
-      if (winnerInfo.showdown && winnerInfo.players_cards) {
+      if (winnerInfo.showdown && winnerInfo.players_showdown) {
         setTimeout(() => setRevealCards(true), 1000);
       }
       

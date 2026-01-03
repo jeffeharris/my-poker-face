@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { BackButton } from './BackButton';
 import './MobileHeader.css';
 

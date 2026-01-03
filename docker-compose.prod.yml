@@ -1,36 +1,76 @@
-# Production configuration for docker-compose
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
-
 services:
   backend:
-    # Production optimizations
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
+    volumes:
+      - ./data:/app/data
     environment:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
-    # Use gunicorn for production
-    command: gunicorn --bind 0.0.0.0:5000 --workers 4 --worker-class eventlet flask_app.ui_web:app
-    # No source code mounting in production
-    volumes:
-      - ./data:/app/data
+      - PYTHONUNBUFFERED=1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FLASK_APP=flask_app.ui_web
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY}
+      - CORS_ORIGINS=https://mypokerfacegame.com,https://www.mypokerfacegame.com
+    command: gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - poker-network
 
   frontend:
-    # Use production build
     build:
       context: ./react/react
       dockerfile: Dockerfile
-    # No hot reloading needed
-    volumes: []
-    # Serve static files with nginx
-    command: nginx -g 'daemon off;'
-    
-  # Enable nginx in production
-  nginx:
-    profiles:
-      - production
     restart: unless-stopped
+    networks:
+      - poker-network
 
   redis:
+    image: redis:7-alpine
     restart: unless-stopped
-    # Persist Redis data
-    command: redis-server --appendonly yes --save 60 1 --save 300 10 --save 900 100
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - poker-network
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - poker-network
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  poker-network:
+    driver: bridge

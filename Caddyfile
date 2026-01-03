@@ -1,0 +1,21 @@
+mypokerfacegame.com, www.mypokerfacegame.com {
+    # Frontend (React static files)
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    # API routes
+    handle /api/* {
+        reverse_proxy backend:5000
+    }
+
+    # Socket.IO
+    handle /socket.io/* {
+        reverse_proxy backend:5000
+    }
+
+    # Health check
+    handle /health {
+        reverse_proxy backend:5000
+    }
+}
