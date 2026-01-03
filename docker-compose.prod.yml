@@ -4,6 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - ./data:/app/data
     environment:
@@ -16,7 +19,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY}
       - CORS_ORIGINS=https://mypokerfacegame.com,https://www.mypokerfacegame.com
-    command: gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
+    command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis
     healthcheck:

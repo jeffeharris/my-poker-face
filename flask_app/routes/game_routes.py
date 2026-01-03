@@ -45,7 +45,7 @@ def generate_game_id() -> str:
     return str(int(time.time() * 1000))
 
 
-@game_bp.route('/games')
+@game_bp.route('/api/games')
 def list_games():
     """List games for the current user."""
     current_user = auth_manager.get_current_user()

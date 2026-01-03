@@ -114,7 +114,7 @@ function App() {
 
   const fetchSavedGamesCount = async () => {
     try {
-      const response = await fetch(`${config.API_URL}/games`, {
+      const response = await fetch(`${config.API_URL}/api/games`, {
         credentials: 'include'
       });
       const data = await response.json();

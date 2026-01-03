@@ -29,7 +29,7 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
 
   const fetchGames = () => {
     console.log('GameSelector: Fetching saved games...');
-    fetch(`${config.API_URL}/games`, { credentials: 'include' })
+    fetch(`${config.API_URL}/api/games`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         console.log('GameSelector: Received games data:', data);
