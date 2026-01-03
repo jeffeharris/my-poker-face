@@ -1,0 +1,152 @@
+"""Flask extensions initialization.
+
+Extensions are created here without being initialized to an app.
+They get initialized in the app factory via init_app().
+"""
+
+import logging
+import re
+
+from flask import Flask
+from flask_socketio import SocketIO
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+from poker.persistence import GamePersistence
+from poker.repositories.sqlite_repositories import PressureEventRepository
+from poker.personality_generator import PersonalityGenerator
+from poker.character_images import init_character_image_service
+
+from . import config
+
+logger = logging.getLogger(__name__)
+
+# SocketIO instance - initialized without app
+socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
+
+# Limiter instance - will be initialized with app
+limiter = None
+
+# Persistence instances
+persistence = None
+event_repository = None
+
+# Auth manager - will be set after app creation
+auth_manager = None
+
+# Personality generator
+personality_generator = None
+
+
+def get_rate_limit_key():
+    """Get IP address for rate limiting."""
+    return get_remote_address() or "127.0.0.1"
+
+
+def init_cors(app: Flask) -> None:
+    """Initialize CORS configuration."""
+    cors_origins_env = config.CORS_ORIGINS_ENV
+
+    if cors_origins_env == '*':
+        if config.is_development:
+            # Development: Allow all origins WITH credentials using regex
+            CORS(app, supports_credentials=True, origins=re.compile(r'.*'))
+        else:
+            # Production: Wildcard not allowed with credentials
+            raise ValueError(
+                "CORS_ORIGINS='*' is not allowed in production. "
+                "Please set CORS_ORIGINS to a comma-separated list of allowed origins."
+            )
+    else:
+        # Explicit origins
+        cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+        CORS(app, supports_credentials=True, origins=cors_origins)
+
+
+def init_limiter(app: Flask) -> Limiter:
+    """Initialize rate limiter with optional Redis backend."""
+    global limiter
+
+    redis_url = config.REDIS_URL
+    default_limits = config.RATE_LIMIT_DEFAULT
+
+    if redis_url:
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            r.ping()
+
+            limiter = Limiter(
+                app=app,
+                key_func=get_rate_limit_key,
+                default_limits=default_limits,
+                storage_uri=redis_url
+            )
+            logger.info("Rate limiter initialized with Redis")
+        except Exception as e:
+            logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
+            limiter = Limiter(
+                app=app,
+                key_func=get_rate_limit_key,
+                default_limits=default_limits
+            )
+    else:
+        limiter = Limiter(
+            app=app,
+            key_func=get_rate_limit_key,
+            default_limits=default_limits
+        )
+        logger.info("Rate limiter initialized with in-memory storage")
+
+    return limiter
+
+
+def init_persistence() -> tuple:
+    """Initialize persistence layer."""
+    global persistence, event_repository
+
+    db_path = config.DB_PATH
+    persistence = GamePersistence(db_path)
+    event_repository = PressureEventRepository(db_path)
+
+    return persistence, event_repository
+
+
+def init_personality_generator() -> PersonalityGenerator:
+    """Initialize personality generator and character image service."""
+    global personality_generator
+
+    personality_generator = PersonalityGenerator(persistence=persistence)
+    init_character_image_service(personality_generator)
+
+    return personality_generator
+
+
+def init_auth(app: Flask) -> None:
+    """Initialize authentication manager."""
+    global auth_manager
+
+    from poker.auth import AuthManager
+    auth_manager = AuthManager(app, persistence)
+
+
+def init_extensions(app: Flask) -> None:
+    """Initialize all Flask extensions with the app."""
+    # Initialize CORS
+    init_cors(app)
+
+    # Initialize rate limiter
+    init_limiter(app)
+
+    # Initialize SocketIO
+    socketio.init_app(app)
+
+    # Initialize persistence
+    init_persistence()
+
+    # Initialize auth
+    init_auth(app)
+
+    # Initialize personality generator
+    init_personality_generator()
