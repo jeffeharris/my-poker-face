@@ -58,7 +58,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
   const [, setColorUpdateTrigger] = useState(0);
-  const [lastAction, setLastAction] = useState<LastAction | null>(null);
+  const [lastAction, setLastAction] = useState<LastAction | undefined>(undefined);
   const featureFlags = useFeatureFlags();
 
   // Get all unique players from messages
@@ -124,7 +124,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
   };
 
   // Transform and filter messages
-  const processedMessages = useMemo(() => {
+  const processedMessages = useMemo((): ProcessedChatMessage[] => {
     const filtered = messages
       .filter(msg => {
         // Filter out empty messages
@@ -230,7 +230,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
       return grouped;
     }
     
-    return filtered;
+    return filtered as ProcessedChatMessage[];
   }, [messages, filter, selectedPlayer, featureFlags.playerFilter, featureFlags.messageGrouping, featureFlags.eventIndicators]);
 
   const scrollToBottom = () => {
