@@ -162,25 +162,36 @@ class ChattinessManager:
             if context.get('all_in', False) or context.get('showdown', False):
                 return 0.5  # 50% chance to make gestures on big moments
             return 0.0  # Otherwise truly silent
-            
-        # For everyone else, use a curve that makes low chattiness more talkative
-        # 0.1 -> 0.35, 0.3 -> 0.55, 0.5 -> 0.7, 0.7 -> 0.85, 0.9 -> 0.95
-        probability = 0.25 + (base_chattiness * 0.7)
-        
-        # Apply contextual modifiers
-        for condition, modifier in self.CONTEXT_MODIFIERS.items():
-            if context.get(condition, False):
-                probability += modifier
-                logger.debug(f"Applied {condition}: {modifier:+.2f}")
-        
-        # Apply silence-based modifiers
-        player_silence = self.conversation_context.turns_since_last_spoke.get(
-            player_name, 0
+
+        # Use exponential curve with lower base for more realistic chattiness
+        # 0.1 -> 12%, 0.3 -> 20%, 0.5 -> 31%, 0.7 -> 45%, 0.9 -> 61%
+        probability = 0.10 + (base_chattiness ** 1.5) * 0.6
+
+        # Apply contextual modifiers with a cap to prevent stacking abuse
+        total_modifier = sum(
+            modifier for condition, modifier in self.CONTEXT_MODIFIERS.items()
+            if context.get(condition, False)
         )
-        if player_silence > 3:
-            probability += 0.1  # More likely to speak after being quiet
-        if self.conversation_context.consecutive_silent_turns > 2:
-            probability += 0.15  # Break table-wide silence
+        capped_modifier = min(total_modifier, 0.3)  # Cap at +30%
+        probability += capped_modifier
+        if total_modifier > 0:
+            logger.debug(f"Applied modifiers: {total_modifier:+.2f} (capped to {capped_modifier:+.2f})")
+
+        # Rate limiting: penalize back-to-back speaking
+        player_silence = self.conversation_context.turns_since_last_spoke.get(
+            player_name, 99  # Default to "long time" for new players
+        )
+        if player_silence < 2:
+            probability *= 0.3  # Heavy penalty for speaking again immediately
+            logger.debug(f"Applied back-to-back penalty: *0.3 (silence={player_silence})")
+        elif player_silence < 3:
+            probability *= 0.6  # Moderate penalty
+            logger.debug(f"Applied recent-speech penalty: *0.6 (silence={player_silence})")
+
+        # Small bonus for breaking table-wide silence (keeps some social flow)
+        if self.conversation_context.consecutive_silent_turns > 3:
+            probability += 0.1  # Break extended table-wide silence
+            logger.debug("Applied silence-breaker bonus: +0.1")
         
         # Apply personality-specific adjustments
         if player_name in self.PERSONALITY_ADJUSTMENTS:

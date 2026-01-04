@@ -53,6 +53,48 @@ class CommentaryGenerator:
     def __init__(self, prompt_manager: Optional[PromptManager] = None):
         self.prompt_manager = prompt_manager or PromptManager()
 
+    def _is_hand_interesting(self, hand: RecordedHand, player_name: str) -> bool:
+        """Determine if a hand is interesting enough to warrant commentary.
+
+        Filters out mundane hands to reduce commentary spam.
+
+        Args:
+            hand: The completed hand record
+            player_name: Name of the player considering commentary
+
+        Returns:
+            bool: True if the hand is worth commenting on
+        """
+        # Small pots aren't interesting
+        if hand.pot_size < 200:
+            logger.debug(f"Hand not interesting: pot size {hand.pot_size} < 200")
+            return False
+
+        # Simple fold-outs aren't interesting (player only folded, nothing else)
+        player_actions = [a for a in hand.actions if a.player_name == player_name]
+        if len(player_actions) == 1 and player_actions[0].action == 'fold':
+            logger.debug(f"Hand not interesting: {player_name} only folded")
+            return False
+
+        # All-ins are always interesting
+        if any(a.action == 'all_in' for a in hand.actions):
+            logger.debug("Hand interesting: all-in occurred")
+            return True
+
+        # Showdowns are interesting
+        if hand.was_showdown:
+            logger.debug("Hand interesting: showdown occurred")
+            return True
+
+        # Big pots are interesting
+        if hand.pot_size > 500:
+            logger.debug(f"Hand interesting: big pot {hand.pot_size}")
+            return True
+
+        # Default: not interesting enough to comment on
+        logger.debug(f"Hand not interesting: default (pot={hand.pot_size})")
+        return False
+
     def generate_commentary(self,
                            player_name: str,
                            hand: RecordedHand,
@@ -86,6 +128,11 @@ class CommentaryGenerator:
             HandCommentary or None if commentary generation is disabled/fails
         """
         if not COMMENTARY_ENABLED:
+            return None
+
+        # Skip commentary for uninteresting hands to reduce spam
+        if not self._is_hand_interesting(hand, player_name):
+            logger.debug(f"Skipping commentary for {player_name}: hand not interesting")
             return None
 
         try:

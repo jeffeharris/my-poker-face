@@ -121,7 +121,8 @@ class PromptManager:
                     "}}\n\n"
                     "For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. "
                     "Be an exaggerated caricature of yourself - use signature phrases. Never reveal what cards you had. "
-                    "Only speak if chattiness ({chattiness}) > 0.4."
+                    "Only speak if chattiness ({chattiness}) > 0.4.\n\n"
+                    "IMPORTANT: Vary your phrasing. Don't repeat phrases you've used before in this game."
                 )
             }
         )
