@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 @dataclass
@@ -314,6 +314,7 @@ class GamePersistence:
             3: (self._migrate_v3_add_controller_state_tables, "Add emotional state and controller state tables"),
             4: (self._migrate_v4_add_tournament_tables, "Add tournament results and career stats tables"),
             5: (self._migrate_v5_add_avatar_images_table, "Add avatar_images table for storing character images"),
+            6: (self._migrate_v6_add_api_usage_table, "Add api_usage table for LLM cost tracking"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -526,6 +527,84 @@ class GamePersistence:
             conn.execute("ALTER TABLE personalities ADD COLUMN elasticity_config TEXT")
 
         logger.info("Created avatar_images table and verified personalities schema")
+
+    def _migrate_v6_add_api_usage_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v6: Add api_usage table for LLM cost tracking."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS api_usage (
+                id INTEGER PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                -- Context (nullable - not all calls have game context)
+                game_id TEXT REFERENCES games(game_id) ON DELETE SET NULL,
+                owner_id TEXT,
+                player_name TEXT,
+                hand_number INTEGER,
+
+                -- Call classification (validated enum in code)
+                call_type TEXT NOT NULL,
+                prompt_template TEXT,
+
+                -- Provider/Model
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+
+                -- Token usage (for text completions)
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cached_tokens INTEGER DEFAULT 0,
+                reasoning_tokens INTEGER DEFAULT 0,
+
+                -- Image usage (for DALL-E - cost is per-image, not tokens)
+                image_count INTEGER DEFAULT 0,
+                image_size TEXT,
+
+                -- Performance & Status
+                latency_ms INTEGER,
+                status TEXT NOT NULL,
+                finish_reason TEXT,
+                error_code TEXT,
+                fallback_used BOOLEAN DEFAULT FALSE
+            )
+        """)
+
+        # Single-column indexes
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_owner
+            ON api_usage(owner_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_game
+            ON api_usage(game_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_created
+            ON api_usage(created_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_call_type
+            ON api_usage(call_type)
+        """)
+
+        # Composite indexes for common cost queries
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_owner_created
+            ON api_usage(owner_id, created_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_owner_call_type
+            ON api_usage(owner_id, call_type)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_game_call_type
+            ON api_usage(game_id, call_type)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_model_created
+            ON api_usage(model, created_at)
+        """)
+
+        logger.info("Created api_usage table for LLM cost tracking")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
