@@ -16,7 +16,7 @@ interface ParsedAction {
 interface LastAction {
   type: string;
   player: string;
-  amount: number | null;
+  amount?: number;
 }
 
 // Extended message type with display properties added during processing
@@ -253,7 +253,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         setLastAction({
           type: parsed.action,
           player: parsed.player,
-          amount: parsed.amount
+          amount: parsed.amount ?? undefined
         });
       }
     }

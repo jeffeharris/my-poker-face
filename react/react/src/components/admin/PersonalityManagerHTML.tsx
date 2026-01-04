@@ -322,7 +322,8 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     function updateArrayItem(arrayName: string, index: number, value: string) {
       if (!currentPersonality) return;
       if (!arrayData[arrayName]) {
-        arrayData[arrayName] = personalities[currentPersonality][arrayName] || [];
+        const arr = personalities[currentPersonality][arrayName];
+        arrayData[arrayName] = (Array.isArray(arr) ? arr : []) as string[];
       }
       arrayData[arrayName][index] = value;
     }
@@ -330,7 +331,8 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     function removeArrayItem(arrayName: string, index: number) {
       if (!currentPersonality) return;
       if (!arrayData[arrayName]) {
-        arrayData[arrayName] = [...(personalities[currentPersonality][arrayName] || [])];
+        const arr = personalities[currentPersonality][arrayName];
+        arrayData[arrayName] = [...(Array.isArray(arr) ? arr : [])] as string[];
       }
       arrayData[arrayName].splice(index, 1);
       selectPersonality(currentPersonality);
@@ -339,7 +341,8 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     function addArrayItem(arrayName: string) {
       if (!currentPersonality) return;
       if (!arrayData[arrayName]) {
-        arrayData[arrayName] = [...(personalities[currentPersonality][arrayName] || [])];
+        const arr = personalities[currentPersonality][arrayName];
+        arrayData[arrayName] = [...(Array.isArray(arr) ? arr : [])] as string[];
       }
       arrayData[arrayName].push('');
       personalities[currentPersonality][arrayName] = arrayData[arrayName];
