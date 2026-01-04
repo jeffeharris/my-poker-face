@@ -75,11 +75,22 @@ jobs:
         with:
           clean: true
 
+      - name: Sync to production directory
+        run: |
+          sudo rsync -av --delete \
+            --exclude '.git' --exclude 'node_modules' --exclude '__pycache__' \
+            --exclude '.venv' --exclude 'my_poker_face_venv' --exclude '.dev' \
+            --exclude 'data/*.db' --exclude '*.pyc' \
+            --exclude 'generated_images/' --exclude '.env' \
+            ./ /opt/poker/
+
       - name: Decrypt secrets
+        working-directory: /opt/poker
         run: |
           age -d -i $HOME/.config/age/key.txt .env.prod.age > .env
 
       - name: Build and deploy containers
+        working-directory: /opt/poker
         run: |
           docker compose -f docker-compose.prod.yml up -d --build
 
@@ -91,6 +102,7 @@ jobs:
           curl -sf http://localhost/health || (echo "Health check failed" && exit 1)
 
       - name: Run database migrations
+        working-directory: /opt/poker
         run: |
           docker compose -f docker-compose.prod.yml run --rm backend python scripts/migrate_avatars_to_db.py
 
