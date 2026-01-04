@@ -18,7 +18,6 @@ class ConversationContext:
     consecutive_silent_turns: int = 0
     recent_speakers: List[str] = field(default_factory=list)
     recent_messages: List[Dict] = field(default_factory=list)  # Recent chat messages
-    addressed_players: Dict[str, int] = field(default_factory=dict)  # Player -> turns since addressed
 
     def update(self, player_name: str, did_speak: bool):
         """Update conversation tracking after a player's turn."""
@@ -37,12 +36,6 @@ class ConversationContext:
             if name != player_name or not did_speak:
                 self.turns_since_last_spoke[name] += 1
 
-        # Increment addressed counter (decays over turns)
-        for name in list(self.addressed_players.keys()):
-            self.addressed_players[name] += 1
-            if self.addressed_players[name] > 3:  # Forget after 3 turns
-                del self.addressed_players[name]
-
     def record_message(self, sender: str, message: str, all_player_names: List[str]):
         """Record a chat message and check for player mentions."""
         self.recent_messages.append({
@@ -52,21 +45,6 @@ class ConversationContext:
         # Keep only last 10 messages
         if len(self.recent_messages) > 10:
             self.recent_messages.pop(0)
-
-        # Check if any player names are mentioned in the message
-        message_lower = message.lower()
-        for player_name in all_player_names:
-            # Check for full name or first name
-            name_parts = player_name.lower().split()
-            if player_name.lower() in message_lower or \
-               (name_parts and name_parts[0] in message_lower):
-                # Mark this player as addressed (reset counter to 0)
-                self.addressed_players[player_name] = 0
-                logger.debug(f"Player {player_name} was addressed in message: {message[:50]}...")
-
-    def was_addressed(self, player_name: str) -> bool:
-        """Check if player was recently addressed by name."""
-        return player_name in self.addressed_players
 
 
 class ChattinessManager:
@@ -81,7 +59,6 @@ class ChattinessManager:
         'bluffing': -0.1,         # Might stay quiet when bluffing
         'strong_hand': 0.1,       # Confidence breeds conversation
         'weak_hand': -0.1,        # Might be quieter with bad cards
-        'addressed_directly': 0.5, # Almost always respond when spoken to
         'long_silence': 0.2,      # Break awkward silences
         'just_joined': 0.3,       # New players often announce themselves
         'heads_up': 0.2,          # More talk in 1v1 situations
@@ -228,8 +205,7 @@ class ChattinessManager:
             ),
             'was_last_speaker': self.conversation_context.last_speaker == player_name,
             'table_silent_turns': self.conversation_context.consecutive_silent_turns,
-            'recent_speakers': self.conversation_context.recent_speakers.copy(),
-            'was_addressed': self.conversation_context.was_addressed(player_name)
+            'recent_speakers': self.conversation_context.recent_speakers.copy()
         }
     
     def get_last_decision(self, player_name: str) -> Optional[Dict]:
@@ -241,21 +217,6 @@ class ChattinessManager:
         self.conversation_context = ConversationContext()
         self._last_decisions = {}
 
-    def record_chat_message(self, sender: str, message: str, all_player_names: List[str]):
-        """
-        Record a chat message and detect player mentions.
-
-        This should be called when a player sends a chat message to track
-        who is being addressed. AI players who are mentioned will have
-        increased probability of responding.
-
-        Args:
-            sender: Name of the message sender
-            message: The chat message content
-            all_player_names: List of all player names in the game
-        """
-        self.conversation_context.record_message(sender, message, all_player_names)
-    
     def suggest_speaking_style(self, player_name: str, probability: float) -> str:
         """
         Suggest how a player might speak based on probability.

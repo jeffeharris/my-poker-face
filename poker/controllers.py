@@ -273,41 +273,7 @@ class AIPlayerController:
         if self.state_machine.phase == 'SHOWDOWN':
             context['showdown'] = True
 
-        # Check if this player was addressed in recent messages
-        if game_messages:
-            context['addressed_directly'] = self._was_addressed_in_messages(game_messages)
-
         return context
-
-    def _was_addressed_in_messages(self, game_messages, lookback=5) -> bool:
-        """Check if this player was mentioned in recent messages."""
-        # Get the last N messages
-        recent_messages = game_messages[-lookback:] if len(game_messages) > lookback else game_messages
-
-        # Player name parts for matching
-        name_lower = self.player_name.lower()
-        name_parts = name_lower.split()
-        first_name = name_parts[0] if name_parts else name_lower
-
-        for msg in recent_messages:
-            # Skip messages from self
-            sender = msg.get('sender', '')
-            if sender.lower() == name_lower:
-                continue
-
-            # Only check player messages (not table/system)
-            msg_type = msg.get('type', msg.get('message_type', ''))
-            if msg_type not in ('player', 'ai'):
-                continue
-
-            content = msg.get('content', msg.get('message', '')).lower()
-
-            # Check if full name or first name is mentioned
-            if name_lower in content or first_name in content:
-                logger.debug(f"{self.player_name} was addressed in message: {content[:50]}...")
-                return True
-
-        return False
 
     def _build_memory_context(self, game_state) -> str:
         """Build context from session memory and opponent models for injection into prompts."""

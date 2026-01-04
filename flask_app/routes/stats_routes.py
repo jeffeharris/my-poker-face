@@ -164,6 +164,7 @@ def get_targeted_chat_suggestions(game_id):
     if not game_state_service.get_game(game_id):
         return jsonify({"error": "Game not found"}), 404
 
+    data = None
     try:
         data = request.get_json()
         game_data = game_state_service.get_game(game_id)
@@ -326,7 +327,7 @@ Return as JSON:
     except Exception as e:
         logger.error(f"[QuickChat] ERROR generating suggestions: {str(e)}")
         logger.exception("[QuickChat] Full traceback:")
-        target = data.get('targetPlayer') if 'data' in dir() else None
+        target = data.get('targetPlayer') if data else None
         fallback_messages = {
             'encourage': ["Nice hand!", "Good play there!"],
             'antagonize': ["You sure about that?", "Interesting choice..."],
@@ -334,7 +335,7 @@ Return as JSON:
             'flatter': ["Impressive as always!", "You're too good!"],
             'challenge': ["Prove it!", "Show me what you got!"]
         }
-        tone = data.get('tone', 'encourage') if 'data' in dir() else 'encourage'
+        tone = data.get('tone', 'encourage') if data else 'encourage'
         msgs = fallback_messages.get(tone, fallback_messages['encourage'])
 
         return jsonify({

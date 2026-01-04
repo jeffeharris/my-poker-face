@@ -136,12 +136,6 @@ class TestChattinessBehavior(unittest.TestCase):
             0.5, {'bluffing': True}
         )
         self.assertLess(bluff_prob, base_prob)
-        
-        # Addressed directly - almost always speak
-        addressed_prob = self.chattiness_manager.calculate_speaking_probability(
-            0.5, {'addressed_directly': True}
-        )
-        self.assertGreaterEqual(addressed_prob, 0.8)
 
 
 class TestMandatoryInnerMonologue(unittest.TestCase):
@@ -380,7 +374,6 @@ class ChattinessManager:
             'big_pot': 0.2,
             'all_in': 0.4,
             'bluffing': -0.1,
-            'addressed_directly': 0.5,
             'long_silence': 0.2,
         }
         
