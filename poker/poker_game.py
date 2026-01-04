@@ -650,6 +650,9 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     """
     # Sort active players by contribution to handle side pots at showdown
     active_players = [p for p in game_state.players if not p.is_folded and p.bet > 0]
+    # Handle edge case: no active players
+    if not active_players:
+        return {'winnings': {}, 'winning_hand': [], 'hand_name': ''}
     active_players_sorted = sorted(active_players, key=lambda p: p.bet)
     # Prepare community cards for hand evaluation (handle both Card objects and dicts)
     community_cards = [
