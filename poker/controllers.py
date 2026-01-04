@@ -19,8 +19,7 @@ from .ai_resilience import (
     get_fallback_chat_response,
     AIFallbackStrategy
 )
-from .tilt_modifier import TiltState, TiltPromptModifier
-from .emotional_state import EmotionalState, EmotionalStateGenerator
+from .player_psychology import PlayerPsychology
 
 logger = logging.getLogger(__name__)
 
@@ -81,25 +80,25 @@ class AIPlayerController:
         self.prompt_manager = PromptManager()
         self.chattiness_manager = ChattinessManager()
         self.response_validator = ResponseValidator()
-        # Store personality traits for fallback behavior
-        self.personality_traits = self.ai_player.personality_config.get('personality_traits', {})
+
+        # Unified psychological state
+        self.psychology = PlayerPsychology.from_personality_config(
+            name=player_name,
+            config=self.ai_player.personality_config
+        )
+
         # Memory systems (optional - set by memory manager)
         self.session_memory = session_memory
         self.opponent_model_manager = opponent_model_manager
-        # Tilt state tracking
-        self.tilt_state = TiltState()
-        # Emotional state (generated at end of each hand)
-        self.emotional_state: Optional[EmotionalState] = None
-        self.emotional_state_generator = EmotionalStateGenerator()
         
     def get_current_personality_traits(self):
-        """Get current trait values from elastic personality if available."""
-        if hasattr(self.ai_player, 'elastic_personality'):
-            return {
-                name: self.ai_player.elastic_personality.get_trait_value(name)
-                for name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']
-            }
-        return self.personality_traits
+        """Get current trait values from psychology (elastic personality)."""
+        return self.psychology.traits
+
+    @property
+    def personality_traits(self):
+        """Compatibility property for ai_resilience fallback."""
+        return self.psychology.traits
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
@@ -144,10 +143,12 @@ class AIPlayerController:
         message = message + "\n\n" + chattiness_guidance
 
         # Inject emotional state context (before tilt effects)
-        message = self._inject_emotional_state(message)
+        emotional_section = self.psychology.get_prompt_section()
+        if emotional_section:
+            message = emotional_section + "\n\n" + message
 
         # Apply tilt effects if player is tilted (after emotional state)
-        message = self._apply_tilt_effects(message)
+        message = self.psychology.apply_tilt_effects(message)
 
         print(message)
 
@@ -180,8 +181,6 @@ class AIPlayerController:
         """Get AI decision with automatic fallback on failure"""
         # Store context for fallback
         self._fallback_context = context
-        # Update personality traits to current elastic values
-        self.personality_traits = self.get_current_personality_traits()
         
         # Use the prompt manager for the decision prompt
         decision_prompt = self.prompt_manager.render_prompt(
@@ -335,120 +334,6 @@ class AIPlayerController:
 
         return "\n\n".join(parts) if parts else ""
 
-    def _inject_emotional_state(self, message: str) -> str:
-        """Inject emotional state context into the prompt.
-
-        Emotional state is generated at the end of each hand and provides
-        dimensional (valence, arousal, control, focus) + narrative context
-        about how the AI is feeling.
-
-        This runs BEFORE tilt effects so that tilt can modify/override as needed.
-        """
-        if not self.emotional_state:
-            return message
-
-        # Skip emotional state injection at severe tilt (tilt will override anyway)
-        if self.tilt_state.tilt_level > 0.6:
-            logger.debug(
-                f"{self.player_name}: Skipping emotional state injection due to severe tilt "
-                f"({self.tilt_state.tilt_level:.2f})"
-            )
-            return message
-
-        # Generate the emotional state section
-        emotional_section = self.emotional_state.to_prompt_section()
-
-        logger.debug(
-            f"{self.player_name} emotional state: "
-            f"valence={self.emotional_state.valence:.2f}, "
-            f"arousal={self.emotional_state.arousal:.2f}, "
-            f"control={self.emotional_state.control:.2f}, "
-            f"focus={self.emotional_state.focus:.2f}"
-        )
-
-        # Prepend emotional state to message
-        return emotional_section + "\n\n" + message
-
-    def generate_emotional_state(self, hand_outcome: dict, session_context: dict,
-                                  hand_number: int) -> None:
-        """Generate emotional state after a hand completes.
-
-        Called from the hand completion flow to update the player's emotional state.
-
-        Args:
-            hand_outcome: Dict with outcome, amount, key_moment, opponent, etc.
-            session_context: Session memory context (streaks, win rate, etc.)
-            hand_number: Current hand number
-        """
-        # Gather elastic trait data
-        elastic_traits = {}
-        if hasattr(self.ai_player, 'elastic_personality'):
-            ep = self.ai_player.elastic_personality
-            for trait_name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']:
-                if trait_name in ep.traits:
-                    trait = ep.traits[trait_name]
-                    elastic_traits[trait_name] = {
-                        'value': trait.value,
-                        'anchor': trait.anchor,
-                        'pressure': trait.pressure
-                    }
-
-        # Generate emotional state
-        self.emotional_state = self.emotional_state_generator.generate(
-            personality_name=self.player_name,
-            personality_config=self.ai_player.personality_config,
-            hand_outcome=hand_outcome,
-            elastic_traits=elastic_traits,
-            tilt_state=self.tilt_state,
-            session_context=session_context,
-            hand_number=hand_number
-        )
-
-        logger.info(
-            f"{self.player_name} emotional state generated: "
-            f"{self.emotional_state.valence_descriptor} mood, "
-            f"{self.emotional_state.arousal_descriptor}, "
-            f"{self.emotional_state.control_descriptor}"
-        )
-
-    def _apply_tilt_effects(self, message: str) -> str:
-        """Apply tilt effects to the prompt if player is tilted.
-
-        Tilt is updated independently from:
-        - Pressure events (bad_beat, bluff_called, rivalry_trigger, etc.)
-        - Hand outcomes (win/loss amounts)
-        - Chat messages (trash talk)
-
-        This method only applies the effects - tilt updates happen elsewhere.
-        """
-        # Only apply if tilted enough to matter
-        if self.tilt_state.tilt_level < 0.2:
-            return message
-
-        # Create modifier and apply effects
-        modifier = TiltPromptModifier(self.tilt_state)
-        modified_message = modifier.modify_prompt(message)
-
-        # Log tilt level for debugging
-        logger.info(
-            f"{self.player_name} tilt level: {self.tilt_state.tilt_level:.2f} "
-            f"({self.tilt_state.get_tilt_category()}) - source: {self.tilt_state.tilt_source}"
-        )
-
-        return modified_message
-
-    def update_tilt_from_hand_result(self, outcome: str, amount: int,
-                                      opponent: Optional[str] = None,
-                                      was_bad_beat: bool = False,
-                                      was_bluff_called: bool = False):
-        """Update tilt state based on hand outcome. Call this after each hand."""
-        self.tilt_state.update_from_hand(
-            outcome=outcome,
-            amount=amount,
-            opponent=opponent,
-            was_bad_beat=was_bad_beat,
-            was_bluff_called=was_bluff_called
-        )
 
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
                                   speaking_context: Dict, valid_actions: List[str]) -> str:

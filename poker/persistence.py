@@ -1010,22 +1010,17 @@ class GamePersistence:
 
     # Controller State Persistence Methods (Tilt + ElasticPersonality)
     def save_controller_state(self, game_id: str, player_name: str,
-                              controller_state: Optional[Dict[str, Any]] = None,
-                              tilt_state: Optional[Dict[str, Any]] = None,
-                              elastic_personality: Optional[Dict[str, Any]] = None) -> None:
-        """Save controller state (tilt and elastic personality) for a player.
+                              psychology: Dict[str, Any]) -> None:
+        """Save unified psychology state for a player.
 
         Args:
             game_id: The game identifier
             player_name: The player's name
-            controller_state: Combined dict with 'tilt_state' and 'elastic_personality' keys
-            tilt_state: Dict from TiltState serialization (alternative to controller_state)
-            elastic_personality: Dict from ElasticPersonality.to_dict() (alternative)
+            psychology: Dict from PlayerPsychology.to_dict()
         """
-        # Support both calling styles
-        if controller_state is not None:
-            tilt_state = controller_state.get('tilt_state')
-            elastic_personality = controller_state.get('elastic_personality')
+        # Extract components from unified psychology
+        tilt_state = psychology.get('tilt')
+        elastic_personality = psychology.get('elastic')
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""

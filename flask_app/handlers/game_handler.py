@@ -75,24 +75,26 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer) -> Di
             if player.name in controller_states:
                 ctrl_state = controller_states[player.name]
 
-                if ctrl_state.get('tilt_state') and hasattr(controller, 'tilt_state'):
-                    controller.tilt_state = TiltState.from_dict(ctrl_state['tilt_state'])
-                    logger.debug(f"Restored tilt state for {player.name}: level={controller.tilt_state.tilt_level:.2f}")
-
-                if ctrl_state.get('elastic_personality') and hasattr(controller, 'ai_player'):
-                    if hasattr(controller.ai_player, 'elastic_personality'):
-                        controller.ai_player.elastic_personality = ElasticPersonality.from_dict(
-                            ctrl_state['elastic_personality']
-                        )
-                        logger.debug(f"Restored elastic personality for {player.name}")
-
-            if player.name in emotional_states:
-                if hasattr(controller, 'emotional_state'):
-                    controller.emotional_state = EmotionalState.from_dict(emotional_states[player.name])
-                    logger.debug(
-                        f"Restored emotional state for {player.name}: "
-                        f"valence={controller.emotional_state.valence:.2f}"
+                # Restore unified psychology state
+                if ctrl_state.get('psychology'):
+                    # Load from new unified format
+                    from poker.player_psychology import PlayerPsychology
+                    controller.psychology = PlayerPsychology.from_dict(
+                        ctrl_state['psychology'],
+                        controller.ai_player.personality_config
                     )
+                    logger.debug(
+                        f"Restored psychology for {player.name}: "
+                        f"tilt={controller.psychology.tilt_level:.2f}"
+                    )
+                else:
+                    # Fallback: reconstruct from old separate states (if they exist)
+                    if ctrl_state.get('tilt_state'):
+                        controller.psychology.tilt = TiltState.from_dict(ctrl_state['tilt_state'])
+                    if ctrl_state.get('elastic_personality'):
+                        controller.psychology.elastic = ElasticPersonality.from_dict(ctrl_state['elastic_personality'])
+                    if player.name in emotional_states:
+                        controller.psychology.emotional = EmotionalState.from_dict(emotional_states[player.name])
 
             ai_controllers[player.name] = controller
 
@@ -118,12 +120,7 @@ def update_and_emit_game_state(game_id: str) -> None:
         player_name = player_dict.get('name', '')
         if not player_dict.get('is_human', True) and player_name in ai_controllers:
             controller = ai_controllers[player_name]
-            emotional_state = getattr(controller, 'emotional_state', None)
-            if emotional_state:
-                display_emotion = emotional_state.get_display_emotion()
-            else:
-                display_emotion = 'confident'
-
+            display_emotion = controller.psychology.get_display_emotion()
             avatar_url = get_avatar_url(player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
@@ -193,34 +190,29 @@ def handle_pressure_events(game_id: str, game_data: dict, game_state,
         }
         pressure_stats.record_event(event_name, affected_players, details)
 
-        # Update tilt for affected AI players
+        # Update psychology (tilt + elastic) for affected AI players
         for player_name in affected_players:
             if player_name in ai_controllers:
                 controller = ai_controllers[player_name]
-                if hasattr(controller, 'tilt_state'):
-                    opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
-                    controller.tilt_state.apply_pressure_event(event_name, opponent)
+                opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
+                controller.psychology.apply_pressure_event(event_name, opponent)
 
-    # Update AI controllers with new elasticity values
-    if 'elasticity_manager' in game_data:
-        elasticity_manager = game_data['elasticity_manager']
-        for name, personality in elasticity_manager.personalities.items():
-            if name in ai_controllers:
-                controller = ai_controllers[name]
-                if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
-                    controller.ai_player.elastic_personality = personality
-                    controller.ai_player.update_mood_from_elasticity()
-
-        # Emit elasticity update
-        elasticity_data = format_elasticity_data(elasticity_manager)
+    # Emit elasticity update from psychology state
+    if ai_controllers:
+        elasticity_data = {}
+        for name, controller in ai_controllers.items():
+            elasticity_data[name] = {
+                'traits': controller.psychology.elastic.to_dict().get('traits', {}),
+                'mood': controller.psychology.mood
+            }
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
 
 def update_tilt_states(game_id: str, game_data: dict, game_state,
                        winner_info: dict, winning_player_names: list,
                        pot_size: int) -> None:
-    """Update tilt state for AI players based on hand outcome."""
-    if 'ai_controllers' not in game_data or 'pressure_detector' not in game_data:
+    """Update psychology state (tilt + emotional) for AI players after hand completes."""
+    if 'ai_controllers' not in game_data:
         return
 
     ai_controllers = game_data['ai_controllers']
@@ -230,8 +222,6 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
             continue
 
         controller = ai_controllers[player.name]
-        if not hasattr(controller, 'tilt_state'):
-            continue
 
         player_won = player.name in winning_player_names
         amount = winner_info['winnings'].get(player.name, 0) if player_won else -pot_size
@@ -243,49 +233,40 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
             was_bad_beat = hand_rank >= 2
 
         nemesis = winning_player_names[0] if not player_won and winning_player_names else None
+        outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
+        key_moment = 'bad_beat' if was_bad_beat else ('bluff_called' if was_bluff_called else None)
 
-        controller.tilt_state.update_from_hand(
-            outcome='won' if player_won else ('folded' if player.is_folded else 'lost'),
-            amount=amount,
-            opponent=nemesis,
-            was_bad_beat=was_bad_beat,
-            was_bluff_called=was_bluff_called
-        )
-        logger.debug(
-            f"Tilt update for {player.name}: level={controller.tilt_state.tilt_level:.2f} "
-            f"({controller.tilt_state.get_tilt_category()})"
-        )
+        # Get session context for emotional state generation
+        session_context = {}
+        if 'memory_manager' in game_data:
+            mm = game_data['memory_manager']
+            if hasattr(mm, 'session_memory') and mm.session_memory:
+                ctx = mm.session_memory.get_context(player.name)
+                if ctx:
+                    session_context = {
+                        'net_change': getattr(ctx, 'total_winnings', 0),
+                        'streak_type': getattr(ctx, 'current_streak', 'neutral'),
+                        'streak_count': getattr(ctx, 'streak_count', 0)
+                    }
 
-        # Generate emotional state
-        if hasattr(controller, 'generate_emotional_state'):
-            try:
-                hand_outcome = {
-                    'outcome': 'won' if player_won else ('folded' if player.is_folded else 'lost'),
-                    'amount': amount,
-                    'opponent': nemesis,
-                    'key_moment': 'bad_beat' if was_bad_beat else ('bluff_called' if was_bluff_called else None)
-                }
-
-                session_context = {}
-                if 'memory_manager' in game_data:
-                    mm = game_data['memory_manager']
-                    if hasattr(mm, 'session_memory') and mm.session_memory:
-                        ctx = mm.session_memory.get_context(player.name)
-                        if ctx:
-                            session_context = {
-                                'net_change': getattr(ctx, 'total_winnings', 0),
-                                'streak_type': getattr(ctx, 'current_streak', 'neutral'),
-                                'streak_count': getattr(ctx, 'streak_count', 0)
-                            }
-
-                hand_number = game_state.hand_count if hasattr(game_state, 'hand_count') else 0
-                controller.generate_emotional_state(
-                    hand_outcome=hand_outcome,
-                    session_context=session_context,
-                    hand_number=hand_number
-                )
-            except Exception as e:
-                logger.warning(f"Emotional state generation failed for {player.name}: {e}")
+        # Single unified call to update all psychology state
+        try:
+            controller.psychology.on_hand_complete(
+                outcome=outcome,
+                amount=amount,
+                opponent=nemesis,
+                was_bad_beat=was_bad_beat,
+                was_bluff_called=was_bluff_called,
+                session_context=session_context,
+                key_moment=key_moment
+            )
+            logger.debug(
+                f"Psychology update for {player.name}: "
+                f"tilt={controller.psychology.tilt_level:.2f} ({controller.psychology.tilt_category}), "
+                f"emotional={controller.psychology.emotional.valence_descriptor if controller.psychology.emotional else 'none'}"
+            )
+        except Exception as e:
+            logger.warning(f"Psychology state update failed for {player.name}: {e}")
 
 
 def handle_eliminations(game_id: str, game_data: dict, game_state,
@@ -469,11 +450,10 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
                 send_message(game_id, player_name, commentary.table_comment, "ai")
 
         for name, controller in ai_controllers.items():
-            if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
-                memory_manager.apply_learned_adjustments(
-                    name,
-                    controller.ai_player.elastic_personality
-                )
+            memory_manager.apply_learned_adjustments(
+                name,
+                controller.psychology.elastic
+            )
     except Exception as e:
         logger.warning(f"Commentary generation failed: {e}")
 
@@ -788,26 +768,12 @@ def handle_ai_action(game_id: str) -> None:
             personality_state
         )
 
-        tilt_dict = None
-        elastic_dict = None
-        if hasattr(controller, 'tilt_state'):
-            tilt_dict = controller.tilt_state.to_dict()
-        if hasattr(controller, 'ai_player') and hasattr(controller.ai_player, 'elastic_personality'):
-            elastic_dict = controller.ai_player.elastic_personality.to_dict()
-
-        if tilt_dict or elastic_dict:
-            persistence.save_controller_state(
-                game_id,
-                current_player.name,
-                tilt_state=tilt_dict,
-                elastic_personality=elastic_dict
-            )
-
-        if hasattr(controller, 'emotional_state') and controller.emotional_state:
-            persistence.save_emotional_state(
-                game_id,
-                current_player.name,
-                controller.emotional_state.to_dict()
-            )
+        # Save unified psychology state
+        psychology_dict = controller.psychology.to_dict()
+        persistence.save_controller_state(
+            game_id,
+            current_player.name,
+            psychology=psychology_dict
+        )
 
     update_and_emit_game_state(game_id)
