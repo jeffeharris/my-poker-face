@@ -68,7 +68,7 @@ export function MobilePokerTable({
           credentials: 'include',
         });
       } catch (err) {
-        console.error('Failed to end game:', err);
+        console.error(`Failed to end game for gameId=${gameId}:`, err);
       }
     }
     clearTournamentResult();

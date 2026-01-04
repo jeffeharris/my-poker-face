@@ -45,7 +45,7 @@ class TournamentTracker:
     eliminations: List[EliminationEvent] = field(default_factory=list)
     hand_count: int = 0
     biggest_pot: int = 0
-    started_at: datetime = field(default_factory=datetime.now)
+    started_at: datetime = field(default_factory=lambda: datetime.now())
     _active_players: set = field(default_factory=set, repr=False)
 
     def __post_init__(self):

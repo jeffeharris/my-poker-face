@@ -36,6 +36,10 @@ class PromptManager:
         self.templates['poker_player'] = PromptTemplate(
             name='poker_player',
             sections={
+                # Competitive framing: The shift from "friendly game" to "rivals competing" was intentional
+                # to make AI players more engaging and create dramatic tension. Players found a collaborative
+                # tone made the game feel less exciting. This competitive framing encourages bolder play
+                # and more entertaining table talk.
                 'persona_details': (
                     "Persona: {name}\n"
                     "Attitude: {attitude}\n"

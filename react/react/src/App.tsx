@@ -203,17 +203,22 @@ function App() {
   const handleSelectTheme = async (theme: Theme) => {
     if (!theme.personalities) return;
 
-    const response = await fetch(`${config.API_URL}/api/new-game`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        playerName,
-        personalities: theme.personalities
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${config.API_URL}/api/new-game`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          playerName,
+          personalities: theme.personalities
+        }),
+      });
+    } catch {
+      throw new Error('Network error. Please check your connection and try again.');
+    }
 
     if (response.status === 429) {
       throw new Error('Rate limit exceeded. Please wait a few minutes before starting a new game.');

@@ -252,13 +252,15 @@ class TiltPromptModifier:
                 modified = modified.replace(phrase, "")
                 modified = modified.replace(phrase.lower(), "")
 
-        # Clean up double spaces and orphaned punctuation
-        modified = re.sub(r'\s+', ' ', modified)  # Collapse whitespace
-        modified = re.sub(r'\s+([,.])', r'\1', modified)  # Remove space before punctuation
-        modified = re.sub(r'([,.])\s*\1', r'\1', modified)  # Remove duplicate punctuation
-        modified = re.sub(r',\s*\.', '.', modified)  # Fix ", ." to "."
+        return self._cleanup_whitespace_and_punctuation(modified)
 
-        return modified
+    def _cleanup_whitespace_and_punctuation(self, text: str) -> str:
+        """Clean up double spaces and orphaned punctuation after modifications."""
+        text = re.sub(r'\s+', ' ', text)  # Collapse whitespace
+        text = re.sub(r'\s+([,.])', r'\1', text)  # Remove space before punctuation
+        text = re.sub(r'([,.])\s*\1', r'\1', text)  # Remove duplicate punctuation
+        text = re.sub(r',\s*\.', '.', text)  # Fix ", ." to "."
+        return text
 
     def _inject_intrusive_thoughts(self, prompt: str) -> str:
         """Add intrusive thoughts based on tilt source."""

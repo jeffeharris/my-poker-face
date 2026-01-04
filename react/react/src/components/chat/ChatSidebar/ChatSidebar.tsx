@@ -5,6 +5,23 @@ import { QuickChatSuggestions } from '../QuickChatSuggestions';
 import { config } from '../../../config';
 import './ChatSidebar.css';
 
+// Type for parsed action messages (e.g., "Jeff chose to raise by $100")
+interface ParsedAction {
+  player: string;
+  action: string;
+  amount: number | null;
+}
+
+// Extended message type with display properties added during processing
+interface ProcessedChatMessage extends ChatMessage {
+  displayType: 'action' | 'separator' | ChatMessage['type'];
+  parsedAction?: ParsedAction;
+  eventType?: 'win' | 'all-in' | 'fold' | 'elimination' | null;
+  isFirstInGroup?: boolean;
+  isLastInGroup?: boolean;
+  showHeader?: boolean;
+}
+
 interface ChatSidebarProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
@@ -167,25 +184,21 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     
     // Apply message grouping if feature is enabled
     if (featureFlags.messageGrouping) {
-      const grouped = filtered.map((msg, index) => {
-        const prevMsg = index > 0 ? filtered[index - 1] : null;
-        const nextMsg = index < filtered.length - 1 ? filtered[index + 1] : null;
+      const grouped = (filtered as ProcessedChatMessage[]).map((msg, index) => {
+        const prevMsg: ProcessedChatMessage | null = index > 0 ? filtered[index - 1] as ProcessedChatMessage : null;
+        const nextMsg: ProcessedChatMessage | null = index < filtered.length - 1 ? filtered[index + 1] as ProcessedChatMessage : null;
 
         // For action messages, check the parsed player name
-        const msgAny = msg as any;
-        const prevMsgAny = prevMsg as any;
-        const nextMsgAny = nextMsg as any;
-
-        const currentSender = msg.displayType === 'action' && msgAny.parsedAction
-          ? msgAny.parsedAction.player
+        const currentSender = msg.displayType === 'action' && msg.parsedAction
+          ? msg.parsedAction.player
           : msg.sender;
 
-        const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsgAny?.parsedAction
-          ? prevMsgAny.parsedAction.player
+        const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsg.parsedAction
+          ? prevMsg.parsedAction.player
           : prevMsg?.sender;
 
-        const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsgAny?.parsedAction
-          ? nextMsgAny.parsedAction.player
+        const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsg.parsedAction
+          ? nextMsg.parsedAction.player
           : nextMsg?.sender;
         
         // Check if this message is part of a group

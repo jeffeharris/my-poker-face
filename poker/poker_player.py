@@ -222,6 +222,8 @@ class AIPokerPlayer(PokerPlayer):
         max_keep = MEMORY_TRIM_KEEP_EXCHANGES * 2
 
         if len(self.assistant.memory) > max_keep:
+            # Direct slice assignment is intentional - simpler than adding a trim_memory() method
+            # for this single use case. Memory is a simple list managed by the player.
             self.assistant.memory = self.assistant.memory[-max_keep:]
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:

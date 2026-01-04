@@ -5,6 +5,9 @@ import { gameAPI } from '../../utils/api';
 import { config } from '../../config';
 import './QuickChatSuggestions.css';
 
+// Cooldown between suggestion fetches to prevent API spam
+const SUGGESTION_FETCH_COOLDOWN_MS = 15000;
+
 interface QuickChatSuggestionsProps {
   gameId: string;
   playerName: string;
@@ -53,9 +56,9 @@ export function QuickChatSuggestions({
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
 
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone) => {
-    // Cooldown check (15 seconds)
+    // Cooldown check
     const now = Date.now();
-    if (now - lastFetchTime < 15000) {
+    if (now - lastFetchTime < SUGGESTION_FETCH_COOLDOWN_MS) {
       return;
     }
 

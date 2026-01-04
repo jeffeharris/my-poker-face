@@ -42,21 +42,30 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
     setError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}/api/generate-theme`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          theme: theme.id,
-          themeName: theme.name,
-          description: theme.description
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${config.API_URL}/api/generate-theme`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            theme: theme.id,
+            themeName: theme.name,
+            description: theme.description
+          }),
+        });
+      } catch {
+        throw new Error('Network error. Please check your connection and try again.');
+      }
+
+      if (response.status === 429) {
+        throw new Error('Rate limit exceeded. Please wait a few minutes before trying again.');
+      }
 
       if (!response.ok) {
-        throw new Error('Failed to generate theme');
+        throw new Error('Failed to generate theme. Please try again.');
       }
 
       const data = await response.json();

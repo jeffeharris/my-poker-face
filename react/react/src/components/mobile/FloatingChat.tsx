@@ -26,6 +26,8 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
   };
 
   // Add new message to stack when it arrives
+  // Note: Message IDs are UUIDs generated server-side, guaranteed unique per session.
+  // The processedIdsRef prevents duplicate processing during React re-renders, not ID collisions.
   useEffect(() => {
     if (message && !processedIdsRef.current.has(message.id)) {
       processedIdsRef.current.add(message.id);
