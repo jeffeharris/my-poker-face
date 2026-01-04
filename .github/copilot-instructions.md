@@ -243,7 +243,7 @@ tests/             # Test suite
 - Docker Compose setup for production
 - Redis for session management and rate limiting
 - Environment variables configured in `.env`
-- See `RENDER_DEPLOYMENT.md` for Render.com deployment
+- See `docs/DEVOPS.md` for production deployment
 
 ### Common Tasks
 
