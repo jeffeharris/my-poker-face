@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, redirect
 
 from poker.utils import get_celebrities
-from core.assistants import OpenAILLMAssistant
+from core.llm import LLMClient, CallType
 
 from ..extensions import persistence, limiter
 from .. import config
@@ -197,17 +197,18 @@ Return ONLY a JSON array of personality names, like:
 
 No other text or explanation."""
 
-        assistant = OpenAILLMAssistant(
-            system_message="You are a game designer selecting personalities for themed poker games.",
-            ai_model=config.FAST_AI_MODEL
-        )
-
+        client = LLMClient(model=config.FAST_AI_MODEL)
         messages = [
-            {"role": "system", "content": assistant.system_message},
+            {"role": "system", "content": "You are a game designer selecting personalities for themed poker games."},
             {"role": "user", "content": prompt}
         ]
-        response = assistant.get_response(messages)
-        response_content = response.choices[0].message.content or ""
+
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.THEME_GENERATION
+        )
+        response_content = response.content or ""
 
         try:
             response_text = response_content.strip()

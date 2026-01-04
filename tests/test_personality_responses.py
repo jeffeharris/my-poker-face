@@ -191,7 +191,7 @@ class TestPersonalityResponses(unittest.TestCase):
         
         return responses.get(name, {}).get(action, default)
     
-    @patch('core.assistants.OpenAILLMAssistant')
+    @patch('poker.poker_player.Assistant')
     def test_same_scenario_different_responses(self, mock_assistant):
         """Test how each personality responds to facing a bet with pocket 7s."""
         print("\n" + "="*80)

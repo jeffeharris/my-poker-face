@@ -6,9 +6,8 @@ import logging
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
-from openai import OpenAI
 
-from core.assistants import OpenAILLMAssistant
+from core.llm import LLMClient, CallType
 
 from ..extensions import persistence, auth_manager, limiter
 from ..services import game_state_service
@@ -130,19 +129,19 @@ Return as JSON with this format:
         if not os.environ.get("OPENAI_API_KEY"):
             raise ValueError("OpenAI API key not configured")
 
-        assistant = OpenAILLMAssistant(
-            ai_model=config.FAST_AI_MODEL,
-            ai_temp=0.8,
-            system_message="You are a friendly poker player giving brief chat suggestions."
-        )
-
+        client = LLMClient(model=config.FAST_AI_MODEL)
         messages = [
-            {"role": "system", "content": assistant.system_message},
+            {"role": "system", "content": "You are a friendly poker player giving brief chat suggestions."},
             {"role": "user", "content": prompt}
         ]
 
-        response = assistant.get_json_response(messages)
-        result = json.loads(response.choices[0].message.content)
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.CHAT_SUGGESTION,
+            game_id=game_id
+        )
+        result = json.loads(response.content)
 
         return jsonify(result)
 
@@ -306,19 +305,19 @@ Return as JSON:
         logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}")
         logger.info(f"[QuickChat] Prompt: {prompt[:500]}...")
 
-        assistant = OpenAILLMAssistant(
-            ai_model=config.FAST_AI_MODEL,
-            reasoning_effort="minimal",
-            system_message="You are a witty poker player helping generate fun table talk. Keep it light and entertaining."
-        )
-
+        client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
         messages = [
-            {"role": "system", "content": assistant.system_message},
+            {"role": "system", "content": "You are a witty poker player helping generate fun table talk. Keep it light and entertaining."},
             {"role": "user", "content": prompt}
         ]
 
-        response = assistant.get_json_response(messages)
-        raw_content = response.choices[0].message.content
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.CHAT_SUGGESTION,
+            game_id=game_id
+        )
+        raw_content = response.content
         logger.info(f"[QuickChat] Raw response: {raw_content}")
         result = json.loads(raw_content)
 

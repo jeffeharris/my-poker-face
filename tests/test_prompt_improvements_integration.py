@@ -71,7 +71,7 @@ class TestFullIntegration(unittest.TestCase):
             'strategies': []
         }
         
-        with patch('poker.poker_player.OpenAILLMAssistant') as mock_llm:
+        with patch('poker.poker_player.Assistant') as mock_llm:
             mock_llm.return_value = self.mock_assistant
             
             # Create controller (it creates its own AI player)
@@ -134,59 +134,59 @@ class TestFullIntegration(unittest.TestCase):
         
         return results
     
-    @patch('core.assistants.OpenAILLMAssistant')
+    @patch('poker.poker_player.Assistant')
     def test_quiet_personalities_stay_quiet(self, mock_llm_class):
         """Test that quiet personalities speak less frequently."""
         mock_llm_class.return_value = self.mock_assistant
-        
+
         # Test with a quiet personality
         results = self.simulate_full_hand("Silent Bob", chattiness=0.1)
-        
+
         # Quiet personalities should speak less than 50% of the time
         speaking_rate = results['spoke_count'] / results['total_actions']
         self.assertLess(speaking_rate, 0.5)
         print(f"\nSilent Bob spoke {results['spoke_count']}/{results['total_actions']} times ({speaking_rate:.1%})")
-    
-    @patch('core.assistants.OpenAILLMAssistant')
+
+    @patch('poker.poker_player.Assistant')
     def test_chatty_personalities_speak_often(self, mock_llm_class):
         """Test that chatty personalities speak frequently."""
         mock_llm_class.return_value = self.mock_assistant
-        
+
         # Test with a chatty personality
         results = self.simulate_full_hand("Gordon Ramsay", chattiness=0.9)
-        
+
         # Chatty personalities should speak more than 70% of the time
         speaking_rate = results['spoke_count'] / results['total_actions']
         self.assertGreater(speaking_rate, 0.7)
         print(f"\nGordon spoke {results['spoke_count']}/{results['total_actions']} times ({speaking_rate:.1%})")
-    
-    @patch('core.assistants.OpenAILLMAssistant')
+
+    @patch('poker.poker_player.Assistant')
     def test_hand_strategy_persists(self, mock_llm_class):
         """Test that hand strategy is set once and persists."""
         mock_llm_class.return_value = self.mock_assistant
-        
+
         # Simulate a hand
         results = self.simulate_full_hand("Sherlock Holmes", chattiness=0.5)
-        
+
         # Should have exactly one strategy
         self.assertEqual(len(results['strategies']), 1)
         print(f"\nStrategy locked: {results['strategies'][0]}")
-    
-    @patch('core.assistants.OpenAILLMAssistant')
+
+    @patch('poker.poker_player.Assistant')
     def test_inner_monologue_always_present(self, mock_llm_class):
         """Test that inner monologue is always present."""
         mock_llm_class.return_value = self.mock_assistant
-        
+
         # Test multiple personalities
         for personality in ["Silent Bob", "Eeyore", "Gordon Ramsay"]:
             results = self.simulate_full_hand(personality, chattiness=0.5)
-            
+
             # Every action should have inner monologue
             for action in results['actions']:
                 self.assertIn('inner_monologue', action)
                 self.assertTrue(action['inner_monologue'])
-    
-    @patch('core.assistants.OpenAILLMAssistant')
+
+    @patch('poker.poker_player.Assistant')
     def test_response_cleaning_works(self, mock_llm_class):
         """Test that responses are cleaned based on context."""
         mock_llm_class.return_value = self.mock_assistant
@@ -225,7 +225,7 @@ class TestFullIntegration(unittest.TestCase):
         
         print("\n=== Comprehensive Personality Test ===")
         for name, chattiness in personalities:
-            with patch('core.assistants.OpenAILLMAssistant') as mock_llm:
+            with patch('poker.poker_player.Assistant') as mock_llm:
                 mock_llm.return_value = self.mock_assistant
                 
                 results = self.simulate_full_hand(name, chattiness)
