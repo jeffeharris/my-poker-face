@@ -11,7 +11,7 @@ class TestLLMResponse(unittest.TestCase):
         """Test basic response creation."""
         response = LLMResponse(
             content="Hello, world!",
-            model="gpt-4.1-nano",
+            model="gpt-5-nano",
             provider="openai",
             input_tokens=10,
             output_tokens=5,
@@ -25,7 +25,7 @@ class TestLLMResponse(unittest.TestCase):
         """Test total_tokens property."""
         response = LLMResponse(
             content="test",
-            model="gpt-4.1-nano",
+            model="gpt-5-nano",
             provider="openai",
             input_tokens=100,
             output_tokens=50,
@@ -36,7 +36,7 @@ class TestLLMResponse(unittest.TestCase):
         """Test is_error with empty content."""
         response = LLMResponse(
             content="",
-            model="gpt-4.1-nano",
+            model="gpt-5-nano",
             provider="openai",
             input_tokens=10,
             output_tokens=0,
@@ -47,7 +47,7 @@ class TestLLMResponse(unittest.TestCase):
         """Test is_error with error status."""
         response = LLMResponse(
             content="error message",
-            model="gpt-4.1-nano",
+            model="gpt-5-nano",
             provider="openai",
             input_tokens=10,
             output_tokens=5,
@@ -59,7 +59,7 @@ class TestLLMResponse(unittest.TestCase):
         """Test was_truncated property."""
         response = LLMResponse(
             content="partial...",
-            model="gpt-4.1-nano",
+            model="gpt-5-nano",
             provider="openai",
             input_tokens=10,
             output_tokens=100,

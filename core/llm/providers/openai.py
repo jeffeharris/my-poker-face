@@ -10,7 +10,7 @@ from .base import LLMProvider
 logger = logging.getLogger(__name__)
 
 # Default models
-DEFAULT_MODEL = "gpt-4.1-nano"
+DEFAULT_MODEL = "gpt-5-nano"
 DEFAULT_IMAGE_MODEL = "dall-e-2"
 
 
@@ -26,7 +26,7 @@ class OpenAIProvider(LLMProvider):
         """Initialize OpenAI provider.
 
         Args:
-            model: Model to use (defaults to gpt-4.1-nano)
+            model: Model to use (defaults to gpt-5-nano)
             reasoning_effort: Reasoning effort for GPT-5 models ('minimal', 'low', 'medium', 'high')
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
         """

@@ -196,8 +196,8 @@ class TestAssistant(unittest.TestCase):
             self.assertEqual(row[0], "game_override")
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_reset_memory(self, mock_openai_class):
-        """Test reset_memory clears conversation."""
+    def test_memory_clear(self, mock_openai_class):
+        """Test memory.clear() clears conversation."""
         assistant = Assistant(
             system_prompt="Test",
             tracker=self.tracker,
@@ -208,8 +208,8 @@ class TestAssistant(unittest.TestCase):
         assistant._memory.add_assistant("Hi there!")
         self.assertEqual(len(assistant.memory.get_messages()), 3)
 
-        # Reset
-        assistant.reset_memory()
+        # Clear via memory property
+        assistant.memory.clear()
 
         # Should only have system message
         messages = assistant.memory.get_messages()
@@ -217,14 +217,14 @@ class TestAssistant(unittest.TestCase):
         self.assertEqual(messages[0]["role"], "system")
 
     @patch('core.llm.providers.openai.OpenAI')
-    def test_add_to_memory(self, mock_openai_class):
-        """Test add_to_memory adds messages."""
+    def test_memory_add_messages(self, mock_openai_class):
+        """Test adding messages via memory property."""
         assistant = Assistant(
             system_prompt="Test",
             tracker=self.tracker,
         )
 
-        assistant.add_to_memory({"role": "user", "content": "Custom message"})
+        assistant.memory.add("user", "Custom message")
 
         messages = assistant.memory.get_messages()
         self.assertEqual(len(messages), 2)

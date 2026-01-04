@@ -113,7 +113,7 @@ class AIPokerPlayer(PokerPlayer):
 
         # Store and extract LLM configuration
         self.llm_config = llm_config or {}
-        model = self.llm_config.get("model", "gpt-4.1-nano")
+        model = self.llm_config.get("model", "gpt-5-nano")
         reasoning_effort = self.llm_config.get("reasoning_effort", "low")
 
         self.assistant = Assistant(
