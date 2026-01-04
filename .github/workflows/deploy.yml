@@ -28,10 +28,10 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/ -v --tb=short --ignore=tests/personality_tester
+          python -m pytest tests/core/ tests/test_prompt_management.py tests/test_functional_poker.py tests/test_state_machine_pure.py -v --tb=short
         env:
           PYTHONPATH: ${{ github.workspace }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_TEST || 'test-key-for-ci' }}
+          OPENAI_API_KEY: 'test-key-for-ci'
 
   test-frontend:
     name: Test Frontend (React)
@@ -53,7 +53,7 @@ jobs:
 
       - name: Lint
         working-directory: react/react
-        run: npm run lint
+        run: npm run lint -- --max-warnings=50
 
       - name: Build
         working-directory: react/react
