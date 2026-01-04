@@ -3,6 +3,36 @@ import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
 import './PersonalityManager.css';
 
+interface PersonalityTraits {
+  bluff_tendency: number;
+  aggression: number;
+  chattiness: number;
+  emoji_usage: number;
+}
+
+interface ElasticityConfig {
+  trait_elasticity: PersonalityTraits;
+  mood_elasticity: number;
+  recovery_rate: number;
+}
+
+interface PersonalityData {
+  play_style?: string;
+  default_confidence?: string;
+  default_attitude?: string;
+  personality_traits?: PersonalityTraits;
+  elasticity_config?: ElasticityConfig;
+  verbal_tics?: string[];
+  physical_tics?: string[];
+}
+
+declare global {
+  interface Window {
+    handleBackToMenu?: () => void;
+    createNewPersonality?: () => void;
+  }
+}
+
 interface PersonalityManagerHTMLProps {
   onBack: () => void;
 }
@@ -11,19 +41,19 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
   useEffect(() => {
     // Add the back button functionality
     const handleBack = () => onBack();
-    (window as any).handleBackToMenu = handleBack;
+    window.handleBackToMenu = handleBack;
 
     // Initialize the personality manager
     initializePersonalityManager();
 
     return () => {
-      delete (window as any).handleBackToMenu;
+      delete window.handleBackToMenu;
     };
   }, [onBack]);
 
   const initializePersonalityManager = () => {
     let currentPersonality: string | null = null;
-    let personalities: Record<string, any> = {};
+    let personalities: Record<string, PersonalityData> = {};
     let arrayData: Record<string, string[]> = {};
 
     // Load personalities on mount
@@ -40,8 +70,9 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         } else {
           showAlert('error', 'Failed to load personalities: ' + data.error);
         }
-      } catch (error: any) {
-        showAlert('error', 'Error loading personalities: ' + error.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        showAlert('error', 'Error loading personalities: ' + message);
       }
     }
 
@@ -73,7 +104,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
       displayEditor(name, personalities[name]);
     }
 
-    function displayEditor(name: string, data: any) {
+    function displayEditor(name: string, data: PersonalityData) {
       const editorDiv = document.getElementById('editor-content');
       if (!editorDiv) return;
 
@@ -364,8 +395,9 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         } else {
           showAlert('error', 'Failed to save: ' + data.error);
         }
-      } catch (error: any) {
-        showAlert('error', 'Error saving personality: ' + error.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        showAlert('error', 'Error saving personality: ' + message);
       }
     }
 
@@ -399,8 +431,9 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         } else {
           showAlert('error', 'Failed to delete: ' + data.error);
         }
-      } catch (error: any) {
-        showAlert('error', 'Error deleting personality: ' + error.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        showAlert('error', 'Error deleting personality: ' + message);
       }
     }
 
@@ -432,8 +465,9 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
         } else {
           showAlert('error', 'Regeneration failed: ' + (data.message || data.error));
         }
-      } catch (error: any) {
-        showAlert('error', 'Network error: ' + error.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        showAlert('error', 'Network error: ' + message);
       }
     }
 
@@ -504,8 +538,9 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
           showAlert('error', 'Generation failed: ' + (data.message || data.error));
           createManualPersonality(name);
         }
-      } catch (error: any) {
-        showAlert('error', 'Network error: ' + error.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        showAlert('error', 'Network error: ' + message);
         createManualPersonality(name);
       }
     }
@@ -544,7 +579,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
     }
 
     // Make createNewPersonality available globally
-    (window as any).createNewPersonality = createNewPersonality;
+    window.createNewPersonality = createNewPersonality;
   };
 
   return (
@@ -562,7 +597,7 @@ export function PersonalityManagerHTML({ onBack }: PersonalityManagerHTMLProps) 
           <div className="personality-manager__list-panel">
             <button
               className="personality-manager__new-btn"
-              onClick={() => (window as any).createNewPersonality?.()}
+              onClick={() => window.createNewPersonality?.()}
             >
               + Create New Personality
             </button>

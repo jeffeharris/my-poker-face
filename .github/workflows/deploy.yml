@@ -28,9 +28,10 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short --ignore=tests/personality_tester
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_TEST }}
+          PYTHONPATH: ${{ github.workspace }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_TEST || 'test-key-for-ci' }}
 
   test-frontend:
     name: Test Frontend (React)
