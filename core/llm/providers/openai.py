@@ -6,12 +6,9 @@ from typing import List, Dict, Any, Optional
 from openai import OpenAI
 
 from .base import LLMProvider
+from ..config import DEFAULT_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_REASONING_EFFORT
 
 logger = logging.getLogger(__name__)
-
-# Default models
-DEFAULT_MODEL = "gpt-5-nano"
-DEFAULT_IMAGE_MODEL = "dall-e-2"
 
 
 class OpenAIProvider(LLMProvider):
@@ -20,18 +17,18 @@ class OpenAIProvider(LLMProvider):
     def __init__(
         self,
         model: str = None,
-        reasoning_effort: str = "low",
+        reasoning_effort: str = None,
         api_key: Optional[str] = None,
     ):
         """Initialize OpenAI provider.
 
         Args:
-            model: Model to use (defaults to gpt-5-nano)
+            model: Model to use (defaults to DEFAULT_MODEL from config)
             reasoning_effort: Reasoning effort for GPT-5 models ('minimal', 'low', 'medium', 'high')
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
         """
         self._model = model or DEFAULT_MODEL
-        self._reasoning_effort = reasoning_effort
+        self._reasoning_effort = reasoning_effort or DEFAULT_REASONING_EFFORT
         self._client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
 
     @property

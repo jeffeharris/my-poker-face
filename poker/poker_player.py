@@ -113,8 +113,9 @@ class AIPokerPlayer(PokerPlayer):
 
         # Store and extract LLM configuration
         self.llm_config = llm_config or {}
-        model = self.llm_config.get("model", "gpt-5-nano")
-        reasoning_effort = self.llm_config.get("reasoning_effort", "low")
+        from core.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
+        model = self.llm_config.get("model", DEFAULT_MODEL)
+        reasoning_effort = self.llm_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
 
         self.assistant = Assistant(
             model=model,
