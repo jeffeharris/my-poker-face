@@ -16,25 +16,25 @@ interface ThemedGameSelectorProps {
   onBack: () => void;
 }
 
+// Predefined theme prompts that will be sent to OpenAI
+const THEME_PROMPTS: Theme[] = [
+  { id: 'science', name: 'Science Masters', icon: '🧪', description: 'Great minds think alike... or do they?' },
+  { id: 'hollywood', name: 'Hollywood Legends', icon: '🎬', description: 'Lights, camera, all-in!' },
+  { id: 'sports', name: 'Sports Champions', icon: '🏅', description: 'Bring your A-game to the table' },
+  { id: 'history', name: 'Historical Figures', icon: '👑', description: 'Making history one hand at a time' },
+  { id: 'music', name: 'Music Icons', icon: '🎵', description: 'Feel the rhythm of the cards' },
+  { id: 'comedy', name: 'Comedy Legends', icon: '😂', description: 'No joke - these players are serious!' },
+  { id: 'villains', name: 'Famous Villains', icon: '😈', description: 'Sometimes it pays to be bad' },
+  { id: 'surprise', name: 'Surprise Me!', icon: '✨', description: 'A mysterious mix of personalities' }
+];
+
 export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelectorProps) {
   const [themes, setThemes] = useState<Theme[]>([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Predefined theme prompts that will be sent to OpenAI
-  const themePrompts = [
-    { id: 'science', name: 'Science Masters', icon: '🧪', description: 'Great minds think alike... or do they?' },
-    { id: 'hollywood', name: 'Hollywood Legends', icon: '🎬', description: 'Lights, camera, all-in!' },
-    { id: 'sports', name: 'Sports Champions', icon: '🏅', description: 'Bring your A-game to the table' },
-    { id: 'history', name: 'Historical Figures', icon: '👑', description: 'Making history one hand at a time' },
-    { id: 'music', name: 'Music Icons', icon: '🎵', description: 'Feel the rhythm of the cards' },
-    { id: 'comedy', name: 'Comedy Legends', icon: '😂', description: 'No joke - these players are serious!' },
-    { id: 'villains', name: 'Famous Villains', icon: '😈', description: 'Sometimes it pays to be bad' },
-    { id: 'surprise', name: 'Surprise Me!', icon: '✨', description: 'A mysterious mix of personalities' }
-  ];
-
   useEffect(() => {
-    setThemes(themePrompts);
+    setThemes(THEME_PROMPTS);
   }, []);
 
   const handleGenerateTheme = async (theme: Theme) => {

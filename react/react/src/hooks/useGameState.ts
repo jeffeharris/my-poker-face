@@ -19,7 +19,7 @@ export function useGameState(gameId: string | null): UseGameStateResult {
 
   const initializePlayerPositions = (players: Player[]) => {
     const positions = new Map<string, number>();
-    let humanIndex = players.findIndex((p: Player) => p.is_human);
+    const humanIndex = players.findIndex((p: Player) => p.is_human);
     let positionIndex = 0;
     
     // Assign human player to position 0 (bottom)
