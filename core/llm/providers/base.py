@@ -1,6 +1,6 @@
 """Abstract base class for LLM providers."""
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 
 class LLMProvider(ABC):

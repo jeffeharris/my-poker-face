@@ -1,10 +1,10 @@
 """Usage tracking for LLM operations."""
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 
 from .response import LLMResponse, ImageResponse
 
@@ -165,7 +165,7 @@ class UsageTracker:
                     error_code, fallback_used
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 game_id,
                 owner_id,
                 player_name,

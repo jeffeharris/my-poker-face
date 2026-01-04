@@ -67,8 +67,17 @@ class Assistant:
         }
 
         # Expose for compatibility with existing code
-        self.system_message = system_prompt
         self.ai_model = self._client.model
+
+    @property
+    def system_message(self) -> str:
+        """System message used for the conversation (delegates to memory)."""
+        return self._memory.system_prompt
+
+    @system_message.setter
+    def system_message(self, value: str) -> None:
+        """Update the system message."""
+        self._memory.system_prompt = value
 
     def chat(
         self,
@@ -166,18 +175,6 @@ class Assistant:
         """Access memory for serialization/inspection."""
         return self._memory
 
-    def reset_memory(self) -> None:
-        """Clear conversation memory."""
-        self._memory.clear()
-
-    def add_to_memory(self, message: Dict[str, str]) -> None:
-        """Add a message to memory (for compatibility).
-
-        Args:
-            message: Dict with 'role' and 'content' keys
-        """
-        self._memory.add(message["role"], message["content"])
-
     def to_dict(self) -> Dict[str, Any]:
         """Serialize assistant state for persistence."""
         return {
@@ -188,13 +185,32 @@ class Assistant:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], tracker: Optional[UsageTracker] = None) -> "Assistant":
-        """Deserialize assistant from dictionary."""
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        tracker: Optional[UsageTracker] = None,
+        call_type: Optional[CallType] = None,
+        player_name: Optional[str] = None,
+    ) -> "Assistant":
+        """Deserialize assistant from dictionary.
+
+        Args:
+            data: Serialized assistant data
+            tracker: Usage tracker instance
+            call_type: Override call_type from serialized data
+            player_name: Override player_name from serialized data
+        """
+        context = data.get("default_context", {}).copy()
+        if call_type is not None:
+            context["call_type"] = call_type
+        if player_name is not None:
+            context["player_name"] = player_name
+
         assistant = cls(
             system_prompt=data.get("system_prompt", ""),
             model=data.get("model"),
             tracker=tracker,
-            **data.get("default_context", {}),
+            **context,
         )
         if "memory" in data:
             assistant._memory = ConversationMemory.from_dict(data["memory"])

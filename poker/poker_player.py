@@ -104,7 +104,7 @@ class AIPokerPlayer(PokerPlayer):
     # Shared personality generator instance
     _personality_generator = None
 
-    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9, llm_config=None):
+    def __init__(self, name="AI Player", starting_money=10000, llm_config=None):
         super().__init__(name, starting_money=starting_money)
         self.prompt_manager = PromptManager()
         self.personality_config = self._load_personality_config()
@@ -157,7 +157,7 @@ class AIPokerPlayer(PokerPlayer):
             llm_config = player_dict.get("llm_config", {})
             assistant_dict = player_dict.get("assistant", {})
 
-            instance = cls(name=name, starting_money=starting_money, ai_temp=0.9, llm_config=llm_config)
+            instance = cls(name=name, starting_money=starting_money, llm_config=llm_config)
             instance.cards = cards
             instance.options = options
             instance.folded = folded
@@ -166,10 +166,11 @@ class AIPokerPlayer(PokerPlayer):
 
             # Restore assistant from dict if available
             if assistant_dict:
-                instance.assistant = Assistant.from_dict(assistant_dict)
-                # Ensure tracking context is set
-                instance.assistant._default_context['call_type'] = CallType.PLAYER_DECISION
-                instance.assistant._default_context['player_name'] = name
+                instance.assistant = Assistant.from_dict(
+                    assistant_dict,
+                    call_type=CallType.PLAYER_DECISION,
+                    player_name=name
+                )
 
             # Restore hand strategy persistence
             if 'current_hand_strategy' in player_dict:
@@ -201,21 +202,13 @@ class AIPokerPlayer(PokerPlayer):
         self.hand_action_count = 0
 
     def _trim_and_preserve_context(self):
-        """
-        Trim memory but keep last few exchanges for session continuity.
-        This allows AI to remember recent interactions while keeping context manageable.
-        """
+        """Trim memory but keep last few exchanges for session continuity."""
         memory = self.assistant.memory
         if not memory or len(memory) == 0:
             return
 
-        # Keep the last N messages (exchanges) for continuity
-        # Each exchange is typically 2 messages (user + assistant)
-        max_keep = MEMORY_TRIM_KEEP_EXCHANGES * 2
-
-        if len(memory) > max_keep:
-            # Trim to keep only recent messages
-            memory._messages = memory._messages[-max_keep:]
+        # Keep the last N exchanges for continuity
+        memory.trim_to_exchanges(MEMORY_TRIM_KEEP_EXCHANGES)
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
