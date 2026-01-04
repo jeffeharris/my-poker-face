@@ -340,24 +340,24 @@ response = client.complete(
 - [ ] Implement `ConversationMemory`
 - [ ] Implement `Assistant` convenience wrapper
 - [ ] Implement `UsageTracker` (with DB persistence)
-- [ ] Add `api_usage` table + migration to persistence.py
-- [ ] Add unit tests for new classes
+- [x] Add `api_usage` table + migration to persistence.py
+- [x] Add unit tests for new classes
 
 ### Phase 2: Migrate call sites
-- [ ] `poker/controllers.py` - AIPlayerController
-- [ ] `poker/poker_player.py` - AIPokerPlayer
-- [ ] `poker/memory/commentary_generator.py`
-- [ ] `poker/personality_generator.py`
-- [ ] `poker/character_images.py`
-- [ ] `flask_app/routes/stats_routes.py`
-- [ ] `flask_app/routes/personality_routes.py`
-- [ ] `core/llm_categorizer.py`
-- [ ] `spades/spades_game.py`
+- [x] `poker/controllers.py` - AIPlayerController
+- [x] `poker/poker_player.py` - AIPokerPlayer
+- [x] `poker/memory/commentary_generator.py`
+- [x] `poker/personality_generator.py`
+- [x] `poker/character_images.py`
+- [x] `flask_app/routes/stats_routes.py`
+- [x] `flask_app/routes/personality_routes.py`
+- [x] `core/llm_categorizer.py`
+- [x] `spades/spades_game.py`
 
 ### Phase 3: Cleanup
-- [ ] Delete `core/assistants.py`
+- [x] Delete `core/assistants.py`
 - [ ] Update existing tests (fix imports, mocks)
-- [ ] Update CLAUDE.md
+- [x] Update CLAUDE.md
 
 ---
 
