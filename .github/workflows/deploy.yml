@@ -100,7 +100,7 @@ jobs:
       - name: Run database migrations
         working-directory: /opt/poker
         run: |
-          docker compose -f docker-compose.prod.yml run --rm backend python scripts/migrate_avatars_to_db.py
+          docker compose -f docker-compose.prod.yml run --rm backend python -m poker.migrations.migrate_avatars_to_db
 
       - name: Cleanup old Docker images
         run: |
