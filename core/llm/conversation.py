@@ -1,5 +1,5 @@
 """Conversation memory management."""
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass, field
 
 
@@ -54,6 +54,23 @@ class ConversationMemory:
     def __len__(self) -> int:
         """Return number of messages in memory."""
         return len(self._messages)
+
+    def keep_recent(self, num_messages: int) -> None:
+        """Keep only the most recent N messages, discarding older ones.
+
+        Args:
+            num_messages: Number of recent messages to retain
+        """
+        if len(self._messages) > num_messages:
+            self._messages = self._messages[-num_messages:]
+
+    def trim_to_exchanges(self, num_exchanges: int) -> None:
+        """Keep only the most recent N exchanges (user-assistant pairs).
+
+        Args:
+            num_exchanges: Number of exchanges to retain (each = 2 messages)
+        """
+        self.keep_recent(num_exchanges * 2)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize memory to dictionary for persistence."""

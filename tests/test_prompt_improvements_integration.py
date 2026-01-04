@@ -76,8 +76,7 @@ class TestFullIntegration(unittest.TestCase):
             
             # Create controller (it creates its own AI player)
             controller = AIPlayerController(
-                player_name=ai_personality,
-                ai_temp=0.9
+                player_name=ai_personality
             )
             
             # Update the AI player's chattiness

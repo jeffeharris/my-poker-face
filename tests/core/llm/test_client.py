@@ -1,6 +1,6 @@
 """Tests for LLMClient."""
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import tempfile
 import os
 
