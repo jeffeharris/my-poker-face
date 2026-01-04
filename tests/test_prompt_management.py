@@ -123,6 +123,43 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         # Skip if no API key
         if not os.getenv('OPENAI_API_KEY'):
             self.skipTest("OPENAI_API_KEY not set")
+        
+        # Seed the database with personalities from JSON for testing
+        from poker.persistence import GamePersistence
+        from poker.poker_player import AIPokerPlayer
+        from pathlib import Path
+        
+        # Create a test database
+        test_db_path = '/tmp/test_poker_games.db'
+        if os.path.exists(test_db_path):
+            os.remove(test_db_path)
+        
+        persistence = GamePersistence(test_db_path)
+        
+        # Seed personalities from JSON
+        json_path = Path(__file__).parent.parent / 'poker' / 'personalities.json'
+        persistence.seed_personalities_from_json(str(json_path), overwrite=True)
+        
+        # Set the PersonalityGenerator to use this test database
+        from poker.personality_generator import PersonalityGenerator
+        PersonalityGenerator._test_db_path = test_db_path
+        
+        # Reset the shared personality generator so it picks up the new database
+        AIPokerPlayer._personality_generator = None
+    
+    def tearDown(self):
+        # Clean up test database
+        from poker.personality_generator import PersonalityGenerator
+        from poker.poker_player import AIPokerPlayer
+        
+        if hasattr(PersonalityGenerator, '_test_db_path'):
+            test_db_path = PersonalityGenerator._test_db_path
+            if os.path.exists(test_db_path):
+                os.remove(test_db_path)
+            delattr(PersonalityGenerator, '_test_db_path')
+        
+        # Reset the shared generator
+        AIPokerPlayer._personality_generator = None
     
     def test_personality_loading(self):
         """Test that personalities load correctly from JSON."""

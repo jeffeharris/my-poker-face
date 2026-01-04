@@ -700,17 +700,25 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
 
     # Determine the best hand among all evaluated hands
-    evaluated_hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
-    evaluated_hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
-    evaluated_hands.sort(key=lambda x: x[1]["hand_rank"])
-    best_overall_hand = evaluated_hands[0][1]
-
-    # Prepare the result to include only winnings and winning hand details
-    winner_info = {
-        'winnings': winnings,
-        'winning_hand': best_overall_hand["hand_values"] + best_overall_hand["kicker_values"],
-        'hand_name': best_overall_hand['hand_name']
-    }
+    if evaluated_hands:
+        evaluated_hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
+        evaluated_hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
+        evaluated_hands.sort(key=lambda x: x[1]["hand_rank"])
+        best_overall_hand = evaluated_hands[0][1]
+        
+        # Prepare the result to include only winnings and winning hand details
+        winner_info = {
+            'winnings': winnings,
+            'winning_hand': best_overall_hand["hand_values"] + best_overall_hand["kicker_values"],
+            'hand_name': best_overall_hand['hand_name']
+        }
+    else:
+        # No active players (no bets), return empty winnings
+        winner_info = {
+            'winnings': {},
+            'winning_hand': [],
+            'hand_name': 'No Winner'
+        }
 
     print(winner_info)
     return winner_info

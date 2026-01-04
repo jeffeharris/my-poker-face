@@ -88,6 +88,10 @@ Respond with ONLY a JSON object in this exact format:
     
     def _get_default_db_path(self) -> str:
         """Get the default database path based on environment."""
+        # Check for test database path first
+        if hasattr(PersonalityGenerator, '_test_db_path'):
+            return PersonalityGenerator._test_db_path
+        
         if Path('/app/data').exists():
             return '/app/data/poker_games.db'
         else:
