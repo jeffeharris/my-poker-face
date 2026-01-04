@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
+from core.llm import CallType
 from ..prompt_manager import PromptManager
 from ..config import COMMENTARY_ENABLED
 from .hand_history import RecordedHand
@@ -159,8 +160,8 @@ class CommentaryGenerator:
                 chattiness=chattiness
             )
 
-            # Get AI response
-            response = assistant.chat(prompt, json_format=True)
+            # Get AI response with proper tracking
+            response = assistant.chat(prompt, json_format=True, call_type=CallType.COMMENTARY)
 
             # Parse response
             commentary_data = json.loads(response)

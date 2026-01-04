@@ -20,6 +20,7 @@ class CallType(str, Enum):
     TARGETED_CHAT = "targeted_chat"
     PERSONALITY_GENERATION = "personality_generation"
     PERSONALITY_PREVIEW = "personality_preview"
+    THEME_GENERATION = "theme_generation"
     IMAGE_GENERATION = "image_generation"
     IMAGE_DESCRIPTION = "image_description"
     CATEGORIZATION = "categorization"

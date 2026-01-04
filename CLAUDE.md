@@ -178,6 +178,48 @@ The AI player system uses a centralized prompt management approach:
    - Game state (e.g., low chips → conservative play)
    - Personality modifiers applied at runtime
 
+### LLM Module (`core/llm/`)
+
+The LLM module provides a unified abstraction over LLM providers with built-in usage tracking:
+
+1. **Key Classes**:
+   - `LLMClient`: Low-level, stateless client for one-off completions
+   - `Assistant`: High-level wrapper with conversation memory (for stateful chats)
+   - `CallType`: Enum for categorizing API calls (e.g., `PLAYER_DECISION`, `COMMENTARY`)
+   - `UsageTracker`: Records usage to `api_usage` table for cost analysis
+
+2. **Usage Examples**:
+   ```python
+   # Stateless call (e.g., generating personalities)
+   from core.llm import LLMClient, CallType
+
+   client = LLMClient()
+   response = client.complete(
+       messages=[{"role": "user", "content": "Hello"}],
+       json_format=True,
+       call_type=CallType.CHAT_SUGGESTION,
+       game_id="game_123"
+   )
+
+   # Stateful conversation (e.g., AI player)
+   from core.llm import Assistant, CallType
+
+   assistant = Assistant(
+       system_prompt="You are a poker player...",
+       call_type=CallType.PLAYER_DECISION,
+       player_name="Batman"
+   )
+   response = assistant.chat("What's your move?", json_format=True)
+   ```
+
+3. **Provider Support**: Currently supports OpenAI (extensible to Anthropic, Groq)
+
+4. **Tracking Data**: All API calls are logged to `api_usage` table with:
+   - Token counts (input, output, cached, reasoning)
+   - Latency, model, provider
+   - Game context (game_id, owner_id, player_name, hand_number)
+   - Call type for cost breakdown by category
+
 ## Game Launching Guidance
 
 **Key Note**: When launching the game, always assume we're launching the react game.

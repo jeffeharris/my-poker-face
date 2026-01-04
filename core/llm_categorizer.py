@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Generic
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
-from openai import OpenAI
+from core.llm import LLMClient, CallType
 
 logger = logging.getLogger(__name__)
 
@@ -151,8 +151,8 @@ class StructuredLLMCategorizer:
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
-        # Initialize OpenAI client
-        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        # Initialize LLM client for tracked API calls
+        self._llm_client = LLMClient(model=self.model)
 
         # Thread pool for timeout handling
         self._executor = ThreadPoolExecutor(max_workers=2)
@@ -243,15 +243,14 @@ class StructuredLLMCategorizer:
         return "\n".join(prompt_parts)
 
     def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        """Make the LLM API call."""
-        response = self.client.chat.completions.create(
-            model=self.model,
+        """Make the LLM API call with tracking."""
+        response = self._llm_client.complete(
             messages=messages,
-            response_format={"type": "json_object"},
-            max_completion_tokens=500,
-            temperature=0.7
+            json_format=True,
+            max_tokens=500,
+            call_type=CallType.CATEGORIZATION
         )
-        return response.choices[0].message.content or ""
+        return response.content or ""
 
     def _generate_fallback(
         self,

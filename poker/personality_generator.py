@@ -1,13 +1,13 @@
 """
 AI-powered personality generator for poker players.
-Uses OpenAI to generate unique personality configurations based on character names.
+Uses LLM to generate unique personality configurations based on character names.
 """
 import json
 import random
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from core.assistants import OpenAILLMAssistant
+from core.llm import LLMClient, CallType
 from .persistence import GamePersistence
 
 
@@ -77,12 +77,10 @@ Respond with ONLY a JSON object in this exact format:
         else:
             db_path = db_path or self._get_default_db_path()
             self.persistence = GamePersistence(db_path)
-        
-        self.assistant = OpenAILLMAssistant(
-            ai_temp=0.8,
-            system_message="You are a creative AI that generates unique poker player personalities."
-        )
-        
+
+        # Use stateless LLMClient for generation
+        self._client = LLMClient()
+
         # Cache for this session
         self._cache = {}
     
@@ -156,12 +154,17 @@ Respond with ONLY a JSON object in this exact format:
         prompt = self.GENERATION_PROMPT.format(name=name, description=desc_text)
         
         try:
-            response = self.assistant.get_json_response(
-                messages=[{"role": "user", "content": prompt}]
+            response = self._client.complete(
+                messages=[
+                    {"role": "system", "content": "You are a creative AI that generates unique poker player personalities."},
+                    {"role": "user", "content": prompt}
+                ],
+                json_format=True,
+                call_type=CallType.PERSONALITY_GENERATION
             )
-            
-            result = json.loads(response.choices[0].message.content)
-            
+
+            result = json.loads(response.content)
+
             # Validate the response has required fields
             required_fields = ['play_style', 'default_confidence', 'default_attitude', 'personality_traits']
             if all(field in result for field in required_fields):
@@ -169,7 +172,7 @@ Respond with ONLY a JSON object in this exact format:
             else:
                 # Fall back to default if generation fails
                 return self._create_default_personality(name)
-                
+
         except Exception as e:
             print(f"Error generating personality for {name}: {e}")
             return self._create_default_personality(name)
