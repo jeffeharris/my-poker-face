@@ -64,8 +64,8 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer) -> Di
 
                 if 'personality_state' in saved_state:
                     ps = saved_state['personality_state']
-                    if 'traits' in ps:
-                        controller.personality_traits = ps['traits']
+                    # personality_traits are now managed by psychology object
+                    # They will be restored from controller_states below
                     if hasattr(controller, 'ai_player'):
                         controller.ai_player.confidence = ps.get('confidence', 'Normal')
                         controller.ai_player.attitude = ps.get('attitude', 'Neutral')
