@@ -27,6 +27,13 @@ Quick Start:
     )
 """
 
+from .config import (
+    DEFAULT_MODEL,
+    FAST_MODEL,
+    DEFAULT_REASONING_EFFORT,
+    AVAILABLE_MODELS,
+    DEFAULT_IMAGE_MODEL,
+)
 from .response import LLMResponse, ImageResponse
 from .tracking import CallType, UsageTracker
 from .conversation import ConversationMemory
@@ -34,6 +41,13 @@ from .client import LLMClient
 from .assistant import Assistant
 
 __all__ = [
+    # Config
+    "DEFAULT_MODEL",
+    "FAST_MODEL",
+    "DEFAULT_REASONING_EFFORT",
+    "AVAILABLE_MODELS",
+    "DEFAULT_IMAGE_MODEL",
+    # Classes
     "LLMResponse",
     "ImageResponse",
     "CallType",

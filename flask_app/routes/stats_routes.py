@@ -44,6 +44,7 @@ def get_career_stats():
 @stats_bp.route('/api/models', methods=['GET'])
 def get_available_models():
     """Get available OpenAI models for game configuration."""
+    from core.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, AVAILABLE_MODELS
     try:
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         models = client.models.list()
@@ -51,18 +52,18 @@ def get_available_models():
         return jsonify({
             'success': True,
             'models': sorted(available),
-            'default_model': 'gpt-5-nano',
+            'default_model': DEFAULT_MODEL,
             'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-            'default_reasoning': 'low'
+            'default_reasoning': DEFAULT_REASONING_EFFORT
         })
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
         return jsonify({
             'success': True,
-            'models': ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
-            'default_model': 'gpt-5-nano',
+            'models': AVAILABLE_MODELS,
+            'default_model': DEFAULT_MODEL,
             'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-            'default_reasoning': 'low'
+            'default_reasoning': DEFAULT_REASONING_EFFORT
         })
 
 

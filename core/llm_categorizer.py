@@ -127,7 +127,6 @@ class StructuredLLMCategorizer:
     """
 
     # Default fast/cheap model for categorization
-    DEFAULT_MODEL = os.environ.get('FAST_AI_MODEL', 'gpt-5-nano')
     DEFAULT_TIMEOUT_SECONDS = 5.0
 
     def __init__(
@@ -142,12 +141,13 @@ class StructuredLLMCategorizer:
 
         Args:
             schema: Schema defining expected output structure
-            model: LLM model to use (defaults to FAST_AI_MODEL env var or gpt-5-nano)
+            model: LLM model to use (defaults to FAST_MODEL from config)
             timeout_seconds: Timeout for LLM calls
             fallback_generator: Function to generate fallback output from context
         """
+        from core.llm import FAST_MODEL
         self.schema = schema
-        self.model = model or self.DEFAULT_MODEL
+        self.model = model or FAST_MODEL
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
