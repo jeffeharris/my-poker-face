@@ -64,7 +64,7 @@ jobs:
     name: Deploy to Production
     needs: [test-backend, test-frontend]
     runs-on: self-hosted
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 
     steps:
       - name: Fix permissions for checkout
