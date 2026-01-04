@@ -24,6 +24,7 @@ interface PersonalityData {
   elasticity_config?: ElasticityConfig;
   verbal_tics?: string[];
   physical_tics?: string[];
+  [key: string]: string | string[] | PersonalityTraits | ElasticityConfig | undefined;
 }
 
 declare global {

@@ -3,7 +3,7 @@ import { Card } from "../cards";
 import "./MobileWinnerAnnouncement.css";
 
 interface PlayerShowdownInfo {
-    cards: any[];
+    cards: string[];
     hand_name: string;
     hand_rank: number;
     kickers?: string[];

@@ -12,6 +12,13 @@ interface ParsedAction {
   amount: number | null;
 }
 
+// Type for tracked last action
+interface LastAction {
+  type: string;
+  player: string;
+  amount: number | null;
+}
+
 // Extended message type with display properties added during processing
 interface ProcessedChatMessage extends ChatMessage {
   displayType: 'action' | 'separator' | ChatMessage['type'];
@@ -51,7 +58,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
   const [, setColorUpdateTrigger] = useState(0);
-  const [lastAction, setLastAction] = useState<any>(null);
+  const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const featureFlags = useFeatureFlags();
 
   // Get all unique players from messages
@@ -310,7 +317,8 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     }
   };
 
-  const renderActionMessage = (msg: any, index: number) => {
+  const renderActionMessage = (msg: ProcessedChatMessage, index: number) => {
+    if (!msg.parsedAction) return null;
     const { player, action, amount } = msg.parsedAction;
     const actionKey = action.toLowerCase() as keyof typeof actionEmojiMap;
     const actionEmojiMap = {
@@ -421,7 +429,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
             <p className="chat-sidebar__tip">Say hello to the table!</p>
           </div>
         ) : (
-          processedMessages.map((msg: any, index: number) => {
+          processedMessages.map((msg, index) => {
             // Display as separator
             if (msg.displayType === 'separator') {
               return (

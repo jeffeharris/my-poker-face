@@ -3,7 +3,7 @@ import { Card } from '../../cards';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
-  cards: any[];
+  cards: string[];
   hand_name: string;
   hand_rank: number;
   kickers?: string[];
@@ -16,7 +16,7 @@ interface WinnerInfo {
   winning_hand?: string[];
   showdown: boolean;
   players_showdown?: { [key: string]: PlayerShowdownInfo };
-  community_cards?: any[];
+  community_cards?: string[];
 }
 
 interface CommentaryItem {

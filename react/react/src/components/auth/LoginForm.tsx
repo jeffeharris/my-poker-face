@@ -25,7 +25,7 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
       // Call the parent's onLogin handler which will handle the API call
       await onLogin(playerName.trim(), true);
       // If we reach here without error, login was successful
-    } catch (err) {
+    } catch {
       setError('Connection error. Please try again.');
       setIsLoading(false);
     }
