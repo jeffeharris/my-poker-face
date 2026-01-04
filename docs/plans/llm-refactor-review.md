@@ -2,15 +2,30 @@
 
 **Date**: 2026-01-04  
 **Reviewer**: GitHub Copilot  
-**Plan Document**: `docs/plans/llm-refactor.md`
+**Plan Document**: `docs/plans/llm-refactor.md`  
+**Status**: Updated based on user feedback
+
+---
+
+## Update (2026-01-04)
+
+**User Feedback**: Breaking changes are acceptable. No backwards compatibility needed.
+- Can delete all incompatible saved games during migration
+- No active users today, all testing
+- Don't want legacy code bloating the repo
+- Spades migration is out of scope
+
+**Impact on Review**: Issues #3, #4, #9 regarding backwards compatibility are no longer critical. The revised plan has been simplified to remove all backwards compatibility concerns, feature flags, and legacy code support.
 
 ---
 
 ## Executive Summary
 
-The LLM refactor plan is well-structured and addresses a real need for unified cost tracking and cleaner abstractions. However, there are **several critical implementation issues** that could lead to problems during migration. This review identifies 12 major concerns across architecture, database design, API compatibility, and migration strategy.
+The LLM refactor plan is well-structured and addresses a real need for unified cost tracking and cleaner abstractions. However, there are **several implementation issues** that could lead to problems during migration. This review identifies 12 concerns across architecture, database design, API compatibility, and migration strategy.
 
-**Overall Assessment**: ⚠️ **NEEDS REVISION** - The plan requires significant adjustments before implementation.
+**Overall Assessment**: ⚠️ **NEEDS REVISION** - The plan requires adjustments before implementation (mostly around API convenience and database design).
+
+**Note**: Originally rated as critical for backwards compatibility, but user feedback indicates breaking changes are acceptable, simplifying the migration significantly.
 
 ---
 

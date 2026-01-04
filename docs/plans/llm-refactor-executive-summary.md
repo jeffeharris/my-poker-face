@@ -3,15 +3,27 @@
 **Date**: January 4, 2026  
 **Reviewer**: GitHub Copilot  
 **Original Plan**: `docs/plans/llm-refactor.md`  
-**Status**: ⚠️ **REQUIRES REVISION BEFORE IMPLEMENTATION**
+**Status**: ✅ **READY WITH REVISIONS** (based on user feedback)
+
+---
+
+## Update (2026-01-04)
+
+**User Feedback**: Breaking changes are acceptable
+- Can delete incompatible saved games
+- No active users, all testing
+- Don't want legacy code bloat
+- Spades migration out of scope
+
+**Impact**: Significantly simplified - removed all backwards compatibility concerns from revised plan.
 
 ---
 
 ## TL;DR
 
-The LLM refactor plan is architecturally sound but **underestimates migration complexity** and **lacks backwards compatibility**. Implementation as-is would break saved games and require extensive rewrites.
+The LLM refactor plan is architecturally sound but lacked convenience APIs and had some database design issues. **Backwards compatibility concerns are now moot** per user feedback. The revised plan provides a clean, simple migration path.
 
-**Recommendation**: Use the revised plan (`llm-refactor-revised.md`) which addresses all critical issues.
+**Recommendation**: Use the revised plan (`llm-refactor-revised.md`) - simplified for clean break.
 
 ---
 
@@ -34,42 +46,27 @@ A plan to replace `core/assistants.py` (OpenAI wrapper) with:
 - Comprehensive call type enumeration
 - Phased migration approach
 
-### ❌ Critical Problems (5)
+### ❌ Implementation Issues Found
 
-1. **No conversation memory convenience API**
-   - Current: `assistant.chat(prompt)` automatically manages memory
-   - Proposed: Manual memory management at every call site
-   - Impact: Error-prone, verbose code
+**API Design:**
+1. **No conversation memory convenience API** - forces manual memory management
+2. **GPT-5 parameter handling unclear** - `reasoning_effort` vs `temperature`
 
-2. **Missing database foreign keys**
-   - `api_usage.game_id` has no FK constraint
-   - Will create orphaned records when games deleted
-   - Can't clean up old data properly
+**Database Design:**
+3. **Missing foreign key constraints** - creates orphaned records
+4. **call_type not validated** - should use enum
+5. **Missing composite indexes** - needed for cost queries
 
-3. **No migration for saved conversation history**
-   - Existing `ai_player_state.conversation_history` in different format
-   - Will break loading old games
-   - Could lose player conversation context
+**Migration Issues (NOW RESOLVED):**
+6. ~~No migration for saved games~~ → User: Breaking changes OK, delete old games ✅
+7. ~~Breaks serialization~~ → User: Breaking changes OK ✅
+8. ~~No rollback plan~~ → User: Don't need backwards compat ✅
+9. ~~Spades migration incomplete~~ → User: Out of scope ✅
 
-4. **Breaks `AIPokerPlayer.to_dict()` serialization**
-   - Old format: `{"assistant": {...}}`
-   - New format: ???
-   - Loading saved games will fail
-
-5. **GPT-5 parameter handling unclear**
-   - GPT-5 uses `reasoning_effort`, not `temperature`
-   - Provider abstraction doesn't show how this works
-   - Will break existing GPT-5 usage
-
-### ⚠️ Important Problems (7)
-
-6. call_type not validated (should be enum)
-7. Image generation cost tracking unclear
-8. Missing testing strategy
-9. No rollback plan
-10. Spades migration incomplete
-11. Missing composite indexes for queries
-12. No data retention policy
+**Minor:**
+10. Image generation cost tracking needs clarification
+11. Testing strategy needed
+12. Data retention policy needed
 
 ---
 
@@ -77,15 +74,17 @@ A plan to replace `core/assistants.py` (OpenAI wrapper) with:
 
 ### 1. Comprehensive Review (`llm-refactor-review.md`)
 - Analyzed current vs proposed architecture
-- Identified 12 issues with severity levels
+- Identified 12 issues (5 now resolved by user feedback)
 - Provided code examples for each issue
 - Recommended specific fixes
 
-### 2. Revised Plan (`llm-refactor-revised.md`)
-Complete rewrite addressing all issues:
+### 2. Simplified Revised Plan (`llm-refactor-revised.md`)
+Clean migration without backwards compatibility:
 
-**Key Additions:**
+**Key Changes:**
 - `LLMClient.chat()` convenience method (matches current API)
+- Clean break - delete old saved games, no legacy code
+- Simple `ConversationMemory` without backwards compat layer
 - `ConversationMemory.from_dict()` supports legacy format
 - `LLMCallType` enum for type safety
 - Foreign key constraints and proper indexes

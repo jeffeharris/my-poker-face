@@ -1,6 +1,6 @@
 # LLM Refactor & Cost Tracking Plan (REVISED)
 
-**Status**: Draft - Revised based on implementation review  
+**Status**: Ready for Implementation  
 **Goal**: Unified LLM abstraction with built-in cost tracking, replacing `core/assistants.py`  
 **Previous Version**: `llm-refactor.md`  
 **Review Document**: `llm-refactor-review.md`
@@ -13,8 +13,8 @@ Replace the legacy `OpenAILLMAssistant` with a clean architecture that:
 1. Separates LLM calls from conversation memory
 2. Tracks all API usage with context (game, user, call type)
 3. Supports multiple providers (OpenAI now, Anthropic/Groq later)
-4. **NEW**: Maintains backwards compatibility with saved games
-5. **NEW**: Provides convenient high-level API alongside low-level control
+4. **NEW**: Provides convenient high-level API alongside low-level control
+5. **NEW**: Clean break - no backwards compatibility needed (breaking changes acceptable)
 
 ---
 
@@ -33,7 +33,7 @@ core/
 │       ├── base.py              # LLMProvider ABC
 │       └── openai.py            # OpenAIProvider implementation
 │
-├── assistants_legacy.py         # RENAME (keep for one release cycle)
+├── assistants.py                # DELETE immediately after migration
 └── llm_categorizer.py           # UPDATE to use LLMClient
 ```
 
@@ -105,12 +105,15 @@ Add migration to schema version tracking:
 SCHEMA_VERSION = 5  # Increment from current
 
 def migrate_to_version_5(conn):
-    """Add api_usage table and update conversation_history format."""
+    """Add api_usage table. Breaking change: delete incompatible saved games."""
     conn.execute(CREATE_API_USAGE_TABLE)
     conn.execute(CREATE_INDICES)
     
-    # Migrate conversation history format
-    _migrate_conversation_history_format(conn)
+    # Clean slate: delete all games (breaking change - acceptable in dev)
+    conn.execute("DELETE FROM games")
+    conn.execute("DELETE FROM ai_player_state")
+    conn.execute("DELETE FROM personality_snapshots")
+    conn.execute("DELETE FROM pressure_events")
 ```
 
 ---
@@ -303,7 +306,7 @@ class ImageResponse:
     raw_response: Any = None
 ```
 
-### ConversationMemory (REVISED)
+### ConversationMemory
 
 ```python
 from typing import List, Dict
@@ -313,8 +316,7 @@ from dataclasses import dataclass, field
 class ConversationMemory:
     """
     Manages conversation history with automatic trimming.
-    
-    Format compatible with ai_player_state.conversation_history.
+    Simple, clean implementation - no backwards compatibility needed.
     """
     system_prompt: str = ""
     max_messages: int = 15
@@ -351,7 +353,6 @@ class ConversationMemory:
     def to_dict(self) -> dict:
         """Serialize for database storage."""
         return {
-            "__version__": "2.0",
             "system_prompt": self.system_prompt,
             "max_messages": self.max_messages,
             "messages": self.messages
@@ -359,26 +360,13 @@ class ConversationMemory:
     
     @classmethod
     def from_dict(cls, data: dict) -> "ConversationMemory":
-        """
-        Deserialize from database.
-        
-        Supports both:
-        - v2.0 format (this class)
-        - Legacy format (OpenAILLMAssistant memory array)
-        """
-        if isinstance(data, dict) and data.get("__version__") == "2.0":
-            # New format
-            return cls(
-                system_prompt=data.get("system_prompt", ""),
-                max_messages=data.get("max_messages", 15),
-                messages=data.get("messages", [])
-            )
-        elif isinstance(data, list):
-            # Legacy format - just a list of messages
-            return cls(messages=data)
-        else:
-            # Unknown format
-            raise ValueError(f"Unknown conversation format: {type(data)}")
+        """Deserialize from database."""
+        return cls(
+            system_prompt=data.get("system_prompt", ""),
+            max_messages=data.get("max_messages", 15),
+            messages=data.get("messages", [])
+        )
+```
 ```
 
 ### LLMCallType Enum (NEW)
@@ -679,13 +667,12 @@ class OpenAIProvider(LLMProvider):
 
 ---
 
-## Migration Checklist (REVISED)
+## Migration Checklist (SIMPLIFIED)
 
 ### Phase 0: Preparation
-- [ ] Review implementation plan and address blocker issues
-- [ ] Create feature flag system for gradual rollout
+- [ ] Review implementation plan
 - [ ] Set up integration test harness
-- [ ] Document rollback procedure
+- [ ] **Clean slate**: Delete all existing saved games (breaking change - acceptable)
 
 ### Phase 1: Create new infrastructure
 - [ ] Create `core/llm/` package structure
@@ -693,12 +680,12 @@ class OpenAIProvider(LLMProvider):
 - [ ] Implement `LLMProvider` ABC and `OpenAIProvider`
 - [ ] Implement `LLMCallType` enum with validation
 - [ ] Implement `LLMClient` (both `complete()` and `chat()` methods)
-- [ ] Implement `ConversationMemory` with legacy format support
+- [ ] Implement `ConversationMemory` (simple, clean implementation)
 - [ ] Implement `UsageTracker` (singleton with override)
 - [ ] Add `api_usage` table + schema migration to persistence.py
 - [ ] Write unit tests for all new components
 
-### Phase 2: Migrate call sites (one at a time)
+### Phase 2: Migrate call sites
 - [ ] **Pilot**: `poker/controllers.py` - AIPlayerController
   - [ ] Update to use `LLMClient.chat()`
   - [ ] Add integration test
@@ -706,8 +693,8 @@ class OpenAIProvider(LLMProvider):
   - [ ] Verify cost tracking in database
   
 - [ ] `poker/poker_player.py` - AIPokerPlayer
-  - [ ] Update `to_dict()`/`from_dict()` for compatibility
-  - [ ] Test saved game loading (old and new formats)
+  - [ ] Update `to_dict()`/`from_dict()` to new format
+  - [ ] No backwards compatibility needed
   
 - [ ] `poker/memory/commentary_generator.py`
 - [ ] `poker/personality_generator.py`
@@ -715,24 +702,18 @@ class OpenAIProvider(LLMProvider):
 - [ ] `flask_app/routes/personality_routes.py`
 - [ ] `core/llm_categorizer.py`
 - [ ] `poker/character_images.py` - image generation
-- [ ] `spades/spades_game.py`
+
+**Note**: Spades game migration is out of scope for this refactor.
 
 ### Phase 3: Cleanup
-- [ ] Rename `core/assistants.py` to `core/assistants_legacy.py`
-- [ ] Add deprecation warnings to legacy code
+- [ ] **Delete** `core/assistants.py` (no legacy code kept)
 - [ ] Update all tests to use new LLMClient
 - [ ] Update CLAUDE.md and copilot-instructions.md
 - [ ] Add cost tracking dashboard/queries
-- [ ] Monitor production for one week
-
-### Phase 4: Final deprecation (1-2 releases later)
-- [ ] Remove `core/assistants_legacy.py`
-- [ ] Remove compatibility shims from `ConversationMemory.from_dict()`
-- [ ] Remove legacy format tests
 
 ---
 
-## Testing Strategy (NEW)
+## Testing Strategy
 
 ### Unit Tests
 ```python
@@ -750,12 +731,11 @@ class TestLLMClient(unittest.TestCase):
 
 # tests/core/test_conversation_memory.py
 class TestConversationMemory(unittest.TestCase):
-    def test_legacy_format_loading(self):
-        # Load old OpenAILLMAssistant format
-        # Verify conversion works
-        
     def test_trimming(self):
         # Verify max_messages enforcement
+        
+    def test_serialization(self):
+        # Verify to_dict() / from_dict() round-trip
 ```
 
 ### Integration Tests
@@ -769,51 +749,25 @@ class TestLLMMigration(unittest.TestCase):
         # Verify decision works
         # Check api_usage table
     
-    def test_saved_game_compatibility(self):
-        # Load game with old assistant format
-        # Verify it still works
+    def test_new_game_flow(self):
+        # Create new game
+        # Play through hand
         # Save and reload
-        # Verify new format
+        # Verify new format works
 ```
 
 ### Manual Testing Checklist
 - [ ] Play full game with AI players using new client
 - [ ] Save and resume game mid-hand
-- [ ] Load old saved game from before migration
 - [ ] Generate personality images
 - [ ] Check cost tracking in database
 - [ ] Verify chat suggestions work
-- [ ] Test Spades game
 
 ---
 
-## Rollback Plan (NEW)
-
-### Feature Flag Approach
-
-```python
-# poker/config.py
-USE_NEW_LLM_CLIENT = os.environ.get('USE_NEW_LLM_CLIENT', 'false').lower() == 'true'
-
-# poker/controllers.py
-if USE_NEW_LLM_CLIENT:
-    from core.llm import LLMClient, ConversationMemory
-    # Use new client
-else:
-    from core.assistants_legacy import OpenAILLMAssistant
-    # Use old client
-```
-
-### Rollback Steps
-1. Set `USE_NEW_LLM_CLIENT=false` in environment
-2. Restart application
-3. Verify old code path works
-4. Investigate issues with new client
-5. Fix and redeploy
-
 ---
 
-## Data Retention Policy (NEW)
+## Data Retention Policy
 
 ```sql
 -- Delete old api_usage records (keep 90 days)
@@ -830,7 +784,7 @@ WHERE created_at < datetime('now', '-90 days');
 
 ---
 
-## Out of Scope (Unchanged)
+## Out of Scope
 
 - Anthropic/Groq providers (add when needed)
 - Provider pricing table (calculate costs from tokens later)
@@ -838,16 +792,17 @@ WHERE created_at < datetime('now', '-90 days');
 - Cost dashboard/API endpoints (can add after migration)
 - Streaming responses
 - Function calling support
+- **Spades game migration** - not needed for this refactor
 
 ---
 
 ## Open Questions (RESOLVED)
 
 1. ~~Database location~~ → Same DB (`poker_games.db`) for easier joins ✅
-2. ~~Backwards compat~~ → **YES, required** - support old conversation format ✅
+2. ~~Backwards compat~~ → **NO - not needed**, breaking changes acceptable ✅
 3. ~~Singleton pattern~~ → Default singleton with override option for testing ✅
-4. **NEW**: How to handle rate limiting? → Keep at Flask layer, not in LLMClient ✅
-5. **NEW**: Data retention? → 90 days, with archival option ✅
+4. How to handle rate limiting? → Keep at Flask layer, not in LLMClient ✅
+5. Data retention? → 90 days, with archival option ✅
 
 ---
 
@@ -855,39 +810,37 @@ WHERE created_at < datetime('now', '-90 days');
 
 ### Added
 - ✅ `LLMClient.chat()` convenience method
-- ✅ `ConversationMemory.from_dict()` legacy format support
 - ✅ `LLMCallType` enum for validation
 - ✅ Foreign key constraints on `api_usage` table
 - ✅ Additional tracking fields (json_format, temperature, retry_count)
-- ✅ Feature flag system for rollback
 - ✅ Testing strategy section
 - ✅ Data retention policy
 - ✅ GPT-5 parameter handling documentation
-- ✅ `assistants_legacy.py` renaming (keep for one release)
+- ✅ Composite index for provider+model queries
 
 ### Changed
-- 🔄 Migration is now gradual with feature flags
-- 🔄 `to_dict()`/`from_dict()` must support both formats
-- 🔄 Added Spades-specific call types
-- 🔄 Added composite index for provider+model queries
+- 🔄 **Clean break** - no backwards compatibility, delete old saved games
+- 🔄 Simplified migration - no feature flags or legacy code
+- 🔄 `to_dict()`/`from_dict()` use new format only
 
 ### Removed
-- ❌ No breaking changes - maintain backwards compatibility
+- ❌ Backwards compatibility layer - not needed (breaking changes acceptable)
+- ❌ Feature flags and rollback mechanisms
+- ❌ Legacy code support (`assistants_legacy.py`)
+- ❌ Spades migration - out of scope
 
 ---
 
 ## Success Criteria
 
 The migration is successful when:
-1. ✅ All call sites migrated to new LLMClient
-2. ✅ Old saved games load correctly
-3. ✅ New saved games use new format
-4. ✅ All API calls tracked in `api_usage` table
-5. ✅ Cost queries work (e.g., "total cost this month")
-6. ✅ No increase in error rates
-7. ✅ Can generate cost reports by game, player, call type
-8. ✅ Zero data loss during migration
-9. ✅ Legacy code can be cleanly removed after 1-2 releases
+1. ✅ All poker call sites migrated to new LLMClient
+2. ✅ All API calls tracked in `api_usage` table
+3. ✅ Cost queries work (e.g., "total cost this month")
+4. ✅ No increase in error rates
+5. ✅ Can generate cost reports by game, player, call type
+6. ✅ `core/assistants.py` completely deleted
+7. ✅ Clean, maintainable codebase without bloat
 
 ---
 
@@ -895,8 +848,7 @@ The migration is successful when:
 
 - **Phase 0**: 1 day (planning and setup)
 - **Phase 1**: 3-4 days (infrastructure)
-- **Phase 2**: 5-7 days (migration, one call site per day)
-- **Phase 3**: 2 days (cleanup and monitoring)
-- **Phase 4**: 1 day (after 1-2 releases)
+- **Phase 2**: 5-7 days (migration)
+- **Phase 3**: 1 day (cleanup)
 
-**Total**: ~2 weeks of development + 2-4 weeks of production monitoring
+**Total**: ~2 weeks of development
