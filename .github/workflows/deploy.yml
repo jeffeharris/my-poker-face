@@ -1,0 +1,97 @@
+name: Test and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend:
+    name: Test Backend (Python)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_TEST }}
+
+  test-frontend:
+    name: Test Frontend (React)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: react/react/package-lock.json
+
+      - name: Install dependencies
+        working-directory: react/react
+        run: npm ci
+
+      - name: Lint
+        working-directory: react/react
+        run: npm run lint
+
+      - name: Build
+        working-directory: react/react
+        run: npm run build
+
+  deploy:
+    name: Deploy to Production
+    needs: [test-backend, test-frontend]
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decrypt secrets
+        run: |
+          age -d -i $HOME/.config/age/key.txt .env.prod.age > .env
+
+      - name: Build and deploy containers
+        run: |
+          docker compose -f docker-compose.prod.yml up -d --build
+
+      - name: Wait for services to start
+        run: sleep 15
+
+      - name: Health check
+        run: |
+          curl -sf http://localhost/health || (echo "Health check failed" && exit 1)
+
+      - name: Run database migrations
+        run: |
+          docker compose -f docker-compose.prod.yml run --rm backend python scripts/migrate_avatars_to_db.py
+
+      - name: Cleanup old Docker images
+        run: |
+          docker image prune -f
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployment complete!"
+          echo "🌐 Site: https://mypokerfacegame.com"
+          echo "📦 Commit: ${{ github.sha }}"

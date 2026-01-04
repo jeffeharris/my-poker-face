@@ -281,6 +281,143 @@ scp root@178.156.202.136:/opt/poker/data/poker_games.db ./backup/
 ~/.local/bin/hcloud server create-image poker-prod --type snapshot --description "Backup YYYY-MM-DD"
 ```
 
+## CI/CD with GitHub Actions
+
+Deployments are automated via GitHub Actions. When you push to `main`:
+
+1. **Test job** runs on GitHub-hosted runners (Python tests + React build/lint)
+2. **Deploy job** runs on the self-hosted runner on the production server
+
+### Workflow Overview
+
+```
+Push to main → Run Tests (GitHub) → Deploy (Self-hosted) → Health Check
+```
+
+### Triggering a Deployment
+
+Simply push to the `main` branch:
+```bash
+git push origin main
+```
+
+Or merge a pull request into `main`.
+
+### Viewing Deployment Status
+
+Check the Actions tab in GitHub: `https://github.com/jeffeharris/my-poker-face/actions`
+
+### Manual Deployment
+
+If needed, you can still deploy manually:
+```bash
+./deploy.sh
+```
+
+## Self-Hosted GitHub Runner Setup
+
+The production server runs a GitHub Actions self-hosted runner for deployments.
+
+### Initial Setup (One-Time)
+
+1. **Create a runner in GitHub**:
+   - Go to: `Settings → Actions → Runners → New self-hosted runner`
+   - Select: Linux, x64
+
+2. **SSH to the server**:
+   ```bash
+   ssh root@178.156.202.136
+   ```
+
+3. **Create runner user** (runners shouldn't run as root):
+   ```bash
+   useradd -m -s /bin/bash github-runner
+   usermod -aG docker github-runner
+   ```
+
+4. **Download and configure the runner**:
+   ```bash
+   su - github-runner
+   mkdir actions-runner && cd actions-runner
+
+   # Download latest runner (check GitHub for current version)
+   curl -o actions-runner-linux-x64.tar.gz -L \
+     https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
+   tar xzf actions-runner-linux-x64.tar.gz
+
+   # Configure (use token from GitHub UI)
+   ./config.sh --url https://github.com/jeffeharris/my-poker-face --token YOUR_TOKEN
+   ```
+
+5. **Install as a service**:
+   ```bash
+   exit  # Back to root
+   cd /home/github-runner/actions-runner
+   ./svc.sh install github-runner
+   ./svc.sh start
+   ```
+
+6. **Grant access to age key**:
+   ```bash
+   # Copy age key for github-runner user
+   mkdir -p /home/github-runner/.config/age
+   cp /root/.config/age/key.txt /home/github-runner/.config/age/
+   chown -R github-runner:github-runner /home/github-runner/.config
+   chmod 600 /home/github-runner/.config/age/key.txt
+   ```
+
+7. **Set working directory**:
+   ```bash
+   # Ensure runner works from /opt/poker
+   mkdir -p /opt/poker
+   chown github-runner:github-runner /opt/poker
+   ```
+
+### Managing the Runner
+
+```bash
+# Check status
+ssh root@178.156.202.136 "systemctl status actions.runner.jeffeharris-my-poker-face.poker-prod"
+
+# Restart runner
+ssh root@178.156.202.136 "systemctl restart actions.runner.jeffeharris-my-poker-face.poker-prod"
+
+# View runner logs
+ssh root@178.156.202.136 "journalctl -u actions.runner.jeffeharris-my-poker-face.poker-prod -f"
+```
+
+### Updating the Runner
+
+GitHub will notify you when updates are available:
+
+```bash
+ssh root@178.156.202.136
+su - github-runner
+cd actions-runner
+./svc.sh stop
+# Download new version and extract
+./svc.sh start
+```
+
+### Troubleshooting Runner Issues
+
+**Runner offline:**
+```bash
+ssh root@178.156.202.136 "systemctl status actions.runner.* && systemctl restart actions.runner.*"
+```
+
+**Permission denied errors:**
+```bash
+# Ensure docker group membership
+ssh root@178.156.202.136 "usermod -aG docker github-runner && systemctl restart actions.runner.*"
+```
+
+**Age decryption fails:**
+```bash
+# Check key exists and permissions
+ssh root@178.156.202.136 "ls -la /home/github-runner/.config/age/"
+```
+
 ## Scaling Considerations
 
 Current setup is suitable for low-moderate traffic. For higher load:
