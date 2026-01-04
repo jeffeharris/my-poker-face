@@ -67,17 +67,13 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 
     steps:
-      - name: Fix permissions for checkout
-        run: |
-          sudo chown -R $USER:$USER $GITHUB_WORKSPACE || true
-
       - uses: actions/checkout@v4
         with:
           clean: true
 
       - name: Sync to production directory
         run: |
-          sudo rsync -av --delete \
+          rsync -av --delete \
             --exclude '.git' --exclude 'node_modules' --exclude '__pycache__' \
             --exclude '.venv' --exclude 'my_poker_face_venv' --exclude '.dev' \
             --exclude 'data/*.db' --exclude '*.pyc' \
