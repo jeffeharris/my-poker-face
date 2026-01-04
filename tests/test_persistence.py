@@ -464,10 +464,233 @@ class TestDatabaseSchema(unittest.TestCase):
             self.assertIsNotNone(cursor.fetchone())
             
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='index' AND name='idx_personality_snapshots'
             """)
             self.assertIsNotNone(cursor.fetchone())
+
+
+class TestAvatarPersistence(unittest.TestCase):
+    """Test avatar image persistence functionality."""
+
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        self.persistence = GamePersistence(self.test_db.name)
+
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+
+    def _create_test_image_bytes(self) -> bytes:
+        """Create minimal PNG bytes for testing."""
+        # Minimal valid 1x1 transparent PNG
+        return bytes([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  # PNG signature
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,  # IHDR chunk
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,  # IDAT chunk
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,  # IEND chunk
+            0x42, 0x60, 0x82
+        ])
+
+    def test_save_and_load_avatar_image(self):
+        """Test saving and loading avatar image bytes."""
+        image_data = self._create_test_image_bytes()
+
+        # Save
+        self.persistence.save_avatar_image(
+            personality_name="Bob Ross",
+            emotion="confident",
+            image_data=image_data,
+            width=256,
+            height=256
+        )
+
+        # Load
+        loaded_data = self.persistence.load_avatar_image("Bob Ross", "confident")
+
+        self.assertIsNotNone(loaded_data)
+        self.assertEqual(loaded_data, image_data)
+
+    def test_has_avatar_image(self):
+        """Test checking if avatar exists."""
+        image_data = self._create_test_image_bytes()
+
+        # Should not exist initially
+        self.assertFalse(self.persistence.has_avatar_image("Bob Ross", "happy"))
+
+        # Save it
+        self.persistence.save_avatar_image("Bob Ross", "happy", image_data)
+
+        # Should exist now
+        self.assertTrue(self.persistence.has_avatar_image("Bob Ross", "happy"))
+
+        # Other emotions should not exist
+        self.assertFalse(self.persistence.has_avatar_image("Bob Ross", "angry"))
+
+    def test_get_available_emotions(self):
+        """Test listing available emotions for personality."""
+        image_data = self._create_test_image_bytes()
+
+        # Save multiple emotions
+        self.persistence.save_avatar_image("Batman", "confident", image_data)
+        self.persistence.save_avatar_image("Batman", "angry", image_data)
+        self.persistence.save_avatar_image("Batman", "thinking", image_data)
+
+        # Get available
+        emotions = self.persistence.get_available_avatar_emotions("Batman")
+
+        self.assertEqual(len(emotions), 3)
+        self.assertIn("confident", emotions)
+        self.assertIn("angry", emotions)
+        self.assertIn("thinking", emotions)
+
+    def test_has_all_avatar_emotions(self):
+        """Test checking if personality has all 6 emotions."""
+        image_data = self._create_test_image_bytes()
+
+        # Add only 3 emotions
+        for emotion in ["confident", "happy", "thinking"]:
+            self.persistence.save_avatar_image("Joker", emotion, image_data)
+
+        self.assertFalse(self.persistence.has_all_avatar_emotions("Joker"))
+
+        # Add remaining 3 emotions
+        for emotion in ["nervous", "angry", "shocked"]:
+            self.persistence.save_avatar_image("Joker", emotion, image_data)
+
+        self.assertTrue(self.persistence.has_all_avatar_emotions("Joker"))
+
+    def test_delete_avatar_images(self):
+        """Test deleting all avatars for a personality."""
+        image_data = self._create_test_image_bytes()
+
+        # Save multiple emotions
+        for emotion in ["confident", "happy", "angry"]:
+            self.persistence.save_avatar_image("Villain", emotion, image_data)
+
+        # Verify they exist
+        self.assertEqual(len(self.persistence.get_available_avatar_emotions("Villain")), 3)
+
+        # Delete
+        count = self.persistence.delete_avatar_images("Villain")
+
+        self.assertEqual(count, 3)
+        self.assertEqual(len(self.persistence.get_available_avatar_emotions("Villain")), 0)
+
+    def test_load_avatar_with_metadata(self):
+        """Test loading avatar image with metadata."""
+        image_data = self._create_test_image_bytes()
+
+        self.persistence.save_avatar_image(
+            personality_name="Hero",
+            emotion="confident",
+            image_data=image_data,
+            width=256,
+            height=256
+        )
+
+        result = self.persistence.load_avatar_image_with_metadata("Hero", "confident")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['image_data'], image_data)
+        self.assertEqual(result['content_type'], 'image/png')
+        self.assertEqual(result['width'], 256)
+        self.assertEqual(result['height'], 256)
+        self.assertEqual(result['file_size'], len(image_data))
+
+    def test_get_avatar_stats(self):
+        """Test getting avatar statistics."""
+        image_data = self._create_test_image_bytes()
+
+        # Add some avatars
+        for emotion in EMOTIONS:
+            self.persistence.save_avatar_image("Complete Player", emotion, image_data)
+
+        self.persistence.save_avatar_image("Incomplete Player", "confident", image_data)
+        self.persistence.save_avatar_image("Incomplete Player", "happy", image_data)
+
+        stats = self.persistence.get_avatar_stats()
+
+        self.assertEqual(stats['total_images'], 8)  # 6 + 2
+        self.assertEqual(stats['personality_count'], 2)
+        self.assertEqual(stats['complete_personality_count'], 1)
+        self.assertGreater(stats['total_size_bytes'], 0)
+
+    def test_list_personalities_with_avatars(self):
+        """Test listing personalities that have avatars."""
+        image_data = self._create_test_image_bytes()
+
+        self.persistence.save_avatar_image("Alice", "confident", image_data)
+        self.persistence.save_avatar_image("Alice", "happy", image_data)
+        self.persistence.save_avatar_image("Bob", "confident", image_data)
+
+        result = self.persistence.list_personalities_with_avatars()
+
+        self.assertEqual(len(result), 2)
+        names = [p['personality_name'] for p in result]
+        self.assertIn("Alice", names)
+        self.assertIn("Bob", names)
+
+        # Check counts
+        alice = next(p for p in result if p['personality_name'] == "Alice")
+        self.assertEqual(alice['emotion_count'], 2)
+
+    def test_avatar_table_created(self):
+        """Test that avatar_images table is created."""
+        import sqlite3
+
+        with sqlite3.connect(self.test_db.name) as conn:
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='avatar_images'
+            """)
+            self.assertIsNotNone(cursor.fetchone())
+
+
+class TestPersonalitySeed(unittest.TestCase):
+    """Test personality seeding functionality."""
+
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        self.persistence = GamePersistence(self.test_db.name)
+
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+
+    def test_seed_from_nonexistent_file(self):
+        """Test seeding from non-existent file returns error."""
+        result = self.persistence.seed_personalities_from_json("/nonexistent/path.json")
+
+        self.assertEqual(result['added'], 0)
+        self.assertIn('error', result)
+
+    def test_save_and_load_personality(self):
+        """Test saving and loading a personality."""
+        config = {
+            "play_style": "aggressive",
+            "default_confidence": "high",
+            "personality_traits": {
+                "bluff_tendency": 0.8,
+                "aggression": 0.9
+            }
+        }
+
+        self.persistence.save_personality("Test Player", config, source='test')
+
+        loaded = self.persistence.load_personality("Test Player")
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded['play_style'], "aggressive")
+        self.assertEqual(loaded['personality_traits']['bluff_tendency'], 0.8)
+
+
+# Required for test stats
+EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
 
 
 if __name__ == '__main__':

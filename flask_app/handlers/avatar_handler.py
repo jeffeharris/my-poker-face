@@ -1,4 +1,9 @@
-"""Avatar generation handler for AI player character images."""
+"""Avatar generation handler for AI player character images.
+
+This handler manages background generation of avatar images for AI players.
+Avatar images are stored in the SQLite database as BLOBs and served via
+the /api/avatar/<personality>/<emotion> endpoint.
+"""
 
 import logging
 import threading

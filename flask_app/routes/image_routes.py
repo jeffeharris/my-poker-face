@@ -1,17 +1,33 @@
-"""Character image routes."""
+"""Character image routes.
+
+Serves avatar images from the database (primary) with filesystem fallback.
+"""
 
 import logging
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_from_directory
+from flask import Blueprint, jsonify, request, send_from_directory, Response
 
-from poker.character_images import has_character_images, generate_character_images
+from poker.character_images import (
+    has_character_images,
+    generate_character_images,
+    load_avatar_image,
+    get_character_image_service,
+    EMOTIONS,
+)
+from poker.persistence import GamePersistence
 
 logger = logging.getLogger(__name__)
 
 image_bp = Blueprint('image', __name__)
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
+
+# Initialize persistence for avatar lookups
+def _get_persistence() -> GamePersistence:
+    """Get persistence instance for avatar operations."""
+    db_path = Path('/app/data/poker_games.db') if Path('/app/data').exists() else Path(__file__).parent.parent.parent / 'poker_games.db'
+    return GamePersistence(str(db_path))
 
 
 @image_bp.route('/api/character-images', methods=['GET'])
@@ -118,12 +134,85 @@ def get_character_grid():
 
 @image_bp.route('/api/character-grid/icons/<filename>')
 def serve_grid_icon(filename):
-    """Serve a grid icon."""
+    """Serve a grid icon from database or filesystem.
+
+    Supports filename format: personality_name_emotion.png
+    Example: bob_ross_confident.png
+    """
     try:
+        # Parse personality name and emotion from filename
+        # Format: personality_name_emotion.png
+        stem = filename.rsplit('.', 1)[0]  # Remove .png extension
+        parts = stem.rsplit('_', 1)  # Split on last underscore
+
+        if len(parts) == 2:
+            personality_slug, emotion = parts
+            # Convert slug back to name (e.g., bob_ross -> Bob Ross)
+            personality_name = ' '.join(word.title() for word in personality_slug.split('_'))
+
+            # Try to load from database first
+            image_data = load_avatar_image(personality_name, emotion)
+            if image_data:
+                return Response(
+                    image_data,
+                    mimetype='image/png',
+                    headers={'Cache-Control': 'public, max-age=86400'}
+                )
+
+        # Fall back to filesystem
         icons_dir = GENERATED_IMAGES_DIR / 'grid' / 'icons'
         return send_from_directory(icons_dir, filename)
     except Exception as e:
+        logger.error(f"Error serving grid icon {filename}: {e}")
         return jsonify({'error': str(e)}), 404
+
+
+@image_bp.route('/api/avatar/<personality_name>/<emotion>')
+def serve_avatar(personality_name: str, emotion: str):
+    """Serve avatar image from database.
+
+    This is the primary endpoint for database-stored avatars.
+
+    Args:
+        personality_name: Name of the personality (URL encoded)
+        emotion: Emotion name (confident, happy, thinking, nervous, angry, shocked)
+
+    Returns:
+        PNG image or 404 if not found
+    """
+    try:
+        # Normalize emotion
+        emotion = emotion.lower()
+        if emotion not in EMOTIONS:
+            emotion = 'confident'
+
+        # Load from database (primary) or filesystem (fallback)
+        image_data = load_avatar_image(personality_name, emotion)
+
+        if image_data:
+            return Response(
+                image_data,
+                mimetype='image/png',
+                headers={'Cache-Control': 'public, max-age=86400'}
+            )
+
+        return jsonify({'error': f'Avatar not found for {personality_name} - {emotion}'}), 404
+
+    except Exception as e:
+        logger.error(f"Error serving avatar for {personality_name}/{emotion}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@image_bp.route('/api/avatar-stats')
+def get_avatar_stats():
+    """Get statistics about avatar images in the database."""
+    try:
+        persistence = _get_persistence()
+        stats = persistence.get_avatar_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Error getting avatar stats: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @image_bp.route('/api/generate-character-images/<personality_name>', methods=['POST'])

@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 @dataclass
@@ -313,6 +313,7 @@ class GamePersistence:
             2: (self._migrate_v2_add_memory_tables, "Add AI memory and learning tables"),
             3: (self._migrate_v3_add_controller_state_tables, "Add emotional state and controller state tables"),
             4: (self._migrate_v4_add_tournament_tables, "Add tournament results and career stats tables"),
+            5: (self._migrate_v5_add_avatar_images_table, "Add avatar_images table for storing character images"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -489,6 +490,42 @@ class GamePersistence:
         """)
 
         logger.info("Created tournament_results, tournament_standings, and player_career_stats tables")
+
+    def _migrate_v5_add_avatar_images_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v5: Add avatar_images table for storing character images in DB."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS avatar_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                personality_name TEXT NOT NULL,
+                emotion TEXT NOT NULL,
+                image_data BLOB NOT NULL,
+                content_type TEXT DEFAULT 'image/png',
+                width INTEGER DEFAULT 256,
+                height INTEGER DEFAULT 256,
+                file_size INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(personality_name, emotion)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_avatar_personality
+            ON avatar_images(personality_name)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_avatar_emotion
+            ON avatar_images(emotion)
+        """)
+
+        # Add elasticity_config column to personalities if missing
+        cursor = conn.execute("PRAGMA table_info(personalities)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'elasticity_config' not in columns:
+            conn.execute("ALTER TABLE personalities ADD COLUMN elasticity_config TEXT")
+
+        logger.info("Created avatar_images table and verified personalities schema")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -1325,3 +1362,216 @@ class GamePersistence:
                 })
 
             return personalities
+
+    # Avatar Image Persistence Methods
+    def save_avatar_image(self, personality_name: str, emotion: str,
+                          image_data: bytes, width: int = 256, height: int = 256,
+                          content_type: str = 'image/png') -> None:
+        """Save an avatar image to the database.
+
+        Args:
+            personality_name: The personality name (e.g., "Bob Ross")
+            emotion: The emotion (confident, happy, thinking, nervous, angry, shocked)
+            image_data: The PNG image bytes
+            width: Image width (default 256)
+            height: Image height (default 256)
+            content_type: MIME type (default image/png)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO avatar_images
+                (personality_name, emotion, image_data, content_type, width, height, file_size, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                personality_name,
+                emotion,
+                image_data,
+                content_type,
+                width,
+                height,
+                len(image_data)
+            ))
+
+    def load_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
+        """Load avatar image data from database.
+
+        Args:
+            personality_name: The personality name
+            emotion: The emotion
+
+        Returns:
+            Image bytes if found, None otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT image_data FROM avatar_images
+                WHERE personality_name = ? AND emotion = ?
+            """, (personality_name, emotion))
+
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def load_avatar_image_with_metadata(self, personality_name: str, emotion: str) -> Optional[Dict[str, Any]]:
+        """Load avatar image with metadata from database.
+
+        Returns:
+            Dict with image_data, content_type, width, height, file_size or None
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT image_data, content_type, width, height, file_size
+                FROM avatar_images
+                WHERE personality_name = ? AND emotion = ?
+            """, (personality_name, emotion))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'image_data': row['image_data'],
+                'content_type': row['content_type'],
+                'width': row['width'],
+                'height': row['height'],
+                'file_size': row['file_size']
+            }
+
+    def has_avatar_image(self, personality_name: str, emotion: str) -> bool:
+        """Check if an avatar image exists for the given personality and emotion."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT 1 FROM avatar_images
+                WHERE personality_name = ? AND emotion = ?
+            """, (personality_name, emotion))
+            return cursor.fetchone() is not None
+
+    def get_available_avatar_emotions(self, personality_name: str) -> List[str]:
+        """Get list of emotions that have avatar images for a personality."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT emotion FROM avatar_images
+                WHERE personality_name = ?
+                ORDER BY emotion
+            """, (personality_name,))
+            return [row[0] for row in cursor.fetchall()]
+
+    def has_all_avatar_emotions(self, personality_name: str) -> bool:
+        """Check if a personality has all 6 emotion avatars."""
+        emotions = self.get_available_avatar_emotions(personality_name)
+        required = {'confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked'}
+        return required.issubset(set(emotions))
+
+    def delete_avatar_images(self, personality_name: str) -> int:
+        """Delete all avatar images for a personality.
+
+        Returns:
+            Number of images deleted
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                DELETE FROM avatar_images WHERE personality_name = ?
+            """, (personality_name,))
+            return cursor.rowcount
+
+    def list_personalities_with_avatars(self) -> List[Dict[str, Any]]:
+        """Get list of all personalities that have at least one avatar image.
+
+        Returns:
+            List of dicts with personality_name and emotion_count
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT personality_name, COUNT(*) as emotion_count
+                FROM avatar_images
+                GROUP BY personality_name
+                ORDER BY personality_name
+            """)
+            return [
+                {'personality_name': row['personality_name'], 'emotion_count': row['emotion_count']}
+                for row in cursor.fetchall()
+            ]
+
+    def get_avatar_stats(self) -> Dict[str, Any]:
+        """Get statistics about avatar images in the database."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Total count
+            cursor = conn.execute("SELECT COUNT(*) as count FROM avatar_images")
+            total_count = cursor.fetchone()['count']
+
+            # Total size
+            cursor = conn.execute("SELECT SUM(file_size) as total_size FROM avatar_images")
+            total_size = cursor.fetchone()['total_size'] or 0
+
+            # Unique personalities
+            cursor = conn.execute("SELECT COUNT(DISTINCT personality_name) as count FROM avatar_images")
+            personality_count = cursor.fetchone()['count']
+
+            # Personalities with all 6 emotions
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM (
+                    SELECT personality_name FROM avatar_images
+                    GROUP BY personality_name
+                    HAVING COUNT(DISTINCT emotion) = 6
+                )
+            """)
+            complete_count = cursor.fetchone()['count']
+
+            return {
+                'total_images': total_count,
+                'total_size_bytes': total_size,
+                'total_size_mb': round(total_size / (1024 * 1024), 2),
+                'personality_count': personality_count,
+                'complete_personality_count': complete_count
+            }
+
+    # Personality Seeding Methods
+    def seed_personalities_from_json(self, json_path: str, overwrite: bool = False) -> Dict[str, int]:
+        """Seed database with personalities from JSON file.
+
+        Args:
+            json_path: Path to personalities.json file
+            overwrite: If True, overwrite existing personalities
+
+        Returns:
+            Dict with counts: {'added': N, 'skipped': M, 'updated': P}
+        """
+        import json as json_module
+        from pathlib import Path
+
+        json_file = Path(json_path)
+        if not json_file.exists():
+            logger.warning(f"Personalities JSON file not found: {json_path}")
+            return {'added': 0, 'skipped': 0, 'updated': 0, 'error': 'File not found'}
+
+        try:
+            with open(json_file, 'r') as f:
+                data = json_module.load(f)
+        except Exception as e:
+            logger.error(f"Error reading personalities JSON: {e}")
+            return {'added': 0, 'skipped': 0, 'updated': 0, 'error': str(e)}
+
+        personalities = data.get('personalities', {})
+        added = 0
+        skipped = 0
+        updated = 0
+
+        for name, config in personalities.items():
+            existing = self.load_personality(name)
+
+            if existing and not overwrite:
+                skipped += 1
+                continue
+
+            if existing:
+                updated += 1
+            else:
+                added += 1
+
+            self.save_personality(name, config, source='personalities.json')
+
+        logger.info(f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped")
+        return {'added': added, 'skipped': skipped, 'updated': updated}

@@ -88,7 +88,10 @@ def get_personality(name):
 
 @personality_bp.route('/api/personality', methods=['POST'])
 def create_personality():
-    """Create a new personality."""
+    """Create a new personality.
+
+    Saves to database only (database is the source of truth).
+    """
     try:
         data = request.json
         name = data.get('name')
@@ -108,17 +111,6 @@ def create_personality():
 
         persistence.save_personality(name, personality_config, source='user_created')
 
-        try:
-            personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-            if personalities_file.exists():
-                with open(personalities_file, 'r') as f:
-                    data = json.load(f)
-                data['personalities'][name] = personality_config
-                with open(personalities_file, 'w') as f:
-                    json.dump(data, f, indent=2)
-        except:
-            pass
-
         return jsonify({
             'success': True,
             'message': f'Personality {name} created successfully'
@@ -129,22 +121,14 @@ def create_personality():
 
 @personality_bp.route('/api/personality/<name>', methods=['PUT'])
 def update_personality(name):
-    """Update a personality."""
+    """Update a personality.
+
+    Saves to database only (database is the source of truth).
+    """
     try:
         personality_config = request.json
 
         persistence.save_personality(name, personality_config, source='user_edited')
-
-        try:
-            personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-            if personalities_file.exists():
-                with open(personalities_file, 'r') as f:
-                    data = json.load(f)
-                data['personalities'][name] = personality_config
-                with open(personalities_file, 'w') as f:
-                    json.dump(data, f, indent=2)
-        except:
-            pass
 
         return jsonify({
             'success': True,
@@ -156,8 +140,16 @@ def update_personality(name):
 
 @personality_bp.route('/api/personality/<name>', methods=['DELETE'])
 def delete_personality(name):
-    """Delete a personality."""
+    """Delete a personality.
+
+    Deletes from database only (database is the source of truth).
+    Note: Also deletes associated avatar images from database.
+    """
     try:
+        # Delete associated avatar images
+        persistence.delete_avatar_images(name)
+
+        # Delete the personality
         deleted = persistence.delete_personality(name)
 
         if not deleted:
@@ -165,19 +157,6 @@ def delete_personality(name):
                 'success': False,
                 'error': f'Personality {name} not found'
             })
-
-        try:
-            personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-            if personalities_file.exists():
-                with open(personalities_file, 'r') as f:
-                    data = json.load(f)
-
-                if name in data['personalities']:
-                    del data['personalities'][name]
-                    with open(personalities_file, 'w') as f:
-                        json.dump(data, f, indent=2)
-        except:
-            pass
 
         return jsonify({
             'success': True,
@@ -281,7 +260,10 @@ No other text or explanation."""
 @personality_bp.route('/api/generate_personality', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_GENERATE_PERSONALITY)
 def generate_personality():
-    """Generate a new personality using AI."""
+    """Generate a new personality using AI.
+
+    Generated personalities are saved to the database (source of truth).
+    """
     try:
         from poker.personality_generator import PersonalityGenerator
 
@@ -295,19 +277,11 @@ def generate_personality():
 
         generator = PersonalityGenerator()
 
+        # This generates and saves to database automatically
         personality_config = generator.get_personality(
             name=name,
             force_generate=force_generate
         )
-
-        personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-        with open(personalities_file, 'r') as f:
-            personalities_data = json.load(f)
-
-        personalities_data['personalities'][name] = personality_config
-
-        with open(personalities_file, 'w') as f:
-            json.dump(personalities_data, f, indent=2)
 
         return jsonify({
             'success': True,

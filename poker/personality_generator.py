@@ -95,66 +95,49 @@ Respond with ONLY a JSON object in this exact format:
     
     def get_personality(self, name: str, description: Optional[str] = None, force_generate: bool = False) -> Dict[str, Any]:
         """Get a personality for a character, generating if needed.
-        
+
+        Personality loading hierarchy:
+        1. Session cache (fastest)
+        2. Database (source of truth)
+        3. AI generation (if not in database)
+
+        Note: personalities.json is only used as a seed file via seed_personalities_from_json().
+        It is NOT checked at runtime to ensure database is the single source of truth.
+
         Args:
             name: Character name
             description: Optional description for more context
             force_generate: Force generation even if exists
-            
+
         Returns:
             Personality configuration dict
         """
         print(f"[PersonalityGenerator] Getting personality for: {name}")
-        
+
         # Check cache first
         if name in self._cache and not force_generate:
             print(f"[PersonalityGenerator] Found {name} in cache")
             return self._cache[name]
-        
-        # Check database unless forcing generation
+
+        # Check database (source of truth) unless forcing generation
         if not force_generate:
             db_personality = self.persistence.load_personality(name)
             if db_personality:
                 print(f"[PersonalityGenerator] Found {name} in database")
                 self._cache[name] = db_personality
                 return db_personality
-        
-        # Check personalities.json file
-        if not force_generate:
-            json_personality = self._load_from_json(name)
-            if json_personality:
-                print(f"[PersonalityGenerator] Found {name} in personalities.json")
-                # Save to database for future use
-                self.persistence.save_personality(name, json_personality, source='personalities.json')
-                self._cache[name] = json_personality
-                return json_personality
-        
-        # Generate new personality
+
+        # Generate new personality via AI
         print(f"[PersonalityGenerator] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
-        
+
         # Save to database
         self.persistence.save_personality(name, generated, source='ai_generated')
-        
+
         # Cache it
         self._cache[name] = generated
-        
+
         return generated
-    
-    def _load_from_json(self, name: str) -> Optional[Dict[str, Any]]:
-        """Try to load personality from personalities.json file."""
-        json_path = Path(__file__).parent / 'personalities.json'
-        
-        if not json_path.exists():
-            return None
-        
-        try:
-            with open(json_path, 'r') as f:
-                data = json.load(f)
-                personalities = data.get('personalities', {})
-                return personalities.get(name)
-        except Exception:
-            return None
     
     def _generate_personality(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
         """Generate a new personality using AI."""
@@ -238,6 +221,9 @@ Respond with ONLY a JSON object in this exact format:
         return results
 
     # ==================== Avatar Management ====================
+    # Note: Avatar images are now stored in the avatar_images database table.
+    # These methods are kept for backwards compatibility but avatar_images list
+    # in personality config is no longer the source of truth.
 
     def get_avatar_description(self, name: str) -> Optional[str]:
         """Get avatar description for a personality.
@@ -251,94 +237,43 @@ Respond with ONLY a JSON object in this exact format:
         personality = self.get_personality(name)
         return personality.get('avatar_description')
 
-    def set_avatar_description(self, name: str, description: str, save_to_json: bool = True) -> None:
+    def set_avatar_description(self, name: str, description: str) -> None:
         """Set avatar description for a personality.
 
         Args:
             name: Character name
             description: Avatar description for image generation
-            save_to_json: Whether to save back to personalities.json
         """
         # Update in cache
         if name in self._cache:
             self._cache[name]['avatar_description'] = description
 
-        # Update in database
+        # Update in database (source of truth)
         personality = self.get_personality(name)
         personality['avatar_description'] = description
         self.persistence.save_personality(name, personality, source='updated')
 
-        # Optionally save to JSON file
-        if save_to_json:
-            self._save_field_to_json(name, 'avatar_description', description)
-
     def get_avatar_images(self, name: str) -> list:
-        """Get list of generated avatar emotions for a personality.
+        """Get list of available avatar emotions for a personality.
+
+        Note: This now checks the avatar_images database table for actual images.
 
         Args:
             name: Character name
 
         Returns:
-            List of emotion names that have generated images
+            List of emotion names that have avatar images
         """
-        personality = self.get_personality(name)
-        return personality.get('avatar_images', [])
+        return self.persistence.get_available_avatar_emotions(name)
 
-    def set_avatar_images(self, name: str, emotions: list, save_to_json: bool = True) -> None:
-        """Set list of generated avatar emotions for a personality.
+    def has_avatar_image(self, name: str, emotion: str) -> bool:
+        """Check if an avatar image exists for the personality and emotion.
 
         Args:
             name: Character name
-            emotions: List of emotion names that have been generated
-            save_to_json: Whether to save back to personalities.json
+            emotion: Emotion name
+
+        Returns:
+            True if avatar image exists in database
         """
-        # Update in cache
-        if name in self._cache:
-            self._cache[name]['avatar_images'] = emotions
-
-        # Update in database
-        personality = self.get_personality(name)
-        personality['avatar_images'] = emotions
-        self.persistence.save_personality(name, personality, source='updated')
-
-        # Optionally save to JSON file
-        if save_to_json:
-            self._save_field_to_json(name, 'avatar_images', emotions)
-
-    def add_avatar_image(self, name: str, emotion: str, save_to_json: bool = True) -> None:
-        """Add a single emotion to the list of generated avatars.
-
-        Args:
-            name: Character name
-            emotion: Emotion name that was generated
-            save_to_json: Whether to save back to personalities.json
-        """
-        current = self.get_avatar_images(name)
-        if emotion not in current:
-            current.append(emotion)
-            self.set_avatar_images(name, current, save_to_json)
-
-    def _save_field_to_json(self, name: str, field: str, value: Any) -> None:
-        """Save a single field back to personalities.json.
-
-        Args:
-            name: Character name
-            field: Field name to update
-            value: Value to set
-        """
-        json_path = Path(__file__).parent / 'personalities.json'
-
-        if not json_path.exists():
-            return
-
-        try:
-            with open(json_path, 'r') as f:
-                data = json.load(f)
-
-            if name in data.get('personalities', {}):
-                data['personalities'][name][field] = value
-
-                with open(json_path, 'w') as f:
-                    json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"Error saving {field} to JSON for {name}: {e}")
+        return self.persistence.has_avatar_image(name, emotion)
