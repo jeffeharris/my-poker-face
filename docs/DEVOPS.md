@@ -158,9 +158,68 @@ Where `rules.json` contains:
 - Auto-renews before expiration
 - Current cert valid until April 3, 2026
 
+### Secrets Management (Age Encryption)
+
+Production secrets are encrypted using [age](https://github.com/FiloSottile/age) and stored in `.env.prod.age`. The server decrypts them at deploy time using its private key.
+
+**How it works:**
+1. `.env.prod.age` (encrypted) is committed to the repo
+2. On deploy, the server decrypts it to `.env` using its private key
+3. Plaintext secrets never leave the server or enter git history
+
+**Server key location:** `/root/.config/age/key.txt`
+
+**Server public key:** `age1u53cznacvaqxa69vw6rwn9nz9f7w0dhvrmp9mj3yq2fgvjf2wcmqu9wqvx`
+
+#### Updating Secrets
+
+1. Create/edit `.env.prod` locally (it's gitignored):
+   ```bash
+   cat > .env.prod << 'EOF'
+   OPENAI_API_KEY=sk-your-key-here
+   SECRET_KEY=your-secret-key
+   FLASK_ENV=production
+   CORS_ORIGINS=https://mypokerfacegame.com
+   EOF
+   ```
+
+2. Encrypt using the server (since age may not be installed locally):
+   ```bash
+   scp .env.prod root@178.156.202.136:/tmp/ && \
+   ssh root@178.156.202.136 "age -r age1u53cznacvaqxa69vw6rwn9nz9f7w0dhvrmp9mj3yq2fgvjf2wcmqu9wqvx -o /tmp/.env.prod.age /tmp/.env.prod && rm /tmp/.env.prod" && \
+   scp root@178.156.202.136:/tmp/.env.prod.age ./ && \
+   ssh root@178.156.202.136 "rm /tmp/.env.prod.age"
+   ```
+
+3. Remove plaintext and commit:
+   ```bash
+   rm .env.prod
+   git add .env.prod.age
+   git commit -m "Update encrypted secrets"
+   ```
+
+4. Deploy:
+   ```bash
+   ./deploy.sh
+   ```
+
+#### Rotating the Age Key
+
+If the server key is compromised:
+
+```bash
+# Generate new key on server
+ssh root@178.156.202.136 "age-keygen -o /root/.config/age/key.txt"
+
+# Get new public key
+ssh root@178.156.202.136 "grep public /root/.config/age/key.txt"
+
+# Re-encrypt secrets with new public key (update this doc with new key)
+```
+
 ## Environment Variables
 
-Production environment variables are stored in `/opt/poker/.env` on the server:
+Production environment variables are stored in `/opt/poker/.env` on the server (decrypted from `.env.prod.age` at deploy time):
 
 | Variable | Description |
 |----------|-------------|
