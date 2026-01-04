@@ -209,3 +209,43 @@ ssh root@178.156.202.136 "cd /opt/poker && docker compose -f docker-compose.prod
 - `docker-compose.prod.yml` - Production container orchestration
 - `Caddyfile` - Reverse proxy with auto-SSL
 - `deploy.sh` - Deployment script
+
+## GitHub CLI Usage
+
+When working with GitHub issues and PRs, use these patterns:
+
+### Viewing Issues
+```bash
+# Get repo name from git remote (don't guess!)
+git remote -v
+
+# View issue with --json to avoid GraphQL deprecation errors
+gh issue view 38 --repo jeffeharris/my-poker-face --json title,body,state,labels
+
+# Without --json fails due to deprecated Projects (classic) API
+# DON'T USE: gh issue view 38 --repo jeffeharris/my-poker-face
+```
+
+### Viewing PR Status
+```bash
+# Check CI status
+gh pr checks 41 --repo jeffeharris/my-poker-face
+
+# View failed logs
+gh run view <run_id> --repo jeffeharris/my-poker-face --log-failed
+```
+
+### Creating PRs
+```bash
+# Use HEREDOC for body to preserve formatting
+gh pr create --title "fix: description" --body "$(cat <<'EOF'
+## Summary
+- Change 1
+- Change 2
+
+## Test plan
+- [x] Tests pass
+
+EOF
+)"
+```
