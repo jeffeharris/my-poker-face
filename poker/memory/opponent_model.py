@@ -99,8 +99,14 @@ class OpponentTendencies:
             self.pfr = self._pfr_count / max(self.hands_observed, 1)
 
         total_actions = self._bet_raise_count + self._call_count
-        if total_actions > 0:
-            self.aggression_factor = self._bet_raise_count / max(self._call_count, 1)
+        if total_actions == 0:
+            # No actions observed yet; use neutral default
+            self.aggression_factor = 1.0
+        elif self._call_count == 0:
+            # All observed actions are bets/raises; treat as maximal aggression
+            self.aggression_factor = float(self._bet_raise_count)
+        else:
+            self.aggression_factor = self._bet_raise_count / self._call_count
 
         if self._cbet_faced_count > 0:
             self.fold_to_cbet = self._fold_to_cbet_count / self._cbet_faced_count

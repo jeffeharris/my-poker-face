@@ -210,6 +210,8 @@ export function usePokerGame({
 
       if (data.messages) {
         setMessages(data.messages);
+        // Clear and repopulate to prevent unbounded growth
+        messageIdsRef.current.clear();
         data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
       }
 

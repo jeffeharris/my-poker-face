@@ -10,7 +10,7 @@ from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
-from .config import MIN_RAISE, BIG_POT_THRESHOLD, AI_MESSAGE_CONTEXT_LIMIT, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS
+from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS
 from .ai_resilience import (
     with_ai_fallback,
     expects_json,

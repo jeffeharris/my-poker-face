@@ -7,7 +7,6 @@ Records complete hand data for analysis, learning, and memory.
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-import json
 
 
 @dataclass(frozen=True)

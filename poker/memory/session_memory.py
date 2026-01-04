@@ -6,7 +6,7 @@ Manages context that persists across hands within a game session.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 
 from ..config import SESSION_MEMORY_HANDS, MEMORY_CONTEXT_TOKENS
 

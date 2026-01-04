@@ -66,6 +66,7 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
 
         // Call onDismiss when all messages are gone
         if (filtered.length === 0 && prev.length > 0) {
+          processedIdsRef.current.clear();
           onDismiss();
         }
 
@@ -73,9 +74,26 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
       });
     };
 
-    const timer = setInterval(checkExpired, 100);
-    return () => clearInterval(timer);
-  }, [messages.length, duration, onDismiss]);
+    // Calculate delay to next expiration instead of polling every 100ms
+    const now = Date.now();
+    let nextDelay = duration; // Default to full duration
+
+    for (const msg of messages) {
+      const elapsed = now - msg.addedAt;
+      const targetDuration = msg.isExiting ? duration + 300 : duration;
+      const remaining = targetDuration - elapsed;
+      if (remaining > 0 && remaining < nextDelay) {
+        nextDelay = remaining;
+      } else if (remaining <= 0) {
+        // Message already expired, check immediately
+        nextDelay = 0;
+        break;
+      }
+    }
+
+    const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
+    return () => clearTimeout(timer);
+  }, [messages, duration, onDismiss]);
 
   const handleDismiss = (id: string) => {
     setMessages(prev =>

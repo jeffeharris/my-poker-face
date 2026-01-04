@@ -6,7 +6,7 @@ import sqlite3
 import json
 import os
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 from poker.poker_game import PokerGameState, Player

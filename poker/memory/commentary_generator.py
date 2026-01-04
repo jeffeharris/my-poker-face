@@ -13,7 +13,6 @@ from ..prompt_manager import PromptManager
 from ..config import COMMENTARY_ENABLED
 from .hand_history import RecordedHand
 from .session_memory import SessionMemory
-from .opponent_model import OpponentModelManager
 
 logger = logging.getLogger(__name__)
 

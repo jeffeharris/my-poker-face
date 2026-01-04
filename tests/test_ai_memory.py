@@ -14,19 +14,19 @@ import os
 import sys
 import unittest
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from poker.memory.hand_history import (
     RecordedAction, RecordedHand, PlayerHandInfo, WinnerInfo,
-    HandInProgress, HandHistoryRecorder
+    HandHistoryRecorder
 )
-from poker.memory.session_memory import HandMemory, SessionContext, SessionMemory
+from poker.memory.session_memory import HandMemory, SessionMemory
 from poker.memory.opponent_model import (
-    OpponentTendencies, MemorableHand, OpponentModel, OpponentModelManager
+    OpponentTendencies, OpponentModel, OpponentModelManager
 )
-from poker.memory.commentary_generator import HandCommentary, CommentaryGenerator
+from poker.memory.commentary_generator import CommentaryGenerator
 from poker.memory.memory_manager import AIMemoryManager
 
 
