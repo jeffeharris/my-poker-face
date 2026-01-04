@@ -2,6 +2,7 @@
 """Golden path tests for the prompt management system."""
 
 import unittest
+from unittest.mock import patch, MagicMock
 import json
 import sys
 import os
@@ -11,6 +12,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from poker.prompt_manager import PromptManager, PromptTemplate, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from poker.poker_player import AIPokerPlayer
+
+
+# Load personalities from JSON for mocking in tests
+def load_personalities_json():
+    """Load personalities from the JSON file for test fixtures."""
+    json_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'poker', 'personalities.json'
+    )
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+        # Handle nested structure
+        return data.get('personalities', data)
+
+
+PERSONALITIES_FIXTURE = load_personalities_json()
 
 
 class TestPromptTemplate(unittest.TestCase):
@@ -118,20 +135,24 @@ class TestPromptManager(unittest.TestCase):
 
 class TestAIPokerPlayerPrompts(unittest.TestCase):
     """Test AI poker player prompt generation and personality loading."""
-    
+
     def setUp(self):
         # Skip if no API key
         if not os.getenv('OPENAI_API_KEY'):
             self.skipTest("OPENAI_API_KEY not set")
-    
-    def test_personality_loading(self):
+
+    @patch.object(AIPokerPlayer, '_load_personality_config')
+    def test_personality_loading(self, mock_load_config):
         """Test that personalities load correctly from JSON."""
+        # Mock to return the Eeyore personality from our fixtures
+        mock_load_config.return_value = PERSONALITIES_FIXTURE['Eeyore']
+
         # Test known personality
         player = AIPokerPlayer(name='Eeyore', starting_money=10000)
         self.assertEqual(player.personality_config['play_style'], 'tight and passive')
         self.assertEqual(player.confidence, 'pessimistic')
         self.assertEqual(player.attitude, 'gloomy')
-        
+
         # Test personality traits
         traits = player.personality_config['personality_traits']
         self.assertEqual(traits['bluff_tendency'], 0.1)
@@ -165,15 +186,18 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         self.assertIn('"action":', prompt)
         self.assertIn('"persona_response":', prompt)
     
-    def test_personality_modifiers(self):
+    @patch.object(AIPokerPlayer, '_load_personality_config')
+    def test_personality_modifiers(self, mock_load_config):
         """Test personality modifier generation."""
-        # High bluff tendency
+        # High bluff tendency - use Donald Trump from fixtures
+        mock_load_config.return_value = PERSONALITIES_FIXTURE['Donald Trump']
         bluffer = AIPokerPlayer(name='Donald Trump', starting_money=10000)
         bluffer_mod = bluffer.get_personality_modifier()
         self.assertIn('bluff', bluffer_mod.lower())
         self.assertIn('aggressive', bluffer_mod.lower())
-        
-        # Low bluff tendency
+
+        # Low bluff tendency - use Bob Ross from fixtures
+        mock_load_config.return_value = PERSONALITIES_FIXTURE['Bob Ross']
         honest = AIPokerPlayer(name='Bob Ross', starting_money=10000)
         honest_mod = honest.get_personality_modifier()
         # Bob Ross has low aggression (0.1) so should get the cautious modifier
