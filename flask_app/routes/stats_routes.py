@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
+from openai import OpenAI
 
 from core.llm import LLMClient, CallType
 
@@ -314,7 +315,7 @@ Return as JSON:
         response = client.complete(
             messages=messages,
             json_format=True,
-            call_type=CallType.CHAT_SUGGESTION,
+            call_type=CallType.TARGETED_CHAT,
             game_id=game_id
         )
         raw_content = response.content
