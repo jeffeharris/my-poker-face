@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CommunityCard, HoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import { ChatSidebar } from '../../chat/ChatSidebar';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
+import { TournamentComplete } from '../TournamentComplete';
 import { ElasticityDebugPanel } from '../../debug/ElasticityDebugPanel';
 import { PressureStats } from '../../stats';
 import { PokerTableLayout } from '../PokerTableLayout';
@@ -39,15 +40,35 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     messages,
     aiThinking,
     winnerInfo,
+    tournamentResult,
     socketRef,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
+    clearTournamentResult,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
   });
+
+  // Handle tournament completion - clean up and return to menu
+  const handleTournamentComplete = useCallback(async () => {
+    if (gameId) {
+      try {
+        await fetch(`${config.API_URL}/api/end_game/${gameId}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (err) {
+        console.error('Failed to end game:', err);
+      }
+    }
+    clearTournamentResult();
+    localStorage.removeItem('activePokerGameId');
+    // Navigate back to menu by reloading
+    window.location.href = '/';
+  }, [gameId, clearTournamentResult]);
 
   // Desktop-specific state
   const [useOverlayLoading] = useState(false);
@@ -269,7 +290,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             onSendMessage={handleSendMessage}
             playerName={playerName}
             gameId={gameId ?? undefined}
-            isPlayerTurn={gameState && gameState.players[gameState.current_player_idx]?.name === playerName}
+            players={gameState?.players ?? []}
           />
         }
         debugPanel={
@@ -367,10 +388,23 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 </div>
 
                 <div className="player-info">
-                  <div className="player-name">{player.name}</div>
-                  <div className="player-stack">${player.stack}</div>
-                  {player.is_folded && <div className="status">FOLDED</div>}
-                  {player.is_all_in && <div className="status">ALL-IN</div>}
+                  <div className="player-avatar">
+                    {player.avatar_url ? (
+                      <img
+                        src={`${config.API_URL}${player.avatar_url}`}
+                        alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
+                        className="avatar-image"
+                      />
+                    ) : (
+                      <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="player-details">
+                    <div className="player-name">{player.name}</div>
+                    <div className="player-stack">${player.stack}</div>
+                    {player.is_folded && <div className="status">FOLDED</div>}
+                    {player.is_all_in && <div className="status">ALL-IN</div>}
+                  </div>
                 </div>
 
                 {/* Player cards */}
@@ -458,6 +492,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         <WinnerAnnouncement
           winnerInfo={winnerInfo}
           onComplete={clearWinnerInfo}
+        />
+
+        {/* Tournament Complete */}
+        <TournamentComplete
+          result={tournamentResult}
+          onComplete={handleTournamentComplete}
         />
       </div>
       </PokerTableLayout>

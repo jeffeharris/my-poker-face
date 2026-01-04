@@ -1,15 +1,33 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage, Player } from '../../../types';
 import { useFeatureFlags } from '../../debug/FeatureFlags';
 import { QuickChatSuggestions } from '../QuickChatSuggestions';
+import { config } from '../../../config';
 import './ChatSidebar.css';
+
+// Type for parsed action messages (e.g., "Jeff chose to raise by $100")
+interface ParsedAction {
+  player: string;
+  action: string;
+  amount: number | null;
+}
+
+// Extended message type with display properties added during processing
+interface ProcessedChatMessage extends ChatMessage {
+  displayType: 'action' | 'separator' | ChatMessage['type'];
+  parsedAction?: ParsedAction;
+  eventType?: 'win' | 'all-in' | 'fold' | 'elimination' | null;
+  isFirstInGroup?: boolean;
+  isLastInGroup?: boolean;
+  showHeader?: boolean;
+}
 
 interface ChatSidebarProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   playerName?: string;
   gameId?: string;
-  isPlayerTurn?: boolean;
+  players?: Player[];
 }
 
 // Available colors for players
@@ -26,13 +44,13 @@ const AVAILABLE_COLORS = [
 
 type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
 
-export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, isPlayerTurn }: ChatSidebarProps) {
+export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, players = [] }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<MessageFilter>('all');
   const [selectedPlayer, setSelectedPlayer] = useState<string>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
-  const [colorUpdateTrigger, setColorUpdateTrigger] = useState(0);
+  const [, setColorUpdateTrigger] = useState(0);
   const [lastAction, setLastAction] = useState<any>(null);
   const featureFlags = useFeatureFlags();
 
@@ -166,19 +184,19 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     
     // Apply message grouping if feature is enabled
     if (featureFlags.messageGrouping) {
-      const grouped = filtered.map((msg, index) => {
-        const prevMsg = index > 0 ? filtered[index - 1] : null;
-        const nextMsg = index < filtered.length - 1 ? filtered[index + 1] : null;
-        
+      const grouped = (filtered as ProcessedChatMessage[]).map((msg, index) => {
+        const prevMsg: ProcessedChatMessage | null = index > 0 ? filtered[index - 1] as ProcessedChatMessage : null;
+        const nextMsg: ProcessedChatMessage | null = index < filtered.length - 1 ? filtered[index + 1] as ProcessedChatMessage : null;
+
         // For action messages, check the parsed player name
-        const currentSender = msg.displayType === 'action' && msg.parsedAction 
-          ? msg.parsedAction.player 
+        const currentSender = msg.displayType === 'action' && msg.parsedAction
+          ? msg.parsedAction.player
           : msg.sender;
-        
+
         const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsg.parsedAction
           ? prevMsg.parsedAction.player
           : prevMsg?.sender;
-          
+
         const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsg.parsedAction
           ? nextMsg.parsedAction.player
           : nextMsg?.sender;
@@ -259,6 +277,12 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     }
   };
 
+  // Get avatar URL for a player by name
+  const getPlayerAvatar = (senderName: string): string | null => {
+    const player = players.find(p => p.name === senderName);
+    return player?.avatar_url ? `${config.API_URL}${player.avatar_url}` : null;
+  };
+
   const getPlayerColor = (name: string) => {
     if (!name || name.toLowerCase() === 'table' || name.toLowerCase() === 'system') return '#666666';
     
@@ -288,23 +312,26 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
 
   const renderActionMessage = (msg: any, index: number) => {
     const { player, action, amount } = msg.parsedAction;
-    const actionEmoji = {
+    const actionKey = action.toLowerCase() as keyof typeof actionEmojiMap;
+    const actionEmojiMap = {
       'fold': '🏳️',
       'check': '✅',
       'call': '📞',
       'raise': '📈',
       'all-in': '🚀',
       'all_in': '🚀'
-    }[action.toLowerCase()] || '🎮';
+    } as const;
+    const actionEmoji = actionEmojiMap[actionKey] || '🎮';
 
-    const actionText = {
+    const actionTextMap = {
       'fold': 'folded',
       'check': 'checked',
       'call': amount ? `called $${amount}` : 'called',
       'raise': amount ? `raised to $${amount}` : 'raised',
       'all-in': 'went all-in!',
       'all_in': 'went all-in!'
-    }[action.toLowerCase()] || action;
+    } as Record<string, string>;
+    const actionText = actionTextMap[actionKey] || action;
 
     const actionClasses = [
       'chat-message',
@@ -424,13 +451,14 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
               msg.eventType ? `event-${msg.eventType}` : ''
             ].filter(Boolean).join(' ');
             
-            const eventEmoji = msg.eventType ? {
+            const eventEmojiMap: Record<string, string> = {
               'win': '🏆',
               'all-in': '📢',
               'big-pot': '💰',
               'showdown': '🎭',
               'elimination': '💀'
-            }[msg.eventType] : null;
+            };
+            const eventEmoji = msg.eventType ? eventEmojiMap[msg.eventType as string] : null;
 
             return (
               <div 
@@ -444,13 +472,21 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
               >
                 {(!featureFlags.messageGrouping || msg.showHeader) && (
                   <div className="message-header">
-                    <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
-                    <span 
+                    {msg.type === 'ai' && getPlayerAvatar(msg.sender) ? (
+                      <img
+                        src={getPlayerAvatar(msg.sender)!}
+                        alt={msg.sender}
+                        className="chat-avatar"
+                      />
+                    ) : (
+                      <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                    )}
+                    <span
                       className="message-sender"
-                      style={{ 
-                        color: msg.type === 'player' || msg.type === 'ai' 
-                          ? playerColor 
-                          : undefined 
+                      style={{
+                        color: msg.type === 'player' || msg.type === 'ai'
+                          ? playerColor
+                          : undefined
                       }}
                     >
                       {msg.sender}
@@ -469,16 +505,14 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         <div ref={messagesEndRef} />
       </div>
       
-      {featureFlags.quickSuggestions && gameId && (
+      {gameId && players.length > 0 && (
         <QuickChatSuggestions
           gameId={gameId}
           playerName={playerName}
-          isPlayerTurn={isPlayerTurn || false}
+          players={players}
           lastAction={lastAction}
           onSelectSuggestion={(text) => {
             setInputValue(text);
-            // Optionally auto-send
-            // onSendMessage(text);
           }}
         />
       )}

@@ -10,7 +10,7 @@ from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
-from .config import MIN_RAISE, BIG_POT_THRESHOLD, AI_MESSAGE_CONTEXT_LIMIT
+from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS
 from .ai_resilience import (
     with_ai_fallback,
     expects_json,
@@ -19,6 +19,7 @@ from .ai_resilience import (
     get_fallback_chat_response,
     AIFallbackStrategy
 )
+from .player_psychology import PlayerPsychology
 
 logger = logging.getLogger(__name__)
 
@@ -36,30 +37,40 @@ class ConsolePlayerController:
 
 def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
     # Find the index of the last message from the Player with 'name'
-    # Search the list of messages for the last message from the player
-    # Change the message to a string from a dict
     last_message_index = -1
     for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
         if messages[i]['sender'] == name:
             last_message_index = i
             break
 
-    # Convert messages to strings with less text than the dict representation
+    # Convert messages to strings, including action if present
     converted_messages = []
     for msg in messages:
-        converted_messages.append(f"{msg['sender']}: {msg['content']}")
+        sender = msg['sender']
+        content = msg.get('content', msg.get('message', ''))
+        action = msg.get('action', '')
+
+        if action and content:
+            # Action + chat: "Trump raises $100: You're gonna lose!"
+            converted_messages.append(f"{sender} {action}: {content}")
+        elif action:
+            # Action only
+            converted_messages.append(f"{sender} {action}")
+        else:
+            # Chat/system message only
+            converted_messages.append(f"{sender}: {content}")
 
     # Return the messages since the player's last message
     if last_message_index >= 0:
-        messages_since_last_message = converted_messages[last_message_index:]
-        return messages_since_last_message
+        return converted_messages[last_message_index:]
     else:
         return converted_messages
 
 
 
 class AIPlayerController:
-    def __init__(self, player_name, state_machine=None, ai_temp=0.9, llm_config=None):
+    def __init__(self, player_name, state_machine=None, ai_temp=0.9, llm_config=None,
+                 session_memory=None, opponent_model_manager=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.ai_temp = ai_temp
@@ -69,30 +80,42 @@ class AIPlayerController:
         self.prompt_manager = PromptManager()
         self.chattiness_manager = ChattinessManager()
         self.response_validator = ResponseValidator()
-        # Store personality traits for fallback behavior
-        self.personality_traits = self.ai_player.personality_config.get('personality_traits', {})
+
+        # Unified psychological state
+        self.psychology = PlayerPsychology.from_personality_config(
+            name=player_name,
+            config=self.ai_player.personality_config
+        )
+
+        # Memory systems (optional - set by memory manager)
+        self.session_memory = session_memory
+        self.opponent_model_manager = opponent_model_manager
         
     def get_current_personality_traits(self):
-        """Get current trait values from elastic personality if available."""
-        if hasattr(self.ai_player, 'elastic_personality'):
-            return {
-                name: self.ai_player.elastic_personality.get_trait_value(name)
-                for name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']
-            }
-        return self.personality_traits
+        """Get current trait values from psychology (elastic personality)."""
+        return self.psychology.traits
+
+    @property
+    def personality_traits(self):
+        """Compatibility property for ai_resilience fallback."""
+        return self.psychology.traits
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
+
+        # Save original messages before summarizing (for address detection)
+        original_messages = game_messages
+
         game_messages = summarize_messages(
             game_messages,
             self.player_name)
-        
+
         # Get current chattiness and determine if should speak
         current_traits = self.get_current_personality_traits()
         chattiness = current_traits.get('chattiness', 0.5)
-        
-        # Build game context for chattiness decision
-        game_context = self._build_game_context(game_state)
+
+        # Build game context for chattiness decision (use original messages for address detection)
+        game_context = self._build_game_context(game_state, original_messages)
         should_speak = self.chattiness_manager.should_speak(
             self.player_name, chattiness, game_context
         )
@@ -108,11 +131,24 @@ class AIPlayerController:
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
 
+        # Inject memory context if available
+        memory_context = self._build_memory_context(game_state)
+        if memory_context:
+            message = memory_context + "\n\n" + message
+
         # Add chattiness guidance to message
         chattiness_guidance = self._build_chattiness_guidance(
             chattiness, should_speak, speaking_context, player_options
         )
         message = message + "\n\n" + chattiness_guidance
+
+        # Inject emotional state context (before tilt effects)
+        emotional_section = self.psychology.get_prompt_section()
+        if emotional_section:
+            message = emotional_section + "\n\n" + message
+
+        # Apply tilt effects if player is tilted (after emotional state)
+        message = self.psychology.apply_tilt_effects(message)
 
         print(message)
 
@@ -145,8 +181,6 @@ class AIPlayerController:
         """Get AI decision with automatic fallback on failure"""
         # Store context for fallback
         self._fallback_context = context
-        # Update personality traits to current elastic values
-        self.personality_traits = self.get_current_personality_traits()
         
         # Use the prompt manager for the decision prompt
         decision_prompt = self.prompt_manager.render_prompt(
@@ -215,34 +249,58 @@ class AIPlayerController:
         
         return response_dict
     
-    def _build_game_context(self, game_state) -> Dict:
+    def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
         context = {}
-        
+
         # Check pot size
         pot_total = game_state.pot.get('total', 0)
         if pot_total > BIG_POT_THRESHOLD:
             context['big_pot'] = True
-        
+
         # Check if all-in situation
         if any(p.is_all_in for p in game_state.players if p.is_active):
             context['all_in'] = True
-        
+
         # Check if heads-up
         active_players = [p for p in game_state.players if p.is_active]
         if len(active_players) == 2:
             context['heads_up'] = True
         elif len(active_players) > 3:
             context['multi_way_pot'] = True
-        
+
         # Add phase-specific context
         if self.state_machine.phase == 'SHOWDOWN':
             context['showdown'] = True
-        
-        # TODO: Add more context based on recent wins/losses, bluffs, etc.
-        
+
         return context
-    
+
+    def _build_memory_context(self, game_state) -> str:
+        """Build context from session memory and opponent models for injection into prompts."""
+        parts = []
+
+        # Session context (recent outcomes, streak, observations)
+        if self.session_memory:
+            session_ctx = self.session_memory.get_context_for_prompt(MEMORY_CONTEXT_TOKENS)
+            if session_ctx:
+                parts.append(f"=== Your Session ===\n{session_ctx}")
+
+        # Opponent summaries
+        if self.opponent_model_manager:
+            # Get active opponents
+            opponents = [
+                p.name for p in game_state.players
+                if p.name != self.player_name and not p.is_folded
+            ]
+            opponent_ctx = self.opponent_model_manager.get_table_summary(
+                self.player_name, opponents, OPPONENT_SUMMARY_TOKENS
+            )
+            if opponent_ctx:
+                parts.append(f"=== Opponent Intel ===\n{opponent_ctx}")
+
+        return "\n\n".join(parts) if parts else ""
+
+
     def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
                                   speaking_context: Dict, valid_actions: List[str]) -> str:
         """Build guidance for AI about speaking behavior."""

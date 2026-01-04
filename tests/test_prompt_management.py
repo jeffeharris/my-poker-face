@@ -100,7 +100,7 @@ class TestPromptManager(unittest.TestCase):
         self.assertIn('Confidence: high', prompt)
         self.assertIn('Starting money: $10000', prompt)
         self.assertIn('{"test": "format"}', prompt)
-        self.assertIn('charity', prompt)  # Check context is there
+        self.assertIn('RIVALS', prompt)  # Check competitive context is there
         self.assertIn('JSON format', prompt)  # Check instructions
     
     def test_render_decision_prompt(self):
@@ -112,8 +112,8 @@ class TestPromptManager(unittest.TestCase):
         
         self.assertIn('Test game state message', prompt)
         self.assertIn('only respond with the JSON', prompt)
-        self.assertIn('use deception', prompt)
-        self.assertIn('emojis', prompt)
+        self.assertIn('trash talk', prompt)
+        self.assertIn('SECRET', prompt)
 
 
 class TestAIPokerPlayerPrompts(unittest.TestCase):

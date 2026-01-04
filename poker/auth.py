@@ -58,12 +58,14 @@ class AuthManager:
                 })
                 
                 # Set a long-lived cookie for guest ID (30 days)
+                is_prod = os.environ.get('FLASK_ENV') == 'production'
                 response.set_cookie(
-                    'guest_id', 
+                    'guest_id',
                     user_data['id'],
                     max_age=30*24*60*60,  # 30 days
                     httponly=True,
-                    samesite='Lax'
+                    secure=is_prod,  # Required for HTTPS
+                    samesite='Lax'  # Lax works for same-site requests
                 )
                 
                 return response

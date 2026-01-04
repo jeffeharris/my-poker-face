@@ -27,9 +27,12 @@
   transform: scale(0.95);
 }
 
-.btn-icon {
-  font-size: 20px;
+.action-btn .btn-icon {
+  font-size: 28px;
   line-height: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .btn-label {
@@ -73,6 +76,14 @@
 @keyframes allInPulse {
   0%, 100% { box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4); }
   50% { box-shadow: 0 4px 24px rgba(156, 39, 176, 0.6); }
+}
+
+.chat-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  flex: 0 0 auto;
+  width: 60px;
 }
 
 /* Raise Sheet */
@@ -153,21 +164,56 @@
   color: #4caf50;
 }
 
+.amount-with-2x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.amount-with-2x .double-btn {
+  position: absolute;
+  right: 0;
+}
+
+.double-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.double-btn:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.double-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .quick-bet-buttons {
   display: flex;
   gap: 8px;
   margin-bottom: 20px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .quick-bet-btn {
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 60px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 10px 16px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.1);
   border: 2px solid transparent;
   border-radius: 10px;

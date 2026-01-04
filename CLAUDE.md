@@ -182,4 +182,30 @@ The AI player system uses a centralized prompt management approach:
 
 **Key Note**: When launching the game, always assume we're launching the react game.
 
-## [Rest of the file remains unchanged]
+## DevOps & Production
+
+Production deployment documentation: `/docs/DEVOPS.md`
+
+### Quick Commands
+```bash
+# Deploy changes to production
+./deploy.sh
+
+# SSH to server
+ssh root@178.156.202.136
+
+# View logs
+ssh root@178.156.202.136 "docker logs -f poker-backend-1"
+
+# Restart services
+ssh root@178.156.202.136 "cd /opt/poker && docker compose -f docker-compose.prod.yml restart"
+```
+
+### Production URLs
+- **Site**: https://mypokerfacegame.com
+- **Health**: https://mypokerfacegame.com/health
+
+### Key Files
+- `docker-compose.prod.yml` - Production container orchestration
+- `Caddyfile` - Reverse proxy with auto-SSL
+- `deploy.sh` - Deployment script

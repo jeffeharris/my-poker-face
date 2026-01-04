@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ChatMessage, GameState } from '../types';
+import type { TournamentResult, EliminationEvent } from '../types/tournament';
 import { config } from '../config';
 
 interface UsePokerGameOptions {
@@ -19,10 +20,13 @@ interface UsePokerGameResult {
   messages: ChatMessage[];
   aiThinking: boolean;
   winnerInfo: any;
+  tournamentResult: TournamentResult | null;
+  eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
   handlePlayerAction: (action: string, amount?: number) => Promise<void>;
   handleSendMessage: (message: string) => Promise<void>;
   clearWinnerInfo: () => void;
+  clearTournamentResult: () => void;
   refreshGameState: (gId: string) => Promise<boolean>;
 }
 
@@ -49,8 +53,12 @@ export function usePokerGame({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
+  const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
+  const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
 
   const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
+  const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
 
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
@@ -107,7 +115,8 @@ export function usePokerGame({
         sender: msg.sender,
         message: msg.content,
         timestamp: msg.timestamp,
-        type: msg.message_type
+        type: msg.message_type,
+        action: msg.action  // Include action for AI messages
       };
 
       messageIdsRef.current.add(msgId);
@@ -156,9 +165,36 @@ export function usePokerGame({
       console.log('Winner announcement received:', data);
       setWinnerInfo(data);
     });
+
+    socket.on('player_eliminated', (data: EliminationEvent) => {
+      console.log('Player eliminated:', data);
+      setEliminationEvents(prev => [...prev, data]);
+    });
+
+    socket.on('tournament_complete', (data: TournamentResult) => {
+      console.log('Tournament complete:', data);
+      setTournamentResult(data);
+    });
+
+    // Listen for avatar updates (when background generation completes)
+    socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+      console.log('Avatar update received:', data);
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map(player =>
+            player.name === data.player_name
+              ? { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion }
+              : player
+          )
+        };
+      });
+    });
   }, [onNewAiMessage]);
 
-  const refreshGameState = useCallback(async (gId: string): Promise<boolean> => {
+  // refreshGameState: silent=true means don't touch loading state (for reconnections)
+  const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
     try {
       const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
       const data = await res.json();
@@ -168,10 +204,14 @@ export function usePokerGame({
       }
 
       setGameState(data);
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
 
       if (data.messages) {
         setMessages(data.messages);
+        // Clear and repopulate to prevent unbounded growth
+        messageIdsRef.current.clear();
         data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
       }
 
@@ -199,9 +239,12 @@ export function usePokerGame({
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Socket connected, joining game:', gId);
+      const isReconnect = !isInitialConnectionRef.current;
+      console.log(`Socket ${isReconnect ? 're' : ''}connected, joining game:`, gId);
       socket.emit('join_game', gId);
-      refreshGameState(gId);
+      // Use silent mode for reconnections to avoid loading flash
+      refreshGameState(gId, isReconnect);
+      isInitialConnectionRef.current = false;
     });
 
     setupSocketListeners(socket);
@@ -285,8 +328,9 @@ export function usePokerGame({
             createSocket(gameId);
           }
         } else {
-          console.log('Socket connected, refreshing game state...');
-          refreshGameState(gameId);
+          // Silent refresh - just update state in background, no loading flash
+          console.log('Socket connected, silently refreshing game state...');
+          refreshGameState(gameId, true);
         }
       }
     };
@@ -363,10 +407,13 @@ export function usePokerGame({
     messages,
     aiThinking,
     winnerInfo,
+    tournamentResult,
+    eliminationEvents,
     socketRef,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
+    clearTournamentResult,
     refreshGameState,
   };
 }

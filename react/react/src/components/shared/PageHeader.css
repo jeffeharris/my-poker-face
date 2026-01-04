@@ -1,0 +1,97 @@
+/**
+ * PageHeader - Premium Poker Aesthetic
+ *
+ * Unified header for menu screens with luxury styling
+ */
+
+.page-header {
+  position: relative;
+  text-align: center;
+  margin-bottom: var(--space-10);
+  color: var(--color-text-primary);
+  padding-top: var(--space-2);
+  animation: headerFadeIn 0.5s var(--ease-out-expo);
+}
+
+@keyframes headerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Content container */
+.page-header__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Title */
+.page-header__title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-5xl);
+  margin: 0;
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+/* Title gradient variants */
+.page-header__title--gradient-primary {
+  background: var(--gradient-text-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 60px rgba(212, 165, 116, 0.3);
+}
+
+.page-header__title--gradient-themed {
+  background: var(--gradient-text-themed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 60px rgba(245, 158, 11, 0.3);
+}
+
+/* Subtitle */
+.page-header__subtitle {
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  color: var(--color-text-tertiary);
+  margin: 0;
+  max-width: 440px;
+  line-height: var(--line-height-relaxed);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+/* Right content slot */
+.page-header__right {
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+@media (max-width: 640px) {
+  .page-header {
+    margin-bottom: var(--space-8);
+    padding-top: var(--space-10);
+  }
+
+  .page-header__title {
+    font-size: var(--font-size-3xl);
+  }
+
+  .page-header__subtitle {
+    font-size: var(--font-size-base);
+    padding: 0 var(--space-4);
+  }
+}

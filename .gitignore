@@ -129,12 +129,16 @@ celerybeat.pid
 
 # Environments
 .env
+.env.prod
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Development scripts
+scripts/
 
 # Spyder project settings
 .spyderproject
@@ -179,3 +183,7 @@ poker_games.db
 /data/poker_games.db
 /docs/screenshots/
 /poker/personality_backups/
+
+# Local dev worktrees
+.dev/
+.playwright-mcp/

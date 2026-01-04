@@ -1,6 +1,6 @@
 import json
 import random
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pathlib import Path
 
 from core.card import Card
@@ -8,8 +8,8 @@ from core.assistants import OpenAILLMAssistant
 from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
-from .elasticity_manager import ElasticPersonality
 from .personality_generator import PersonalityGenerator
+from .config import MEMORY_TRIM_KEEP_EXCHANGES
 
 
 class PokerPlayer:
@@ -122,13 +122,7 @@ class AIPokerPlayer(PokerPlayer):
             reasoning_effort=reasoning_effort,
             system_message=self.persona_prompt()
         )
-        
-        # Initialize elastic personality
-        self.elastic_personality = ElasticPersonality.from_base_personality(
-            name=self.name,
-            personality_config=self.personality_config
-        )
-        
+
         # Hand strategy persistence
         self.current_hand_strategy = None
         self.hand_action_count = 0
@@ -151,7 +145,6 @@ class AIPokerPlayer(PokerPlayer):
                 "model": self.assistant.ai_model,
                 "reasoning_effort": self.assistant.reasoning_effort,
             } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"},
-            "elastic_personality": self.elastic_personality.to_dict() if hasattr(self, 'elastic_personality') else None,
             "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
             "hand_action_count": self.hand_action_count if hasattr(self, 'hand_action_count') else 0
         }
@@ -187,10 +180,6 @@ class AIPokerPlayer(PokerPlayer):
             instance.attitude = attitude
             instance.assistant = assistant
 
-            # Restore elastic personality if present
-            if 'elastic_personality' in player_dict and player_dict['elastic_personality']:
-                instance.elastic_personality = ElasticPersonality.from_dict(player_dict['elastic_personality'])
-
             # Restore hand strategy persistence
             if 'current_hand_strategy' in player_dict:
                 instance.current_hand_strategy = player_dict['current_hand_strategy']
@@ -211,14 +200,31 @@ class AIPokerPlayer(PokerPlayer):
     def set_for_new_hand(self):
         """
         Prepares the player for a new hand.
-        Resets the memory of the assistant.
+        Preserves session context by trimming memory instead of clearing it.
         """
         super().set_for_new_hand()
-        # Reset the assistant's memory instead of directly assigning a new list.
-        self.assistant.reset_memory()
+        # Trim memory but preserve session context for continuity
+        self._trim_and_preserve_context()
         # Reset hand strategy for new hand
         self.current_hand_strategy = None
         self.hand_action_count = 0
+
+    def _trim_and_preserve_context(self):
+        """
+        Trim memory but keep last few exchanges for session continuity.
+        This allows AI to remember recent interactions while keeping context manageable.
+        """
+        if not self.assistant.memory:
+            return
+
+        # Keep the last N messages (exchanges) for continuity
+        # Each exchange is typically 2 messages (user + assistant)
+        max_keep = MEMORY_TRIM_KEEP_EXCHANGES * 2
+
+        if len(self.assistant.memory) > max_keep:
+            # Direct slice assignment is intentional - simpler than adding a trim_memory() method
+            # for this single use case. Memory is a simple list managed by the player.
+            self.assistant.memory = self.assistant.memory[-max_keep:]
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
@@ -312,15 +318,14 @@ class AIPokerPlayer(PokerPlayer):
         else:
             return ""
     
-    def get_personality_modifier(self):
-        """Get personality-specific play instructions based on current elastic trait values."""
-        if hasattr(self, 'elastic_personality'):
-            # Use elastic trait values
-            traits = {
-                name: self.elastic_personality.get_trait_value(name)
-                for name in ['bluff_tendency', 'aggression', 'chattiness', 'emoji_usage']
-            }
-        else:
+    def get_personality_modifier(self, traits: Optional[Dict[str, float]] = None):
+        """
+        Get personality-specific play instructions based on trait values.
+
+        Args:
+            traits: Optional dict of current trait values. If not provided, uses static config.
+        """
+        if traits is None:
             # Fallback to static config
             traits = self.personality_config.get("personality_traits", {})
         
@@ -337,37 +342,6 @@ class AIPokerPlayer(PokerPlayer):
             modifiers.append("Play cautiously. Avoid big risks unless you're certain.")
         
         return " ".join(modifiers)
-    
-    def update_mood_from_elasticity(self):
-        """Update confidence and attitude based on current elastic personality state."""
-        if hasattr(self, 'elastic_personality'):
-            # Get current mood from elastic personality
-            current_mood = self.elastic_personality.get_current_mood()
-            
-            # Update confidence/attitude if mood has changed
-            if current_mood != self.elastic_personality.current_mood:
-                # For now, use the mood for confidence
-                # In the future, we could have separate confidence and attitude moods
-                self.confidence = current_mood
-                # Keep attitude from personality config or use a variation
-                # This preserves the personality's core attitude while confidence fluctuates
-                self.attitude = self.personality_config.get("default_attitude", self.attitude)
-                self.elastic_personality.current_mood = current_mood
-                
-                # Regenerate system message with new mood
-                self.assistant.system_message = self.persona_prompt()
-    
-    def apply_pressure_event(self, event_name: str):
-        """Apply a pressure event to this player's elastic personality."""
-        if hasattr(self, 'elastic_personality'):
-            self.elastic_personality.apply_pressure_event(event_name)
-            self.update_mood_from_elasticity()
-    
-    def recover_traits(self):
-        """Apply recovery to elastic traits."""
-        if hasattr(self, 'elastic_personality'):
-            self.elastic_personality.recover_all_traits()
-            self.update_mood_from_elasticity()
     
     # def evaluate_hole_cards(self):
     #     # Use Monte Carlo method to approximate hand strength

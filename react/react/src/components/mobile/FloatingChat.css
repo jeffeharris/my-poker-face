@@ -1,10 +1,18 @@
-.floating-chat {
+.floating-chat-stack {
   position: fixed;
   top: 80px;
   left: 16px;
   right: 16px;
   max-width: 360px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+
+.floating-chat {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -14,7 +22,6 @@
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  z-index: 100;
   cursor: pointer;
 }
 
@@ -61,6 +68,18 @@
   color: white;
   flex-shrink: 0;
   position: relative;
+  overflow: hidden;
+}
+
+.floating-chat-avatar.has-image {
+  background: none;
+}
+
+.floating-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .ai-badge {

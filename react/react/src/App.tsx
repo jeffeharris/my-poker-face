@@ -9,12 +9,15 @@ import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
 import { LoginForm } from './components/auth/LoginForm'
+import { CareerStats } from './components/stats/CareerStats'
+import { InstallPrompt } from './components/pwa/InstallPrompt'
+import { BackButton, UserBadge } from './components/shared'
 import { useAuth } from './hooks/useAuth'
 import { useViewport } from './hooks/useViewport'
 import { config } from './config'
 import './App.css'
 
-type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo'
+type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats'
 
 interface Theme {
   id: string;
@@ -31,12 +34,32 @@ function App() {
   // Check localStorage for saved state on initial load
   const savedState = localStorage.getItem('pokerGameState');
   const parsedState = savedState ? JSON.parse(savedState) : null;
-  
-  // If we have a saved table view, validate it's not stale
-  const initialView = parsedState?.currentView === 'table' ? 'login' : (parsedState?.currentView || 'login');
-  
-  const [currentView, setCurrentView] = useState<ViewType>(initialView)
-  const [gameId, setGameId] = useState<string | null>(null) // Don't restore gameId to avoid loading non-existent games
+
+  // Check for active game that should be restored (from browser sleep/wake)
+  const activeGameId = localStorage.getItem('activePokerGameId');
+  // Check if user was logged in (auth will verify this, but we use it for initial view decision)
+  const storedUser = localStorage.getItem('currentUser');
+
+  // Determine initial view:
+  // 1. If there's an active game AND a stored user, go straight to table
+  // 2. If there's an active game but no user, go to login (auth effect will restore game after login)
+  // 3. Otherwise use saved view (but not 'table' without an active game)
+  const getInitialView = (): ViewType => {
+    if (activeGameId && storedUser) {
+      console.log('[App] Restoring to table with active game:', activeGameId);
+      return 'table';
+    }
+    if (activeGameId && !storedUser) {
+      return 'login';
+    }
+    if (parsedState?.currentView === 'table') {
+      return 'login';
+    }
+    return parsedState?.currentView || 'login';
+  };
+
+  const [currentView, setCurrentView] = useState<ViewType>(getInitialView())
+  const [gameId, setGameId] = useState<string | null>(activeGameId && storedUser ? activeGameId : null)
   const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
 
@@ -55,7 +78,15 @@ function App() {
   useEffect(() => {
     if (!authLoading && isAuthenticated && currentView === 'login') {
       setPlayerName(user?.name || '');
-      setCurrentView('game-menu');
+      // Check if there's an active game to restore after login
+      const activeGame = localStorage.getItem('activePokerGameId');
+      if (activeGame) {
+        console.log('[App] Restoring active game after login:', activeGame);
+        setGameId(activeGame);
+        setCurrentView('table');
+      } else {
+        setCurrentView('game-menu');
+      }
     }
   }, [authLoading, isAuthenticated, user, currentView]);
 
@@ -74,7 +105,8 @@ function App() {
       'personalities': 'Manage Personalities - My Poker Face',
       'themed-game': 'Themed Game - My Poker Face',
       'custom-game': 'Custom Game - My Poker Face',
-      'elasticity-demo': 'Elasticity Demo - My Poker Face'
+      'elasticity-demo': 'Elasticity Demo - My Poker Face',
+      'stats': 'My Stats - My Poker Face'
     };
     
     document.title = titles[currentView] || 'My Poker Face';
@@ -82,7 +114,7 @@ function App() {
 
   const fetchSavedGamesCount = async () => {
     try {
-      const response = await fetch(`${config.API_URL}/games`, {
+      const response = await fetch(`${config.API_URL}/api/games`, {
         credentials: 'include'
       });
       const data = await response.json();
@@ -94,11 +126,6 @@ function App() {
 
   const handleSelectGame = (selectedGameId: string) => {
     setGameId(selectedGameId);
-    setCurrentView('table');
-  };
-
-  const handleNewGame = () => {
-    setGameId(null); // null means create new game
     setCurrentView('table');
   };
 
@@ -175,28 +202,35 @@ function App() {
 
   const handleSelectTheme = async (theme: Theme) => {
     if (!theme.personalities) return;
-    
+
+    let response: Response;
     try {
-      const response = await fetch(`${config.API_URL}/api/new-game`, {
+      response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           playerName,
-          personalities: theme.personalities 
+          personalities: theme.personalities
         }),
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setGameId(data.game_id);
-        setCurrentView('table');
-      }
-    } catch (error) {
-      console.error('Failed to create themed game:', error);
+    } catch {
+      throw new Error('Network error. Please check your connection and try again.');
     }
+
+    if (response.status === 429) {
+      throw new Error('Rate limit exceeded. Please wait a few minutes before starting a new game.');
+    }
+
+    if (!response.ok) {
+      throw new Error('Failed to create game. Please try again.');
+    }
+
+    const data = await response.json();
+    setGameId(data.game_id);
+    setCurrentView('table');
   };
 
   return (
@@ -204,70 +238,32 @@ function App() {
 
       {/* Navigation - only show when in table view on desktop */}
       {currentView === 'table' && !isMobile && (
-        <div style={{
-          position: 'fixed',
-          top: 10,
-          left: 10,
-          zIndex: 1000,
-          display: 'flex',
-          gap: '10px'
-        }}>
-          <button
+        <div className="app-nav app-nav--left">
+          <BackButton
             onClick={() => {
-              // Clear the saved game when going back to menu
               setGameId(null);
+              localStorage.removeItem('activePokerGameId');
               setCurrentView('game-menu');
             }}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#666',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            ← Back to Menu
-          </button>
+            label="Back to Menu"
+            position="relative"
+          />
         </div>
       )}
 
       {/* User info - only show on game menu screen */}
       {isAuthenticated && user && currentView === 'game-menu' && (
-        <div style={{
-          position: 'fixed',
-          top: 10,
-          right: 10,
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '8px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          borderRadius: '20px',
-          color: '#fff',
-          fontSize: '14px'
-        }}>
-          <span>{user.name} {user.is_guest && '(Guest)'}</span>
-          <button
-            onClick={async () => {
-              await logout();
-              setCurrentView('login');
-              setGameId(null);
-            }}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: '#dc3545',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-          >
-            Logout
-          </button>
-        </div>
+        <UserBadge
+          name={user.name}
+          isGuest={user.is_guest}
+          onLogout={async () => {
+            await logout();
+            localStorage.removeItem('activePokerGameId');
+            setCurrentView('login');
+            setGameId(null);
+          }}
+          className="user-badge--fixed"
+        />
       )}
 
       {/* Views */}
@@ -278,20 +274,21 @@ function App() {
         <PlayerNameEntry onSubmit={handleNameSubmit} />
       )}
       {currentView === 'game-menu' && (
-        <GameMenu 
+        <GameMenu
           playerName={playerName}
           onQuickPlay={handleQuickPlay}
           onCustomGame={handleCustomGame}
           onThemedGame={handleThemedGame}
           onContinueGame={handleContinueGame}
+          onManagePersonalities={() => setCurrentView('personalities')}
+          onViewStats={() => setCurrentView('stats')}
           savedGamesCount={savedGamesCount}
         />
       )}
       {currentView === 'selector' && (
-        <GameSelector 
-          onSelectGame={handleSelectGame} 
-          onNewGame={handleNewGame}
-          onManagePersonalities={() => setCurrentView('personalities')}
+        <GameSelector
+          onSelectGame={handleSelectGame}
+          onBack={() => setCurrentView('game-menu')}
         />
       )}
       {currentView === 'custom-game' && (
@@ -314,6 +311,7 @@ function App() {
             onGameCreated={(newGameId) => setGameId(newGameId)}
             onBack={() => {
               setGameId(null);
+              localStorage.removeItem('activePokerGameId');
               setCurrentView('game-menu');
             }}
           />
@@ -326,9 +324,15 @@ function App() {
         )
       )}
       {currentView === 'personalities' && (
-        <PersonalityManagerHTML onBack={() => setCurrentView('selector')} />
+        <PersonalityManagerHTML onBack={() => setCurrentView('game-menu')} />
       )}
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
+      {currentView === 'stats' && (
+        <CareerStats onBack={() => setCurrentView('game-menu')} />
+      )}
+
+      {/* PWA Install Prompt */}
+      <InstallPrompt />
     </>
   )
 }

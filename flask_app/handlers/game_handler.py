@@ -1,0 +1,779 @@
+"""Game progression and AI action handling.
+
+This module contains the core game loop logic, broken down into
+manageable functions for maintainability.
+"""
+
+import logging
+from datetime import datetime
+from typing import Dict, Any, Optional, List
+
+from poker.controllers import AIPlayerController
+from poker.ai_resilience import get_fallback_chat_response, FallbackActionSelector, AIFallbackStrategy
+from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
+from poker.poker_game import determine_winner, play_turn, advance_to_next_active_player, award_pot_winnings
+from poker.poker_state_machine import PokerPhase
+from poker.hand_evaluator import HandEvaluator
+from poker.character_images import get_avatar_url
+from poker.tilt_modifier import TiltState
+from poker.elasticity_manager import ElasticPersonality
+from poker.emotional_state import EmotionalState
+from core.card import Card
+
+from ..extensions import socketio, persistence
+from ..services import game_state_service
+from ..services.elasticity_service import format_elasticity_data
+from .message_handler import send_message, format_action_message, record_action_in_memory
+
+logger = logging.getLogger(__name__)
+
+
+def restore_ai_controllers(game_id: str, state_machine, persistence_layer) -> Dict[str, AIPlayerController]:
+    """Restore AI controllers with their saved state.
+
+    Args:
+        game_id: The game identifier
+        state_machine: The game's state machine
+        persistence_layer: The persistence layer instance
+
+    Returns:
+        Dictionary mapping player names to their AI controllers
+    """
+    ai_controllers = {}
+    ai_states = persistence_layer.load_ai_player_states(game_id)
+
+    controller_states = {}
+    emotional_states = {}
+    try:
+        controller_states = persistence_layer.load_all_controller_states(game_id)
+        emotional_states = persistence_layer.load_all_emotional_states(game_id)
+    except Exception as e:
+        logger.warning(f"Could not load controller/emotional states: {e}")
+
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            controller = AIPlayerController(player.name, state_machine)
+
+            if player.name in ai_states:
+                saved_state = ai_states[player.name]
+
+                if hasattr(controller, 'assistant') and controller.assistant:
+                    saved_messages = saved_state.get('messages', [])
+                    memory = [m for m in saved_messages if m.get('role') != 'system']
+                    controller.assistant.memory = memory
+
+                if 'personality_state' in saved_state:
+                    ps = saved_state['personality_state']
+                    # personality_traits are now managed by psychology object
+                    # They will be restored from controller_states below
+                    if hasattr(controller, 'ai_player'):
+                        controller.ai_player.confidence = ps.get('confidence', 'Normal')
+                        controller.ai_player.attitude = ps.get('attitude', 'Neutral')
+
+                print(f"Restored AI state for {player.name} with {len(saved_state.get('messages', []))} messages")
+
+            if player.name in controller_states:
+                ctrl_state = controller_states[player.name]
+
+                # Restore unified psychology state
+                if ctrl_state.get('psychology'):
+                    # Load from new unified format
+                    from poker.player_psychology import PlayerPsychology
+                    controller.psychology = PlayerPsychology.from_dict(
+                        ctrl_state['psychology'],
+                        controller.ai_player.personality_config
+                    )
+                    logger.debug(
+                        f"Restored psychology for {player.name}: "
+                        f"tilt={controller.psychology.tilt_level:.2f}"
+                    )
+                else:
+                    # Fallback: reconstruct from old separate states (if they exist)
+                    if ctrl_state.get('tilt_state'):
+                        controller.psychology.tilt = TiltState.from_dict(ctrl_state['tilt_state'])
+                    if ctrl_state.get('elastic_personality'):
+                        controller.psychology.elastic = ElasticPersonality.from_dict(ctrl_state['elastic_personality'])
+                    if player.name in emotional_states:
+                        controller.psychology.emotional = EmotionalState.from_dict(emotional_states[player.name])
+
+            ai_controllers[player.name] = controller
+
+    return ai_controllers
+
+
+def update_and_emit_game_state(game_id: str) -> None:
+    """Emit the current game state to all clients in the game room.
+
+    Args:
+        game_id: The game identifier
+    """
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data:
+        return
+
+    game_state = current_game_data['state_machine'].game_state
+    game_state_dict = game_state.to_dict()
+
+    # Add avatar data to AI players
+    ai_controllers = current_game_data.get('ai_controllers', {})
+    for player_dict in game_state_dict.get('players', []):
+        player_name = player_dict.get('name', '')
+        if not player_dict.get('is_human', True) and player_name in ai_controllers:
+            controller = ai_controllers[player_name]
+            display_emotion = controller.psychology.get_display_emotion()
+            avatar_url = get_avatar_url(player_name, display_emotion)
+            player_dict['avatar_emotion'] = display_emotion
+            player_dict['avatar_url'] = avatar_url
+
+    # Include messages (transform to frontend format)
+    messages = []
+    for msg in current_game_data.get('messages', []):
+        messages.append({
+            'id': str(msg.get('id', len(messages))),
+            'sender': msg.get('sender', 'System'),
+            'message': msg.get('content', msg.get('message', '')),
+            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
+            'type': msg.get('message_type', msg.get('type', 'system'))
+        })
+
+    game_state_dict['messages'] = messages
+    game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
+    game_state_dict['small_blind_idx'] = game_state.small_blind_idx
+    game_state_dict['big_blind_idx'] = game_state.big_blind_idx
+    game_state_dict['highest_bet'] = game_state.highest_bet
+    game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
+    game_state_dict['min_raise'] = game_state.min_raise_amount
+    game_state_dict['big_blind'] = game_state.current_ante
+    game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
+
+    socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
+
+
+def handle_phase_cards_dealt(game_id: str, state_machine, game_state) -> None:
+    """Send message about newly dealt community cards."""
+    if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
+        if game_state.no_action_taken:
+            num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
+            cards_str = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+            message_content = f"{state_machine.current_phase} cards dealt: {cards_str}"
+            send_message(game_id, "Table", message_content, "table")
+
+
+def handle_pressure_events(game_id: str, game_data: dict, game_state,
+                           winner_info: dict, winning_player_names: list,
+                           pot_size: int) -> None:
+    """Apply elasticity pressure events from showdown."""
+    if 'pressure_detector' not in game_data:
+        return
+
+    pressure_detector = game_data['pressure_detector']
+    events = pressure_detector.detect_showdown_events(game_state, winner_info)
+    pressure_detector.apply_detected_events(events)
+
+    if not events:
+        return
+
+    event_names = [e[0] for e in events]
+    send_message(game_id, "System", f"[Debug] Pressure events: {', '.join(event_names)}", "system")
+
+    if 'pressure_stats' not in game_data:
+        return
+
+    pressure_stats = game_data['pressure_stats']
+    ai_controllers = game_data.get('ai_controllers', {})
+
+    for event_name, affected_players in events:
+        details = {
+            'pot_size': pot_size,
+            'hand_rank': winner_info.get('hand_rank'),
+            'hand_name': winner_info.get('hand_name')
+        }
+        pressure_stats.record_event(event_name, affected_players, details)
+
+        # Update psychology (tilt + elastic) for affected AI players
+        for player_name in affected_players:
+            if player_name in ai_controllers:
+                controller = ai_controllers[player_name]
+                opponent = winning_player_names[0] if winning_player_names and player_name not in winning_player_names else None
+                controller.psychology.apply_pressure_event(event_name, opponent)
+
+    # Emit elasticity update from psychology state
+    if ai_controllers:
+        elasticity_data = {}
+        for name, controller in ai_controllers.items():
+            elasticity_data[name] = {
+                'traits': controller.psychology.elastic.to_dict().get('traits', {}),
+                'mood': controller.psychology.mood
+            }
+        socketio.emit('elasticity_update', elasticity_data, to=game_id)
+
+
+def update_tilt_states(game_id: str, game_data: dict, game_state,
+                       winner_info: dict, winning_player_names: list,
+                       pot_size: int) -> None:
+    """Update psychology state (tilt + emotional) for AI players after hand completes."""
+    if 'ai_controllers' not in game_data:
+        return
+
+    ai_controllers = game_data['ai_controllers']
+
+    for player in game_state.players:
+        if player.name not in ai_controllers:
+            continue
+
+        controller = ai_controllers[player.name]
+
+        player_won = player.name in winning_player_names
+        amount = winner_info['winnings'].get(player.name, 0) if player_won else -pot_size
+
+        was_bad_beat = False
+        was_bluff_called = False
+        if not player_won and not player.is_folded:
+            hand_rank = winner_info.get('hand_rank', 0)
+            was_bad_beat = hand_rank >= 2
+
+        nemesis = winning_player_names[0] if not player_won and winning_player_names else None
+        outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
+        key_moment = 'bad_beat' if was_bad_beat else ('bluff_called' if was_bluff_called else None)
+
+        # Get session context for emotional state generation
+        session_context = {}
+        if 'memory_manager' in game_data:
+            mm = game_data['memory_manager']
+            if hasattr(mm, 'session_memory') and mm.session_memory:
+                ctx = mm.session_memory.get_context(player.name)
+                if ctx:
+                    session_context = {
+                        'net_change': getattr(ctx, 'total_winnings', 0),
+                        'streak_type': getattr(ctx, 'current_streak', 'neutral'),
+                        'streak_count': getattr(ctx, 'streak_count', 0)
+                    }
+
+        # Single unified call to update all psychology state
+        try:
+            controller.psychology.on_hand_complete(
+                outcome=outcome,
+                amount=amount,
+                opponent=nemesis,
+                was_bad_beat=was_bad_beat,
+                was_bluff_called=was_bluff_called,
+                session_context=session_context,
+                key_moment=key_moment
+            )
+            logger.debug(
+                f"Psychology update for {player.name}: "
+                f"tilt={controller.psychology.tilt_level:.2f} ({controller.psychology.tilt_category}), "
+                f"emotional={controller.psychology.emotional.valence_descriptor if controller.psychology.emotional else 'none'}"
+            )
+        except Exception as e:
+            logger.warning(f"Psychology state update failed for {player.name}: {e}")
+
+
+def handle_eliminations(game_id: str, game_data: dict, game_state,
+                        winning_player_names: list, pot_size: int) -> Optional[bool]:
+    """Handle player eliminations. Returns True if human was eliminated."""
+    if 'tournament_tracker' not in game_data:
+        return None
+
+    tracker = game_data['tournament_tracker']
+    tracker.on_hand_complete(pot_size)
+
+    eliminated_players = [p for p in game_state.players if p.stack == 0]
+    eliminator = winning_player_names[0] if winning_player_names else None
+
+    human_eliminated = False
+    human_elimination_event = None
+
+    for player in eliminated_players:
+        try:
+            event = tracker.on_player_eliminated(
+                player_name=player.name,
+                eliminator=eliminator,
+                pot_size=pot_size
+            )
+
+            if player.is_human:
+                human_eliminated = True
+                human_elimination_event = event
+
+            socketio.emit('player_eliminated', {
+                'eliminated': player.name,
+                'eliminator': eliminator,
+                'finishing_position': event.finishing_position,
+                'hand_number': event.hand_number,
+                'remaining_players': tracker.active_player_count
+            }, to=game_id)
+
+            position_suffix = 'st' if event.finishing_position == 1 else 'nd' if event.finishing_position == 2 else 'rd' if event.finishing_position == 3 else 'th'
+            send_message(game_id, "Table",
+                f"{player.name} has been eliminated in {event.finishing_position}{position_suffix} place!",
+                "system")
+        except ValueError:
+            pass
+
+    if human_eliminated and human_elimination_event:
+        result = tracker.get_result()
+        result['winner_name'] = None
+        result['human_eliminated'] = True
+
+        try:
+            persistence.save_tournament_result(game_id, result)
+            human_player = tracker.get_human_player()
+            if human_player:
+                persistence.update_career_stats(human_player['name'], result)
+        except Exception as e:
+            logger.error(f"Failed to save tournament result after human elimination: {e}")
+
+        position_suffix = 'st' if human_elimination_event.finishing_position == 1 else 'nd' if human_elimination_event.finishing_position == 2 else 'rd' if human_elimination_event.finishing_position == 3 else 'th'
+        socketio.emit('tournament_complete', {
+            'winner': None,
+            'standings': result['standings'],
+            'total_hands': result['total_hands'],
+            'biggest_pot': result['biggest_pot'],
+            'human_position': human_elimination_event.finishing_position,
+            'human_eliminated': True,
+            'game_id': game_id
+        }, to=game_id)
+
+        send_message(game_id, "Table",
+            f"You finished in {human_elimination_event.finishing_position}{position_suffix} place!",
+            "system")
+
+        return True
+
+    return False
+
+
+def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: list) -> dict:
+    """Prepare winner announcement data for showdown."""
+    active_players = [p for p in game_state.players if not p.is_folded]
+    is_showdown = len(active_players) > 1
+
+    winner_data = {
+        'winners': winning_player_names,
+        'winnings': winner_info['winnings'],
+        'showdown': is_showdown,
+        'community_cards': []
+    }
+
+    if is_showdown:
+        winner_data['hand_name'] = winner_info['hand_name']
+
+    # Include community cards
+    for card in game_state.community_cards:
+        if hasattr(card, 'to_dict'):
+            winner_data['community_cards'].append(card.to_dict())
+        elif isinstance(card, dict):
+            winner_data['community_cards'].append(card)
+        else:
+            winner_data['community_cards'].append({'rank': str(card), 'suit': ''})
+
+    if is_showdown:
+        players_showdown = {}
+        community_cards_for_eval = []
+        for card in game_state.community_cards:
+            if isinstance(card, Card):
+                community_cards_for_eval.append(card)
+            elif isinstance(card, dict):
+                community_cards_for_eval.append(Card(card['rank'], card['suit']))
+
+        for player in active_players:
+            if player.hand:
+                formatted_cards = []
+                player_cards_for_eval = []
+                for card in player.hand:
+                    if hasattr(card, 'to_dict'):
+                        formatted_cards.append(card.to_dict())
+                    elif isinstance(card, dict):
+                        formatted_cards.append(card)
+                    else:
+                        formatted_cards.append({'rank': str(card), 'suit': ''})
+
+                    if isinstance(card, Card):
+                        player_cards_for_eval.append(card)
+                    elif isinstance(card, dict):
+                        player_cards_for_eval.append(Card(card['rank'], card['suit']))
+
+                try:
+                    full_hand = player_cards_for_eval + community_cards_for_eval
+                    hand_result = HandEvaluator(full_hand).evaluate_hand()
+
+                    kicker_values = hand_result.get('kicker_values', [])
+                    if kicker_values and isinstance(kicker_values[0], list):
+                        kicker_values = kicker_values[0] if kicker_values[0] else []
+
+                    value_names = {14: 'A', 13: 'K', 12: 'Q', 11: 'J', 10: '10',
+                                   9: '9', 8: '8', 7: '7', 6: '6', 5: '5',
+                                   4: '4', 3: '3', 2: '2'}
+                    kicker_names = [value_names.get(v, str(v)) for v in kicker_values if isinstance(v, int)]
+
+                    players_showdown[player.name] = {
+                        'cards': formatted_cards,
+                        'hand_name': hand_result.get('hand_name', 'Unknown'),
+                        'hand_rank': hand_result.get('hand_rank', 10),
+                        'kickers': kicker_names
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to evaluate hand for {player.name}: {e}")
+                    players_showdown[player.name] = {
+                        'cards': formatted_cards,
+                        'hand_name': None,
+                        'hand_rank': 99,
+                        'kickers': []
+                    }
+
+        winner_data['players_showdown'] = players_showdown
+
+    return winner_data
+
+
+def generate_ai_commentary(game_id: str, game_data: dict) -> None:
+    """Generate AI commentary after hand completion."""
+    if 'memory_manager' not in game_data:
+        return
+
+    memory_manager = game_data['memory_manager']
+    ai_controllers = game_data.get('ai_controllers', {})
+    ai_players = {
+        name: controller.ai_player
+        for name, controller in ai_controllers.items()
+    }
+
+    try:
+        logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
+        commentaries = memory_manager.generate_commentary_for_hand(ai_players)
+        logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
+
+        for player_name, commentary in commentaries.items():
+            if commentary and commentary.table_comment:
+                logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
+                send_message(game_id, player_name, commentary.table_comment, "ai")
+
+        for name, controller in ai_controllers.items():
+            memory_manager.apply_learned_adjustments(
+                name,
+                controller.psychology.elastic
+            )
+    except Exception as e:
+        logger.warning(f"Commentary generation failed: {e}")
+
+
+def check_tournament_complete(game_id: str, game_data: dict) -> bool:
+    """Check if tournament is complete and handle if so. Returns True if complete."""
+    if 'tournament_tracker' not in game_data:
+        return False
+
+    tracker = game_data['tournament_tracker']
+    if not tracker.is_complete():
+        return False
+
+    result = tracker.get_result()
+
+    try:
+        persistence.save_tournament_result(game_id, result)
+        logger.info(f"Tournament {game_id} saved: winner={result['winner_name']}")
+
+        human_player_name = result.get('human_player_name')
+        if human_player_name:
+            persistence.update_career_stats(human_player_name, result)
+            logger.info(f"Career stats updated for {human_player_name}")
+    except Exception as e:
+        logger.error(f"Failed to save tournament result: {e}")
+
+    socketio.emit('tournament_complete', {
+        'winner': result['winner_name'],
+        'standings': result['standings'],
+        'total_hands': result['total_hands'],
+        'biggest_pot': result['biggest_pot'],
+        'human_position': result.get('human_finishing_position'),
+        'game_id': game_id
+    }, to=game_id)
+
+    send_message(game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system")
+    return True
+
+
+def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
+    """Handle the EVALUATING_HAND phase.
+
+    Returns:
+        tuple: (updated_game_state, should_return) - should_return is True if game should end
+    """
+    winner_info = determine_winner(game_state)
+    winning_player_names = list(winner_info['winnings'].keys())
+    pot_size_before_award = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+
+    # Apply pressure events
+    handle_pressure_events(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
+
+    # Complete hand recording in memory manager
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        ai_controllers = game_data.get('ai_controllers', {})
+        ai_players = {name: controller.ai_player for name, controller in ai_controllers.items()}
+        try:
+            memory_manager.on_hand_complete(
+                winner_info=winner_info,
+                game_state=game_state,
+                ai_players=ai_players,
+                skip_commentary=True
+            )
+        except Exception as e:
+            logger.warning(f"Memory manager hand completion failed: {e}")
+
+    # Update tilt states
+    update_tilt_states(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
+
+    # Award winnings
+    game_state = award_pot_winnings(game_state, winner_info['winnings'])
+
+    # Handle eliminations
+    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names, pot_size_before_award)
+    if human_eliminated:
+        return game_state, True
+
+    # Prepare and emit winner announcement
+    winning_players_string = (', '.join(winning_player_names[:-1]) +
+                              f" and {winning_player_names[-1]}") if len(winning_player_names) > 1 else winning_player_names[0]
+
+    active_players = [p for p in game_state.players if not p.is_folded]
+    is_showdown = len(active_players) > 1
+
+    winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names)
+
+    if is_showdown:
+        message_content = (
+            f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
+            f"Winning hand: {winner_info['winning_hand']}"
+        )
+    else:
+        message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
+
+    send_message(game_id, "Table", message_content, "table", 1)
+    socketio.emit('winner_announcement', winner_data, to=game_id)
+
+    # Generate AI commentary
+    generate_ai_commentary(game_id, game_data)
+
+    # Check tournament completion
+    if check_tournament_complete(game_id, game_data):
+        return game_state, True
+
+    # Delay before new hand
+    socketio.sleep(4 if is_showdown else 2)
+    send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
+
+    # Start recording new hand
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        new_hand_number = memory_manager.hand_count + 1
+        memory_manager.on_hand_start(game_state, hand_number=new_hand_number)
+
+    # Advance to next hand
+    state_machine.update_phase()
+    state_machine.game_state = game_state
+    game_data['state_machine'] = state_machine
+    game_state_service.set_game(game_id, game_data)
+    state_machine.advance_state()
+    update_and_emit_game_state(game_id)
+
+    return game_state, False
+
+
+def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
+    """Handle when it's a human player's turn."""
+    cost_to_call = game_state.highest_bet - game_state.current_player.bet
+    player_options = list(game_state.current_player_options) if game_state.current_player_options else []
+    socketio.emit('player_turn_start', {'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
+
+    # Apply trait recovery
+    if 'elasticity_manager' in game_data:
+        elasticity_manager = game_data['elasticity_manager']
+        elasticity_manager.recover_all()
+
+        elasticity_data = format_elasticity_data(elasticity_manager)
+        socketio.emit('elasticity_update', elasticity_data, to=game_id)
+
+
+def progress_game(game_id: str) -> None:
+    """Main game progression loop.
+
+    This function runs the game forward, handling AI turns, phase transitions,
+    and hand evaluations until a human action is required.
+    """
+    lock = game_state_service.get_game_lock(game_id)
+    if not lock.acquire(blocking=False):
+        logger.debug(f"[SKIP] progress_game already running for game {game_id}")
+        return
+
+    try:
+        current_game_data = game_state_service.get_game(game_id)
+        if not current_game_data:
+            return
+
+        state_machine = current_game_data['state_machine']
+
+        while True:
+            state_machine.run_until([PokerPhase.EVALUATING_HAND])
+            current_game_data['state_machine'] = state_machine
+            game_state_service.set_game(game_id, current_game_data)
+            game_state = state_machine.game_state
+
+            update_and_emit_game_state(game_id)
+
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+
+            handle_phase_cards_dealt(game_id, state_machine, game_state)
+
+            if not game_state.current_player.is_human and game_state.awaiting_action:
+                print(f"AI turn: {game_state.current_player.name}")
+                handle_ai_action(game_id)
+
+            elif state_machine.current_phase == PokerPhase.EVALUATING_HAND:
+                game_state, should_return = handle_evaluating_hand_phase(
+                    game_id, current_game_data, state_machine, game_state
+                )
+                if should_return:
+                    return
+                state_machine = current_game_data['state_machine']
+
+            else:
+                handle_human_turn(game_id, current_game_data, game_state)
+                break
+    finally:
+        lock.release()
+
+
+def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
+    """Helper function to detect and apply pressure events."""
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data or 'pressure_detector' not in current_game_data:
+        return
+
+    pressure_detector = current_game_data['pressure_detector']
+    elasticity_manager = current_game_data['elasticity_manager']
+    game_state = current_game_data['state_machine'].game_state
+
+    events = []
+
+    if event_type == 'fold':
+        folding_player = kwargs.get('player_name')
+        pot_size = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        if pot_size > 100:
+            events.append(('fold_under_pressure', [folding_player]))
+
+    elif event_type == 'big_bet':
+        betting_player = kwargs.get('player_name')
+        bet_size = kwargs.get('bet_size', 0)
+        pot_size = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
+        if bet_size > pot_size * 0.75:
+            events.append(('aggressive_bet', [betting_player]))
+
+    if events:
+        pressure_detector.apply_detected_events(events)
+
+        if 'pressure_stats' in current_game_data:
+            pressure_stats = current_game_data['pressure_stats']
+            for event_name, affected_players in events:
+                details = kwargs.copy()
+                pressure_stats.record_event(event_name, affected_players, details)
+
+        elasticity_data = format_elasticity_data(elasticity_manager)
+        socketio.emit('elasticity_update', elasticity_data, to=game_id)
+
+
+def handle_ai_action(game_id: str) -> None:
+    """Handle an AI player's action in the game."""
+    print(f"[handle_ai_action] Starting AI action for game {game_id}")
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data:
+        print(f"[handle_ai_action] No game data found for {game_id}")
+        return
+
+    state_machine = current_game_data['state_machine']
+    game_messages = current_game_data['messages']
+    ai_controllers = current_game_data['ai_controllers']
+
+    current_player = state_machine.game_state.current_player
+    print(f"[handle_ai_action] Current AI player: {current_player.name}")
+    controller = ai_controllers[current_player.name]
+
+    try:
+        player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])
+
+        action = player_response_dict['action']
+        amount = player_response_dict.get('adding_to_pot', 0)
+        player_message = player_response_dict.get('persona_response', '')
+        player_physical_description = player_response_dict.get('physical', '')
+
+    except Exception as e:
+        print(f"[handle_ai_action] Critical error getting AI decision: {e}")
+
+        valid_actions = state_machine.game_state.current_player_options
+        personality_traits = getattr(controller, 'personality_traits', {})
+        call_amount = state_machine.game_state.highest_bet - current_player.bet
+        max_raise = min(current_player.stack, state_machine.game_state.pot.get('total', 0) * 2)
+
+        fallback_result = FallbackActionSelector.select_action(
+            valid_actions=valid_actions,
+            strategy=AIFallbackStrategy.MIMIC_PERSONALITY,
+            personality_traits=personality_traits,
+            call_amount=call_amount,
+            min_raise=MIN_RAISE,
+            max_raise=max_raise
+        )
+
+        action = fallback_result['action']
+        amount = fallback_result['adding_to_pot']
+        player_message = get_fallback_chat_response(current_player.name)
+        player_physical_description = "*pauses momentarily*"
+
+        send_message(game_id, "Table", f"[{current_player.name} takes a moment to consider]", "table")
+
+    highest_bet = state_machine.game_state.highest_bet
+    action_text = format_action_message(current_player.name, action, amount, highest_bet)
+
+    if player_message and player_message != '...':
+        full_message = f"{player_message} {player_physical_description}".strip()
+        send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+    else:
+        send_message(game_id, "Table", action_text, "table")
+
+    if action == 'fold':
+        detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
+    elif action in ['raise', 'all_in'] and amount > 0:
+        detect_and_apply_pressure(game_id, 'big_bet', player_name=current_player.name, bet_size=amount)
+
+    game_state = play_turn(state_machine.game_state, action, amount)
+    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+    game_state = advance_to_next_active_player(game_state)
+    state_machine.game_state = game_state
+    current_game_data['state_machine'] = state_machine
+    game_state_service.set_game(game_id, current_game_data)
+
+    owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+
+    if hasattr(controller, 'assistant') and controller.assistant:
+        personality_state = {
+            'traits': getattr(controller, 'personality_traits', {}),
+            'confidence': getattr(controller.ai_player, 'confidence', 'Normal'),
+            'attitude': getattr(controller.ai_player, 'attitude', 'Neutral')
+        }
+        persistence.save_ai_player_state(
+            game_id,
+            current_player.name,
+            controller.assistant.messages,
+            personality_state
+        )
+
+        # Save unified psychology state
+        psychology_dict = controller.psychology.to_dict()
+        persistence.save_controller_state(
+            game_id,
+            current_player.name,
+            psychology=psychology_dict
+        )
+
+    update_and_emit_game_state(game_id)

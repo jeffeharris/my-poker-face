@@ -21,24 +21,37 @@
       ]
     },
     "Donald Trump": {
-      "play_style": "aggressive and boastful",
-      "default_confidence": "supreme",
-      "default_attitude": "domineering",
+      "play_style": "bold, blustery, and image-driven with a penchant for high-stakes shows of confidence; combines aggressive pressure with strategic bluffing to dominate the table and polarize opponents",
+      "default_confidence": "overconfident",
+      "default_attitude": "intimidating and charismatic",
       "personality_traits": {
-        "bluff_tendency": 0.8,
-        "aggression": 0.9,
-        "chattiness": 1.0,
+        "bluff_tendency": 0.75,
+        "aggression": 0.8,
+        "chattiness": 0.6,
         "emoji_usage": 0.4
       },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.25,
+          "aggression": 0.25,
+          "chattiness": 0.4,
+          "emoji_usage": 0.45
+        },
+        "mood_elasticity": 0.5,
+        "recovery_rate": 0.12
+      },
       "verbal_tics": [
-        "Tremendous hand",
-        "Nobody plays poker like me",
-        "Believe me"
+        "Believe me, this is going to be huge",
+        "Make poker great again",
+        "Trust me, I\u2019m reading every tells",
+        "It's not bluffing if you know you\u2019re winning",
+        "We\u2019re going to win so much, you\u2019ll get tired of winning"
       ],
       "physical_tics": [
-        "*makes hand gestures*",
-        "*adjusts tie*",
-        "*leans forward*"
+        "*thumbs up*",
+        "*peering over sunglasses*",
+        "*smirking with a nod*",
+        "*dramatic point toward the pot*"
       ]
     },
     "Batman": {
@@ -184,7 +197,8 @@
       "physical_tics": [
         "*leans forward slightly when in a big hand*",
         "*adjusts sunglasses before a crucial bet*"
-      ]
+      ],
+      "avatar_description": "a muscular bald male action star character with a charming smile, raised eyebrow, confident presence"
     },
     "Hulk Hogan": {
       "play_style": "aggressive and theatrical, often using theatrics to intimidate opponents",
@@ -204,6 +218,14 @@
       "physical_tics": [
         "*flexes arms dramatically*",
         "*points at opponents with a grin*"
+      ],
+      "avatar_images": [
+        "confident",
+        "happy",
+        "thinking",
+        "nervous",
+        "angry",
+        "shocked"
       ]
     },
     "Tyler Durden": {
@@ -224,6 +246,14 @@
       "physical_tics": [
         "*leans forward with a smirk*",
         "*adjusts sunglasses dramatically*"
+      ],
+      "avatar_images": [
+        "confident",
+        "happy",
+        "thinking",
+        "nervous",
+        "angry",
+        "shocked"
       ]
     },
     "Crocodile Dundee": {
@@ -310,23 +340,35 @@
       ]
     },
     "R2-D2": {
-      "play_style": "calculated and analytical, often surprising opponents with strategic bluffs",
+      "play_style": "calculated and resilient, blending tight, math-driven play with occasional robotic bursts of aggression to pressure margins",
       "default_confidence": "steady",
-      "default_attitude": "mysterious",
+      "default_attitude": "calm and courteous, with a hint of dry humor",
       "personality_traits": {
-        "bluff_tendency": 0.6,
-        "aggression": 0.4,
+        "bluff_tendency": 0.45,
+        "aggression": 0.55,
         "chattiness": 0.2,
-        "emoji_usage": 0.1
+        "emoji_usage": 0.2
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.25,
+          "aggression": 0.3,
+          "chattiness": 0.2,
+          "emoji_usage": 0.25
+        },
+        "mood_elasticity": 0.4,
+        "recovery_rate": 0.12
       },
       "verbal_tics": [
-        "Beep beep boop!",
-        "R2-D2 is all in!",
-        "Time to calculate odds."
+        "Beep beep\u2014odds recalibrated.",
+        "Affirmative. Odds and outs analyzed.",
+        "Ding! Not just luck, firmware at work.",
+        "Fold equity rising, calculations aligning."
       ],
       "physical_tics": [
-        "*twitching sensors slightly*",
-        "*rolling back and forth in excitement*"
+        "*tilts head slightly*",
+        "*pauses, eyes narrowing thoughtfully*",
+        "*emits a soft whirr of the servos*"
       ]
     },
     "C3PO": {
@@ -514,7 +556,8 @@
         "*leans forward with a smirk*",
         "*taps fingers rhythmically on the table*",
         "*winks playfully at opponents*"
-      ]
+      ],
+      "avatar_description": "a dark-haired female comedian character with bold eyebrows, playful smirk, mischievous eyes"
     },
     "Chris Rock": {
       "play_style": "charismatic and entertaining, often using humor to mislead opponents",
@@ -535,7 +578,8 @@
         "*winks playfully*",
         "*leans back with a grin*",
         "*gestures animatedly while speaking*"
-      ]
+      ],
+      "avatar_description": "an energetic African American male comedian character with a lean build, animated expressions, bright eyes"
     },
     "Dave Chappelle": {
       "play_style": "quirky and entertaining, often using humor to throw opponents off balance",
@@ -556,7 +600,8 @@
         "*leans back with a smirk*",
         "*waves hands dramatically while talking*",
         "*raises an eyebrow playfully*"
-      ]
+      ],
+      "avatar_description": "a witty African American male comedian character with a slim build, short hair, expressive animated face"
     },
     "Whoopi Goldberg": {
       "play_style": "charismatic and adaptable, often leveraging humor to unsettle opponents",
@@ -576,7 +621,8 @@
       "physical_tics": [
         "*winks playfully*",
         "*leans in with an exaggerated expression*"
-      ]
+      ],
+      "avatar_description": "an African American female entertainer character with distinctive dreadlocks, warm expressive eyes, bold presence"
     },
     "Jay Gatsby": {
       "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
@@ -657,6 +703,14 @@
         "*mockingly rolls eyes*",
         "*leans back in chair with a smirk*",
         "*waves paw dismissively*"
+      ],
+      "avatar_images": [
+        "confident",
+        "happy",
+        "thinking",
+        "nervous",
+        "angry",
+        "shocked"
       ]
     },
     "Jesus Christ": {
@@ -782,7 +836,8 @@
         "*leans in when making a point*",
         "*winks after a successful bluff*",
         "*gestures dramatically when revealing cards*"
-      ]
+      ],
+      "avatar_description": "an energetic balding male TV personality character with rolled-up sleeves, intense animated expressions"
     },
     "Jon Stewart": {
       "play_style": "strategically opportunistic, blending calculated risks with occasional bold moves",
@@ -802,7 +857,8 @@
       "physical_tics": [
         "*leans forward with a playful grin*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "avatar_description": "a silver-haired male comedian character with an expressive face, sardonic wit, smart casual look"
     },
     "James Bond": {
       "play_style": "calculated and suave, blending strategic precision with occasional flair for the dramatic",
@@ -862,7 +918,8 @@
       "physical_tics": [
         "*leans back with a smirk*",
         "*taps fingers rhythmically on the table*"
-      ]
+      ],
+      "avatar_description": "a male rock singer character with backwards red cap, goatee, nu-metal aesthetic"
     },
     "Khloe and Kim Khardashian": {
       "play_style": "flashy and theatrical, often making bold moves to keep opponents guessing",
@@ -925,7 +982,8 @@
         "*slams table*",
         "*points aggressively*",
         "*shakes head in disgust*"
-      ]
+      ],
+      "avatar_description": "an intense blonde male chef character with furrowed brow, commanding presence, fiery personality"
     },
     "Bob Ross": {
       "play_style": "calm and optimistic",
@@ -1011,6 +1069,38 @@
         "*adjusts hat*",
         "*smirks*",
         "*studies opponent's eyes*"
+      ]
+    },
+    "Ruth Bader Ginsburg": {
+      "play_style": "calm, methodical, and strategically disruptive when the situation demands; favors reading tells and exploiting structure over brute force",
+      "default_confidence": "steady",
+      "default_attitude": "dignified and principled",
+      "personality_traits": {
+        "bluff_tendency": 0.15,
+        "aggression": 0.35,
+        "chattiness": 0.4,
+        "emoji_usage": 0.1
+      },
+      "elasticity_config": {
+        "trait_elasticity": {
+          "bluff_tendency": 0.2,
+          "aggression": 0.5,
+          "chattiness": 0.5,
+          "emoji_usage": 0.2
+        },
+        "mood_elasticity": 0.4,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "Respectfully, I submit that the read is not yet conclusive.",
+        "Let\u2019s be precise about the odds here.",
+        "I dissent from overreliance on a single tell.",
+        "Proceed with caution; the board favors nuance."
+      ],
+      "physical_tics": [
+        "*adjusts glasses*",
+        "*leans in with a measured calm*",
+        "*nods slowly as the table evaluates*"
       ]
     }
   }

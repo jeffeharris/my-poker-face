@@ -17,7 +17,8 @@ class ConversationContext:
     last_speaker: Optional[str] = None
     consecutive_silent_turns: int = 0
     recent_speakers: List[str] = field(default_factory=list)
-    
+    recent_messages: List[Dict] = field(default_factory=list)  # Recent chat messages
+
     def update(self, player_name: str, did_speak: bool):
         """Update conversation tracking after a player's turn."""
         if did_speak:
@@ -29,17 +30,21 @@ class ConversationContext:
                 self.recent_speakers.pop(0)
         else:
             self.consecutive_silent_turns += 1
-            
+
         # Increment silence counter for all players
         for name in self.turns_since_last_spoke:
             if name != player_name or not did_speak:
                 self.turns_since_last_spoke[name] += 1
-    
-    def was_addressed(self, player_name: str) -> bool:
-        """Check if player was recently addressed by name."""
-        # This would need integration with chat parsing
-        # For now, return False
-        return False
+
+    def record_message(self, sender: str, message: str, all_player_names: List[str]):
+        """Record a chat message and check for player mentions."""
+        self.recent_messages.append({
+            'sender': sender,
+            'message': message
+        })
+        # Keep only last 10 messages
+        if len(self.recent_messages) > 10:
+            self.recent_messages.pop(0)
 
 
 class ChattinessManager:
@@ -54,7 +59,6 @@ class ChattinessManager:
         'bluffing': -0.1,         # Might stay quiet when bluffing
         'strong_hand': 0.1,       # Confidence breeds conversation
         'weak_hand': -0.1,        # Might be quieter with bad cards
-        'addressed_directly': 0.5, # Almost always respond when spoken to
         'long_silence': 0.2,      # Break awkward silences
         'just_joined': 0.3,       # New players often announce themselves
         'heads_up': 0.2,          # More talk in 1v1 situations
@@ -135,25 +139,36 @@ class ChattinessManager:
             if context.get('all_in', False) or context.get('showdown', False):
                 return 0.5  # 50% chance to make gestures on big moments
             return 0.0  # Otherwise truly silent
-            
-        # For everyone else, use a curve that makes low chattiness more talkative
-        # 0.1 -> 0.35, 0.3 -> 0.55, 0.5 -> 0.7, 0.7 -> 0.85, 0.9 -> 0.95
-        probability = 0.25 + (base_chattiness * 0.7)
-        
-        # Apply contextual modifiers
-        for condition, modifier in self.CONTEXT_MODIFIERS.items():
-            if context.get(condition, False):
-                probability += modifier
-                logger.debug(f"Applied {condition}: {modifier:+.2f}")
-        
-        # Apply silence-based modifiers
-        player_silence = self.conversation_context.turns_since_last_spoke.get(
-            player_name, 0
+
+        # Use exponential curve with lower base for more realistic chattiness
+        # 0.1 -> 12%, 0.3 -> 20%, 0.5 -> 31%, 0.7 -> 45%, 0.9 -> 61%
+        probability = 0.10 + (base_chattiness ** 1.5) * 0.6
+
+        # Apply contextual modifiers with a cap to prevent stacking abuse
+        total_modifier = sum(
+            modifier for condition, modifier in self.CONTEXT_MODIFIERS.items()
+            if context.get(condition, False)
         )
-        if player_silence > 3:
-            probability += 0.1  # More likely to speak after being quiet
-        if self.conversation_context.consecutive_silent_turns > 2:
-            probability += 0.15  # Break table-wide silence
+        capped_modifier = min(total_modifier, 0.3)  # Cap at +30%
+        probability += capped_modifier
+        if total_modifier > 0:
+            logger.debug(f"Applied modifiers: {total_modifier:+.2f} (capped to {capped_modifier:+.2f})")
+
+        # Rate limiting: penalize back-to-back speaking
+        player_silence = self.conversation_context.turns_since_last_spoke.get(
+            player_name, 99  # Default to "long time" for new players
+        )
+        if player_silence < 2:
+            probability *= 0.3  # Heavy penalty for speaking again immediately
+            logger.debug(f"Applied back-to-back penalty: *0.3 (silence={player_silence})")
+        elif player_silence < 3:
+            probability *= 0.6  # Moderate penalty
+            logger.debug(f"Applied recent-speech penalty: *0.6 (silence={player_silence})")
+
+        # Small bonus for breaking table-wide silence (keeps some social flow)
+        if self.conversation_context.consecutive_silent_turns > 3:
+            probability += 0.1  # Break extended table-wide silence
+            logger.debug("Applied silence-breaker bonus: +0.1")
         
         # Apply personality-specific adjustments
         if player_name in self.PERSONALITY_ADJUSTMENTS:
@@ -190,8 +205,7 @@ class ChattinessManager:
             ),
             'was_last_speaker': self.conversation_context.last_speaker == player_name,
             'table_silent_turns': self.conversation_context.consecutive_silent_turns,
-            'recent_speakers': self.conversation_context.recent_speakers.copy(),
-            'was_addressed': self.conversation_context.was_addressed(player_name)
+            'recent_speakers': self.conversation_context.recent_speakers.copy()
         }
     
     def get_last_decision(self, player_name: str) -> Optional[Dict]:
@@ -202,7 +216,7 @@ class ChattinessManager:
         """Reset conversation tracking (for new game/hand)."""
         self.conversation_context = ConversationContext()
         self._last_decisions = {}
-    
+
     def suggest_speaking_style(self, player_name: str, probability: float) -> str:
         """
         Suggest how a player might speak based on probability.

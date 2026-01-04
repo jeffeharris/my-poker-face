@@ -627,7 +627,14 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     new_players = [player for player in new_players if player.stack > 0]
 
     # Create a new game state with just the properties we want to carry over (just the new players queue and the ante)
-    return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante)
+    # last_raise_amount must be set to current_ante so the min raise is correct for the current blind level.
+    # In no-limit Texas Hold'em, the minimum raise is defined relative to the size of the *last* raise.
+    # At the start of a hand, the big blind is effectively the first "raise" and sets that baseline.
+    # In this code, current_ante represents the big blind amount, so by initializing last_raise_amount to
+    # current_ante we ensure that pre-flop min-raise calculations (e.g., bet logic that does `min_raise =
+    # last_raise_amount + amount_to_call`) treat the blind as the last raise size. If we set last_raise_amount
+    # to 0 or left it from the previous hand, the computed minimum raise for the new hand would be incorrect.
+    return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante, last_raise_amount=game_state.current_ante)
 
 
 def determine_winner(game_state: PokerGameState) -> Dict:

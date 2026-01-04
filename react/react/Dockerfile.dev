@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -12,5 +12,5 @@ COPY . .
 # Expose Vite dev server port
 EXPOSE 5173
 
-# Start the development server
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+# Start the development server (clear vite cache first to avoid stale resolution)
+CMD ["sh", "-c", "rm -rf node_modules/.vite* && npm run dev -- --host 0.0.0.0"]
