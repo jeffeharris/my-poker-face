@@ -16,7 +16,7 @@ class Assistant:
     Example:
         assistant = Assistant(
             system_prompt="You are a poker player...",
-            model="gpt-4.1-nano",
+            model="gpt-5-nano",
             call_type=CallType.PLAYER_DECISION,
             game_id="game_123",
             player_name="Batman"
