@@ -270,7 +270,7 @@ class StructuredLLMCategorizer:
         response = self._llm_client.complete(
             messages=messages,
             json_format=True,
-            max_tokens=500,
+            max_tokens=750,
             call_type=CallType.CATEGORIZATION,
             game_id=self._tracking_context.get('game_id'),
             owner_id=self._tracking_context.get('owner_id'),
