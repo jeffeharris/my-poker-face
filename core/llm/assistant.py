@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 from .client import LLMClient
 from .conversation import ConversationMemory
 from .response import LLMResponse
+from .tokenizer import count_tokens
 from .tracking import CallType, UsageTracker
 
 
@@ -146,6 +147,12 @@ class Assistant:
         # Add user message to memory
         self._memory.add_user(message)
 
+        # Capture conversation metrics for tracking
+        messages = self._memory.get_messages()
+        message_count = len(messages)
+        system_prompt = self._memory.system_prompt
+        system_prompt_tokens = count_tokens(system_prompt, self._client.model) if system_prompt else 0
+
         # Merge context: explicit params override defaults
         context = {
             "call_type": call_type or self._default_context["call_type"],
@@ -154,11 +161,13 @@ class Assistant:
             "player_name": player_name or self._default_context["player_name"],
             "hand_number": hand_number,
             "prompt_template": prompt_template,
+            "message_count": message_count,
+            "system_prompt_tokens": system_prompt_tokens,
         }
 
         # Make LLM call
         response = self._client.complete(
-            messages=self._memory.get_messages(),
+            messages=messages,
             json_format=json_format,
             **context,
         )

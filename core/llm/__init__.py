@@ -39,6 +39,7 @@ from .tracking import CallType, UsageTracker
 from .conversation import ConversationMemory
 from .client import LLMClient
 from .assistant import Assistant
+from .tokenizer import count_tokens
 
 __all__ = [
     # Config
@@ -55,4 +56,6 @@ __all__ = [
     "ConversationMemory",
     "LLMClient",
     "Assistant",
+    # Utilities
+    "count_tokens",
 ]
