@@ -1,5 +1,5 @@
 import { config } from '../config';
-import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestionsResponse } from '../types/chat';
+import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestionsResponse, PostRoundTone, PostRoundSuggestionsResponse } from '../types/chat';
 
 // Common fetch options to ensure credentials are included
 const fetchOptions: RequestInit = {
@@ -111,6 +111,42 @@ export const gameAPI = {
 
     if (!response.ok) {
       throw new Error('Failed to fetch chat suggestions');
+    }
+
+    return response.json();
+  },
+
+  getPostRoundChatSuggestions: async (
+    gameId: string,
+    playerName: string,
+    tone: PostRoundTone,
+    didWin: boolean,
+    handResult?: string,
+    opponent?: string,
+    showdownContext?: {
+      communityCards?: string[];
+      winnerHand?: { cards: string[]; handName: string };
+      loserHand?: { cards: string[]; handName: string };
+    }
+  ): Promise<PostRoundSuggestionsResponse> => {
+    const response = await fetch(`${config.API_URL}/api/game/${gameId}/post-round-chat-suggestions`, {
+      ...fetchOptions,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        playerName,
+        tone,
+        didWin,
+        handResult,
+        opponent,
+        showdownContext,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch post-round chat suggestions');
     }
 
     return response.json();

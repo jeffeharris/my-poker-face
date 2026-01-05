@@ -317,6 +317,9 @@ export function MobilePokerTable({
       <MobileWinnerAnnouncement
         winnerInfo={winnerInfo}
         onComplete={clearWinnerInfo}
+        gameId={gameId || ''}
+        playerName={playerName || ''}
+        onSendMessage={handleSendMessage}
       />
 
       {/* Tournament Complete */}

@@ -264,12 +264,19 @@ def get_targeted_chat_suggestions(game_id):
             for msg in game_messages:
                 sender = msg.get('sender', 'Unknown')
                 text = msg.get('content', msg.get('message', ''))[:100]
+                action = msg.get('action')  # e.g., "raises to $500"
 
                 # Filter out System messages (debug noise)
                 if sender == 'System':
                     continue
 
-                if text:
+                # For AI messages with actions, show both the chat and action
+                if action and sender != 'Table':
+                    chat_lines.append(f"- {sender} ({action}): {text}")
+                elif sender == 'Table' and text:
+                    # Table messages are usually action announcements
+                    chat_lines.append(f"- {text}")
+                elif text and sender != 'Table':
                     chat_lines.append(f"- {sender}: {text}")
             if chat_lines:
                 chat_context = "\nRecent table talk:\n" + "\n".join(chat_lines[-10:])  # Keep last 10 after filtering
@@ -388,6 +395,165 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
                 {"text": msgs[1], "tone": tone}
             ],
             "targetPlayer": target,
+            "error": str(e),
+            "fallback": True
+        })
+
+
+@stats_bp.route('/api/game/<game_id>/post-round-chat-suggestions', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
+def get_post_round_chat_suggestions(game_id):
+    """Generate post-round chat suggestions for winner screen reactions."""
+    if not game_state_service.get_game(game_id):
+        return jsonify({"error": "Game not found"}), 404
+
+    # Get owner_id for tracking
+    current_user = auth_manager.get_current_user()
+    owner_id = current_user.get('id') if current_user else None
+
+    data = None
+    try:
+        data = request.get_json()
+        game_data = game_state_service.get_game(game_id)
+
+        # Get hand number for tracking
+        memory_manager = game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+
+        player_name = data.get('playerName', 'Player')
+        tone = data.get('tone', 'gracious')  # gloat, humble, salty, gracious
+        did_win = data.get('didWin', False)
+        hand_result = data.get('handResult')  # "Full House", etc.
+        opponent = data.get('opponent')  # Who to target
+        showdown_context = data.get('showdownContext')  # Cards and hands
+
+        # Build context strings
+        hand_context = f" with {hand_result}" if hand_result else ""
+        if not did_win and opponent and hand_result:
+            hand_context = f" to {opponent}'s {hand_result}"
+
+        opponent_context = ""
+        if opponent:
+            opponent_context = f"Opponent: {opponent}\n"
+
+        # Build showdown details for accurate commentary
+        showdown_details = ""
+        if showdown_context:
+            # Helper to convert card objects to strings
+            def card_to_str(card):
+                if isinstance(card, str):
+                    return card
+                elif isinstance(card, dict):
+                    # Handle {rank: 'Q', suit: 'h'} format
+                    return f"{card.get('rank', '?')}{card.get('suit', '?')}"
+                return str(card)
+
+            parts = []
+            if showdown_context.get('communityCards'):
+                board = ', '.join(card_to_str(c) for c in showdown_context['communityCards'])
+                parts.append(f"Board: {board}")
+            if showdown_context.get('winnerHand'):
+                wh = showdown_context['winnerHand']
+                cards_str = ', '.join(card_to_str(c) for c in wh.get('cards', []))
+                parts.append(f"Winner's cards: {cards_str} ({wh.get('handName', '')})")
+            if showdown_context.get('loserHand'):
+                lh = showdown_context['loserHand']
+                cards_str = ', '.join(card_to_str(c) for c in lh.get('cards', []))
+                parts.append(f"Loser's cards: {cards_str} ({lh.get('handName', '')})")
+            if parts:
+                showdown_details = "SHOWDOWN:\n" + "\n".join(parts) + "\n\n"
+
+        # Get recent chat/action history for context (filter out System messages)
+        game_messages = game_data.get('messages', [])[-20:]  # Last 20 messages
+        hand_flow = ""
+        if game_messages:
+            flow_lines = []
+            for msg in game_messages:
+                sender = msg.get('sender', 'Unknown')
+                text = msg.get('content', msg.get('message', ''))[:80]
+                action = msg.get('action')  # e.g., "raises to $500"
+                msg_type = msg.get('message_type', '')
+
+                # Filter out System messages (debug noise)
+                if sender == 'System':
+                    continue
+
+                # For AI messages with actions, show both the chat and action
+                if action and sender != 'Table':
+                    flow_lines.append(f"- {sender} ({action}): {text}")
+                elif sender == 'Table' and text:
+                    # Table messages are usually action announcements or card deals
+                    flow_lines.append(f"- {text}")
+                elif text and sender != 'Table':
+                    flow_lines.append(f"- {sender}: {text}")
+
+            if flow_lines:
+                hand_flow = "Recent hand flow:\n" + "\n".join(flow_lines[-12:]) + "\n\n"
+
+        template_name = f'post_round_{tone}'
+        prompt = _prompt_manager.render_prompt(
+            template_name,
+            player_name=player_name,
+            hand_context=hand_context,
+            opponent_context=opponent_context,
+            showdown_details=showdown_details,
+            hand_flow=hand_flow,
+        )
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            logger.warning("No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+
+        # Detailed logging
+        logger.info("=" * 80)
+        logger.info("[PostRound] === POST-ROUND CHAT REQUEST ===")
+        logger.info(f"[PostRound] Player: {player_name}, Tone: {tone}, Won: {did_win}")
+        logger.info(f"[PostRound] Hand result: {hand_result}, Opponent: {opponent}")
+        logger.info("[PostRound] --- FULL PROMPT ---")
+        logger.info(f"[PostRound]\n{prompt}")
+        logger.info("[PostRound] --- END PROMPT ---")
+
+        client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
+        messages = [
+            {"role": "system", "content": "You write short, punchy poker reactions. Keep it natural and under 10 words."},
+            {"role": "user", "content": prompt}
+        ]
+
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.POST_ROUND_CHAT,
+            game_id=game_id,
+            owner_id=owner_id,
+            hand_number=hand_number,
+            prompt_template=template_name,
+        )
+        raw_content = response.content
+        logger.info("[PostRound] --- RESPONSE ---")
+        logger.info(f"[PostRound]\n{raw_content}")
+        logger.info("[PostRound] === END POST-ROUND CHAT ===")
+        logger.info("=" * 80)
+        result = json.loads(raw_content)
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[PostRound] ERROR generating suggestions: {str(e)}")
+        logger.exception("[PostRound] Full traceback:")
+        tone = data.get('tone', 'gracious') if data else 'gracious'
+        fallback_messages = {
+            'gloat': ["Too easy.", "Thanks for the chips!"],
+            'humble': ["Got lucky there.", "Good game."],
+            'salty': ["Unreal.", "Of course."],
+            'gracious': ["Nice hand.", "Well played."]
+        }
+        msgs = fallback_messages.get(tone, fallback_messages['gracious'])
+
+        return jsonify({
+            "suggestions": [
+                {"text": msgs[0], "tone": tone},
+                {"text": msgs[1], "tone": tone}
+            ],
             "error": str(e),
             "fallback": True
         })

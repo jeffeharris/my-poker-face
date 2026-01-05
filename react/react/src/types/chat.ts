@@ -52,3 +52,27 @@ export interface TargetedSuggestionsResponse {
   fallback?: boolean;
   error?: string;
 }
+
+/**
+ * Post-round chat tones based on win/loss outcome.
+ * Winners: gloat, humble
+ * Losers: salty, gracious
+ */
+export type PostRoundTone = 'gloat' | 'humble' | 'salty' | 'gracious';
+
+/**
+ * A post-round chat suggestion.
+ */
+export interface PostRoundSuggestion {
+  text: string;
+  tone: PostRoundTone;
+}
+
+/**
+ * Response from the post-round-chat-suggestions endpoint.
+ */
+export interface PostRoundSuggestionsResponse {
+  suggestions: PostRoundSuggestion[];
+  fallback?: boolean;
+  error?: string;
+}
