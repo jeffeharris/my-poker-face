@@ -306,7 +306,10 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
         elastic_traits: Dict[str, Any],
         tilt_state: Any,  # TiltState
         session_context: Dict[str, Any],
-        hand_number: int
+        hand_number: int,
+        # Tracking context for cost analysis
+        game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> EmotionalState:
         """
         Generate emotional state after a hand completes.
@@ -319,6 +322,8 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
             tilt_state: Current TiltState object
             session_context: Session memory context
             hand_number: Current hand number
+            game_id: Game ID for usage tracking
+            owner_id: User ID for usage tracking
 
         Returns:
             EmotionalState with dimensions and narrative
@@ -341,11 +346,16 @@ The inner_voice should be a SHORT thought in FIRST PERSON in their voice/speakin
             'tilt_source': getattr(tilt_state, 'tilt_source', ''),
         }
 
-        # Call the categorizer
+        # Call the categorizer with tracking context
         result = self.categorizer.categorize(
             context=context,
             system_prompt=self.SYSTEM_PROMPT,
-            additional_context=additional
+            additional_context=additional,
+            game_id=game_id,
+            owner_id=owner_id,
+            player_name=personality_name,
+            hand_number=hand_number,
+            prompt_template='emotional_state',
         )
 
         # Build EmotionalState from result
@@ -520,7 +530,10 @@ def generate_emotional_state(
     tilt_state: Any,
     session_context: Dict[str, Any],
     hand_number: int,
-    generator: Optional[EmotionalStateGenerator] = None
+    generator: Optional[EmotionalStateGenerator] = None,
+    # Tracking context for cost analysis
+    game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
 ) -> EmotionalState:
     """
     Convenience function to generate emotional state.
@@ -537,5 +550,7 @@ def generate_emotional_state(
         elastic_traits=elastic_traits,
         tilt_state=tilt_state,
         session_context=session_context,
-        hand_number=hand_number
+        hand_number=hand_number,
+        game_id=game_id,
+        owner_id=owner_id,
     )
