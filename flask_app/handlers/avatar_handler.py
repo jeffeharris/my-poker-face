@@ -32,7 +32,7 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
 
         logger.info(f"Generating avatars for {player_name}...")
         try:
-            result = generate_character_images(player_name)
+            result = generate_character_images(player_name, game_id=game_id)
             if result.get('success') or result.get('generated', 0) > 0:
                 avatar_url = get_avatar_url(player_name, 'confident')
                 logger.info(f"Avatar generation complete for {player_name}: {avatar_url}")

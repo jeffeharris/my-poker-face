@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
+from core.llm import LLMClient, CallType
+
 if TYPE_CHECKING:
     from .persistence import GamePersistence
 
@@ -175,7 +177,8 @@ class CharacterImageService:
         self,
         personality_name: str,
         emotions: Optional[List[str]] = None,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        game_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate images for a personality and save to database.
@@ -184,12 +187,12 @@ class CharacterImageService:
             personality_name: Name of the personality
             emotions: List of emotions to generate (default: all missing)
             api_key: OpenAI API key (uses env var if not provided)
+            game_id: Game ID for tracking (owner derived via JOIN)
 
         Returns:
             Dict with 'success', 'generated', 'failed', 'skipped' counts
         """
         try:
-            from openai import OpenAI
             from PIL import Image, ImageDraw
         except ImportError as e:
             logger.error(f"Missing dependency for image generation: {e}")
@@ -214,8 +217,8 @@ class CharacterImageService:
                 "skipped": len(EMOTIONS)
             }
 
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key) if api_key else OpenAI()
+        # Initialize LLM client for tracked API calls
+        llm_client = LLMClient()
 
         results = {"generated": 0, "failed": 0, "skipped": 0, "errors": []}
 
@@ -226,7 +229,7 @@ class CharacterImageService:
 
             try:
                 # Generate the image and get raw bytes
-                raw_image_bytes = self._generate_single_image(client, personality_name, emotion)
+                raw_image_bytes = self._generate_single_image(llm_client, personality_name, emotion, game_id=game_id)
 
                 # Process to circular icon and save to database
                 self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
@@ -242,37 +245,43 @@ class CharacterImageService:
         results["success"] = results["failed"] == 0
         return results
 
-    def _generate_description_for_celebrity(self, client, name: str) -> str:
+    def _generate_description_for_celebrity(self, llm_client: LLMClient, name: str,
+                                            game_id: Optional[str] = None) -> str:
         """Use GPT to generate a safe description for a real person."""
         logger.info(f"Auto-generating description for {name}")
-        response = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[{
-                "role": "user",
-                "content": f"Describe {name}'s appearance for a Pixar-style 3D cartoon caricature in 20-25 words. "
-                           f"Include: gender, build, hair style/color, skin tone, and 2-3 distinctive features. "
-                           f"Style: bold outlines, vibrant colors, exaggerated expressive features. "
-                           f"Setting: playing poker, black background. "
-                           f"Format: 'a [detailed description] character'. Do NOT use their name."
-            }]
+        prompt = (
+            f"Describe {name}'s appearance for a Pixar-style 3D cartoon caricature in 20-25 words. "
+            f"Include: gender, build, hair style/color, skin tone, and 2-3 distinctive features. "
+            f"Style: bold outlines, vibrant colors, exaggerated expressive features. "
+            f"Setting: playing poker, black background. "
+            f"Format: 'a [detailed description] character'. Do NOT use their name."
         )
-        description = response.choices[0].message.content.strip()
+        response = llm_client.complete(
+            messages=[{"role": "user", "content": prompt}],
+            call_type=CallType.IMAGE_DESCRIPTION,
+            game_id=game_id,
+            player_name=name,
+            prompt_template='image_description',
+        )
+        description = response.content.strip()
         logger.info(f"Generated description for {name}: {description}")
         return description
 
-    def _get_description(self, client, personality_name: str) -> Optional[str]:
+    def _get_description(self, personality_name: str) -> Optional[str]:
         """Get description for a personality from PersonalityGenerator."""
         if self._personality_generator:
             return self._personality_generator.get_avatar_description(personality_name)
         return None
 
-    def _generate_single_image(self, client, personality_name: str, emotion: str) -> bytes:
+    def _generate_single_image(self, llm_client: LLMClient, personality_name: str, emotion: str,
+                                game_id: Optional[str] = None) -> bytes:
         """Generate a single image using DALL-E and return raw bytes.
 
         Args:
-            client: OpenAI client
+            llm_client: LLMClient for tracked API calls
             personality_name: Name of the personality
             emotion: Emotion to generate
+            game_id: Game ID for tracking (owner derived via JOIN)
 
         Returns:
             Raw image bytes (1024x1024 PNG)
@@ -280,7 +289,7 @@ class CharacterImageService:
         emotion_detail = EMOTION_DETAILS.get(emotion, EMOTION_DETAILS["confident"])
 
         # Check if we have a description (pre-defined or cached)
-        description = self._get_description(client, personality_name)
+        description = self._get_description(personality_name)
 
         if description:
             prompt = PROMPT_TEMPLATE_DESCRIPTION.format(
@@ -296,18 +305,23 @@ class CharacterImageService:
             )
 
         try:
-            response = client.images.generate(
-                model="dall-e-2",
+            image_response = llm_client.generate_image(
                 prompt=prompt,
-                n=1,
                 size="1024x1024",
+                call_type=CallType.IMAGE_GENERATION,
+                game_id=game_id,
+                player_name=personality_name,
+                prompt_template='avatar_generation',
             )
+            if image_response.is_error:
+                raise Exception(image_response.error_code or "Image generation failed")
+            image_url = image_response.url
         except Exception as e:
             # Check if this is a content policy violation
             if "content_policy_violation" in str(e) and not description:
                 logger.info(f"Content policy blocked {personality_name}, generating description...")
                 # Generate a description and retry
-                description = self._generate_description_for_celebrity(client, personality_name)
+                description = self._generate_description_for_celebrity(llm_client, personality_name, game_id=game_id)
 
                 # Save the generated description to PersonalityGenerator
                 if self._personality_generator:
@@ -317,17 +331,21 @@ class CharacterImageService:
                     description=description,
                     emotion_detail=emotion_detail
                 )
-                response = client.images.generate(
-                    model="dall-e-2",
+                image_response = llm_client.generate_image(
                     prompt=prompt,
-                    n=1,
                     size="1024x1024",
+                    call_type=CallType.IMAGE_GENERATION,
+                    game_id=game_id,
+                    player_name=personality_name,
+                    prompt_template='avatar_generation_fallback',
                 )
+                if image_response.is_error:
+                    raise Exception(image_response.error_code or "Image generation failed")
+                image_url = image_response.url
             else:
                 raise  # Re-raise if not content policy or already tried description
 
         # Download image to bytes (not to filesystem)
-        image_url = response.data[0].url
         with urllib.request.urlopen(image_url) as response_data:
             image_bytes = response_data.read()
 
@@ -504,10 +522,11 @@ def has_character_images(personality_name: str) -> bool:
 def generate_character_images(
     personality_name: str,
     emotions: Optional[List[str]] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    game_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Generate images for a personality and save to database."""
-    return get_character_image_service().generate_images(personality_name, emotions, api_key)
+    return get_character_image_service().generate_images(personality_name, emotions, api_key, game_id=game_id)
 
 
 def load_avatar_image(personality_name: str, emotion: str) -> Optional[bytes]:

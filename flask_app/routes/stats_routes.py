@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 from openai import OpenAI
 
-from core.assistants import OpenAILLMAssistant
+from core.llm import LLMClient, CallType
 
 from ..extensions import persistence, auth_manager, limiter
 from ..services import game_state_service
@@ -44,6 +44,7 @@ def get_career_stats():
 @stats_bp.route('/api/models', methods=['GET'])
 def get_available_models():
     """Get available OpenAI models for game configuration."""
+    from core.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, AVAILABLE_MODELS
     try:
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         models = client.models.list()
@@ -51,18 +52,18 @@ def get_available_models():
         return jsonify({
             'success': True,
             'models': sorted(available),
-            'default_model': 'gpt-5-nano',
+            'default_model': DEFAULT_MODEL,
             'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-            'default_reasoning': 'low'
+            'default_reasoning': DEFAULT_REASONING_EFFORT
         })
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
         return jsonify({
             'success': True,
-            'models': ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
-            'default_model': 'gpt-5-nano',
+            'models': AVAILABLE_MODELS,
+            'default_model': DEFAULT_MODEL,
             'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-            'default_reasoning': 'low'
+            'default_reasoning': DEFAULT_REASONING_EFFORT
         })
 
 
@@ -82,11 +83,19 @@ def get_chat_suggestions(game_id):
     if not game_state_service.get_game(game_id):
         return jsonify({"error": "Game not found"}), 404
 
+    # Get owner_id for tracking
+    current_user = auth_manager.get_current_user()
+    owner_id = current_user.get('id') if current_user else None
+
     try:
         data = request.get_json()
         game_data = game_state_service.get_game(game_id)
         state_machine = game_data['state_machine']
         game_state = state_machine.game_state
+
+        # Get hand number for tracking
+        memory_manager = game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
 
         context_parts = []
 
@@ -130,19 +139,22 @@ Return as JSON with this format:
         if not os.environ.get("OPENAI_API_KEY"):
             raise ValueError("OpenAI API key not configured")
 
-        assistant = OpenAILLMAssistant(
-            ai_model=config.FAST_AI_MODEL,
-            ai_temp=0.8,
-            system_message="You are a friendly poker player giving brief chat suggestions."
-        )
-
+        client = LLMClient(model=config.FAST_AI_MODEL)
         messages = [
-            {"role": "system", "content": assistant.system_message},
+            {"role": "system", "content": "You are a friendly poker player giving brief chat suggestions."},
             {"role": "user", "content": prompt}
         ]
 
-        response = assistant.get_json_response(messages)
-        result = json.loads(response.choices[0].message.content)
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.CHAT_SUGGESTION,
+            game_id=game_id,
+            owner_id=owner_id,
+            hand_number=hand_number,
+            prompt_template='chat_suggestion',
+        )
+        result = json.loads(response.content)
 
         return jsonify(result)
 
@@ -164,12 +176,20 @@ def get_targeted_chat_suggestions(game_id):
     if not game_state_service.get_game(game_id):
         return jsonify({"error": "Game not found"}), 404
 
+    # Get owner_id for tracking
+    current_user = auth_manager.get_current_user()
+    owner_id = current_user.get('id') if current_user else None
+
     data = None
     try:
         data = request.get_json()
         game_data = game_state_service.get_game(game_id)
         state_machine = game_data['state_machine']
         game_state = state_machine.game_state
+
+        # Get hand number for tracking
+        memory_manager = game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
 
         player_name = data.get('playerName', 'Player')
         target_player = data.get('targetPlayer')
@@ -306,19 +326,23 @@ Return as JSON:
         logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}")
         logger.info(f"[QuickChat] Prompt: {prompt[:500]}...")
 
-        assistant = OpenAILLMAssistant(
-            ai_model=config.FAST_AI_MODEL,
-            reasoning_effort="minimal",
-            system_message="You are a witty poker player helping generate fun table talk. Keep it light and entertaining."
-        )
-
+        client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
         messages = [
-            {"role": "system", "content": assistant.system_message},
+            {"role": "system", "content": "You are a witty poker player helping generate fun table talk. Keep it light and entertaining."},
             {"role": "user", "content": prompt}
         ]
 
-        response = assistant.get_json_response(messages)
-        raw_content = response.choices[0].message.content
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.TARGETED_CHAT,
+            game_id=game_id,
+            owner_id=owner_id,
+            player_name=target_player,  # The target of the chat
+            hand_number=hand_number,
+            prompt_template='targeted_chat',
+        )
+        raw_content = response.content
         logger.info(f"[QuickChat] Raw response: {raw_content}")
         result = json.loads(raw_content)
 

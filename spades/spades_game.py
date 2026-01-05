@@ -1,11 +1,12 @@
 # spades_game.py
 import json
+import os
 
 from flask import Flask, render_template, request, redirect, url_for, session
 
 from old_files.deck import Deck
 from core.card import Card
-from core.assistants import OpenAILLMAssistant
+from core.llm import Assistant, CallType
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -39,7 +40,7 @@ prompt = (
     "If a non-Spade card has been played but a Spade is in the trick, do not play a non-Spade thinking it will win, as it cannot beat any Spade."
 )
 
-assistant = OpenAILLMAssistant(system_message=prompt)
+assistant = Assistant(system_prompt=prompt, call_type=CallType.SPADES_DECISION)
 
 # Deal cards to player_names
 def deal_cards():
@@ -125,7 +126,7 @@ def get_ai_blind_nil_choice(player_name, game_state):
                f"Submit your choice in a JSON response. The example below shows a response for electing to not bid Blind Nil."
                f"EXAMPLE:  {{\n\"reasoning\": <text justification of your choice>\n\"bid_blind_nil\": False,\n}}")
 
-    response = json.loads(assistant.chat(user_content=message, json_format=True))
+    response = json.loads(assistant.chat(message, json_format=True))
     debug_print({
         "player_name": player_name,
         "reasoning": response["reasoning"],
@@ -150,7 +151,7 @@ def get_ai_bid(player_name, hand, game_state):
                f"Game State: {game_state}"
                f"PLease respond in JSON format with an integer. Use 0 to bid Nil."
                f"EXAMPLE:  {{\n\"reasoning\": <text justification of your bid>\n\"bid\": 3,\n}}")
-    response = json.loads(assistant.chat(user_content=message, json_format=True))
+    response = json.loads(assistant.chat(message, json_format=True))
     debug_print({
         "player_name": player_name,
         "reasoning": response["reasoning"],
@@ -206,7 +207,7 @@ def get_ai_card_choice(player_name, hand, spades_broken, current_trick):
                f"Please select a card from your hand to play. Your response should be in JSON.\n"
                f"EXAMPLE: {{\n\"reasoning\": <text justification of your choice>\n\"card_played\": {{\"rank\": \"A\", \"suit\": \"Spades\"}}\n}}\n")
 
-    response = json.loads(assistant.chat(user_content=message, json_format=True))
+    response = json.loads(assistant.chat(message, json_format=True))
     debug_print({ "message": message, "response": {
         "player_name": player_name,
         "reasoning": response["reasoning"],

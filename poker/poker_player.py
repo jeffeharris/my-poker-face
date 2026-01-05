@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 
 from core.card import Card
-from core.assistants import OpenAILLMAssistant
+from core.llm import Assistant, LLMClient, CallType
 from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
@@ -96,15 +96,16 @@ class AIPokerPlayer(PokerPlayer):
     money: int
     confidence: str
     attitude: str
-    assistant: OpenAILLMAssistant
+    assistant: Assistant
 
     # Constraints used for initializing the AI PLayer attitude and confidence
     DEFAULT_CONSTRAINTS = "Use less than 50 words."
-    
+
     # Shared personality generator instance
     _personality_generator = None
 
-    def __init__(self, name="AI Player", starting_money=10000, ai_temp=.9, llm_config=None):
+    def __init__(self, name="AI Player", starting_money=10000, llm_config=None,
+                 game_id=None, owner_id=None):
         super().__init__(name, starting_money=starting_money)
         self.prompt_manager = PromptManager()
         self.personality_config = self._load_personality_config()
@@ -113,14 +114,22 @@ class AIPokerPlayer(PokerPlayer):
 
         # Store and extract LLM configuration
         self.llm_config = llm_config or {}
-        model = self.llm_config.get("model", "gpt-5-nano")
-        reasoning_effort = self.llm_config.get("reasoning_effort", "low")
+        from core.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
+        model = self.llm_config.get("model", DEFAULT_MODEL)
+        reasoning_effort = self.llm_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
 
-        self.assistant = OpenAILLMAssistant(
-            ai_model=model,
-            ai_temp=ai_temp,
+        # Store tracking context
+        self.game_id = game_id
+        self.owner_id = owner_id
+
+        self.assistant = Assistant(
+            model=model,
             reasoning_effort=reasoning_effort,
-            system_message=self.persona_prompt()
+            system_prompt=self.persona_prompt(),
+            call_type=CallType.PLAYER_DECISION,
+            player_name=name,
+            game_id=game_id,
+            owner_id=owner_id
         )
 
         # Hand strategy persistence
@@ -138,13 +147,9 @@ class AIPokerPlayer(PokerPlayer):
             "confidence": self.confidence if self.confidence is not None else "Unsure",
             "attitude": self.attitude if self.attitude is not None else "Distracted",
             "llm_config": self.llm_config if hasattr(self, 'llm_config') else {},
-            "assistant": {
-                "ai_temp": self.assistant.ai_temp,
-                "system_message": self.assistant.system_message,
-                "messages": self.assistant.messages,
-                "model": self.assistant.ai_model,
-                "reasoning_effort": self.assistant.reasoning_effort,
-            } if self.assistant else {"ai_temp": 1.0, "system_message": "Default message"},
+            "game_id": self.game_id if hasattr(self, 'game_id') else None,
+            "owner_id": self.owner_id if hasattr(self, 'owner_id') else None,
+            "assistant": self.assistant.to_dict() if self.assistant else None,
             "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
             "hand_action_count": self.hand_action_count if hasattr(self, 'hand_action_count') else 0
         }
@@ -160,25 +165,30 @@ class AIPokerPlayer(PokerPlayer):
             confidence = player_dict.get("confidence", "Unsure")
             attitude = player_dict.get("attitude", "Distracted")
             llm_config = player_dict.get("llm_config", {})
+            game_id = player_dict.get("game_id")
+            owner_id = player_dict.get("owner_id")
             assistant_dict = player_dict.get("assistant", {})
-            ai_temp = assistant_dict.get("ai_temp", .9)
-            model = assistant_dict.get("model", llm_config.get("model", "gpt-5-nano"))
-            reasoning_effort = assistant_dict.get("reasoning_effort", llm_config.get("reasoning_effort", "low"))
-            system_message = assistant_dict.get("system_message", cls().persona_prompt())
-            assistant = OpenAILLMAssistant(
-                ai_model=model,
-                ai_temp=ai_temp,
-                reasoning_effort=reasoning_effort,
-                system_message=system_message
-            )
 
-            instance = cls(name=name, starting_money=starting_money, ai_temp=ai_temp, llm_config=llm_config)
+            instance = cls(
+                name=name,
+                starting_money=starting_money,
+                llm_config=llm_config,
+                game_id=game_id,
+                owner_id=owner_id
+            )
             instance.cards = cards
             instance.options = options
             instance.folded = folded
             instance.confidence = confidence
             instance.attitude = attitude
-            instance.assistant = assistant
+
+            # Restore assistant from dict if available
+            if assistant_dict:
+                instance.assistant = Assistant.from_dict(
+                    assistant_dict,
+                    call_type=CallType.PLAYER_DECISION,
+                    player_name=name
+                )
 
             # Restore hand strategy persistence
             if 'current_hand_strategy' in player_dict:
@@ -210,21 +220,13 @@ class AIPokerPlayer(PokerPlayer):
         self.hand_action_count = 0
 
     def _trim_and_preserve_context(self):
-        """
-        Trim memory but keep last few exchanges for session continuity.
-        This allows AI to remember recent interactions while keeping context manageable.
-        """
-        if not self.assistant.memory:
+        """Trim memory but keep last few exchanges for session continuity."""
+        memory = self.assistant.memory
+        if not memory or len(memory) == 0:
             return
 
-        # Keep the last N messages (exchanges) for continuity
-        # Each exchange is typically 2 messages (user + assistant)
-        max_keep = MEMORY_TRIM_KEEP_EXCHANGES * 2
-
-        if len(self.assistant.memory) > max_keep:
-            # Direct slice assignment is intentional - simpler than adding a trim_memory() method
-            # for this single use case. Memory is a simple list managed by the player.
-            self.assistant.memory = self.assistant.memory[-max_keep:]
+        # Keep the last N exchanges for continuity
+        memory.trim_to_exchanges(MEMORY_TRIM_KEEP_EXCHANGES)
 
     def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
         """
@@ -248,8 +250,18 @@ class AIPokerPlayer(PokerPlayer):
             f'{{"responses": ["string", "string", "string"]}}'
         )
 
-        response = self.assistant.get_json_response(messages=[{"role": "user", "content": formatted_message}])
-        content = json.loads(response.choices[0].message.content)
+        # Use stateless LLMClient for one-off attribute generation
+        client = LLMClient()
+        response = client.complete(
+            messages=[{"role": "user", "content": formatted_message}],
+            json_format=True,
+            call_type=CallType.PERSONALITY_PREVIEW,
+            game_id=self.game_id,
+            owner_id=self.owner_id,
+            player_name=self.name,
+            prompt_template='personality_preview',
+        )
+        content = json.loads(response.content)
         responses = content["responses"]
 
         # if mood is None, randomly assign the mood from the response

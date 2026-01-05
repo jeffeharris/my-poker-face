@@ -57,8 +57,7 @@ class TestGoldenPath(unittest.TestCase):
                 # Create AI player
                 player = AIPokerPlayer(
                     name=test_case['name'],
-                    starting_money=10000,
-                    ai_temp=0.7
+                    starting_money=10000
                 )
                 
                 # Verify personality loaded correctly

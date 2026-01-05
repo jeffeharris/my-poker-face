@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Generic
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
-from openai import OpenAI
+from core.llm import LLMClient, CallType
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +111,7 @@ class StructuredLLMCategorizer:
     - Timeout handling with fallback
     - Cheap/fast model support
     - Reusable across different categorization tasks
+    - Tracking context support for cost analysis
 
     Example usage:
         schema = CategorizationSchema(
@@ -127,7 +128,6 @@ class StructuredLLMCategorizer:
     """
 
     # Default fast/cheap model for categorization
-    DEFAULT_MODEL = os.environ.get('FAST_AI_MODEL', 'gpt-5-nano')
     DEFAULT_TIMEOUT_SECONDS = 5.0
 
     def __init__(
@@ -142,26 +142,36 @@ class StructuredLLMCategorizer:
 
         Args:
             schema: Schema defining expected output structure
-            model: LLM model to use (defaults to FAST_AI_MODEL env var or gpt-5-nano)
+            model: LLM model to use (defaults to FAST_MODEL from config)
             timeout_seconds: Timeout for LLM calls
             fallback_generator: Function to generate fallback output from context
         """
+        from core.llm import FAST_MODEL
         self.schema = schema
-        self.model = model or self.DEFAULT_MODEL
+        self.model = model or FAST_MODEL
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
-        # Initialize OpenAI client
-        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        # Initialize LLM client for tracked API calls
+        self._llm_client = LLMClient(model=self.model)
 
         # Thread pool for timeout handling
         self._executor = ThreadPoolExecutor(max_workers=2)
+
+        # Tracking context (can be set per-call or stored for reuse)
+        self._tracking_context: Dict[str, Any] = {}
 
     def categorize(
         self,
         context: str,
         system_prompt: str,
-        additional_context: Optional[Dict[str, Any]] = None
+        additional_context: Optional[Dict[str, Any]] = None,
+        # Tracking context for cost analysis
+        game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        hand_number: Optional[int] = None,
+        prompt_template: Optional[str] = None,
     ) -> CategorizationResult[Dict[str, Any]]:
         """
         Perform categorization using LLM.
@@ -170,10 +180,23 @@ class StructuredLLMCategorizer:
             context: The main context/content to categorize
             system_prompt: System prompt describing the categorization task
             additional_context: Optional additional context to include
+            game_id: Game ID for usage tracking
+            owner_id: User ID for usage tracking
+            player_name: AI player name for usage tracking
+            hand_number: Hand number for usage tracking
+            prompt_template: Prompt template name for usage tracking
 
         Returns:
             CategorizationResult with validated output or fallback
         """
+        # Store tracking context for this call
+        self._tracking_context = {
+            'game_id': game_id,
+            'owner_id': owner_id,
+            'player_name': player_name,
+            'hand_number': hand_number,
+            'prompt_template': prompt_template,
+        }
         start_time = time.time()
 
         # Build the full prompt
@@ -243,15 +266,19 @@ class StructuredLLMCategorizer:
         return "\n".join(prompt_parts)
 
     def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        """Make the LLM API call."""
-        response = self.client.chat.completions.create(
-            model=self.model,
+        """Make the LLM API call with tracking."""
+        response = self._llm_client.complete(
             messages=messages,
-            response_format={"type": "json_object"},
-            max_completion_tokens=500,
-            temperature=0.7
+            json_format=True,
+            max_tokens=750,
+            call_type=CallType.CATEGORIZATION,
+            game_id=self._tracking_context.get('game_id'),
+            owner_id=self._tracking_context.get('owner_id'),
+            player_name=self._tracking_context.get('player_name'),
+            hand_number=self._tracking_context.get('hand_number'),
+            prompt_template=self._tracking_context.get('prompt_template'),
         )
-        return response.choices[0].message.content or ""
+        return response.content or ""
 
     def _generate_fallback(
         self,

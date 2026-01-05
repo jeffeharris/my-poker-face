@@ -137,7 +137,7 @@ def api_game_state(game_id):
             base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
-                ai_controllers = restore_ai_controllers(game_id, state_machine, persistence)
+                ai_controllers = restore_ai_controllers(game_id, state_machine, persistence, owner_id=owner_id)
                 db_messages = persistence.load_messages(game_id)
 
                 elasticity_manager = ElasticityManager()
@@ -304,19 +304,26 @@ def api_new_game():
     base_state_machine = PokerStateMachine(game_state=game_state)
     state_machine = StateMachineAdapter(base_state_machine)
 
+    # Generate game_id first so it can be passed to controllers for tracking
+    game_id = generate_game_id()
+
     ai_controllers = {}
     elasticity_manager = ElasticityManager()
 
     for player in state_machine.game_state.players:
         if not player.is_human:
-            new_controller = AIPlayerController(player.name, state_machine, llm_config=llm_config)
+            new_controller = AIPlayerController(
+                player.name,
+                state_machine,
+                llm_config=llm_config,
+                game_id=game_id,
+                owner_id=owner_id
+            )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(
                 player.name,
                 new_controller.ai_player.personality_config
             )
-
-    game_id = generate_game_id()
     from poker.repositories.sqlite_repositories import PressureEventRepository
     event_repository = PressureEventRepository(config.DB_PATH)
     pressure_detector = PressureEventDetector(elasticity_manager)

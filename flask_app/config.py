@@ -27,8 +27,8 @@ RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALIT
 # Redis configuration
 REDIS_URL = os.environ.get('REDIS_URL')
 
-# AI model configuration
-FAST_AI_MODEL = os.environ.get('OPENAI_FAST_MODEL', 'gpt-5-nano')
+# AI model configuration - import from centralized config
+from core.llm import FAST_MODEL as FAST_AI_MODEL
 
 # Database path
 def get_db_path():
