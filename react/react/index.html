@@ -15,10 +15,69 @@
         background-color: #0d2818;
         min-height: 100%;
       }
+      /* Freeze frame container - shows captured DOM while React re-renders */
+      #freeze-frame {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+        overflow: hidden;
+      }
+      #freeze-frame.active {
+        display: block;
+      }
+      #freeze-frame.fade-out {
+        animation: freezeFrameFadeOut 0.2s ease-out forwards;
+      }
+      @keyframes freezeFrameFadeOut {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
     </style>
   </head>
   <body>
+    <!-- Freeze frame: captures DOM snapshot before hide, shows on wake -->
+    <div id="freeze-frame"></div>
     <div id="root"></div>
+    <script>
+      // Deterministic freeze-frame system - runs BEFORE React loads
+      (function() {
+        var freezeFrame = document.getElementById('freeze-frame');
+        var wasHidden = false;
+        var capturedContent = null;
+
+        document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') {
+            // Capture current game state before browser clears it
+            var gameTable = document.querySelector('.mobile-poker-table');
+            if (gameTable) {
+              capturedContent = gameTable.cloneNode(true);
+              wasHidden = true;
+            }
+          } else if (document.visibilityState === 'visible' && wasHidden) {
+            wasHidden = false;
+            // Immediately show frozen content while React re-renders
+            if (capturedContent) {
+              freezeFrame.innerHTML = '';
+              freezeFrame.appendChild(capturedContent);
+              freezeFrame.classList.add('active');
+              freezeFrame.classList.remove('fade-out');
+
+              // Give React time to re-render, then fade out freeze frame
+              setTimeout(function() {
+                freezeFrame.classList.add('fade-out');
+                setTimeout(function() {
+                  freezeFrame.classList.remove('active', 'fade-out');
+                  freezeFrame.innerHTML = '';
+                  capturedContent = null;
+                }, 200);
+              }, 100);
+            }
+          }
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

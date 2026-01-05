@@ -25,20 +25,6 @@
     backface-visibility: hidden;
 }
 
-/* Wake-up animation - smooths transition when returning from background */
-.mobile-poker-table.waking {
-    animation: wakeUp 0.3s ease-out;
-}
-
-@keyframes wakeUp {
-    from {
-        opacity: 0.7;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
 /* Loading State */
 .mobile-loading {
     justify-content: center;
