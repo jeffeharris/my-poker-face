@@ -14,31 +14,48 @@
         background-color: #0d2818;
         min-height: 100%;
       }
+      #freeze-frame {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+      }
+      #freeze-frame.active { display: block; }
+      #freeze-frame.fade-out { animation: fadeOut 0.2s ease-out forwards; }
+      @keyframes fadeOut { to { opacity: 0; } }
     </style>
   </head>
   <body>
+    <div id="freeze-frame"></div>
     <div id="root"></div>
     <script>
-      // On mobile wake: hide root until React re-renders, then fade in
       (function() {
+        var freezeFrame = document.getElementById('freeze-frame');
         var wasHidden = false;
+        var snapshot = null;
+
         document.addEventListener('visibilitychange', function() {
           if (document.visibilityState === 'hidden') {
-            wasHidden = true;
-          } else if (wasHidden) {
-            wasHidden = false;
-            var root = document.getElementById('root');
-            if (root && document.querySelector('.mobile-poker-table')) {
-              root.style.opacity = '0';
-              root.style.transition = 'none';
-              // Wait for React to re-render, then fade in
-              requestAnimationFrame(function() {
-                requestAnimationFrame(function() {
-                  root.style.transition = 'opacity 0.15s ease-out';
-                  root.style.opacity = '1';
-                });
-              });
+            var table = document.querySelector('.mobile-poker-table');
+            if (table) {
+              snapshot = table.cloneNode(true);
+              wasHidden = true;
             }
+          } else if (wasHidden && snapshot) {
+            wasHidden = false;
+            freezeFrame.innerHTML = '';
+            freezeFrame.appendChild(snapshot);
+            freezeFrame.classList.add('active');
+            freezeFrame.classList.remove('fade-out');
+            setTimeout(function() {
+              freezeFrame.classList.add('fade-out');
+              setTimeout(function() {
+                freezeFrame.classList.remove('active', 'fade-out');
+                freezeFrame.innerHTML = '';
+                snapshot = null;
+              }, 200);
+            }, 100);
           }
         });
       })();
