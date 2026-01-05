@@ -189,8 +189,8 @@ class UsageTracker:
                 int(response.latency_ms),
                 response.status,
                 None if is_image else getattr(response, 'finish_reason', None),
-                response.error_code,
-                response.request_id,
+                getattr(response, 'error_code', None),
+                getattr(response, 'request_id', None),
                 message_count,
                 system_prompt_tokens,
             ))
