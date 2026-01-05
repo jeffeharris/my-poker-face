@@ -162,8 +162,8 @@ class UsageTracker:
                     call_type, prompt_template, provider, model,
                     input_tokens, output_tokens, cached_tokens, reasoning_tokens,
                     reasoning_effort, image_count, image_size, latency_ms, status,
-                    finish_reason, error_code, fallback_used
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    finish_reason, error_code, fallback_used, request_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 game_id,
@@ -186,4 +186,5 @@ class UsageTracker:
                 None if is_image else getattr(response, 'finish_reason', None),
                 response.error_code,
                 fallback_used,
+                response.request_id,
             ))
