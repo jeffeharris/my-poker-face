@@ -71,6 +71,8 @@ class LLMClient:
         player_name: Optional[str] = None,
         hand_number: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        message_count: Optional[int] = None,
+        system_prompt_tokens: Optional[int] = None,
     ) -> LLMResponse:
         """Make a completion request.
 
@@ -84,6 +86,8 @@ class LLMClient:
             player_name: AI player name for tracking
             hand_number: Hand number for tracking
             prompt_template: Prompt template name for tracking
+            message_count: Number of messages in conversation (for Assistant)
+            system_prompt_tokens: Token count of system prompt (via tiktoken)
 
         Returns:
             LLMResponse with content and usage data
@@ -145,6 +149,8 @@ class LLMClient:
             player_name=player_name,
             hand_number=hand_number,
             prompt_template=prompt_template,
+            message_count=message_count,
+            system_prompt_tokens=system_prompt_tokens,
         )
 
         return response

@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 12
 
 
 @dataclass
@@ -318,6 +318,9 @@ class GamePersistence:
             7: (self._migrate_v7_add_reasoning_effort, "Add reasoning_effort column to api_usage table"),
             8: (self._migrate_v8_add_request_id, "Add request_id column for vendor correlation"),
             9: (self._migrate_v9_add_max_tokens, "Add max_tokens column for token limit tracking"),
+            10: (self._migrate_v10_add_conversation_metrics, "Add message_count and system_prompt_length columns"),
+            11: (self._migrate_v11_add_system_prompt_tokens, "Add system_prompt_tokens column for accurate token tracking"),
+            12: (self._migrate_v12_drop_system_prompt_length, "Drop unused system_prompt_length column"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -630,6 +633,22 @@ class GamePersistence:
         """Migration v9: Add max_tokens column for token limit tracking."""
         conn.execute("ALTER TABLE api_usage ADD COLUMN max_tokens INTEGER")
         logger.info("Added max_tokens column to api_usage table")
+
+    def _migrate_v10_add_conversation_metrics(self, conn: sqlite3.Connection) -> None:
+        """Migration v10: Add conversation metrics for cost analysis."""
+        conn.execute("ALTER TABLE api_usage ADD COLUMN message_count INTEGER")
+        conn.execute("ALTER TABLE api_usage ADD COLUMN system_prompt_length INTEGER")
+        logger.info("Added message_count and system_prompt_length columns to api_usage table")
+
+    def _migrate_v11_add_system_prompt_tokens(self, conn: sqlite3.Connection) -> None:
+        """Migration v11: Add system_prompt_tokens for accurate token tracking."""
+        conn.execute("ALTER TABLE api_usage ADD COLUMN system_prompt_tokens INTEGER")
+        logger.info("Added system_prompt_tokens column to api_usage table")
+
+    def _migrate_v12_drop_system_prompt_length(self, conn: sqlite3.Connection) -> None:
+        """Migration v12: Drop unused system_prompt_length column."""
+        conn.execute("ALTER TABLE api_usage DROP COLUMN system_prompt_length")
+        logger.info("Dropped system_prompt_length column from api_usage table")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
