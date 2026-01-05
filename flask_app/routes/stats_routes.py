@@ -472,7 +472,6 @@ def get_post_round_chat_suggestions(game_id):
                 sender = msg.get('sender', 'Unknown')
                 text = msg.get('content', msg.get('message', ''))[:80]
                 action = msg.get('action')  # e.g., "raises to $500"
-                msg_type = msg.get('message_type', '')
 
                 # Filter out System messages (debug noise)
                 if sender == 'System':
