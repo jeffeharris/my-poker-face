@@ -15,12 +15,15 @@
         min-height: 100%;
       }
       #freeze-frame {
-        display: none;
         position: fixed;
         inset: 0;
         z-index: 99999;
+        opacity: 0;
+        pointer-events: none;
       }
-      #freeze-frame.active { display: block; }
+      #freeze-frame.active {
+        opacity: 1;
+      }
     </style>
   </head>
   <body>
@@ -29,29 +32,27 @@
     <script>
       (function() {
         var freezeFrame = document.getElementById('freeze-frame');
-        var wasHidden = false;
-        var snapshot = null;
 
         document.addEventListener('visibilitychange', function() {
           if (document.visibilityState === 'hidden') {
+            // Clone and render NOW (while still visible) so it's ready on wake
             var table = document.querySelector('.mobile-poker-table');
             if (table) {
-              snapshot = table.cloneNode(true);
-              wasHidden = true;
+              freezeFrame.innerHTML = '';
+              freezeFrame.appendChild(table.cloneNode(true));
+              freezeFrame.offsetHeight; // Force layout - content is now rendered (invisible)
             }
-          } else if (wasHidden && snapshot) {
-            wasHidden = false;
-            freezeFrame.innerHTML = '';
-            freezeFrame.appendChild(snapshot);
-            freezeFrame.classList.add('active');
-            // Wait for React to paint, then remove clone instantly
-            requestAnimationFrame(function() {
+          } else {
+            // Just flip opacity - content already rendered
+            if (freezeFrame.children.length) {
+              freezeFrame.classList.add('active');
               requestAnimationFrame(function() {
-                freezeFrame.classList.remove('active');
-                freezeFrame.innerHTML = '';
-                snapshot = null;
+                requestAnimationFrame(function() {
+                  freezeFrame.classList.remove('active');
+                  freezeFrame.innerHTML = '';
+                });
               });
-            });
+            }
           }
         });
       })();
