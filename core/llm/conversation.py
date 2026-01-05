@@ -42,6 +42,15 @@ class ConversationMemory:
         """Get just the conversation history (without system prompt)."""
         return list(self._messages)
 
+    def set_history(self, messages: List[Dict[str, str]]) -> None:
+        """Replace conversation history with provided messages.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+        """
+        self._messages = list(messages)
+        self._trim()
+
     def clear(self) -> None:
         """Clear all messages from memory."""
         self._messages = []

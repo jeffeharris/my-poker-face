@@ -67,7 +67,7 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                 if hasattr(controller, 'assistant') and controller.assistant:
                     saved_messages = saved_state.get('messages', [])
                     memory = [m for m in saved_messages if m.get('role') != 'system']
-                    controller.assistant.memory = memory
+                    controller.assistant.memory.set_history(memory)
 
                 if 'personality_state' in saved_state:
                     ps = saved_state['personality_state']
