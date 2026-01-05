@@ -71,10 +71,9 @@ CREATE TABLE api_usage (
 
     -- Performance & Status
     latency_ms INTEGER,
-    status TEXT NOT NULL,         -- 'ok', 'error', 'fallback'
+    status TEXT NOT NULL,         -- 'ok', 'error'
     finish_reason TEXT,
-    error_code TEXT,
-    fallback_used BOOLEAN DEFAULT FALSE
+    error_code TEXT
 );
 
 -- Single-column indexes

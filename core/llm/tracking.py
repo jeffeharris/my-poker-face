@@ -80,7 +80,6 @@ class UsageTracker:
         player_name: Optional[str] = None,
         hand_number: Optional[int] = None,
         prompt_template: Optional[str] = None,
-        fallback_used: bool = False,
     ) -> None:
         """Record API usage to database and log.
 
@@ -92,7 +91,6 @@ class UsageTracker:
             player_name: AI player name if applicable
             hand_number: Hand number within game
             prompt_template: Name of prompt template used
-            fallback_used: Whether fallback was triggered
         """
         # Always log (backwards compat with existing log analysis)
         self._log_stats(response, call_type)
@@ -107,7 +105,6 @@ class UsageTracker:
                 player_name=player_name,
                 hand_number=hand_number,
                 prompt_template=prompt_template,
-                fallback_used=fallback_used,
             )
         except Exception as e:
             logger.error(f"Failed to persist usage data: {e}")
@@ -150,7 +147,6 @@ class UsageTracker:
         player_name: Optional[str],
         hand_number: Optional[int],
         prompt_template: Optional[str],
-        fallback_used: bool,
     ) -> None:
         """Insert usage record into database."""
         is_image = isinstance(response, ImageResponse)
@@ -162,8 +158,8 @@ class UsageTracker:
                     call_type, prompt_template, provider, model,
                     input_tokens, output_tokens, cached_tokens, reasoning_tokens,
                     reasoning_effort, max_tokens, image_count, image_size, latency_ms, status,
-                    finish_reason, error_code, fallback_used, request_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    finish_reason, error_code, request_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 game_id,
@@ -186,6 +182,5 @@ class UsageTracker:
                 response.status,
                 None if is_image else getattr(response, 'finish_reason', None),
                 response.error_code,
-                fallback_used,
                 response.request_id,
             ))

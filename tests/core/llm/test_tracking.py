@@ -210,30 +210,6 @@ class TestUsageTracker(unittest.TestCase):
             row = cursor.fetchone()
             self.assertEqual(row[0], "unknown")
 
-    def test_record_with_fallback_flag(self):
-        """Test recording with fallback_used flag."""
-        tracker = UsageTracker(db_path=self.temp_db.name)
-
-        response = LLMResponse(
-            content="Fallback response",
-            model="gpt-5-nano",
-            provider="openai",
-            input_tokens=10,
-            output_tokens=5,
-            status="ok",
-        )
-
-        tracker.record(
-            response=response,
-            call_type=CallType.COMMENTARY,
-            fallback_used=True,
-        )
-
-        with sqlite3.connect(self.temp_db.name) as conn:
-            cursor = conn.execute("SELECT fallback_used FROM api_usage")
-            row = cursor.fetchone()
-            self.assertEqual(row[0], 1)  # SQLite stores bool as int
-
     def test_record_error_response(self):
         """Test recording error response."""
         tracker = UsageTracker(db_path=self.temp_db.name)
