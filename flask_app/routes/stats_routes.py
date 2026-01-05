@@ -146,7 +146,8 @@ Return as JSON with this format:
             json_format=True,
             call_type=CallType.CHAT_SUGGESTION,
             game_id=game_id,
-            owner_id=owner_id
+            owner_id=owner_id,
+            prompt_template='chat_suggestion',
         )
         result = json.loads(response.content)
 
@@ -327,7 +328,9 @@ Return as JSON:
             json_format=True,
             call_type=CallType.TARGETED_CHAT,
             game_id=game_id,
-            owner_id=owner_id
+            owner_id=owner_id,
+            player_name=target_player,  # The target of the chat
+            prompt_template='targeted_chat',
         )
         raw_content = response.content
         logger.info(f"[QuickChat] Raw response: {raw_content}")

@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request, redirect
 from poker.utils import get_celebrities
 from core.llm import LLMClient, CallType
 
-from ..extensions import persistence, limiter
+from ..extensions import persistence, limiter, auth_manager
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -197,6 +197,10 @@ Return ONLY a JSON array of personality names, like:
 
 No other text or explanation."""
 
+        # Get owner_id for tracking
+        current_user = auth_manager.get_current_user()
+        owner_id = current_user.get('id') if current_user else None
+
         client = LLMClient(model=config.FAST_AI_MODEL)
         messages = [
             {"role": "system", "content": "You are a game designer selecting personalities for themed poker games."},
@@ -206,7 +210,9 @@ No other text or explanation."""
         response = client.complete(
             messages=messages,
             json_format=True,
-            call_type=CallType.THEME_GENERATION
+            call_type=CallType.THEME_GENERATION,
+            owner_id=owner_id,
+            prompt_template='theme_generation',
         )
         response_content = response.content or ""
 

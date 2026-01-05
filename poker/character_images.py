@@ -260,7 +260,8 @@ class CharacterImageService:
             messages=[{"role": "user", "content": prompt}],
             call_type=CallType.IMAGE_DESCRIPTION,
             game_id=game_id,
-            player_name=name
+            player_name=name,
+            prompt_template='image_description',
         )
         description = response.content.strip()
         logger.info(f"Generated description for {name}: {description}")
@@ -309,7 +310,8 @@ class CharacterImageService:
                 size="1024x1024",
                 call_type=CallType.IMAGE_GENERATION,
                 game_id=game_id,
-                player_name=personality_name
+                player_name=personality_name,
+                prompt_template='avatar_generation',
             )
             if image_response.is_error:
                 raise Exception(image_response.error_code or "Image generation failed")
@@ -334,7 +336,8 @@ class CharacterImageService:
                     size="1024x1024",
                     call_type=CallType.IMAGE_GENERATION,
                     game_id=game_id,
-                    player_name=personality_name
+                    player_name=personality_name,
+                    prompt_template='avatar_generation_fallback',
                 )
                 if image_response.is_error:
                     raise Exception(image_response.error_code or "Image generation failed")
