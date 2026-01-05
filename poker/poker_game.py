@@ -5,7 +5,7 @@ from random import shuffle
 from typing import Tuple, Mapping, List, Optional, Dict
 
 from core.card import Card
-from .hand_evaluator import HandEvaluator
+from .hand_evaluator import HandEvaluator, rank_to_display
 from .utils import obj_to_dict
 
 # DEFAULTS
@@ -709,10 +709,16 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     best_overall_hand = evaluated_hands[0][1]
 
     # Prepare the result to include only winnings and winning hand details
+    # Keep raw numeric values for internal use (e.g., pressure_detector comparisons)
+    # and convert to display names for UI (e.g., 14 -> 'A', 11 -> 'J')
+    raw_hand_values = best_overall_hand["hand_values"] + best_overall_hand["kicker_values"]
+    display_hand = [rank_to_display(v) for v in raw_hand_values]
     winner_info = {
         'winnings': winnings,
-        'winning_hand': best_overall_hand["hand_values"] + best_overall_hand["kicker_values"],
-        'hand_name': best_overall_hand['hand_name']
+        'winning_hand': display_hand,
+        'winning_hand_values': raw_hand_values,  # Keep numeric values for internal comparisons
+        'hand_name': best_overall_hand['hand_name'],
+        'hand_rank': best_overall_hand['hand_rank']
     }
 
     print(winner_info)
