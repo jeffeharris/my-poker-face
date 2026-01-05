@@ -2,6 +2,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
+from ..config import DEFAULT_MAX_TOKENS
+
 
 class LLMProvider(ABC):
     """Abstract interface for LLM providers."""
@@ -28,7 +30,7 @@ class LLMProvider(ABC):
         self,
         messages: List[Dict[str, str]],
         json_format: bool = False,
-        max_tokens: int = 2800,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> Any:
         """Make a completion request.
 

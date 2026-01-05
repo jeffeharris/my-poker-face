@@ -14,6 +14,10 @@ FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL)
 # Options: 'minimal', 'low', 'medium', 'high'
 DEFAULT_REASONING_EFFORT = "low"
 
+# Default max completion tokens (includes both reasoning + output tokens)
+# Must be high enough to allow reasoning AND produce output
+DEFAULT_MAX_TOKENS = 5000
+
 # Available models for UI selection
 AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
 

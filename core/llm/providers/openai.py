@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 from openai import OpenAI
 
 from .base import LLMProvider
-from ..config import DEFAULT_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_REASONING_EFFORT
+from ..config import DEFAULT_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_REASONING_EFFORT
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class OpenAIProvider(LLMProvider):
         self,
         messages: List[Dict[str, str]],
         json_format: bool = False,
-        max_tokens: int = 2800,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> Any:
         """Make a chat completion request."""
         kwargs = {

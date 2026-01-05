@@ -3,6 +3,7 @@ import time
 import logging
 from typing import List, Dict, Optional, Any
 
+from .config import DEFAULT_MAX_TOKENS
 from .response import LLMResponse, ImageResponse
 from .tracking import UsageTracker, CallType
 from .providers.base import LLMProvider
@@ -62,7 +63,7 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         json_format: bool = False,
-        max_tokens: int = 2800,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         # Tracking context
         call_type: Optional[CallType] = None,
         game_id: Optional[str] = None,
@@ -111,6 +112,7 @@ class LLMClient:
                 cached_tokens=usage["cached_tokens"],
                 reasoning_tokens=usage["reasoning_tokens"],
                 reasoning_effort=self._provider.reasoning_effort,
+                max_tokens=max_tokens,
                 latency_ms=latency_ms,
                 finish_reason=finish_reason,
                 status="ok" if content else "error",
@@ -128,6 +130,7 @@ class LLMClient:
                 provider=self._provider.provider_name,
                 input_tokens=0,
                 output_tokens=0,
+                max_tokens=max_tokens,
                 latency_ms=latency_ms,
                 status="error",
                 error_code=type(e).__name__,
