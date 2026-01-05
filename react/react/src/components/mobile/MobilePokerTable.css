@@ -11,18 +11,6 @@
     position: fixed;
     inset: 0;
     overflow: hidden;
-
-    /* GPU layer promotion - helps browser preserve render on mobile sleep/wake */
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    will-change: transform;
-
-    /* CSS containment - hints browser this is an independent render unit */
-    contain: layout style paint;
-
-    /* Prevent content from disappearing during page transitions */
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
 }
 
 /* Loading State */
