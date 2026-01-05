@@ -84,3 +84,12 @@ class LLMProvider(ABC):
     def extract_image_url(self, raw_response: Any) -> str:
         """Extract image URL from provider response."""
         ...
+
+    @abstractmethod
+    def extract_request_id(self, raw_response: Any) -> str:
+        """Extract vendor request ID from provider response.
+
+        This ID can be used to correlate with vendor logs/support.
+        Each provider has their own format (e.g., OpenAI: 'chatcmpl-xxx').
+        """
+        ...

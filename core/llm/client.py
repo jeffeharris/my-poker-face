@@ -100,6 +100,7 @@ class LLMClient:
             usage = self._provider.extract_usage(raw_response)
             content = self._provider.extract_content(raw_response)
             finish_reason = self._provider.extract_finish_reason(raw_response)
+            request_id = self._provider.extract_request_id(raw_response)
 
             response = LLMResponse(
                 content=content,
@@ -113,6 +114,7 @@ class LLMClient:
                 latency_ms=latency_ms,
                 finish_reason=finish_reason,
                 status="ok" if content else "error",
+                request_id=request_id,
                 raw_response=raw_response,
             )
 
@@ -173,6 +175,7 @@ class LLMClient:
             latency_ms = (time.time() - start_time) * 1000
 
             url = self._provider.extract_image_url(raw_response)
+            request_id = self._provider.extract_request_id(raw_response)
 
             response = ImageResponse(
                 url=url,
@@ -182,6 +185,7 @@ class LLMClient:
                 image_count=1,
                 latency_ms=latency_ms,
                 status="ok" if url else "error",
+                request_id=request_id,
                 raw_response=raw_response,
             )
 

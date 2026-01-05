@@ -126,3 +126,15 @@ class OpenAIProvider(LLMProvider):
     def extract_image_url(self, raw_response: Any) -> str:
         """Extract image URL from DALL-E response."""
         return raw_response.data[0].url or ""
+
+    def extract_request_id(self, raw_response: Any) -> str:
+        """Extract request ID from OpenAI response.
+
+        OpenAI returns IDs like 'chatcmpl-abc123' for completions
+        and similar formats for image generation.
+        """
+        request_id = getattr(raw_response, 'id', None)
+        # Ensure we return a string (handles Mock objects in tests)
+        if request_id is None or not isinstance(request_id, str):
+            return ''
+        return request_id
