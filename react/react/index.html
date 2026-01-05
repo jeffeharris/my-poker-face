@@ -19,11 +19,8 @@
         position: fixed;
         inset: 0;
         z-index: 99999;
-        background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
       }
       #freeze-frame.active { display: block; }
-      #freeze-frame.fade-out { animation: fadeOut 0.2s ease-out forwards; }
-      @keyframes fadeOut { to { opacity: 0; } }
     </style>
   </head>
   <body>
@@ -47,15 +44,14 @@
             freezeFrame.innerHTML = '';
             freezeFrame.appendChild(snapshot);
             freezeFrame.classList.add('active');
-            freezeFrame.classList.remove('fade-out');
-            setTimeout(function() {
-              freezeFrame.classList.add('fade-out');
-              setTimeout(function() {
-                freezeFrame.classList.remove('active', 'fade-out');
+            // Wait for React to paint, then remove clone instantly
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() {
+                freezeFrame.classList.remove('active');
                 freezeFrame.innerHTML = '';
                 snapshot = null;
-              }, 200);
-            }, 100);
+              });
+            });
           }
         });
       })();
