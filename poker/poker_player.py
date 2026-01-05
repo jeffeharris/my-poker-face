@@ -104,7 +104,8 @@ class AIPokerPlayer(PokerPlayer):
     # Shared personality generator instance
     _personality_generator = None
 
-    def __init__(self, name="AI Player", starting_money=10000, llm_config=None):
+    def __init__(self, name="AI Player", starting_money=10000, llm_config=None,
+                 game_id=None, owner_id=None):
         super().__init__(name, starting_money=starting_money)
         self.prompt_manager = PromptManager()
         self.personality_config = self._load_personality_config()
@@ -117,12 +118,18 @@ class AIPokerPlayer(PokerPlayer):
         model = self.llm_config.get("model", DEFAULT_MODEL)
         reasoning_effort = self.llm_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
 
+        # Store tracking context
+        self.game_id = game_id
+        self.owner_id = owner_id
+
         self.assistant = Assistant(
             model=model,
             reasoning_effort=reasoning_effort,
             system_prompt=self.persona_prompt(),
             call_type=CallType.PLAYER_DECISION,
-            player_name=name
+            player_name=name,
+            game_id=game_id,
+            owner_id=owner_id
         )
 
         # Hand strategy persistence
@@ -140,6 +147,8 @@ class AIPokerPlayer(PokerPlayer):
             "confidence": self.confidence if self.confidence is not None else "Unsure",
             "attitude": self.attitude if self.attitude is not None else "Distracted",
             "llm_config": self.llm_config if hasattr(self, 'llm_config') else {},
+            "game_id": self.game_id if hasattr(self, 'game_id') else None,
+            "owner_id": self.owner_id if hasattr(self, 'owner_id') else None,
             "assistant": self.assistant.to_dict() if self.assistant else None,
             "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
             "hand_action_count": self.hand_action_count if hasattr(self, 'hand_action_count') else 0
@@ -156,9 +165,17 @@ class AIPokerPlayer(PokerPlayer):
             confidence = player_dict.get("confidence", "Unsure")
             attitude = player_dict.get("attitude", "Distracted")
             llm_config = player_dict.get("llm_config", {})
+            game_id = player_dict.get("game_id")
+            owner_id = player_dict.get("owner_id")
             assistant_dict = player_dict.get("assistant", {})
 
-            instance = cls(name=name, starting_money=starting_money, llm_config=llm_config)
+            instance = cls(
+                name=name,
+                starting_money=starting_money,
+                llm_config=llm_config,
+                game_id=game_id,
+                owner_id=owner_id
+            )
             instance.cards = cards
             instance.options = options
             instance.folded = folded

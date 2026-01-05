@@ -28,13 +28,15 @@ from .message_handler import send_message, format_action_message, record_action_
 logger = logging.getLogger(__name__)
 
 
-def restore_ai_controllers(game_id: str, state_machine, persistence_layer) -> Dict[str, AIPlayerController]:
+def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
+                           owner_id: str = None) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state.
 
     Args:
         game_id: The game identifier
         state_machine: The game's state machine
         persistence_layer: The persistence layer instance
+        owner_id: The owner/user ID for tracking
 
     Returns:
         Dictionary mapping player names to their AI controllers
@@ -52,7 +54,12 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer) -> Di
 
     for player in state_machine.game_state.players:
         if not player.is_human:
-            controller = AIPlayerController(player.name, state_machine)
+            controller = AIPlayerController(
+                player.name,
+                state_machine,
+                game_id=game_id,
+                owner_id=owner_id
+            )
 
             if player.name in ai_states:
                 saved_state = ai_states[player.name]
@@ -698,6 +705,10 @@ def handle_ai_action(game_id: str) -> None:
     current_player = state_machine.game_state.current_player
     print(f"[handle_ai_action] Current AI player: {current_player.name}")
     controller = ai_controllers[current_player.name]
+
+    # Set current hand number for tracking
+    if 'memory_manager' in current_game_data:
+        controller.current_hand_number = current_game_data['memory_manager'].hand_count
 
     try:
         player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])

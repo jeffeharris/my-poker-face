@@ -39,6 +39,13 @@ class OpenAIProvider(LLMProvider):
     def model(self) -> str:
         return self._model
 
+    @property
+    def reasoning_effort(self) -> str | None:
+        """Return the reasoning effort for GPT-5 models."""
+        if self._model.startswith("gpt-5"):
+            return self._reasoning_effort
+        return None
+
     def complete(
         self,
         messages: List[Dict[str, str]],

@@ -141,7 +141,8 @@ class GameService:
             if not player.is_human:
                 controller = AIPlayerController(
                     player_name=player.name,
-                    state_machine=game.state_machine
+                    state_machine=game.state_machine,
+                    game_id=game.id
                 )
                 
                 # Restore saved state if available

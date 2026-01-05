@@ -70,11 +70,19 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
 
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, llm_config=None,
-                 session_memory=None, opponent_model_manager=None):
+                 session_memory=None, opponent_model_manager=None,
+                 game_id=None, owner_id=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
-        self.ai_player = AIPokerPlayer(player_name, llm_config=self.llm_config)
+        self.game_id = game_id
+        self.owner_id = owner_id
+        self.ai_player = AIPokerPlayer(
+            player_name,
+            llm_config=self.llm_config,
+            game_id=game_id,
+            owner_id=owner_id
+        )
         self.assistant = self.ai_player.assistant
         self.prompt_manager = PromptManager()
         self.chattiness_manager = ChattinessManager()
@@ -89,6 +97,9 @@ class AIPlayerController:
         # Memory systems (optional - set by memory manager)
         self.session_memory = session_memory
         self.opponent_model_manager = opponent_model_manager
+
+        # Hand number tracking (set by memory manager)
+        self.current_hand_number = None
         
     def get_current_personality_traits(self):
         """Get current trait values from psychology (elastic personality)."""
@@ -188,7 +199,12 @@ class AIPlayerController:
         )
         
         # Use JSON mode for more reliable structured responses
-        response_json = self.assistant.chat(decision_prompt, json_format=True)
+        response_json = self.assistant.chat(
+            decision_prompt,
+            json_format=True,
+            hand_number=self.current_hand_number,
+            prompt_template='decision'
+        )
         response_dict = parse_json_response(response_json)
         
         # Validate response has required keys (only action is truly required)

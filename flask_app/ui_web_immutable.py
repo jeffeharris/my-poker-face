@@ -41,18 +41,21 @@ def api_new_game():
     
     # Create immutable state machine
     state_machine = PokerStateMachine(game_state)
-    
+
+    # Generate game_id first for tracking
+    game_id = generate_game_id()
+
     # Initialize AI controllers
     ai_controllers = {}
     for i, player in enumerate(game_state.players):
         if not player.is_human:
             ai_controllers[player.name] = AIPlayerController(
                 player_name=player.name,
-                state_machine=state_machine
+                state_machine=state_machine,
+                game_id=game_id
             )
-    
+
     # Store game data
-    game_id = generate_game_id()
     games[game_id] = {
         'state_machine': state_machine,
         'ai_controllers': ai_controllers,

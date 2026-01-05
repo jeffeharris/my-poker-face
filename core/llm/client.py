@@ -109,6 +109,7 @@ class LLMClient:
                 output_tokens=usage["output_tokens"],
                 cached_tokens=usage["cached_tokens"],
                 reasoning_tokens=usage["reasoning_tokens"],
+                reasoning_effort=self._provider.reasoning_effort,
                 latency_ms=latency_ms,
                 finish_reason=finish_reason,
                 status="ok" if content else "error",
