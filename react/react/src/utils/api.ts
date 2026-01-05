@@ -1,5 +1,5 @@
 import { config } from '../config';
-import type { ChatTone, TargetedSuggestionsResponse } from '../types/chat';
+import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestionsResponse } from '../types/chat';
 
 // Common fetch options to ensure credentials are included
 const fetchOptions: RequestInit = {
@@ -89,6 +89,8 @@ export const gameAPI = {
     playerName: string,
     targetPlayer: string | null,
     tone: ChatTone,
+    length: ChatLength,
+    intensity: ChatIntensity,
     lastAction?: { type: string; player: string; amount?: number }
   ): Promise<TargetedSuggestionsResponse> => {
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`, {
@@ -101,6 +103,8 @@ export const gameAPI = {
         playerName,
         targetPlayer,
         tone,
+        length,
+        intensity,
         lastAction,
       }),
     });

@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { Player } from '../../types';
-import type { ChatTone, TargetedSuggestion } from '../../types/chat';
+import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { config } from '../../config';
 import './QuickChatSuggestions.css';
@@ -29,11 +29,12 @@ interface ToneOption {
 }
 
 const TONE_OPTIONS: ToneOption[] = [
-  { id: 'encourage', emoji: '👍', label: 'Encourage' },
-  { id: 'antagonize', emoji: '😈', label: 'Tease' },
-  { id: 'confuse', emoji: '🤔', label: 'Confuse' },
-  { id: 'flatter', emoji: '🌟', label: 'Flatter' },
-  { id: 'challenge', emoji: '⚔️', label: 'Challenge' },
+  { id: 'tilt', emoji: '🔥', label: 'Tilt' },
+  { id: 'false_confidence', emoji: '😇', label: 'False Confidence' },
+  { id: 'doubt', emoji: '🤨', label: 'Doubt' },
+  { id: 'goad', emoji: '😈', label: 'Goad' },
+  { id: 'mislead', emoji: '🎭', label: 'Mislead' },
+  { id: 'befriend', emoji: '🤝', label: 'Befriend' },
 ];
 
 export function QuickChatSuggestions({
@@ -51,6 +52,23 @@ export function QuickChatSuggestions({
   const [loading, setLoading] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState(0);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+
+  // Length and intensity toggles with localStorage persistence
+  const [length, setLength] = useState<ChatLength>(
+    () => (localStorage.getItem('quickchat_length') as ChatLength) || 'short'
+  );
+  const [intensity, setIntensity] = useState<ChatIntensity>(
+    () => (localStorage.getItem('quickchat_intensity') as ChatIntensity) || 'chill'
+  );
+
+  // Persist toggles to localStorage
+  useEffect(() => {
+    localStorage.setItem('quickchat_length', length);
+  }, [length]);
+
+  useEffect(() => {
+    localStorage.setItem('quickchat_intensity', intensity);
+  }, [intensity]);
 
   // Get AI players (non-human, not folded)
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
@@ -71,6 +89,8 @@ export function QuickChatSuggestions({
         playerName,
         apiTarget,
         tone,
+        length,
+        intensity,
         lastAction
       );
       if (response.fallback) {
@@ -88,7 +108,7 @@ export function QuickChatSuggestions({
     } finally {
       setLoading(false);
     }
-  }, [gameId, playerName, lastAction, lastFetchTime]);
+  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity]);
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);
@@ -198,9 +218,45 @@ export function QuickChatSuggestions({
         </div>
       </div>
 
+      {/* Modifiers row */}
+      <div className="modifier-toggles">
+        <div className="toggle-group">
+          <button
+            className={`toggle-btn ${length === 'short' ? 'active' : ''}`}
+            onClick={() => setLength('short')}
+            title="Short responses"
+          >
+            Short
+          </button>
+          <button
+            className={`toggle-btn ${length === 'long' ? 'active' : ''}`}
+            onClick={() => setLength('long')}
+            title="Longer responses"
+          >
+            Long
+          </button>
+        </div>
+        <div className="toggle-group">
+          <button
+            className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
+            onClick={() => setIntensity('chill')}
+            title="Playful and light"
+          >
+            Chill
+          </button>
+          <button
+            className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
+            onClick={() => setIntensity('spicy')}
+            title="No filter"
+          >
+            🌶️
+          </button>
+        </div>
+      </div>
+
       {/* Tone selector */}
       <div className="tone-selector">
-        <div className="selector-label">How?</div>
+        <div className="selector-label">Goal?</div>
         <div className="tone-options">
           {TONE_OPTIONS.map((tone) => (
             <button
