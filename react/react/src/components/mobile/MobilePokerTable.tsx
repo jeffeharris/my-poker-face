@@ -28,7 +28,28 @@ export function MobilePokerTable({
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
+  const [isWaking, setIsWaking] = useState(false);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const wasHiddenRef = useRef(false);
+
+  // Track page visibility to smooth wake transitions
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        wasHiddenRef.current = true;
+      } else if (document.visibilityState === 'visible' && wasHiddenRef.current) {
+        // Page is waking up - trigger fade-in animation
+        wasHiddenRef.current = false;
+        setIsWaking(true);
+        // Remove waking state after animation completes
+        const timer = setTimeout(() => setIsWaking(false), 300);
+        return () => clearTimeout(timer);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
@@ -147,7 +168,7 @@ export function MobilePokerTable({
   const showReconnecting = !isConnected && gameState;
 
   return (
-    <div className="mobile-poker-table">
+    <div className={`mobile-poker-table${isWaking ? ' waking' : ''}`}>
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
         <div className="mobile-reconnecting-overlay">
