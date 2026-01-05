@@ -93,6 +93,10 @@ def get_chat_suggestions(game_id):
         state_machine = game_data['state_machine']
         game_state = state_machine.game_state
 
+        # Get hand number for tracking
+        memory_manager = game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+
         context_parts = []
 
         player_name = data.get('playerName', 'Player')
@@ -147,6 +151,7 @@ Return as JSON with this format:
             call_type=CallType.CHAT_SUGGESTION,
             game_id=game_id,
             owner_id=owner_id,
+            hand_number=hand_number,
             prompt_template='chat_suggestion',
         )
         result = json.loads(response.content)
@@ -181,6 +186,10 @@ def get_targeted_chat_suggestions(game_id):
         game_data = game_state_service.get_game(game_id)
         state_machine = game_data['state_machine']
         game_state = state_machine.game_state
+
+        # Get hand number for tracking
+        memory_manager = game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
 
         player_name = data.get('playerName', 'Player')
         target_player = data.get('targetPlayer')
@@ -330,6 +339,7 @@ Return as JSON:
             game_id=game_id,
             owner_id=owner_id,
             player_name=target_player,  # The target of the chat
+            hand_number=hand_number,
             prompt_template='targeted_chat',
         )
         raw_content = response.content

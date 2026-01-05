@@ -566,8 +566,7 @@ class GamePersistence:
                 latency_ms INTEGER,
                 status TEXT NOT NULL,
                 finish_reason TEXT,
-                error_code TEXT,
-                fallback_used BOOLEAN DEFAULT FALSE
+                error_code TEXT
             )
         """)
 
