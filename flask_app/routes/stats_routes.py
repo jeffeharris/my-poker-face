@@ -10,13 +10,68 @@ from openai import OpenAI
 
 from core.llm import LLMClient, CallType
 
-from ..extensions import persistence, auth_manager, limiter
+from ..extensions import persistence, auth_manager, limiter, personality_generator
+from poker.prompt_manager import PromptManager
+
+# Module-level prompt manager instance
+_prompt_manager = PromptManager()
 from ..services import game_state_service
 from .. import config
 
 logger = logging.getLogger(__name__)
 
 stats_bp = Blueprint('stats', __name__)
+
+# Module-level constants for prompt guidance
+LENGTH_GUIDANCE = {
+    'short': 'Keep it VERY short - under 8 words.',
+    'long': 'Can be 1-2 full sentences.',
+}
+INTENSITY_GUIDANCE = {
+    'chill': 'Keep it playful and light.',
+    'spicy': 'Go hard. No filter. Cut deep.',
+}
+
+
+def format_message_history(messages: list, max_messages: int = 10, text_limit: int = 100) -> str:
+    """
+    Format game messages into a context string for prompts.
+
+    Filters out System messages and formats player messages with their actions.
+
+    Args:
+        messages: List of message dicts with sender, content/message, and optional action
+        max_messages: Maximum number of messages to include in output
+        text_limit: Character limit for message text truncation
+
+    Returns:
+        Formatted string of recent table talk, or empty string if no messages
+    """
+    if not messages:
+        return ""
+
+    chat_lines = []
+    for msg in messages:
+        sender = msg.get('sender', 'Unknown')
+        text = msg.get('content', msg.get('message', ''))[:text_limit]
+        action = msg.get('action')  # e.g., "raises to $500"
+
+        # Filter out System messages (debug noise)
+        if sender == 'System':
+            continue
+
+        # For AI messages with actions, show both the chat and action
+        if action and sender != 'Table':
+            chat_lines.append(f"- {sender} ({action}): {text}")
+        elif sender == 'Table' and text:
+            # Table messages are usually action announcements
+            chat_lines.append(f"- {text}")
+        elif text and sender != 'Table':
+            chat_lines.append(f"- {sender}: {text}")
+
+    if chat_lines:
+        return "\n".join(chat_lines[-max_messages:])
+    return ""
 
 
 @stats_bp.route('/api/career-stats', methods=['GET'])
@@ -139,6 +194,15 @@ Return as JSON with this format:
         if not os.environ.get("OPENAI_API_KEY"):
             raise ValueError("OpenAI API key not configured")
 
+        # Detailed logging for debugging/iteration
+        logger.info("=" * 80)
+        logger.info("[ChatSuggestion] === CHAT SUGGESTION REQUEST ===")
+        logger.info(f"[ChatSuggestion] Player: {player_name}")
+        logger.info(f"[ChatSuggestion] Context: {context_str}")
+        logger.info("[ChatSuggestion] --- FULL PROMPT ---")
+        logger.info(f"[ChatSuggestion]\n{prompt}")
+        logger.info("[ChatSuggestion] --- END PROMPT ---")
+
         client = LLMClient(model=config.FAST_AI_MODEL)
         messages = [
             {"role": "system", "content": "You are a friendly poker player giving brief chat suggestions."},
@@ -154,6 +218,10 @@ Return as JSON with this format:
             hand_number=hand_number,
             prompt_template='chat_suggestion',
         )
+        logger.info("[ChatSuggestion] --- RESPONSE ---")
+        logger.info(f"[ChatSuggestion]\n{response.content}")
+        logger.info("[ChatSuggestion] === END CHAT SUGGESTION ===")
+        logger.info("=" * 80)
         result = json.loads(response.content)
 
         return jsonify(result)
@@ -193,17 +261,29 @@ def get_targeted_chat_suggestions(game_id):
 
         player_name = data.get('playerName', 'Player')
         target_player = data.get('targetPlayer')
-        tone = data.get('tone', 'encourage')
+        tone = data.get('tone', 'goad')
+        length = data.get('length', 'short')
+        intensity = data.get('intensity', 'chill')
 
-        tone_descriptions = {
-            'encourage': 'supportive, friendly, complimentary about their play',
-            'antagonize': 'playful trash talk, teasing, challenging their decisions (keep it fun, not mean)',
-            'confuse': 'random non-sequiturs, weird observations, misdirection to throw them off',
-            'flatter': 'over-the-top compliments, acknowledge their skill, be impressed',
-            'challenge': 'direct dares, betting challenges, call them out to make a move'
+        # Map tones to template names
+        template_map = {
+            'tilt': 'quick_chat_tilt',
+            'false_confidence': 'quick_chat_false_confidence',
+            'doubt': 'quick_chat_doubt',
+            'goad': 'quick_chat_goad',
+            'mislead': 'quick_chat_mislead',
+            'befriend': 'quick_chat_befriend',
         }
 
-        tone_desc = tone_descriptions.get(tone, tone_descriptions['encourage'])
+        # Tone descriptions for table talk (no target)
+        tone_descriptions = {
+            'tilt': 'Needle the table. Be cutting.',
+            'false_confidence': 'Sound worried about the competition.',
+            'doubt': 'Question what just happened.',
+            'goad': 'Dare the table to act.',
+            'mislead': 'Give false tells about your hand.',
+            'befriend': 'Be warm to the table.',
+        }
 
         context_parts = []
         context_parts.append(f"Game phase: {str(state_machine.current_phase).split('.')[-1]}")
@@ -218,17 +298,9 @@ def get_targeted_chat_suggestions(game_id):
 
         context_str = ". ".join(context_parts)
 
-        game_messages = game_data.get('messages', [])[-10:]
-        chat_context = ""
-        if game_messages:
-            chat_lines = []
-            for msg in game_messages:
-                sender = msg.get('sender', 'Unknown')
-                text = msg.get('content', msg.get('message', ''))[:100]
-                if text:
-                    chat_lines.append(f"- {sender}: {text}")
-            if chat_lines:
-                chat_context = "\nRecent table talk:\n" + "\n".join(chat_lines)
+        game_messages = game_data.get('messages', [])[-15:]  # Get more, filter will reduce
+        formatted_history = format_message_history(game_messages, max_messages=10)
+        chat_context = f"\nRecent table talk:\n{formatted_history}" if formatted_history else ""
 
         game_situation = "\n".join(game_state.opponent_status)
 
@@ -239,12 +311,9 @@ def get_targeted_chat_suggestions(game_id):
         target_context = ""
         if target_player:
             try:
-                personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-                with open(personalities_file, 'r') as f:
-                    personalities_data = json.load(f)
-
-                if target_player in personalities_data.get('personalities', {}):
-                    personality = personalities_data['personalities'][target_player]
+                # Get personality from database via personality_generator
+                personality = personality_generator.get_personality(target_player)
+                if personality:
                     play_style = personality.get('play_style', 'unknown')
                     verbal_tics = personality.get('verbal_tics', [])[:3]
                     attitude = personality.get('default_attitude', 'neutral')
@@ -253,82 +322,57 @@ def get_targeted_chat_suggestions(game_id):
 Target player: {target_player}
 Their personality: {play_style}
 Their attitude: {attitude}
-Their catchphrases: {', '.join(verbal_tics) if verbal_tics else 'none known'}"""
+Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tics) if verbal_tics else 'none known'}"""
+                else:
+                    target_context = f"\nTarget player: {target_player}"
             except Exception as e:
                 logger.warning(f"Could not load personality for {target_player}: {e}")
                 target_context = f"\nTarget player: {target_player}"
 
         if target_player:
             target_first_name = target_player.split()[0] if target_player else "them"
-            prompt = f"""Generate exactly 2 short poker table chat messages for player "{player_name}" to say directly to {target_player}.
-{target_context}
-
-Tone: {tone_desc}
-Game context: {context_str}
-Table situation:
-{game_situation}
-{chat_context}
-
-Requirements:
-- Each message should be 5-15 words
-- IMPORTANT: Include "{target_first_name}" or "{target_player}" in each message to make it clear who you're addressing
-- Match the {tone} tone perfectly
-- Reference the board, stacks, or recent conversation when relevant
-- If you know their personality, play off their quirks
-- Be playful but not offensive or mean-spirited
-- Messages should feel natural for poker table banter
-
-Example formats: "Hey {target_first_name}, ...", "{target_first_name}, you really think...", "What's the matter {target_first_name}..."
-
-Return as JSON:
-{{
-    "suggestions": [
-        {{"text": "message here", "tone": "{tone}"}},
-        {{"text": "message here", "tone": "{tone}"}}
-    ],
-    "targetPlayer": "{target_player}"
-}}"""
+            template_name = template_map.get(tone, 'quick_chat_goad')
+            prompt = _prompt_manager.render_prompt(
+                template_name,
+                player_name=player_name,
+                target_player=target_player,
+                target_first_name=target_first_name,
+                context_str=context_str,
+                chat_context=chat_context,
+                length_guidance=LENGTH_GUIDANCE.get(length, LENGTH_GUIDANCE['short']),
+                intensity_guidance=INTENSITY_GUIDANCE.get(intensity, INTENSITY_GUIDANCE['chill']),
+            )
         else:
-            prompt = f"""Generate exactly 2 short poker table chat messages to announce to the whole table.
-
-Tone: {tone_desc}
-Game context: {context_str}
-Table situation:
-{game_situation}
-{chat_context}
-
-Requirements:
-- Each message should be 5-15 words
-- Write in FIRST PERSON - these are things the player will say directly
-- Do NOT include the speaker's name - they are saying this themselves
-- Match the {tone} tone perfectly
-- Reference the board, stacks, or recent conversation when relevant
-- General table talk, not directed at anyone specific
-- Be playful and engaging
-- Messages should feel natural for poker table banter
-
-Good examples: "Anyone else feeling lucky tonight?", "This pot is getting interesting!", "That ace on the turn changes everything!"
-Bad examples: "Jeff says he's feeling lucky" (don't use 3rd person), "Player announces confidence" (don't narrate)
-
-Return as JSON:
-{{
-    "suggestions": [
-        {{"text": "message here", "tone": "{tone}"}},
-        {{"text": "message here", "tone": "{tone}"}}
-    ],
-    "targetPlayer": null
-}}"""
+            prompt = _prompt_manager.render_prompt(
+                'quick_chat_table',
+                player_name=player_name,
+                context_str=context_str,
+                chat_context=chat_context,
+                tone=tone,
+                tone_description=tone_descriptions.get(tone, tone_descriptions['goad']),
+                length_guidance=length_guidance.get(length, length_guidance['short']),
+                intensity_guidance=intensity_guidance.get(intensity, intensity_guidance['chill']),
+            )
 
         if not os.environ.get("OPENAI_API_KEY"):
             logger.warning("No OpenAI API key found, returning fallback suggestions")
             raise ValueError("OpenAI API key not configured")
 
-        logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}")
-        logger.info(f"[QuickChat] Prompt: {prompt[:500]}...")
+        # Detailed logging for debugging/iteration
+        logger.info("=" * 80)
+        logger.info("[QuickChat] === QUICK CHAT REQUEST ===")
+        logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}, Length: {length}, Intensity: {intensity}, Player: {player_name}")
+        logger.info(f"[QuickChat] Game context: {context_str}")
+        logger.info(f"[QuickChat] Game situation:\n{game_situation}")
+        logger.info(f"[QuickChat] Target context: {target_context}")
+        logger.info(f"[QuickChat] Chat context: {chat_context}")
+        logger.info("[QuickChat] --- FULL PROMPT ---")
+        logger.info(f"[QuickChat]\n{prompt}")
+        logger.info("[QuickChat] --- END PROMPT ---")
 
         client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
         messages = [
-            {"role": "system", "content": "You are a witty poker player helping generate fun table talk. Keep it light and entertaining."},
+            {"role": "system", "content": "You write sharp, witty poker banter that responds to the actual conversation. Never generic - always specific callbacks, quotes, or reactions to what just happened. Short and punchy."},
             {"role": "user", "content": prompt}
         ]
 
@@ -343,7 +387,10 @@ Return as JSON:
             prompt_template='targeted_chat',
         )
         raw_content = response.content
-        logger.info(f"[QuickChat] Raw response: {raw_content}")
+        logger.info("[QuickChat] --- RESPONSE ---")
+        logger.info(f"[QuickChat]\n{raw_content}")
+        logger.info("[QuickChat] === END QUICK CHAT ===")
+        logger.info("=" * 80)
         result = json.loads(raw_content)
 
         return jsonify(result)
@@ -353,14 +400,15 @@ Return as JSON:
         logger.exception("[QuickChat] Full traceback:")
         target = data.get('targetPlayer') if data else None
         fallback_messages = {
-            'encourage': ["Nice hand!", "Good play there!"],
-            'antagonize': ["You sure about that?", "Interesting choice..."],
-            'confuse': ["Did anyone else hear that?", "The cards speak to me."],
-            'flatter': ["Impressive as always!", "You're too good!"],
-            'challenge': ["Prove it!", "Show me what you got!"]
+            'tilt': ["Still thinking about that last hand?", "Rough night, huh?"],
+            'false_confidence': ["You've got this one for sure.", "I'm scared of that bet."],
+            'doubt': ["Interesting timing...", "You sure about that read?"],
+            'goad': ["Prove it.", "You wouldn't dare."],
+            'mislead': ["I should've folded...", "This hand is killing me."],
+            'befriend': ["Good game so far.", "Respect the play."]
         }
-        tone = data.get('tone', 'encourage') if data else 'encourage'
-        msgs = fallback_messages.get(tone, fallback_messages['encourage'])
+        tone = data.get('tone', 'goad') if data else 'goad'
+        msgs = fallback_messages.get(tone, fallback_messages['goad'])
 
         return jsonify({
             "suggestions": [
@@ -368,6 +416,152 @@ Return as JSON:
                 {"text": msgs[1], "tone": tone}
             ],
             "targetPlayer": target,
+            "error": str(e),
+            "fallback": True
+        })
+
+
+@stats_bp.route('/api/game/<game_id>/post-round-chat-suggestions', methods=['POST'])
+@limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
+def get_post_round_chat_suggestions(game_id):
+    """Generate post-round chat suggestions for winner screen reactions."""
+    if not game_state_service.get_game(game_id):
+        return jsonify({"error": "Game not found"}), 404
+
+    # Get owner_id for tracking
+    current_user = auth_manager.get_current_user()
+    owner_id = current_user.get('id') if current_user else None
+
+    data = None
+    try:
+        data = request.get_json()
+        game_data = game_state_service.get_game(game_id)
+
+        # Get hand number for tracking
+        memory_manager = game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+
+        player_name = data.get('playerName', 'Player')
+        tone = data.get('tone', 'gracious')  # gloat, humble, salty, gracious
+        did_win = data.get('didWin', False)
+        hand_result = data.get('handResult')  # "Full House", etc.
+        opponent = data.get('opponent')  # Who to target
+        showdown_context = data.get('showdownContext')  # Cards and hands
+
+        # Build context strings
+        hand_context = f" with {hand_result}" if hand_result else ""
+        if not did_win and opponent and hand_result:
+            hand_context = f" to {opponent}'s {hand_result}"
+
+        opponent_context = ""
+        if opponent:
+            opponent_context = f"Opponent: {opponent}\n"
+
+        # Build showdown details for accurate commentary
+        showdown_details = ""
+        if showdown_context:
+            # Helper to convert card objects to strings
+            def card_to_str(card):
+                if isinstance(card, str):
+                    return card
+                elif isinstance(card, dict):
+                    # Handle {rank: 'Q', suit: 'h'} format
+                    return f"{card.get('rank', '?')}{card.get('suit', '?')}"
+                return str(card)
+
+            parts = []
+            if showdown_context.get('communityCards'):
+                board = ', '.join(card_to_str(c) for c in showdown_context['communityCards'])
+                parts.append(f"Board: {board}")
+            if showdown_context.get('winnerHand'):
+                wh = showdown_context['winnerHand']
+                cards_str = ', '.join(card_to_str(c) for c in wh.get('cards', []))
+                parts.append(f"Winner's cards: {cards_str} ({wh.get('handName', '')})")
+            if showdown_context.get('loserHand'):
+                lh = showdown_context['loserHand']
+                cards_str = ', '.join(card_to_str(c) for c in lh.get('cards', []))
+                parts.append(f"Loser's cards: {cards_str} ({lh.get('handName', '')})")
+            if parts:
+                showdown_details = "SHOWDOWN:\n" + "\n".join(parts) + "\n\n"
+
+        # Get recent chat/action history for context
+        game_messages = game_data.get('messages', [])[-20:]  # Last 20 messages
+        formatted_history = format_message_history(game_messages, max_messages=12, text_limit=80)
+        hand_flow = f"Recent hand flow:\n{formatted_history}\n\n" if formatted_history else ""
+
+        allowed_tones = {'gloat', 'humble', 'salty', 'gracious'}
+        if tone not in allowed_tones:
+            logger.warning("Invalid tone value received for post-round chat: %r", tone)
+            return jsonify(
+                {
+                    'error': 'Invalid tone',
+                    'allowed_tones': sorted(allowed_tones),
+                }
+            ), 400
+        template_name = f'post_round_{tone}'
+        prompt = _prompt_manager.render_prompt(
+            template_name,
+            player_name=player_name,
+            hand_context=hand_context,
+            opponent_context=opponent_context,
+            showdown_details=showdown_details,
+            hand_flow=hand_flow,
+        )
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            logger.warning("No OpenAI API key found, returning fallback suggestions")
+            raise ValueError("OpenAI API key not configured")
+
+        # Detailed logging
+        logger.info("=" * 80)
+        logger.info("[PostRound] === POST-ROUND CHAT REQUEST ===")
+        logger.info(f"[PostRound] Player: {player_name}, Tone: {tone}, Won: {did_win}")
+        logger.info(f"[PostRound] Hand result: {hand_result}, Opponent: {opponent}")
+        logger.info("[PostRound] --- FULL PROMPT ---")
+        logger.info(f"[PostRound]\n{prompt}")
+        logger.info("[PostRound] --- END PROMPT ---")
+
+        client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
+        messages = [
+            {"role": "system", "content": "You write short, punchy poker reactions. Keep it natural and under 10 words."},
+            {"role": "user", "content": prompt}
+        ]
+
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.POST_ROUND_CHAT,
+            game_id=game_id,
+            owner_id=owner_id,
+            hand_number=hand_number,
+            prompt_template=template_name,
+        )
+        raw_content = response.content
+        logger.info("[PostRound] --- RESPONSE ---")
+        logger.info(f"[PostRound]\n{raw_content}")
+        logger.info("[PostRound] === END POST-ROUND CHAT ===")
+        logger.info("=" * 80)
+        result = json.loads(raw_content)
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[PostRound] ERROR generating suggestions: {str(e)}")
+        logger.exception("[PostRound] Full traceback:")
+        tone = data.get('tone', 'gracious') if data else 'gracious'
+        fallback_messages = {
+            'gloat': ["Too easy.", "Thanks for the chips!"],
+            'humble': ["Got lucky there.", "Good game."],
+            'salty': ["Unreal.", "Of course."],
+            'gracious': ["Nice hand.", "Well played."]
+        }
+        msgs = fallback_messages.get(tone, fallback_messages['gracious'])
+
+        return jsonify({
+            "suggestions": [
+                {"text": msgs[0], "tone": tone},
+                {"text": msgs[1], "tone": tone}
+            ],
             "error": str(e),
             "fallback": True
         })

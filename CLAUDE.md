@@ -42,27 +42,33 @@ cd react/react && npm run dev  # Frontend
 ```
 
 ### Testing
-```bash
-# Run all tests
-python -m unittest discover -s tests -p "test*.py"
 
-# Run specific test module
-python -m unittest tests.core.test_card
+**Important**: Run tests inside Docker to ensure all dependencies are available.
+
+```bash
+# Run all tests in Docker (recommended)
+docker compose exec backend python -m unittest discover -s tests -p "test*.py"
+
+# Run specific test module in Docker
+docker compose exec backend python -m unittest tests.core.test_card
 
 # Run with verbose output
-python -m unittest discover -s tests -p "test*.py" -v
+docker compose exec backend python -m unittest discover -s tests -p "test*.py" -v
 
 # Run prompt management tests
-python -m pytest tests/test_prompt_management.py tests/test_prompt_golden_path.py -v
+docker compose exec backend python -m pytest tests/test_prompt_management.py tests/test_prompt_golden_path.py -v
 
 # Test persistence layer
-python -m pytest tests/test_persistence.py -v
+docker compose exec backend python -m pytest tests/test_persistence.py -v
 
 # Test AI resilience and error handling
-python -m pytest tests/test_ai_resilience.py -v
+docker compose exec backend python -m pytest tests/test_ai_resilience.py -v
 
 # Test prompt system improvements
-python -m pytest tests/test_prompt_improvements.py -v
+docker compose exec backend python -m pytest tests/test_prompt_improvements.py -v
+
+# TypeScript type checking for React
+docker compose exec frontend npx tsc --noEmit
 ```
 
 #### Testing AI Players

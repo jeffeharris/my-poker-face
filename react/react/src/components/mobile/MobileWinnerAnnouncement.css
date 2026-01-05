@@ -4,11 +4,12 @@
     background: rgba(0, 0, 0, 0.85);
     backdrop-filter: blur(8px);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     z-index: 1000;
     animation: fadeIn 0.3s ease-out;
     padding: 20px;
+    padding-top: 40px;
     overflow-y: auto;
 }
 
@@ -25,6 +26,10 @@
     text-align: center;
     color: white;
     width: 100%;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .winner-trophy {
@@ -253,4 +258,186 @@
     color: rgba(255, 255, 255, 0.9);
     font-size: 13px;
     line-height: 1.4;
+}
+
+/* Post-Round Chat Section */
+.post-round-chat {
+    margin: 16px 0;
+    min-height: 80px;
+    width: 100%;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.post-round-tones {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.post-round-tone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 20px;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 80px;
+}
+
+.post-round-tone:hover,
+.post-round-tone:active {
+    transform: translateY(-2px);
+}
+
+/* Tone-specific colors */
+.post-round-tone.tone-gloat {
+    border-color: rgba(255, 193, 7, 0.4);
+}
+.post-round-tone.tone-gloat:hover,
+.post-round-tone.tone-gloat:active {
+    background: rgba(255, 193, 7, 0.2);
+    border-color: #ffc107;
+}
+
+.post-round-tone.tone-humble {
+    border-color: rgba(76, 175, 80, 0.4);
+}
+.post-round-tone.tone-humble:hover,
+.post-round-tone.tone-humble:active {
+    background: rgba(76, 175, 80, 0.2);
+    border-color: #4caf50;
+}
+
+.post-round-tone.tone-salty {
+    border-color: rgba(244, 67, 54, 0.4);
+}
+.post-round-tone.tone-salty:hover,
+.post-round-tone.tone-salty:active {
+    background: rgba(244, 67, 54, 0.2);
+    border-color: #f44336;
+}
+
+.post-round-tone.tone-gracious {
+    border-color: rgba(33, 150, 243, 0.4);
+}
+.post-round-tone.tone-gracious:hover,
+.post-round-tone.tone-gracious:active {
+    background: rgba(33, 150, 243, 0.2);
+    border-color: #2196f3;
+}
+
+.post-round-tone .tone-emoji {
+    font-size: 24px;
+}
+
+.post-round-tone .tone-label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Suggestions display */
+.post-round-suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+}
+
+.post-round-suggestion {
+    width: 100%;
+    max-width: 280px;
+    padding: 12px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+    font-size: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    animation: suggestionFadeIn 0.3s ease-out;
+}
+
+.post-round-suggestion:hover,
+.post-round-suggestion:active {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: scale(1.02);
+}
+
+/* Suggestion tone colors - left border accent */
+.post-round-suggestion.tone-gloat {
+    border-left: 3px solid #ffc107;
+}
+.post-round-suggestion.tone-humble {
+    border-left: 3px solid #4caf50;
+}
+.post-round-suggestion.tone-salty {
+    border-left: 3px solid #f44336;
+}
+.post-round-suggestion.tone-gracious {
+    border-left: 3px solid #2196f3;
+}
+
+@keyframes suggestionFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.post-round-back {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 4px;
+}
+
+.post-round-back:hover,
+.post-round-back:active {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+/* Loading state */
+.post-round-loading {
+    padding: 12px 20px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 14px;
+}
+
+.post-round-loading .loading-dots::after {
+    content: '';
+    animation: loadingDots 1.5s infinite;
+}
+
+@keyframes loadingDots {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+    100% { content: ''; }
+}
+
+/* Sent confirmation */
+.post-round-sent {
+    padding: 12px 20px;
+    color: #4caf50;
+    font-size: 14px;
+    font-weight: 600;
+    animation: fadeIn 0.3s ease-out;
 }

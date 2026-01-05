@@ -18,6 +18,7 @@ class CallType(str, Enum):
     COMMENTARY = "commentary"
     CHAT_SUGGESTION = "chat_suggestion"
     TARGETED_CHAT = "targeted_chat"
+    POST_ROUND_CHAT = "post_round_chat"
     PERSONALITY_GENERATION = "personality_generation"
     PERSONALITY_PREVIEW = "personality_preview"
     THEME_GENERATION = "theme_generation"

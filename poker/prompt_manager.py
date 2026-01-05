@@ -130,7 +130,262 @@ class PromptManager:
                 )
             }
         )
-    
+
+        # Quick chat templates - one for each manipulation goal
+        self._load_quick_chat_templates()
+
+        # Post-round chat templates - for winner screen reactions
+        self._load_post_round_templates()
+
+    def _load_quick_chat_templates(self):
+        """Load quick chat templates for player manipulation tactics."""
+
+        # TILT: Get under their skin, make them emotional/sloppy
+        self.templates['quick_chat_tilt'] = PromptTemplate(
+            name='quick_chat_tilt',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
+                    "GOAL: Get under their skin. Be MEAN. Attack their ego, mistakes, insecurities.\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "EXAMPLES:\n"
+                    "- \"That call was... a choice.\"\n"
+                    "- \"You look nervous, {target_first_name}.\"\n"
+                    "- \"Remember last hand, {target_first_name}?\"\n"
+                    "- \"{target_first_name}, still thinking about that one?\"\n\n"
+                    "Include \"{target_first_name}\" naturally. Make it PERSONAL - reference their recent play or words.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"tilt\"}}, {{\"text\": \"...\", \"tone\": \"tilt\"}}], \"targetPlayer\": \"{target_player}\"}}"
+                )
+            }
+        )
+
+        # FALSE CONFIDENCE: Build them up so they overplay
+        self.templates['quick_chat_false_confidence'] = PromptTemplate(
+            name='quick_chat_false_confidence',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
+                    "GOAL: Sound SCARED of them. Build them up. Make them feel strong so they overplay.\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "EXAMPLES:\n"
+                    "- \"You probably have me beat, {target_first_name}.\"\n"
+                    "- \"I should fold to you more.\"\n"
+                    "- \"Nice bet, {target_first_name}. Honestly.\"\n"
+                    "- \"You're reading me like a book.\"\n\n"
+                    "Sound WORRIED, not confident. You're trying to bait them into betting big.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"false_confidence\"}}, {{\"text\": \"...\", \"tone\": \"false_confidence\"}}], \"targetPlayer\": \"{target_player}\"}}"
+                )
+            }
+        )
+
+        # DOUBT: Plant uncertainty, make them second-guess
+        self.templates['quick_chat_doubt'] = PromptTemplate(
+            name='quick_chat_doubt',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
+                    "GOAL: Plant seeds of DOUBT. Be subtle. Make them second-guess their read.\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "EXAMPLES:\n"
+                    "- \"Interesting sizing, {target_first_name}...\"\n"
+                    "- \"You sure about that read?\"\n"
+                    "- \"Hm.\"\n"
+                    "- \"{target_first_name}, you seem... uncertain.\"\n\n"
+                    "Be SUBTLE and questioning. Raise doubt without being aggressive.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"doubt\"}}, {{\"text\": \"...\", \"tone\": \"doubt\"}}], \"targetPlayer\": \"{target_player}\"}}"
+                )
+            }
+        )
+
+        # GOAD: Bait them into bad decisions
+        self.templates['quick_chat_goad'] = PromptTemplate(
+            name='quick_chat_goad',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
+                    "GOAL: DARE them. Challenge their courage. Make folding feel like weakness.\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "EXAMPLES:\n"
+                    "- \"You won't bet, {target_first_name}.\"\n"
+                    "- \"Fold if you're scared.\"\n"
+                    "- \"Do it.\"\n"
+                    "- \"{target_first_name}, prove it.\"\n\n"
+                    "Challenge their ego. Make them want to prove you wrong.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"goad\"}}, {{\"text\": \"...\", \"tone\": \"goad\"}}], \"targetPlayer\": \"{target_player}\"}}"
+                )
+            }
+        )
+
+        # MISLEAD: Give false tells about YOUR hand
+        self.templates['quick_chat_mislead'] = PromptTemplate(
+            name='quick_chat_mislead',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
+                    "GOAL: LIE about YOUR hand. Give FALSE tells. Misdirection.\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "EXAMPLES:\n"
+                    "- \"I missed everything, {target_first_name}.\"\n"
+                    "- \"Finally caught something.\"\n"
+                    "- \"This board killed me.\"\n"
+                    "- \"I needed that card.\"\n\n"
+                    "This is about YOUR hand, not theirs. Act weak when strong, strong when bluffing.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"mislead\"}}, {{\"text\": \"...\", \"tone\": \"mislead\"}}], \"targetPlayer\": \"{target_player}\"}}"
+                )
+            }
+        )
+
+        # BEFRIEND: Build rapport for later exploitation
+        self.templates['quick_chat_befriend'] = PromptTemplate(
+            name='quick_chat_befriend',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
+                    "GOAL: Build genuine RAPPORT. Be warm. Make them like you.\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "EXAMPLES:\n"
+                    "- \"Good hand, {target_first_name}. Seriously.\"\n"
+                    "- \"You're playing well tonight.\"\n"
+                    "- \"Respect, {target_first_name}.\"\n"
+                    "- \"That was a nice play.\"\n\n"
+                    "Be GENUINELY warm and friendly. No sarcasm. Build connection.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"befriend\"}}, {{\"text\": \"...\", \"tone\": \"befriend\"}}], \"targetPlayer\": \"{target_player}\"}}"
+                )
+            }
+        )
+
+        # Table talk version (no target player)
+        self.templates['quick_chat_table'] = PromptTemplate(
+            name='quick_chat_table',
+            sections={
+                'instruction': (
+                    "Write 2 messages for {player_name} to announce to the whole poker table.\n\n"
+                    "GOAL: {tone_description}\n\n"
+                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
+                    "{length_guidance}\n"
+                    "{intensity_guidance}\n\n"
+                    "Write in first person. React to the recent conversation.\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"{tone}\"}}, {{\"text\": \"...\", \"tone\": \"{tone}\"}}], \"targetPlayer\": null}}"
+                )
+            }
+        )
+
+    def _load_post_round_templates(self):
+        """Load post-round chat templates for winner screen reactions."""
+
+        # GLOAT: Trash talk after winning
+        self.templates['post_round_gloat'] = PromptTemplate(
+            name='post_round_gloat',
+            sections={
+                'instruction': (
+                    "Write 2 SHORT first-person messages that {player_name} will say after winning{hand_context}.\n\n"
+                    "GOAL: TRASH TALK! Rub it in. Celebrate loudly. Be playful but cutting.\n"
+                    "Write as if YOU just won and are gloating about it.\n\n"
+                    "{opponent_context}"
+                    "{showdown_details}"
+                    "{hand_flow}"
+                    "Use the SHOWDOWN info to be ACCURATE - reference the actual cards/hands. Don't make up details!\n\n"
+                    "Keep it SHORT (under 10 words). First person. Be confident and a little mean.\n\n"
+                    "GOOD EXAMPLES:\n"
+                    "- \"Too easy.\"\n"
+                    "- \"Did you even try?\"\n"
+                    "- \"Thanks for the chips!\"\n"
+                    "- \"Told you I had it.\"\n"
+                    "- \"Should've folded when you had the chance.\"\n"
+                    "- \"Kings full. Read 'em and weep.\"\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"gloat\"}}, {{\"text\": \"...\", \"tone\": \"gloat\"}}]}}"
+                )
+            }
+        )
+
+        # HUMBLE: Gracious winner
+        self.templates['post_round_humble'] = PromptTemplate(
+            name='post_round_humble',
+            sections={
+                'instruction': (
+                    "Write 2 SHORT first-person messages that {player_name} will say after winning{hand_context}.\n\n"
+                    "GOAL: Be HUMBLE and GRACIOUS. Downplay YOUR skill. Credit luck. Be a good sport.\n"
+                    "Write as if YOU just won and are being modest about it.\n\n"
+                    "{opponent_context}"
+                    "{showdown_details}"
+                    "{hand_flow}"
+                    "Use the SHOWDOWN info to be ACCURATE - if you mention specific cards or how the hand played out, get it right!\n\n"
+                    "Keep it SHORT (under 10 words). First person only.\n\n"
+                    "GOOD EXAMPLES:\n"
+                    "- \"Got lucky there.\"\n"
+                    "- \"Good game.\"\n"
+                    "- \"Cards fell my way.\"\n"
+                    "- \"You had me sweating.\"\n"
+                    "- \"That was a tough call to make.\"\n"
+                    "- \"Needed that queen on the river.\"\n\n"
+                    "BAD (don't do this): \"Jeff played well\" or \"Nice win Jeff\"\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"humble\"}}, {{\"text\": \"...\", \"tone\": \"humble\"}}]}}"
+                )
+            }
+        )
+
+        # SALTY: Frustrated after losing
+        self.templates['post_round_salty'] = PromptTemplate(
+            name='post_round_salty',
+            sections={
+                'instruction': (
+                    "Write 2 SHORT first-person messages that {player_name} will say after losing{hand_context}.\n\n"
+                    "GOAL: Express FRUSTRATION. Question their play. Blame luck. Vent a little.\n"
+                    "Write as if YOU just lost and are salty about it.\n\n"
+                    "{opponent_context}"
+                    "{showdown_details}"
+                    "{hand_flow}"
+                    "Use the SHOWDOWN info to be ACCURATE! If they hit trips on the flop, don't say 'river'. Reference the actual cards/hands!\n\n"
+                    "Keep it SHORT (under 10 words). First person. Be salty but not toxic.\n\n"
+                    "GOOD EXAMPLES:\n"
+                    "- \"Unreal.\"\n"
+                    "- \"You would hit that.\"\n"
+                    "- \"Trips on the flop. Great.\"\n"
+                    "- \"Called with THAT?\"\n"
+                    "- \"That's poker I guess.\"\n"
+                    "- \"Queen on the flop. Of course.\"\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"salty\"}}, {{\"text\": \"...\", \"tone\": \"salty\"}}]}}"
+                )
+            }
+        )
+
+        # GRACIOUS: Good sport after losing
+        self.templates['post_round_gracious'] = PromptTemplate(
+            name='post_round_gracious',
+            sections={
+                'instruction': (
+                    "Write 2 SHORT first-person messages that {player_name} will say after losing{hand_context}.\n\n"
+                    "GOAL: Be a GOOD SPORT. Acknowledge good play. No bitterness.\n"
+                    "Write as if YOU just lost and are being gracious about it.\n\n"
+                    "{opponent_context}"
+                    "{showdown_details}"
+                    "{hand_flow}"
+                    "Use the SHOWDOWN info to be ACCURATE - if you compliment their hand, reference what they actually had!\n\n"
+                    "Keep it SHORT (under 10 words). First person. Be genuine and respectful.\n\n"
+                    "GOOD EXAMPLES:\n"
+                    "- \"Nice hand.\"\n"
+                    "- \"Well played.\"\n"
+                    "- \"You got me.\"\n"
+                    "- \"Good read on that one.\"\n"
+                    "- \"Can't argue with trips.\"\n"
+                    "- \"Flopped queens. Nothing I could do.\"\n\n"
+                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"gracious\"}}, {{\"text\": \"...\", \"tone\": \"gracious\"}}]}}"
+                )
+            }
+        )
+
     def get_template(self, template_name: str) -> PromptTemplate:
         """Get a specific template by name."""
         if template_name not in self.templates:

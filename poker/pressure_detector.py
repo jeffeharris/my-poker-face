@@ -34,13 +34,13 @@ class PressureEventDetector:
         winner_name = winner_names[0] if winner_names else None
         
         # Get hand rank from hand evaluation if available
-        winner_hand = winner_info.get('winning_hand', [])
-        winner_hand_rank = 10  # Default to worst
-        if winner_hand:
-            # Map hand values to approximate rank (1=best, 10=worst)
-            # This is a simple heuristic based on the first value in winning_hand
+        # Use winning_hand_values (numeric) for comparisons, not winning_hand (display strings)
+        winner_hand = winner_info.get('winning_hand_values', winner_info.get('winning_hand', []))
+        winner_hand_rank = winner_info.get('hand_rank', 10)  # Use actual hand rank if available
+        if winner_hand and winner_hand_rank == 10:
+            # Fallback heuristic if hand_rank not provided
             first_val = winner_hand[0] if winner_hand else 0
-            if first_val >= 14:  # Ace high or better
+            if isinstance(first_val, int) and first_val >= 14:  # Ace high or better
                 winner_hand_rank = 8 if len(set(winner_hand[:2])) > 1 else 7  # High card vs pair
             
         pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
