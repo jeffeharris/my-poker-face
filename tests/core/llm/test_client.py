@@ -121,7 +121,7 @@ class TestLLMClient(unittest.TestCase):
         mock_client.chat.completions.create.return_value = mock_response
 
         client = LLMClient(tracker=self.tracker)
-        response = client.complete(
+        client.complete(
             messages=[{"role": "user", "content": "Hi"}],
             call_type=CallType.PLAYER_DECISION,
             game_id="game_123",
