@@ -206,6 +206,7 @@ class LLMClient:
             game_id=game_id,
             owner_id=owner_id,
             player_name=context.get("player_name"),
+            prompt_template=context.get("prompt_template"),
         )
 
         return response

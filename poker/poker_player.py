@@ -256,7 +256,10 @@ class AIPokerPlayer(PokerPlayer):
             messages=[{"role": "user", "content": formatted_message}],
             json_format=True,
             call_type=CallType.PERSONALITY_PREVIEW,
-            player_name=self.name
+            game_id=self.game_id,
+            owner_id=self.owner_id,
+            player_name=self.name,
+            prompt_template='personality_preview',
         )
         content = json.loads(response.content)
         responses = content["responses"]

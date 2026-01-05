@@ -160,7 +160,9 @@ Respond with ONLY a JSON object in this exact format:
                     {"role": "user", "content": prompt}
                 ],
                 json_format=True,
-                call_type=CallType.PERSONALITY_GENERATION
+                call_type=CallType.PERSONALITY_GENERATION,
+                player_name=name,
+                prompt_template='personality_generation',
             )
 
             result = json.loads(response.content)
