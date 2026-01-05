@@ -18,6 +18,11 @@ class LLMProvider(ABC):
         """Return the model name."""
         ...
 
+    @property
+    def reasoning_effort(self) -> str | None:
+        """Return the reasoning effort (if applicable)."""
+        return None
+
     @abstractmethod
     def complete(
         self,

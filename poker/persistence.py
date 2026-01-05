@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 @dataclass
@@ -315,6 +315,7 @@ class GamePersistence:
             4: (self._migrate_v4_add_tournament_tables, "Add tournament results and career stats tables"),
             5: (self._migrate_v5_add_avatar_images_table, "Add avatar_images table for storing character images"),
             6: (self._migrate_v6_add_api_usage_table, "Add api_usage table for LLM cost tracking"),
+            7: (self._migrate_v7_add_reasoning_effort, "Add reasoning_effort column to api_usage table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -605,6 +606,15 @@ class GamePersistence:
         """)
 
         logger.info("Created api_usage table for LLM cost tracking")
+
+    def _migrate_v7_add_reasoning_effort(self, conn: sqlite3.Connection) -> None:
+        """Migration v7: Add reasoning_effort column to api_usage table."""
+        conn.execute("ALTER TABLE api_usage ADD COLUMN reasoning_effort TEXT")
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_model_effort
+            ON api_usage(model, reasoning_effort)
+        """)
+        logger.info("Added reasoning_effort column to api_usage table")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:

@@ -111,6 +111,7 @@ class StructuredLLMCategorizer:
     - Timeout handling with fallback
     - Cheap/fast model support
     - Reusable across different categorization tasks
+    - Tracking context support for cost analysis
 
     Example usage:
         schema = CategorizationSchema(
@@ -156,6 +157,9 @@ class StructuredLLMCategorizer:
 
         # Thread pool for timeout handling
         self._executor = ThreadPoolExecutor(max_workers=2)
+
+        # Tracking context (can be set per-call or stored for reuse)
+        self._tracking_context: Dict[str, Any] = {}
 
     def categorize(
         self,

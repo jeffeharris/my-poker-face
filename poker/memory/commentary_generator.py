@@ -161,7 +161,13 @@ class CommentaryGenerator:
             )
 
             # Get AI response with proper tracking
-            response = assistant.chat(prompt, json_format=True, call_type=CallType.COMMENTARY)
+            response = assistant.chat(
+                prompt,
+                json_format=True,
+                call_type=CallType.COMMENTARY,
+                hand_number=hand.hand_number,
+                prompt_template='end_of_hand_commentary'
+            )
 
             # Parse response
             commentary_data = json.loads(response)

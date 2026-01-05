@@ -13,6 +13,7 @@ class LLMResponse:
     output_tokens: int
     cached_tokens: int = 0
     reasoning_tokens: int = 0
+    reasoning_effort: Optional[str] = None
     latency_ms: float = 0
     finish_reason: str = ""
     status: str = "ok"

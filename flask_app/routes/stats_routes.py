@@ -83,6 +83,10 @@ def get_chat_suggestions(game_id):
     if not game_state_service.get_game(game_id):
         return jsonify({"error": "Game not found"}), 404
 
+    # Get owner_id for tracking
+    current_user = auth_manager.get_current_user()
+    owner_id = current_user.get('id') if current_user else None
+
     try:
         data = request.get_json()
         game_data = game_state_service.get_game(game_id)
@@ -141,7 +145,8 @@ Return as JSON with this format:
             messages=messages,
             json_format=True,
             call_type=CallType.CHAT_SUGGESTION,
-            game_id=game_id
+            game_id=game_id,
+            owner_id=owner_id
         )
         result = json.loads(response.content)
 
@@ -164,6 +169,10 @@ def get_targeted_chat_suggestions(game_id):
     """Generate targeted chat suggestions to engage specific AI players."""
     if not game_state_service.get_game(game_id):
         return jsonify({"error": "Game not found"}), 404
+
+    # Get owner_id for tracking
+    current_user = auth_manager.get_current_user()
+    owner_id = current_user.get('id') if current_user else None
 
     data = None
     try:
@@ -317,7 +326,8 @@ Return as JSON:
             messages=messages,
             json_format=True,
             call_type=CallType.TARGETED_CHAT,
-            game_id=game_id
+            game_id=game_id,
+            owner_id=owner_id
         )
         raw_content = response.content
         logger.info(f"[QuickChat] Raw response: {raw_content}")
