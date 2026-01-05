@@ -69,12 +69,14 @@ services:
     networks:
       - poker-network
 
-  datasette:
-    image: datasetteproject/datasette
+  metabase:
+    image: metabase/metabase
     restart: unless-stopped
     volumes:
       - ./data:/data:ro
-    command: datasette -p 8001 -h 0.0.0.0 /data/poker_games.db --setting sql_time_limit_ms 10000
+      - metabase-data:/metabase-data
+    environment:
+      - MB_DB_FILE=/metabase-data/metabase.db
     networks:
       - poker-network
 
@@ -82,6 +84,7 @@ volumes:
   redis-data:
   caddy-data:
   caddy-config:
+  metabase-data:
 
 networks:
   poker-network:
