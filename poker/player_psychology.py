@@ -50,6 +50,10 @@ class PlayerPsychology:
     # Internal helpers
     _emotional_generator: EmotionalStateGenerator = field(default=None, repr=False, compare=False)
 
+    # Tracking context (for cost analysis)
+    game_id: Optional[str] = None
+    owner_id: Optional[str] = None
+
     # Metadata
     hand_count: int = 0
     last_updated: Optional[str] = None
@@ -60,13 +64,21 @@ class PlayerPsychology:
             self._emotional_generator = EmotionalStateGenerator()
 
     @classmethod
-    def from_personality_config(cls, name: str, config: Dict[str, Any]) -> 'PlayerPsychology':
+    def from_personality_config(
+        cls,
+        name: str,
+        config: Dict[str, Any],
+        game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
+    ) -> 'PlayerPsychology':
         """
         Create PlayerPsychology from a personality configuration.
 
         Args:
             name: Player name (e.g., "Donald Trump")
             config: Personality config dict from personalities.json
+            game_id: Game ID for usage tracking
+            owner_id: User ID for usage tracking
 
         Returns:
             New PlayerPsychology instance
@@ -79,7 +91,9 @@ class PlayerPsychology:
         return cls(
             player_name=name,
             personality_config=config,
-            elastic=elastic
+            elastic=elastic,
+            game_id=game_id,
+            owner_id=owner_id,
         )
 
     # === UNIFIED EVENT HANDLING ===
@@ -289,6 +303,8 @@ class PlayerPsychology:
             'elastic': self.elastic.to_dict() if self.elastic else None,
             'emotional': self.emotional.to_dict() if self.emotional else None,
             'tilt': self.tilt.to_dict(),
+            'game_id': self.game_id,
+            'owner_id': self.owner_id,
             'hand_count': self.hand_count,
             'last_updated': self.last_updated
         }
@@ -322,7 +338,9 @@ class PlayerPsychology:
         psychology = cls(
             player_name=player_name,
             personality_config=personality_config,
-            elastic=elastic
+            elastic=elastic,
+            game_id=data.get('game_id'),
+            owner_id=data.get('owner_id'),
         )
 
         # Restore emotional state
@@ -376,7 +394,9 @@ class PlayerPsychology:
                 elastic_traits=elastic_traits,
                 tilt_state=self.tilt,
                 session_context=session_context,
-                hand_number=self.hand_count
+                hand_number=self.hand_count,
+                game_id=self.game_id,
+                owner_id=self.owner_id,
             )
         except Exception as e:
             logger.warning(

@@ -165,7 +165,13 @@ class StructuredLLMCategorizer:
         self,
         context: str,
         system_prompt: str,
-        additional_context: Optional[Dict[str, Any]] = None
+        additional_context: Optional[Dict[str, Any]] = None,
+        # Tracking context for cost analysis
+        game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        hand_number: Optional[int] = None,
+        prompt_template: Optional[str] = None,
     ) -> CategorizationResult[Dict[str, Any]]:
         """
         Perform categorization using LLM.
@@ -174,10 +180,23 @@ class StructuredLLMCategorizer:
             context: The main context/content to categorize
             system_prompt: System prompt describing the categorization task
             additional_context: Optional additional context to include
+            game_id: Game ID for usage tracking
+            owner_id: User ID for usage tracking
+            player_name: AI player name for usage tracking
+            hand_number: Hand number for usage tracking
+            prompt_template: Prompt template name for usage tracking
 
         Returns:
             CategorizationResult with validated output or fallback
         """
+        # Store tracking context for this call
+        self._tracking_context = {
+            'game_id': game_id,
+            'owner_id': owner_id,
+            'player_name': player_name,
+            'hand_number': hand_number,
+            'prompt_template': prompt_template,
+        }
         start_time = time.time()
 
         # Build the full prompt
@@ -252,7 +271,12 @@ class StructuredLLMCategorizer:
             messages=messages,
             json_format=True,
             max_tokens=500,
-            call_type=CallType.CATEGORIZATION
+            call_type=CallType.CATEGORIZATION,
+            game_id=self._tracking_context.get('game_id'),
+            owner_id=self._tracking_context.get('owner_id'),
+            player_name=self._tracking_context.get('player_name'),
+            hand_number=self._tracking_context.get('hand_number'),
+            prompt_template=self._tracking_context.get('prompt_template'),
         )
         return response.content or ""
 

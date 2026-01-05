@@ -91,7 +91,9 @@ class AIPlayerController:
         # Unified psychological state
         self.psychology = PlayerPsychology.from_personality_config(
             name=player_name,
-            config=self.ai_player.personality_config
+            config=self.ai_player.personality_config,
+            game_id=game_id,
+            owner_id=owner_id,
         )
 
         # Memory systems (optional - set by memory manager)
