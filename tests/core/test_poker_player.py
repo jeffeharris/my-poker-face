@@ -69,16 +69,7 @@ class AIPokerPlayerTests(unittest.TestCase):
         self.assertEqual(str, type(result))
 
     # TODO: test_get_player_action and test_get_player_response require
-    # mocking the AI assistant. These tests are skipped for now.
-    # def test_get_player_action(self):
-    #     hand_state = {"state": "initial"}
-    #     self.obj.get_player_action(hand_state)
-    #     # Check that the function didn't raise any error
-    #
-    # def test_get_player_response(self):
-    #     hand_state = {"state": "initial"}
-    #     response = self.obj.get_player_response(hand_state)
-    #     self.assertEqual(dict, type(response))
+    # mocking the AI assistant. See tests/core/llm/test_assistant.py for examples.
 
 
 class TestPokerPlayer(unittest.TestCase):
