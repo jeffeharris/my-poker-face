@@ -4,10 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/poker-favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
-    <meta name="theme-color" content="#dc2626" />
+    <meta name="theme-color" content="#0d2818" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Play poker against AI personalities with unique playing styles and chat interactions" />
     <title>My Poker Face - AI Poker Game</title>
+    <style>
+      /* Prevent white flash on mobile browser wake - match poker table gradient */
+      html, body {
+        background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+        background-color: #0d2818;
+        min-height: 100%;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

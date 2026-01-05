@@ -23,6 +23,7 @@ interface UsePokerGameResult {
   tournamentResult: TournamentResult | null;
   eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
+  isConnected: boolean;
   handlePlayerAction: (action: string, amount?: number) => Promise<void>;
   handleSendMessage: (message: string) => Promise<void>;
   clearWinnerInfo: () => void;
@@ -55,6 +56,7 @@ export function usePokerGame({
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
   const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
 
   const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
@@ -63,6 +65,7 @@ export function usePokerGame({
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
       console.log('WebSocket disconnected');
+      setIsConnected(false);
     });
 
     socket.on('player_joined', (data: { message: string }) => {
@@ -241,6 +244,7 @@ export function usePokerGame({
     socket.on('connect', () => {
       const isReconnect = !isInitialConnectionRef.current;
       console.log(`Socket ${isReconnect ? 're' : ''}connected, joining game:`, gId);
+      setIsConnected(true);
       socket.emit('join_game', gId);
       // Use silent mode for reconnections to avoid loading flash
       refreshGameState(gId, isReconnect);
@@ -410,6 +414,7 @@ export function usePokerGame({
     tournamentResult,
     eliminationEvents,
     socketRef,
+    isConnected,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,

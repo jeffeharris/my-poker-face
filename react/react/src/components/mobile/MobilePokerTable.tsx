@@ -48,6 +48,7 @@ export function MobilePokerTable({
     aiThinking,
     winnerInfo,
     tournamentResult,
+    isConnected,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
@@ -121,7 +122,9 @@ export function MobilePokerTable({
                            gameState.player_options.length > 0 &&
                            !aiThinking;
 
-  if (loading) {
+  // Only show full loading screen on initial load (no game state yet)
+  // If we have game state but are disconnected, we'll show a reconnecting overlay instead
+  if (loading && !gameState) {
     return (
       <div className="mobile-poker-table mobile-loading">
         <div className="mobile-loading-content">
@@ -140,8 +143,21 @@ export function MobilePokerTable({
     return <div className="mobile-poker-table mobile-error">Failed to load game</div>;
   }
 
+  // Show reconnecting indicator when disconnected but we still have game state
+  const showReconnecting = !isConnected && gameState;
+
   return (
     <div className="mobile-poker-table">
+      {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
+      {showReconnecting && (
+        <div className="mobile-reconnecting-overlay">
+          <div className="mobile-reconnecting-indicator">
+            <div className="reconnecting-spinner"></div>
+            <span>Reconnecting...</span>
+          </div>
+        </div>
+      )}
+
       {/* Header with back button and pot */}
       <MobileHeader
         onBack={onBack}
