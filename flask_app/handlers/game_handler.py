@@ -764,7 +764,7 @@ def handle_ai_action(game_id: str) -> None:
         persistence.save_ai_player_state(
             game_id,
             current_player.name,
-            controller.assistant.messages,
+            controller.assistant.memory.get_history(),
             personality_state
         )
 
