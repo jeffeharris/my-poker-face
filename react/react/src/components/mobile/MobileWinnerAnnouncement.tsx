@@ -98,6 +98,19 @@ export function MobileWinnerAnnouncement({
     const fetchSuggestions = useCallback(async (tone: PostRoundTone) => {
         if (!winnerInfo) return;
 
+        // Skip API call if required params are missing
+        if (!gameId || !playerName) {
+            console.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
+            const fallbacks: Record<PostRoundTone, PostRoundSuggestion[]> = {
+                gloat: [{ text: 'Too easy.', tone: 'gloat' }, { text: 'Thanks for the chips!', tone: 'gloat' }],
+                humble: [{ text: 'Got lucky there.', tone: 'humble' }, { text: 'Good game.', tone: 'humble' }],
+                salty: [{ text: 'Unreal.', tone: 'salty' }, { text: 'Of course.', tone: 'salty' }],
+                gracious: [{ text: 'Nice hand.', tone: 'gracious' }, { text: 'Well played.', tone: 'gracious' }],
+            };
+            setSuggestions(fallbacks[tone]);
+            return;
+        }
+
         setLoading(true);
         try {
             const opponent = getOpponent();
@@ -276,17 +289,17 @@ export function MobileWinnerAnnouncement({
                             <div className="players-hands-section">
                                 {Object.entries(winnerInfo.players_showdown)
                                     .sort(([, infoA], [, infoB]) => infoA.hand_rank - infoB.hand_rank)
-                                    .map(([pName, playerInfo]) => {
-                                        const isWinner = winnerInfo.winners.includes(pName);
+                                    .map(([showdownPlayerName, playerInfo]) => {
+                                        const isWinner = winnerInfo.winners.includes(showdownPlayerName);
                                         const hasKickers = playerInfo.kickers && playerInfo.kickers.length > 0;
                                         return (
                                             <div
-                                                key={pName}
+                                                key={showdownPlayerName}
                                                 className={`player-showdown ${isWinner ? 'winner' : ''}`}
                                             >
                                                 <div className="showdown-player-info">
                                                     <div className="showdown-player-name">
-                                                        {pName}
+                                                        {showdownPlayerName}
                                                     </div>
                                                     {playerInfo.hand_name && (
                                                         <div className="showdown-hand-name">

@@ -22,6 +22,57 @@ logger = logging.getLogger(__name__)
 
 stats_bp = Blueprint('stats', __name__)
 
+# Module-level constants for prompt guidance
+LENGTH_GUIDANCE = {
+    'short': 'Keep it VERY short - under 8 words.',
+    'long': 'Can be 1-2 full sentences.',
+}
+INTENSITY_GUIDANCE = {
+    'chill': 'Keep it playful and light.',
+    'spicy': 'Go hard. No filter. Cut deep.',
+}
+
+
+def format_message_history(messages: list, max_messages: int = 10, text_limit: int = 100) -> str:
+    """
+    Format game messages into a context string for prompts.
+
+    Filters out System messages and formats player messages with their actions.
+
+    Args:
+        messages: List of message dicts with sender, content/message, and optional action
+        max_messages: Maximum number of messages to include in output
+        text_limit: Character limit for message text truncation
+
+    Returns:
+        Formatted string of recent table talk, or empty string if no messages
+    """
+    if not messages:
+        return ""
+
+    chat_lines = []
+    for msg in messages:
+        sender = msg.get('sender', 'Unknown')
+        text = msg.get('content', msg.get('message', ''))[:text_limit]
+        action = msg.get('action')  # e.g., "raises to $500"
+
+        # Filter out System messages (debug noise)
+        if sender == 'System':
+            continue
+
+        # For AI messages with actions, show both the chat and action
+        if action and sender != 'Table':
+            chat_lines.append(f"- {sender} ({action}): {text}")
+        elif sender == 'Table' and text:
+            # Table messages are usually action announcements
+            chat_lines.append(f"- {text}")
+        elif text and sender != 'Table':
+            chat_lines.append(f"- {sender}: {text}")
+
+    if chat_lines:
+        return "\n".join(chat_lines[-max_messages:])
+    return ""
+
 
 @stats_bp.route('/api/career-stats', methods=['GET'])
 def get_career_stats():
@@ -214,16 +265,6 @@ def get_targeted_chat_suggestions(game_id):
         length = data.get('length', 'short')
         intensity = data.get('intensity', 'chill')
 
-        # Length and intensity modifiers for templates
-        length_guidance = {
-            'short': 'Keep it VERY short - under 8 words.',
-            'long': 'Can be 1-2 full sentences.',
-        }
-        intensity_guidance = {
-            'chill': 'Keep it playful and light.',
-            'spicy': 'Go hard. No filter. Cut deep.',
-        }
-
         # Map tones to template names
         template_map = {
             'tilt': 'quick_chat_tilt',
@@ -258,28 +299,8 @@ def get_targeted_chat_suggestions(game_id):
         context_str = ". ".join(context_parts)
 
         game_messages = game_data.get('messages', [])[-15:]  # Get more, filter will reduce
-        chat_context = ""
-        if game_messages:
-            chat_lines = []
-            for msg in game_messages:
-                sender = msg.get('sender', 'Unknown')
-                text = msg.get('content', msg.get('message', ''))[:100]
-                action = msg.get('action')  # e.g., "raises to $500"
-
-                # Filter out System messages (debug noise)
-                if sender == 'System':
-                    continue
-
-                # For AI messages with actions, show both the chat and action
-                if action and sender != 'Table':
-                    chat_lines.append(f"- {sender} ({action}): {text}")
-                elif sender == 'Table' and text:
-                    # Table messages are usually action announcements
-                    chat_lines.append(f"- {text}")
-                elif text and sender != 'Table':
-                    chat_lines.append(f"- {sender}: {text}")
-            if chat_lines:
-                chat_context = "\nRecent table talk:\n" + "\n".join(chat_lines[-10:])  # Keep last 10 after filtering
+        formatted_history = format_message_history(game_messages, max_messages=10)
+        chat_context = f"\nRecent table talk:\n{formatted_history}" if formatted_history else ""
 
         game_situation = "\n".join(game_state.opponent_status)
 
@@ -318,8 +339,8 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
                 target_first_name=target_first_name,
                 context_str=context_str,
                 chat_context=chat_context,
-                length_guidance=length_guidance.get(length, length_guidance['short']),
-                intensity_guidance=intensity_guidance.get(intensity, intensity_guidance['chill']),
+                length_guidance=LENGTH_GUIDANCE.get(length, LENGTH_GUIDANCE['short']),
+                intensity_guidance=INTENSITY_GUIDANCE.get(intensity, INTENSITY_GUIDANCE['chill']),
             )
         else:
             prompt = _prompt_manager.render_prompt(
@@ -463,31 +484,10 @@ def get_post_round_chat_suggestions(game_id):
             if parts:
                 showdown_details = "SHOWDOWN:\n" + "\n".join(parts) + "\n\n"
 
-        # Get recent chat/action history for context (filter out System messages)
+        # Get recent chat/action history for context
         game_messages = game_data.get('messages', [])[-20:]  # Last 20 messages
-        hand_flow = ""
-        if game_messages:
-            flow_lines = []
-            for msg in game_messages:
-                sender = msg.get('sender', 'Unknown')
-                text = msg.get('content', msg.get('message', ''))[:80]
-                action = msg.get('action')  # e.g., "raises to $500"
-
-                # Filter out System messages (debug noise)
-                if sender == 'System':
-                    continue
-
-                # For AI messages with actions, show both the chat and action
-                if action and sender != 'Table':
-                    flow_lines.append(f"- {sender} ({action}): {text}")
-                elif sender == 'Table' and text:
-                    # Table messages are usually action announcements or card deals
-                    flow_lines.append(f"- {text}")
-                elif text and sender != 'Table':
-                    flow_lines.append(f"- {sender}: {text}")
-
-            if flow_lines:
-                hand_flow = "Recent hand flow:\n" + "\n".join(flow_lines[-12:]) + "\n\n"
+        formatted_history = format_message_history(game_messages, max_messages=12, text_limit=80)
+        hand_flow = f"Recent hand flow:\n{formatted_history}\n\n" if formatted_history else ""
 
         allowed_tones = {'gloat', 'humble', 'salty', 'gracious'}
         if tone not in allowed_tones:
