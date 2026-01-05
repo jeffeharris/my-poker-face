@@ -490,6 +490,15 @@ def get_post_round_chat_suggestions(game_id):
             if flow_lines:
                 hand_flow = "Recent hand flow:\n" + "\n".join(flow_lines[-12:]) + "\n\n"
 
+        allowed_tones = {'gloat', 'humble', 'salty', 'gracious'}
+        if tone not in allowed_tones:
+            logger.warning("Invalid tone value received for post-round chat: %r", tone)
+            return jsonify(
+                {
+                    'error': 'Invalid tone',
+                    'allowed_tones': sorted(allowed_tones),
+                }
+            ), 400
         template_name = f'post_round_{tone}'
         prompt = _prompt_manager.render_prompt(
             template_name,
