@@ -500,6 +500,23 @@ def check_tournament_complete(game_id: str, game_data: dict) -> bool:
     return True
 
 
+def _run_async_hand_complete_tasks(game_id: str, game_data: dict, game_state,
+                                    winner_info: dict, winning_player_names: list,
+                                    pot_size_before_award: int) -> None:
+    """Run async tasks after winner announcement (emotional state, commentary)."""
+    try:
+        # Update tilt/emotional states (LLM calls)
+        update_tilt_states(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
+    except Exception as e:
+        logger.warning(f"Async tilt state update failed: {e}")
+
+    try:
+        # Generate AI commentary (LLM calls)
+        generate_ai_commentary(game_id, game_data)
+    except Exception as e:
+        logger.warning(f"Async commentary generation failed: {e}")
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -510,36 +527,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     winning_player_names = list(winner_info['winnings'].keys())
     pot_size_before_award = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
 
-    # Apply pressure events
-    handle_pressure_events(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
-
-    # Complete hand recording in memory manager
-    if 'memory_manager' in game_data:
-        memory_manager = game_data['memory_manager']
-        ai_controllers = game_data.get('ai_controllers', {})
-        ai_players = {name: controller.ai_player for name, controller in ai_controllers.items()}
-        try:
-            memory_manager.on_hand_complete(
-                winner_info=winner_info,
-                game_state=game_state,
-                ai_players=ai_players,
-                skip_commentary=True
-            )
-        except Exception as e:
-            logger.warning(f"Memory manager hand completion failed: {e}")
-
-    # Update tilt states
-    update_tilt_states(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
-
-    # Award winnings
+    # Award winnings FIRST so chip counts are updated
     game_state = award_pot_winnings(game_state, winner_info['winnings'])
 
-    # Handle eliminations
-    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names, pot_size_before_award)
-    if human_eliminated:
-        return game_state, True
-
-    # Prepare and emit winner announcement
+    # Prepare winner announcement data
     winning_players_string = (', '.join(winning_player_names[:-1]) +
                               f" and {winning_player_names[-1]}") if len(winning_player_names) > 1 else winning_player_names[0]
 
@@ -556,11 +547,38 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     else:
         message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
 
+    # EMIT WINNER ANNOUNCEMENT IMMEDIATELY
     send_message(game_id, "Table", message_content, "table", 1)
     socketio.emit('winner_announcement', winner_data, to=game_id)
 
-    # Generate AI commentary
-    generate_ai_commentary(game_id, game_data)
+    # Start async tasks for emotional state and commentary (LLM calls)
+    socketio.start_background_task(
+        _run_async_hand_complete_tasks,
+        game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award
+    )
+
+    # Apply pressure events (fast, local calculations)
+    handle_pressure_events(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
+
+    # Complete hand recording in memory manager (fast, local)
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        ai_controllers = game_data.get('ai_controllers', {})
+        ai_players = {name: controller.ai_player for name, controller in ai_controllers.items()}
+        try:
+            memory_manager.on_hand_complete(
+                winner_info=winner_info,
+                game_state=game_state,
+                ai_players=ai_players,
+                skip_commentary=True
+            )
+        except Exception as e:
+            logger.warning(f"Memory manager hand completion failed: {e}")
+
+    # Handle eliminations (needs updated game_state)
+    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names, pot_size_before_award)
+    if human_eliminated:
+        return game_state, True
 
     # Check tournament completion
     if check_tournament_complete(game_id, game_data):
