@@ -39,10 +39,10 @@ def _get_encoding(model: str):
     try:
         return tiktoken.encoding_for_model(model)
     except KeyError:
-        # Unknown model, fall back to cl100k_base (GPT-4/3.5) or o200k_base (GPT-4o)
+        # Unknown model, fall back to cl100k_base (GPT-4/3.5) or o200k_base (GPT-4o/GPT-5)
         try:
             # Default to o200k_base for newer models
-            if model.startswith(("gpt-4o", "o1", "o3")):
+            if model.startswith(("gpt-4o", "gpt-5", "o1", "o3")):
                 return tiktoken.get_encoding("o200k_base")
             else:
                 return tiktoken.get_encoding("cl100k_base")
