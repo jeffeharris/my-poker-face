@@ -447,15 +447,20 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         for name, controller in ai_controllers.items()
     }
 
+    def emit_commentary_immediately(player_name: str, commentary) -> None:
+        """Callback to emit commentary as soon as it's ready."""
+        if commentary and commentary.table_comment:
+            logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
+            send_message(game_id, player_name, commentary.table_comment, "ai")
+
     try:
         logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
-        commentaries = memory_manager.generate_commentary_for_hand(ai_players)
+        # Pass callback to emit each commentary immediately as it completes
+        commentaries = memory_manager.generate_commentary_for_hand(
+            ai_players,
+            on_commentary_ready=emit_commentary_immediately
+        )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
-
-        for player_name, commentary in commentaries.items():
-            if commentary and commentary.table_comment:
-                logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
-                send_message(game_id, player_name, commentary.table_comment, "ai")
 
         for name, controller in ai_controllers.items():
             memory_manager.apply_learned_adjustments(
@@ -608,7 +613,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Wait for commentary to complete before starting new hand
     # Commentary runs in parallel across AI players, but we need all to finish
     # Use a timeout to prevent indefinite blocking if something goes wrong
-    commentary_timeout = 30  # seconds
+    commentary_timeout = 10  # seconds
     if not commentary_complete.wait(timeout=commentary_timeout):
         logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
 
