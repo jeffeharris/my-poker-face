@@ -441,3 +441,38 @@
     font-weight: 600;
     animation: fadeIn 0.3s ease-out;
 }
+
+/* Mobile Tournament Outcome Banner */
+.mobile-tournament-outcome-banner {
+    padding: 12px 24px;
+    margin: 16px 0;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    animation: mobileBannerSlide 0.5s ease-out;
+}
+
+.mobile-tournament-outcome-banner.victory {
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.25), rgba(255, 193, 7, 0.15));
+    border: 2px solid #ffd700;
+    color: #ffd700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.mobile-tournament-outcome-banner.defeat {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.1));
+    border: 2px solid #ef4444;
+    color: #f87171;
+}
+
+@keyframes mobileBannerSlide {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

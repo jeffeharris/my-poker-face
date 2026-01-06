@@ -17,6 +17,25 @@ export interface TournamentResult {
   biggest_pot: number;
   human_position: number | null;
   game_id: string;
+  human_eliminated?: boolean;
+  final_hand_data?: {
+    winners: string[];
+    winnings: { [key: string]: number };
+    hand_name: string;
+    showdown: boolean;
+    players_showdown?: { [key: string]: {
+      cards: any[];
+      hand_name: string;
+      hand_rank: number;
+      kickers?: string[];
+    }};
+    community_cards?: any[];
+    is_final_hand?: boolean;
+    tournament_outcome?: {
+      human_won: boolean;
+      human_position: number;
+    };
+  };
 }
 
 export interface EliminationEvent {

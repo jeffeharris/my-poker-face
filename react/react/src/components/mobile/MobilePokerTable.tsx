@@ -44,6 +44,9 @@ export function MobilePokerTable({
     setRecentAiMessage(null);
   }, []);
 
+  // Debug mode state
+  const [showDebugButtons, setShowDebugButtons] = useState(false);
+
   // Use the shared hook for all socket/state management
   const {
     gameState,
@@ -58,6 +61,7 @@ export function MobilePokerTable({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    debugTriggerTournamentEnd,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -238,6 +242,77 @@ export function MobilePokerTable({
           />
         }
       />
+
+      {/* Debug buttons for testing tournament end */}
+      {config.ENABLE_DEBUG && (
+        <div style={{
+          position: 'absolute',
+          top: '50px',
+          right: '10px',
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+        }}>
+          {!showDebugButtons ? (
+            <button
+              onClick={() => setShowDebugButtons(true)}
+              style={{
+                padding: '6px 10px',
+                fontSize: '12px',
+                backgroundColor: '#666',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+              }}
+            >
+              🐛
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowDebugButtons(false)}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  backgroundColor: '#666',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                ✕ Close
+              </button>
+              <button
+                onClick={() => debugTriggerTournamentEnd(false)}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: '#e74c3c',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Test: Lost
+              </button>
+              <button
+                onClick={() => debugTriggerTournamentEnd(true)}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: '#f1c40f',
+                  color: '#000',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Test: Won
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Opponents Strip */}
       <div className="mobile-opponents" ref={opponentsContainerRef}>

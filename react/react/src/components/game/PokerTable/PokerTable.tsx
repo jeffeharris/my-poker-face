@@ -46,6 +46,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    debugTriggerTournamentEnd,
+    debugShowTournamentComplete,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -276,6 +278,42 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           >
             {debugMode ? '🐛 Hide Debug' : '🐛 Show Debug'}
           </button>
+        )}
+
+        {/* Tournament End Debug Buttons */}
+        {config.ENABLE_DEBUG && debugMode && (
+          <>
+            <button
+              onClick={() => debugTriggerTournamentEnd(false)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#e74c3c',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              }}
+            >
+              Test: You Lost
+            </button>
+            <button
+              onClick={() => debugTriggerTournamentEnd(true)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#f1c40f',
+                color: '#000',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              }}
+            >
+              Test: You Won
+            </button>
+          </>
         )}
       </div>
 
