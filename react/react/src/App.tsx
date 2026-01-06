@@ -17,6 +17,10 @@ import { useViewport } from './hooks/useViewport'
 import { config } from './config'
 import './App.css'
 
+// Game limit constants
+const MAX_GAMES_GUEST = 3;
+const MAX_GAMES_USER = 10;
+
 type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats'
 
 interface Theme {
@@ -91,9 +95,9 @@ function App() {
     }
   }, [authLoading, isAuthenticated, user, currentView]);
 
-  // Fetch saved games count when authenticated and when returning to game-menu
+  // Fetch saved games count when authenticated and on game-menu view
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && currentView === 'game-menu') {
       fetchSavedGamesCount();
     }
   }, [isAuthenticated, currentView]);
@@ -126,6 +130,16 @@ function App() {
     } catch (error) {
       console.error('Failed to fetch saved games:', error);
     }
+  };
+
+  // Helper to check for and handle max games limit error
+  const checkMaxGamesError = (response: Response, data: { error?: string }): boolean => {
+    if (response.status === 400 && data.error?.includes('Game limit reached')) {
+      const maxGames = user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER;
+      setMaxGamesError({ message: data.error, maxGames });
+      return true;
+    }
+    return false;
   };
 
   const handleSelectGame = (selectedGameId: string) => {
@@ -162,9 +176,8 @@ function App() {
       if (response.ok) {
         setGameId(data.game_id);
         setCurrentView('table');
-      } else if (response.status === 400 && data.error?.includes('Game limit reached')) {
-        const maxGames = user?.is_guest ? 3 : 10;
-        setMaxGamesError({ message: data.error, maxGames });
+      } else {
+        checkMaxGamesError(response, data);
       }
     } catch (error) {
       console.error('Failed to create game:', error);
@@ -207,9 +220,8 @@ function App() {
       if (response.ok) {
         setGameId(data.game_id);
         setCurrentView('table');
-      } else if (response.status === 400 && data.error?.includes('Game limit reached')) {
-        const maxGames = user?.is_guest ? 3 : 10;
-        setMaxGamesError({ message: data.error, maxGames });
+      } else {
+        checkMaxGamesError(response, data);
       }
     } catch (error) {
       console.error('Failed to create custom game:', error);
@@ -242,9 +254,7 @@ function App() {
 
     const data = await response.json();
 
-    if (response.status === 400 && data.error?.includes('Game limit reached')) {
-      const maxGames = user?.is_guest ? 3 : 10;
-      setMaxGamesError({ message: data.error, maxGames });
+    if (checkMaxGamesError(response, data)) {
       return;
     }
 
