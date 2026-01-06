@@ -377,7 +377,8 @@
     /* Formula: (100vw - 32px padding - 24px gaps) / 5 = ~15vw per card */
     .playing-card.image-card.large {
         width: min(17vw, 80px);
-        height: min(24.5vw, 116px);
+        height: auto;
+        aspect-ratio: 500 / 726;
     }
 
     /* Unicode card responsive sizes */
@@ -430,7 +431,8 @@
 
     .playing-card.card-back.large {
         width: min(17vw, 80px);
-        height: min(24.5vw, 116px);
+        height: auto;
+        aspect-ratio: 500 / 726;
         padding-bottom: 0;
     }
 }
