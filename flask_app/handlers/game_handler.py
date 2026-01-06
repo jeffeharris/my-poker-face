@@ -5,6 +5,7 @@ manageable functions for maintainability.
 """
 
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -446,15 +447,20 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         for name, controller in ai_controllers.items()
     }
 
+    def emit_commentary_immediately(player_name: str, commentary) -> None:
+        """Callback to emit commentary as soon as it's ready."""
+        if commentary and commentary.table_comment:
+            logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
+            send_message(game_id, player_name, commentary.table_comment, "ai")
+
     try:
         logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
-        commentaries = memory_manager.generate_commentary_for_hand(ai_players)
+        # Pass callback to emit each commentary immediately as it completes
+        commentaries = memory_manager.generate_commentary_for_hand(
+            ai_players,
+            on_commentary_ready=emit_commentary_immediately
+        )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
-
-        for player_name, commentary in commentaries.items():
-            if commentary and commentary.table_comment:
-                logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
-                send_message(game_id, player_name, commentary.table_comment, "ai")
 
         for name, controller in ai_controllers.items():
             memory_manager.apply_learned_adjustments(
@@ -502,8 +508,19 @@ def check_tournament_complete(game_id: str, game_data: dict) -> bool:
 
 def _run_async_hand_complete_tasks(game_id: str, game_data: dict, game_state,
                                     winner_info: dict, winning_player_names: list,
-                                    pot_size_before_award: int) -> None:
-    """Run async tasks after winner announcement (emotional state, commentary)."""
+                                    pot_size_before_award: int,
+                                    completion_event: threading.Event = None) -> None:
+    """Run async tasks after winner announcement (emotional state, commentary).
+
+    Args:
+        game_id: The game identifier
+        game_data: Game data dictionary
+        game_state: Current game state
+        winner_info: Winner information dict
+        winning_player_names: List of winner names
+        pot_size_before_award: Pot size before awarding
+        completion_event: Optional event to signal when all tasks complete
+    """
     try:
         # Update tilt/emotional states (LLM calls)
         update_tilt_states(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
@@ -515,6 +532,10 @@ def _run_async_hand_complete_tasks(game_id: str, game_data: dict, game_state,
         generate_ai_commentary(game_id, game_data)
     except Exception as e:
         logger.warning(f"Async commentary generation failed: {e}")
+    finally:
+        # Signal completion so the main game loop can proceed
+        if completion_event:
+            completion_event.set()
 
 
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
@@ -551,10 +572,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     send_message(game_id, "Table", message_content, "table", 1)
     socketio.emit('winner_announcement', winner_data, to=game_id)
 
+    # Create event to track when async commentary tasks complete
+    commentary_complete = threading.Event()
+
     # Start async tasks for emotional state and commentary (LLM calls)
+    # Commentary runs in parallel for all AI players, but we wait for all to finish
     socketio.start_background_task(
         _run_async_hand_complete_tasks,
-        game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award
+        game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award,
+        commentary_complete
     )
 
     # Apply pressure events (fast, local calculations)
@@ -584,8 +610,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     if check_tournament_complete(game_id, game_data):
         return game_state, True
 
-    # Delay before new hand
-    socketio.sleep(4 if is_showdown else 2)
+    # Wait for commentary to complete before starting new hand
+    # Commentary runs in parallel across AI players, but we need all to finish
+    # Use a timeout to prevent indefinite blocking if something goes wrong
+    commentary_timeout = 10  # seconds
+    if not commentary_complete.wait(timeout=commentary_timeout):
+        logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
+
+    # Small additional delay for visual pacing
+    socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
     # Start recording new hand
