@@ -62,6 +62,7 @@ function App() {
   const [gameId, setGameId] = useState<string | null>(activeGameId && storedUser ? activeGameId : null)
   const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
+  const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
@@ -90,9 +91,12 @@ function App() {
     }
   }, [authLoading, isAuthenticated, user, currentView]);
 
+  // Fetch saved games count when authenticated and when returning to game-menu
   useEffect(() => {
-    fetchSavedGamesCount();
-  }, []);
+    if (isAuthenticated) {
+      fetchSavedGamesCount();
+    }
+  }, [isAuthenticated, currentView]);
 
   // Update page title based on current view
   useEffect(() => {
@@ -152,11 +156,15 @@ function App() {
         },
         body: JSON.stringify({ playerName }),
       });
-      
+
+      const data = await response.json();
+
       if (response.ok) {
-        const data = await response.json();
         setGameId(data.game_id);
         setCurrentView('table');
+      } else if (response.status === 400 && data.error?.includes('Game limit reached')) {
+        const maxGames = user?.is_guest ? 3 : 10;
+        setMaxGamesError({ message: data.error, maxGames });
       }
     } catch (error) {
       console.error('Failed to create game:', error);
@@ -175,6 +183,10 @@ function App() {
     setCurrentView('selector');
   };
 
+  const handleGamesChanged = () => {
+    fetchSavedGamesCount();
+  };
+
   const handleStartCustomGame = async (selectedPersonalities: string[], llmConfig?: { model: string; reasoning_effort: string }) => {
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
@@ -190,10 +202,14 @@ function App() {
         }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        const data = await response.json();
         setGameId(data.game_id);
         setCurrentView('table');
+      } else if (response.status === 400 && data.error?.includes('Game limit reached')) {
+        const maxGames = user?.is_guest ? 3 : 10;
+        setMaxGamesError({ message: data.error, maxGames });
       }
     } catch (error) {
       console.error('Failed to create custom game:', error);
@@ -224,11 +240,18 @@ function App() {
       throw new Error('Rate limit exceeded. Please wait a few minutes before starting a new game.');
     }
 
+    const data = await response.json();
+
+    if (response.status === 400 && data.error?.includes('Game limit reached')) {
+      const maxGames = user?.is_guest ? 3 : 10;
+      setMaxGamesError({ message: data.error, maxGames });
+      return;
+    }
+
     if (!response.ok) {
       throw new Error('Failed to create game. Please try again.');
     }
 
-    const data = await response.json();
     setGameId(data.game_id);
     setCurrentView('table');
   };
@@ -289,6 +312,7 @@ function App() {
         <GameSelector
           onSelectGame={handleSelectGame}
           onBack={() => setCurrentView('game-menu')}
+          onGamesChanged={handleGamesChanged}
         />
       )}
       {currentView === 'custom-game' && (
@@ -329,6 +353,82 @@ function App() {
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
       {currentView === 'stats' && (
         <CareerStats onBack={() => setCurrentView('game-menu')} />
+      )}
+
+      {/* Max Games Error Modal */}
+      {maxGamesError && (
+        <div className="modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div className="modal-content" style={{
+            background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '16px',
+            padding: '32px',
+            maxWidth: '400px',
+            width: '100%',
+            textAlign: 'center',
+            color: 'white'
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+              <span role="img" aria-label="warning">&#x26A0;&#xFE0F;</span>
+            </div>
+            <h2 style={{ fontSize: '24px', marginBottom: '12px', color: '#f1f5f9' }}>
+              Game Limit Reached
+            </h2>
+            <p style={{ color: '#94a3b8', marginBottom: '24px', lineHeight: '1.6' }}>
+              You have reached the maximum of {maxGamesError.maxGames} saved game{maxGamesError.maxGames > 1 ? 's' : ''}.
+              Would you like to manage your saved games to make room for a new one?
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => {
+                  setMaxGamesError(null);
+                  setCurrentView('selector');
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s, box-shadow 0.2s'
+                }}
+              >
+                Manage Games
+              </button>
+              <button
+                onClick={() => setMaxGamesError(null)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#94a3b8',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s, box-shadow 0.2s'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* PWA Install Prompt */}
