@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Card } from '../../cards';
+import { getOrdinal, type BackendCard } from '../../../types/tournament';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
-  cards: string[];
+  cards: string[] | BackendCard[];
   hand_name: string;
   hand_rank: number;
   kickers?: string[];
@@ -16,7 +17,13 @@ interface WinnerInfo {
   winning_hand?: string[];
   showdown: boolean;
   players_showdown?: { [key: string]: PlayerShowdownInfo };
-  community_cards?: string[];
+  community_cards?: string[] | BackendCard[];
+  // Tournament final hand context
+  is_final_hand?: boolean;
+  tournament_outcome?: {
+    human_won: boolean;
+    human_position: number;
+  };
 }
 
 interface CommentaryItem {
@@ -40,13 +47,18 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
   useEffect(() => {
     if (winnerInfo) {
       setShow(true);
-      
+
       // If it's a showdown, reveal cards after a delay
       if (winnerInfo.showdown && winnerInfo.players_showdown) {
         setTimeout(() => setRevealCards(true), 1000);
       }
-      
-      // Auto-hide after animation
+
+      // For final hand, don't auto-dismiss - require user to click continue
+      if (winnerInfo.is_final_hand) {
+        return;
+      }
+
+      // Auto-hide after animation (for non-final hands)
       const timer = setTimeout(() => {
         setShow(false);
         setRevealCards(false);
@@ -75,6 +87,15 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
           <h1 className="winner-title">{isSplitPot ? '🏆 Split Pot! 🏆' : '🏆 Winner! 🏆'}</h1>
           <div className="winner-name">{winnersString}</div>
         </div>
+
+        {/* Tournament Outcome Banner - only shown on final hand */}
+        {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
+          <div className={`tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}>
+            {winnerInfo.tournament_outcome.human_won
+              ? '🏆 YOU WON THE TOURNAMENT! 🏆'
+              : `💔 YOU'RE OUT! Finished ${getOrdinal(winnerInfo.tournament_outcome.human_position)}`}
+          </div>
+        )}
 
         <div className="winner-details">
           <div className="pot-won">{isSplitPot ? `Split $${totalWinnings}` : `Won $${totalWinnings}`}</div>
@@ -135,6 +156,20 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
           <div className="no-showdown">
             <p>All opponents folded</p>
           </div>
+        )}
+
+        {/* Continue button for final hand - requires manual dismiss */}
+        {winnerInfo.is_final_hand && (
+          <button
+            className="continue-to-results-btn"
+            onClick={() => {
+              setShow(false);
+              setRevealCards(false);
+              setTimeout(onComplete, 500);
+            }}
+          >
+            Continue to Results
+          </button>
         )}
       </div>
     </div>

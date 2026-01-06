@@ -12,17 +12,8 @@ import { PokerTableLayout } from '../PokerTableLayout';
 import { DebugPanel } from '../../debug/DebugPanel';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import type { Player } from '../../../types/player';
 import './PokerTable.css';
-
-interface Player {
-  name: string;
-  stack: number;
-  bet: number;
-  is_folded: boolean;
-  is_all_in: boolean;
-  is_human: boolean;
-  hand?: string[];
-}
 
 interface PokerTableProps {
   gameId?: string | null;
@@ -46,6 +37,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    debugTriggerTournamentEnd,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -276,6 +268,42 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           >
             {debugMode ? '🐛 Hide Debug' : '🐛 Show Debug'}
           </button>
+        )}
+
+        {/* Tournament End Debug Buttons */}
+        {config.ENABLE_DEBUG && debugMode && (
+          <>
+            <button
+              onClick={() => debugTriggerTournamentEnd(false)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#e74c3c',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              }}
+            >
+              Test: You Lost
+            </button>
+            <button
+              onClick={() => debugTriggerTournamentEnd(true)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#f1c40f',
+                color: '#000',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              }}
+            >
+              Test: You Won
+            </button>
+          </>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
+import { getOrdinal } from "../../types/tournament";
 import type { PostRoundTone, PostRoundSuggestion } from "../../types/chat";
 import "./MobileWinnerAnnouncement.css";
 
@@ -19,6 +20,12 @@ interface WinnerInfo {
     showdown: boolean;
     players_showdown?: { [key: string]: PlayerShowdownInfo };
     community_cards?: string[];
+    // Tournament final hand context
+    is_final_hand?: boolean;
+    tournament_outcome?: {
+        human_won: boolean;
+        human_position: number;
+    };
 }
 
 interface CommentaryItem {
@@ -223,9 +230,10 @@ export function MobileWinnerAnnouncement({
         }
     }, [winnerInfo]);
 
-    // Separate effect for auto-dismiss that respects isInteracting
+    // Separate effect for auto-dismiss that respects isInteracting and final hand
     useEffect(() => {
-        if (!winnerInfo || isInteracting) return;
+        // Don't auto-dismiss if interacting OR if it's the final hand
+        if (!winnerInfo || isInteracting || winnerInfo.is_final_hand) return;
 
         const dismissTimer = setTimeout(
             () => {
@@ -261,6 +269,15 @@ export function MobileWinnerAnnouncement({
                 {winnerInfo.hand_name && (
                     <div className="winner-hand-name">
                         with {winnerInfo.hand_name}
+                    </div>
+                )}
+
+                {/* Tournament Outcome Banner - only shown on final hand */}
+                {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
+                    <div className={`mobile-tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}>
+                        {winnerInfo.tournament_outcome.human_won
+                            ? 'CHAMPION!'
+                            : `Finished ${getOrdinal(winnerInfo.tournament_outcome.human_position)}`}
                     </div>
                 )}
 
@@ -381,7 +398,7 @@ export function MobileWinnerAnnouncement({
                 )}
 
                 <button className="dismiss-btn" onClick={onComplete}>
-                    Continue
+                    {winnerInfo.is_final_hand ? 'Continue to Results' : 'Continue'}
                 </button>
             </div>
         </div>
