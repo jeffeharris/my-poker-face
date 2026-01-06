@@ -4,15 +4,20 @@
  * Uses design tokens for consistent styling
  */
 
+/* Header - 8% of viewport */
 .mobile-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  padding-top: max(var(--space-3), var(--safe-area-top));
+  padding: 0 var(--space-4);
+  padding-top: max(0px, var(--safe-area-top));
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
   position: relative;
   z-index: var(--z-nav);
+  height: 8dvh;
+  min-height: 8dvh;
+  max-height: 8dvh;
+  box-sizing: border-box;
 }
 
 /* Layout slots */

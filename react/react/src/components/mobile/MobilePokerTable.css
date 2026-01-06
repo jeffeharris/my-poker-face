@@ -124,7 +124,7 @@
 
 /* Header styles now in shared/MobileHeader.css */
 
-/* Opponents Strip */
+/* Opponents Strip - 33% of viewport */
 .mobile-opponents {
     display: flex;
     gap: 8px;
@@ -132,6 +132,11 @@
     overflow-x: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    height: 33dvh;
+    min-height: 33dvh;
+    max-height: 33dvh;
+    align-items: center;
+    box-sizing: border-box;
 }
 
 .mobile-opponents::-webkit-scrollbar {
@@ -143,13 +148,16 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 15px 20px;
+    justify-content: center;
+    padding: 8px 16px;
     background: rgba(0, 0, 0, 0.4);
     border-radius: 16px;
-    min-width: 125px;
+    min-width: 100px;
+    height: calc(25dvh - 24px); /* Fill available height minus padding */
     position: relative;
     border: 2px solid transparent;
     transition: all 0.3s;
+    box-sizing: border-box;
 }
 
 .mobile-opponent.thinking {
@@ -210,18 +218,21 @@
 }
 
 .opponent-avatar {
-    width: 80px;
-    height: 80px;
+    /* Scale avatar to fit container while maintaining circle */
+    width: min(80px, calc(25dvh - 80px));
+    height: min(80px, calc(25dvh - 80px));
+    aspect-ratio: 1 / 1;
     border-radius: 50%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 30px;
-    margin-bottom: 10px;
+    font-size: clamp(18px, 3dvh, 30px);
+    margin-bottom: 6px;
     position: relative;
     transition: transform 0.3s ease;
+    flex-shrink: 0;
 }
 
 .opponent-avatar .avatar-image {
@@ -258,7 +269,7 @@
 }
 
 .opponent-name {
-    font-size: 17px;
+    font-size: clamp(12px, 2dvh, 17px);
     font-weight: 600;
     max-width: 112px;
     overflow: hidden;
@@ -267,7 +278,7 @@
 }
 
 .opponent-stack {
-    font-size: 16px;
+    font-size: clamp(11px, 1.8dvh, 16px);
     opacity: 0.8;
 }
 
@@ -304,44 +315,47 @@
     color: white;
 }
 
-/* Community Cards */
+/* Community Cards - 30% of viewport */
 .mobile-community {
-    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 16px;
-    padding-bottom: 8px;
-    min-height: 120px;
+    padding: 8px 16px;
+    height: 30dvh;
+    min-height: 30dvh;
+    max-height: 30dvh;
+    box-sizing: border-box;
 }
 
 .community-cards-row {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
+    gap: 6px;
     width: 100%;
     padding: 0 8px;
     box-sizing: border-box;
 }
 
-/* Community cards fill their grid cell - override Card.css fixed sizes */
+/* Community cards fill grid cell, constrained by section height */
 .community-cards-row .playing-card.image-card,
 .community-cards-row .playing-card.card-back {
     width: 100% !important;
     height: auto !important;
+    max-height: calc(25dvh - 50px);
     aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
 }
 
 .community-cards-row .playing-card .card-image {
     width: 100% !important;
     height: 100% !important;
-    object-fit: fill;
+    object-fit: contain;
 }
 
 /* Community card placeholder - fills grid cell */
 .community-card-placeholder {
     width: 100%;
+    max-height: calc(25dvh - 50px);
     aspect-ratio: 500 / 726;
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed rgba(255, 255, 255, 0.2);
@@ -357,17 +371,22 @@
     font-weight: 600;
 }
 
-/* Hero Section */
+/* Hero Section - 29% of viewport (action bar overlays bottom 12%) */
 .mobile-hero {
-    padding: 12px 16px 40px 16px;
+    padding: 12px 16px 0 16px;
     background: rgba(0, 0, 0, 0.3);
     border-radius: 20px 20px 0 0;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
     border: 2px solid transparent;
     transition: all 0.3s ease;
+    height: 29dvh;
+    min-height: 29dvh;
+    max-height: 29dvh;
+    box-sizing: border-box;
 }
 
 /* Hero active turn state - matches opponent thinking glow */
@@ -390,11 +409,15 @@
 .hero-info {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 16px;
+    height: 5.75dvh; /* 25% of usable hero space (23dvh) */
+    min-height: 5.75dvh;
+    flex-shrink: 0;
 }
 
 .hero-name {
-    font-size: 16px;
+    font-size: clamp(14px, 2dvh, 18px);
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -416,29 +439,30 @@
 }
 
 .hero-stack {
-    font-size: 18px;
+    font-size: clamp(16px, 2.5dvh, 22px);
     font-weight: 700;
     color: #4caf50;
 }
 
 .hero-bet {
-    font-size: 14px;
+    font-size: clamp(12px, 1.8dvh, 16px);
     color: #ffd700;
 }
 
 .hero-cards {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    display: flex;
     gap: 12px;
-    width: 100%;
-    max-width: 250px;
+    justify-content: center;
+    align-items: flex-end; /* Align to bottom so cards extend behind action bar */
+    flex: 1;
+    overflow: visible; /* Allow cards to extend beyond container */
 }
 
-/* Hero cards fill their grid cell */
+/* Hero cards extend behind action bar - show top 50-66% */
 .hero-cards .playing-card.image-card,
 .hero-cards .playing-card.card-back {
-    width: 100% !important;
-    height: auto !important;
+    height: 28dvh !important; /* Smaller cards, bottom aligned */
+    width: auto !important;
     aspect-ratio: 500 / 726;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
@@ -446,24 +470,31 @@
 .hero-cards .playing-card .card-image {
     width: 100% !important;
     height: 100% !important;
-    object-fit: fill;
+    object-fit: cover;
+    object-position: top; /* Show top portion of card */
 }
 
 .card-placeholder {
-    width: 55px;
-    height: 80px;
+    height: 35dvh;
+    aspect-ratio: 500 / 726;
     background: linear-gradient(135deg, #1e3a5f 0%, #0a1929 100%);
     border-radius: 4px;
     border: 2px dashed rgba(255, 255, 255, 0.2);
 }
 
-/* Action Area - Always visible at bottom */
+/* Action Area - 12% of viewport */
 .mobile-action-area {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
+    width: 100%;
     z-index: 50;
+    height: 12dvh;
+    min-height: 12dvh;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 /* Waiting Bar - Shows when it's not player's turn */
@@ -476,6 +507,9 @@
     padding-bottom: max(16px, env(safe-area-inset-bottom));
     background: rgba(0, 0, 0, 0.9);
     backdrop-filter: blur(10px);
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .mobile-waiting-bar .waiting-text {
