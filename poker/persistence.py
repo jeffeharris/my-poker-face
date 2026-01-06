@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 17
 
 
 @dataclass
@@ -321,6 +321,11 @@ class GamePersistence:
             10: (self._migrate_v10_add_conversation_metrics, "Add message_count and system_prompt_length columns"),
             11: (self._migrate_v11_add_system_prompt_tokens, "Add system_prompt_tokens column for accurate token tracking"),
             12: (self._migrate_v12_drop_system_prompt_length, "Drop unused system_prompt_length column"),
+            13: (self._migrate_v13_add_pricing_tables, "Add model_pricing table and estimated_cost column"),
+            14: (self._migrate_v14_sku_based_pricing, "Redesign model_pricing as SKU-based rows"),
+            15: (self._migrate_v15_add_pricing_validity_dates, "Add valid_from and valid_until to model_pricing"),
+            16: (self._migrate_v16_add_pricing_id_to_usage, "Add pricing_id foreign key to api_usage"),
+            17: (self._migrate_v17_consolidate_pricing_ids, "Replace 4 pricing_id columns with single JSON column"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -649,6 +654,356 @@ class GamePersistence:
         """Migration v12: Drop unused system_prompt_length column."""
         conn.execute("ALTER TABLE api_usage DROP COLUMN system_prompt_length")
         logger.info("Dropped system_prompt_length column from api_usage table")
+
+    def _migrate_v13_add_pricing_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v13: Add model_pricing table and estimated_cost column."""
+        # Create model_pricing table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_pricing (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                pricing_type TEXT NOT NULL,  -- 'text' or 'image'
+
+                -- Text model pricing (per 1M tokens, in USD)
+                input_price_per_million REAL,
+                output_price_per_million REAL,
+                cached_input_price_per_million REAL,
+
+                -- Image model pricing (per image, in USD)
+                image_size TEXT,
+                image_price REAL,
+
+                effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notes TEXT,
+
+                UNIQUE(provider, model, pricing_type, image_size)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup
+            ON model_pricing(provider, model, pricing_type)
+        """)
+
+        # Add estimated_cost column to api_usage
+        conn.execute("ALTER TABLE api_usage ADD COLUMN estimated_cost REAL")
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_usage_cost
+            ON api_usage(estimated_cost)
+        """)
+
+        # Seed with current OpenAI pricing (as of Jan 2025)
+        text_models = [
+            # (provider, model, input, output, cached_input)
+            ('openai', 'gpt-4o', 2.50, 10.00, 1.25),
+            ('openai', 'gpt-4o-mini', 0.15, 0.60, 0.075),
+            ('openai', 'gpt-4-turbo', 10.00, 30.00, 5.00),
+            ('openai', 'gpt-4', 30.00, 60.00, 15.00),
+            ('openai', 'gpt-3.5-turbo', 0.50, 1.50, 0.25),
+            # Estimated pricing for newer models
+            ('openai', 'gpt-5-nano', 0.20, 0.80, 0.10),
+            ('openai', 'gpt-5-mini', 0.15, 0.60, 0.075),
+        ]
+
+        for provider, model, input_price, output_price, cached_price in text_models:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing
+                (provider, model, pricing_type, input_price_per_million,
+                 output_price_per_million, cached_input_price_per_million)
+                VALUES (?, ?, 'text', ?, ?, ?)
+            """, (provider, model, input_price, output_price, cached_price))
+
+        # Image model pricing
+        image_pricing = [
+            # (provider, model, size, price)
+            ('openai', 'dall-e-2', '256x256', 0.016),
+            ('openai', 'dall-e-2', '512x512', 0.018),
+            ('openai', 'dall-e-2', '1024x1024', 0.020),
+            ('openai', 'dall-e-3', '1024x1024', 0.040),
+            ('openai', 'dall-e-3', '1024x1792', 0.080),
+            ('openai', 'dall-e-3', '1792x1024', 0.080),
+        ]
+
+        for provider, model, size, price in image_pricing:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing
+                (provider, model, pricing_type, image_size, image_price)
+                VALUES (?, ?, 'image', ?, ?)
+            """, (provider, model, size, price))
+
+        logger.info("Created model_pricing table and added estimated_cost column")
+
+    def _migrate_v14_sku_based_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v14: Redesign model_pricing as SKU-based rows.
+
+        Instead of one row per model with multiple price columns,
+        each row is a SKU (provider, model, unit) with a single cost.
+
+        Units include:
+        - input_tokens_1m: Cost per 1M input tokens
+        - output_tokens_1m: Cost per 1M output tokens
+        - cached_input_tokens_1m: Cost per 1M cached input tokens
+        - batch_input_tokens_1m: Cost per 1M batch input tokens (50% off)
+        - batch_output_tokens_1m: Cost per 1M batch output tokens (50% off)
+        - image_<size>: Cost per image at given size (e.g., image_1024x1024)
+        """
+        # Drop old table and create new schema
+        conn.execute("DROP TABLE IF EXISTS model_pricing")
+
+        conn.execute("""
+            CREATE TABLE model_pricing (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                unit TEXT NOT NULL,
+                cost REAL NOT NULL,
+                effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notes TEXT,
+                UNIQUE(provider, model, unit)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup
+            ON model_pricing(provider, model)
+        """)
+
+        # Seed with OpenAI pricing (as of Jan 2025)
+        # https://openai.com/api/pricing/
+        skus = [
+            # GPT-4o
+            ('openai', 'gpt-4o', 'input_tokens_1m', 2.50),
+            ('openai', 'gpt-4o', 'output_tokens_1m', 10.00),
+            ('openai', 'gpt-4o', 'cached_input_tokens_1m', 1.25),
+            ('openai', 'gpt-4o', 'batch_input_tokens_1m', 1.25),
+            ('openai', 'gpt-4o', 'batch_output_tokens_1m', 5.00),
+
+            # GPT-4o-mini
+            ('openai', 'gpt-4o-mini', 'input_tokens_1m', 0.15),
+            ('openai', 'gpt-4o-mini', 'output_tokens_1m', 0.60),
+            ('openai', 'gpt-4o-mini', 'cached_input_tokens_1m', 0.075),
+            ('openai', 'gpt-4o-mini', 'batch_input_tokens_1m', 0.075),
+            ('openai', 'gpt-4o-mini', 'batch_output_tokens_1m', 0.30),
+
+            # GPT-4-turbo
+            ('openai', 'gpt-4-turbo', 'input_tokens_1m', 10.00),
+            ('openai', 'gpt-4-turbo', 'output_tokens_1m', 30.00),
+
+            # GPT-4
+            ('openai', 'gpt-4', 'input_tokens_1m', 30.00),
+            ('openai', 'gpt-4', 'output_tokens_1m', 60.00),
+
+            # GPT-3.5-turbo
+            ('openai', 'gpt-3.5-turbo', 'input_tokens_1m', 0.50),
+            ('openai', 'gpt-3.5-turbo', 'output_tokens_1m', 1.50),
+
+            # o1-preview (reasoning model)
+            ('openai', 'o1-preview', 'input_tokens_1m', 15.00),
+            ('openai', 'o1-preview', 'output_tokens_1m', 60.00),
+            ('openai', 'o1-preview', 'cached_input_tokens_1m', 7.50),
+
+            # o1-mini (reasoning model)
+            ('openai', 'o1-mini', 'input_tokens_1m', 3.00),
+            ('openai', 'o1-mini', 'output_tokens_1m', 12.00),
+            ('openai', 'o1-mini', 'cached_input_tokens_1m', 1.50),
+
+            # Estimated pricing for gpt-5 models (not official)
+            ('openai', 'gpt-5-nano', 'input_tokens_1m', 0.20),
+            ('openai', 'gpt-5-nano', 'output_tokens_1m', 0.80),
+            ('openai', 'gpt-5-nano', 'cached_input_tokens_1m', 0.10),
+            ('openai', 'gpt-5-mini', 'input_tokens_1m', 0.15),
+            ('openai', 'gpt-5-mini', 'output_tokens_1m', 0.60),
+            ('openai', 'gpt-5-mini', 'cached_input_tokens_1m', 0.075),
+
+            # DALL-E 2
+            ('openai', 'dall-e-2', 'image_256x256', 0.016),
+            ('openai', 'dall-e-2', 'image_512x512', 0.018),
+            ('openai', 'dall-e-2', 'image_1024x1024', 0.020),
+
+            # DALL-E 3 Standard
+            ('openai', 'dall-e-3', 'image_1024x1024', 0.040),
+            ('openai', 'dall-e-3', 'image_1024x1792', 0.080),
+            ('openai', 'dall-e-3', 'image_1792x1024', 0.080),
+
+            # DALL-E 3 HD
+            ('openai', 'dall-e-3', 'image_hd_1024x1024', 0.080),
+            ('openai', 'dall-e-3', 'image_hd_1024x1792', 0.120),
+            ('openai', 'dall-e-3', 'image_hd_1792x1024', 0.120),
+
+            # Anthropic Claude 3.5 Sonnet
+            ('anthropic', 'claude-3-5-sonnet-20241022', 'input_tokens_1m', 3.00),
+            ('anthropic', 'claude-3-5-sonnet-20241022', 'output_tokens_1m', 15.00),
+            ('anthropic', 'claude-3-5-sonnet-20241022', 'cached_input_tokens_1m', 0.30),
+
+            # Anthropic Claude 3.5 Haiku
+            ('anthropic', 'claude-3-5-haiku-20241022', 'input_tokens_1m', 0.80),
+            ('anthropic', 'claude-3-5-haiku-20241022', 'output_tokens_1m', 4.00),
+            ('anthropic', 'claude-3-5-haiku-20241022', 'cached_input_tokens_1m', 0.08),
+
+            # Anthropic Claude 3 Opus
+            ('anthropic', 'claude-3-opus-20240229', 'input_tokens_1m', 15.00),
+            ('anthropic', 'claude-3-opus-20240229', 'output_tokens_1m', 75.00),
+            ('anthropic', 'claude-3-opus-20240229', 'cached_input_tokens_1m', 1.50),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Redesigned model_pricing table with SKU-based rows")
+
+    def _migrate_v15_add_pricing_validity_dates(self, conn: sqlite3.Connection) -> None:
+        """Migration v15: Add valid_from and valid_until columns to model_pricing.
+
+        This allows tracking pricing changes over time:
+        - valid_from: When this price became effective (NULL = always valid)
+        - valid_until: When this price expires (NULL = still current)
+
+        Multiple price entries for the same SKU are allowed with different date ranges.
+        """
+        # Add validity columns
+        conn.execute("ALTER TABLE model_pricing ADD COLUMN valid_from TIMESTAMP")
+        conn.execute("ALTER TABLE model_pricing ADD COLUMN valid_until TIMESTAMP")
+
+        # Drop old unique constraint and recreate with date ranges
+        # SQLite doesn't support DROP CONSTRAINT, so we need to recreate the table
+        conn.execute("""
+            CREATE TABLE model_pricing_new (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                unit TEXT NOT NULL,
+                cost REAL NOT NULL,
+                valid_from TIMESTAMP,
+                valid_until TIMESTAMP,
+                effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notes TEXT,
+                UNIQUE(provider, model, unit, valid_from)
+            )
+        """)
+
+        # Copy data from old table
+        conn.execute("""
+            INSERT INTO model_pricing_new (id, provider, model, unit, cost, effective_date, notes)
+            SELECT id, provider, model, unit, cost, effective_date, notes FROM model_pricing
+        """)
+
+        # Drop old table and rename new one
+        conn.execute("DROP TABLE model_pricing")
+        conn.execute("ALTER TABLE model_pricing_new RENAME TO model_pricing")
+
+        # Recreate index
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup
+            ON model_pricing(provider, model)
+        """)
+
+        # Add index for date-based lookups
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_model_pricing_validity
+            ON model_pricing(provider, model, unit, valid_from, valid_until)
+        """)
+
+        logger.info("Added valid_from and valid_until columns to model_pricing")
+
+    def _migrate_v16_add_pricing_id_to_usage(self, conn: sqlite3.Connection) -> None:
+        """Migration v16: Add pricing_ids JSON column to api_usage for audit trail.
+
+        Stores references to which model_pricing rows were used for cost calculation.
+        JSON format: {"input": 1, "output": 2, "cached": 3} or {"image": 45}
+        """
+        conn.execute("ALTER TABLE api_usage ADD COLUMN pricing_ids TEXT")
+
+        logger.info("Added pricing_ids column to api_usage table")
+
+    def _migrate_v17_consolidate_pricing_ids(self, conn: sqlite3.Connection) -> None:
+        """Migration v17: Consolidate 4 pricing_id columns into single JSON column.
+
+        This fixes v16 which may have created separate columns instead of JSON.
+        SQLite doesn't support DROP COLUMN in older versions, so we recreate the table.
+        """
+        # Check if we need to migrate (4 columns exist instead of pricing_ids)
+        cursor = conn.execute("PRAGMA table_info(api_usage)")
+        columns = {row[1] for row in cursor}
+
+        if 'input_pricing_id' in columns:
+            # Old schema - need to migrate
+            # Create new table without the 4 pricing_id columns, with pricing_ids JSON
+            conn.execute("""
+                CREATE TABLE api_usage_new (
+                    id INTEGER PRIMARY KEY,
+                    created_at TIMESTAMP,
+                    game_id TEXT,
+                    owner_id TEXT,
+                    player_name TEXT,
+                    hand_number INTEGER,
+                    call_type TEXT,
+                    prompt_template TEXT,
+                    provider TEXT,
+                    model TEXT,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    cached_tokens INTEGER,
+                    reasoning_tokens INTEGER,
+                    image_count INTEGER,
+                    image_size TEXT,
+                    latency_ms INTEGER,
+                    status TEXT,
+                    finish_reason TEXT,
+                    error_code TEXT,
+                    reasoning_effort TEXT,
+                    request_id TEXT,
+                    max_tokens INTEGER,
+                    message_count INTEGER,
+                    system_prompt_tokens INTEGER,
+                    estimated_cost REAL,
+                    pricing_ids TEXT
+                )
+            """)
+
+            # Copy data, converting old columns to JSON
+            conn.execute("""
+                INSERT INTO api_usage_new
+                SELECT
+                    id, created_at, game_id, owner_id, player_name, hand_number,
+                    call_type, prompt_template, provider, model,
+                    input_tokens, output_tokens, cached_tokens, reasoning_tokens,
+                    image_count, image_size, latency_ms, status, finish_reason,
+                    error_code, reasoning_effort, request_id, max_tokens,
+                    message_count, system_prompt_tokens, estimated_cost,
+                    CASE
+                        WHEN image_pricing_id IS NOT NULL THEN json_object('image', image_pricing_id)
+                        WHEN input_pricing_id IS NOT NULL THEN
+                            CASE
+                                WHEN cached_pricing_id IS NOT NULL THEN
+                                    json_object('input', input_pricing_id, 'output', output_pricing_id, 'cached', cached_pricing_id)
+                                ELSE
+                                    json_object('input', input_pricing_id, 'output', output_pricing_id)
+                            END
+                        ELSE NULL
+                    END
+                FROM api_usage
+            """)
+
+            conn.execute("DROP TABLE api_usage")
+            conn.execute("ALTER TABLE api_usage_new RENAME TO api_usage")
+
+            # Recreate indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game ON api_usage(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)")
+
+            logger.info("Consolidated 4 pricing_id columns into pricing_ids JSON")
+        elif 'pricing_ids' not in columns:
+            # Neither schema exists - add the column
+            conn.execute("ALTER TABLE api_usage ADD COLUMN pricing_ids TEXT")
+            logger.info("Added pricing_ids column to api_usage table")
+        else:
+            logger.info("pricing_ids column already exists, no migration needed")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:

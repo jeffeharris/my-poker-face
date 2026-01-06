@@ -1,14 +1,27 @@
 """Usage tracking for LLM operations."""
+import json
 import logging
 import sqlite3
+import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 from .response import LLMResponse, ImageResponse
 
 logger = logging.getLogger(__name__)
+
+# Cache TTL in seconds (1 hour)
+PRICING_CACHE_TTL = 3600
+
+
+@dataclass
+class PricingEntry:
+    """A cached pricing entry."""
+    id: int
+    cost: float
 
 
 class CallType(str, Enum):
@@ -43,6 +56,11 @@ class UsageTracker:
             db_path = self._get_default_db_path()
         self.db_path = db_path
         self._ensure_table()
+
+        # Pricing cache: {(provider, model, unit): PricingEntry}
+        self._pricing_cache: Dict[Tuple[str, str, str], PricingEntry] = {}
+        self._cache_loaded_at: Optional[float] = None
+        self._cache_lock = threading.Lock()
 
     @classmethod
     def get_default(cls) -> "UsageTracker":
@@ -145,6 +163,121 @@ class UsageTracker:
         else:
             logger.info(stats)
 
+    def _refresh_pricing_cache(self, conn: sqlite3.Connection) -> None:
+        """Load all current pricing into memory cache."""
+        with self._cache_lock:
+            try:
+                cursor = conn.execute("""
+                    SELECT id, provider, model, unit, cost FROM model_pricing
+                    WHERE (valid_from IS NULL OR valid_from <= datetime('now'))
+                      AND (valid_until IS NULL OR valid_until > datetime('now'))
+                """)
+                self._pricing_cache.clear()
+                for row in cursor:
+                    key = (row[1], row[2], row[3])  # (provider, model, unit)
+                    self._pricing_cache[key] = PricingEntry(id=row[0], cost=row[4])
+                self._cache_loaded_at = datetime.now(timezone.utc).timestamp()
+                logger.debug(f"Pricing cache refreshed: {len(self._pricing_cache)} entries")
+            except sqlite3.OperationalError:
+                # Table doesn't exist yet
+                pass
+
+    def _ensure_cache_fresh(self, conn: sqlite3.Connection) -> None:
+        """Ensure pricing cache is loaded and not stale."""
+        now = datetime.now(timezone.utc).timestamp()
+        if (self._cache_loaded_at is None or
+            now - self._cache_loaded_at > PRICING_CACHE_TTL):
+            self._refresh_pricing_cache(conn)
+
+    def invalidate_pricing_cache(self) -> None:
+        """Force cache refresh on next lookup. Call after updating pricing."""
+        with self._cache_lock:
+            self._cache_loaded_at = None
+
+    def _get_sku_pricing(
+        self,
+        conn: sqlite3.Connection,
+        provider: str,
+        model: str,
+        unit: str,
+    ) -> Optional[PricingEntry]:
+        """Look up pricing entry from cache.
+
+        Args:
+            conn: Database connection (used to refresh cache if needed)
+            provider: Provider name (e.g., 'openai')
+            model: Model name (e.g., 'gpt-4o')
+            unit: The pricing unit (e.g., 'input_tokens_1m', 'image_1024x1024')
+
+        Returns:
+            PricingEntry with id and cost, or None if not found
+        """
+        self._ensure_cache_fresh(conn)
+        return self._pricing_cache.get((provider, model, unit))
+
+    @dataclass
+    class CostResult:
+        """Result of cost calculation with pricing IDs for audit trail."""
+        cost: float
+        pricing_ids: Dict[str, int] = field(default_factory=dict)
+
+    def _calculate_cost(
+        self,
+        conn: sqlite3.Connection,
+        response: LLMResponse | ImageResponse,
+    ) -> Optional["UsageTracker.CostResult"]:
+        """Calculate estimated cost for an API call.
+
+        Args:
+            conn: Database connection
+            response: The LLM or Image response
+
+        Returns:
+            CostResult with cost and pricing IDs, or None if pricing not found
+        """
+        is_image = isinstance(response, ImageResponse)
+        provider = response.provider
+        model = response.model
+
+        if is_image:
+            # Image pricing: look up image_<size> SKU
+            size = response.size or '1024x1024'
+            unit = f'image_{size}'
+            pricing = self._get_sku_pricing(conn, provider, model, unit)
+            if pricing is not None:
+                return self.CostResult(
+                    cost=response.image_count * pricing.cost,
+                    pricing_ids={"image": pricing.id}
+                )
+        else:
+            # Text pricing: look up input, output, and optionally cached SKUs
+            input_pricing = self._get_sku_pricing(conn, provider, model, 'input_tokens_1m')
+            output_pricing = self._get_sku_pricing(conn, provider, model, 'output_tokens_1m')
+
+            if input_pricing is None or output_pricing is None:
+                return None
+
+            # Get cached pricing (fallback to half of input cost if not specified)
+            cached_pricing = self._get_sku_pricing(conn, provider, model, 'cached_input_tokens_1m')
+            cached_cost_per_m = cached_pricing.cost if cached_pricing else input_pricing.cost / 2
+
+            # Calculate cost
+            uncached_input = response.input_tokens - response.cached_tokens
+            input_cost = uncached_input * input_pricing.cost / 1_000_000
+            cached_cost = response.cached_tokens * cached_cost_per_m / 1_000_000
+            output_cost = response.output_tokens * output_pricing.cost / 1_000_000
+
+            pricing_ids = {"input": input_pricing.id, "output": output_pricing.id}
+            if cached_pricing:
+                pricing_ids["cached"] = cached_pricing.id
+
+            return self.CostResult(
+                cost=input_cost + cached_cost + output_cost,
+                pricing_ids=pricing_ids
+            )
+
+        return None
+
     def _insert_usage(
         self,
         response: LLMResponse | ImageResponse,
@@ -161,14 +294,22 @@ class UsageTracker:
         is_image = isinstance(response, ImageResponse)
 
         with sqlite3.connect(self.db_path) as conn:
+            # Calculate cost using pricing table (returns CostResult with pricing IDs)
+            cost_result = self._calculate_cost(conn, response)
+
+            # Extract values from cost result
+            estimated_cost = cost_result.cost if cost_result else None
+            pricing_ids_json = json.dumps(cost_result.pricing_ids) if cost_result else None
+
             conn.execute("""
                 INSERT INTO api_usage (
                     created_at, game_id, owner_id, player_name, hand_number,
                     call_type, prompt_template, provider, model,
                     input_tokens, output_tokens, cached_tokens, reasoning_tokens,
                     reasoning_effort, max_tokens, image_count, image_size, latency_ms, status,
-                    finish_reason, error_code, request_id, message_count, system_prompt_tokens
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    finish_reason, error_code, request_id, message_count, system_prompt_tokens,
+                    estimated_cost, pricing_ids
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 game_id,
@@ -194,4 +335,6 @@ class UsageTracker:
                 getattr(response, 'request_id', None),
                 message_count,
                 system_prompt_tokens,
+                estimated_cost,
+                pricing_ids_json,
             ))
