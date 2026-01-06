@@ -2,6 +2,12 @@
  * Tournament types for end-game handling and stats
  */
 
+// Backend card format (from Python API)
+export interface BackendCard {
+  rank: string;
+  suit: string;
+}
+
 export interface PlayerStanding {
   player_name: string;
   is_human: boolean;
@@ -24,12 +30,12 @@ export interface TournamentResult {
     hand_name: string;
     showdown: boolean;
     players_showdown?: { [key: string]: {
-      cards: any[];
+      cards: BackendCard[];
       hand_name: string;
       hand_rank: number;
       kickers?: string[];
     }};
-    community_cards?: any[];
+    community_cards?: BackendCard[];
     is_final_hand?: boolean;
     tournament_outcome?: {
       human_won: boolean;

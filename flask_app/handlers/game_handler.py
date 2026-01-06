@@ -378,9 +378,12 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
         'winnings': winner_info['winnings'],
         'showdown': is_showdown,
         'community_cards': [],
-        'is_final_hand': is_final_hand,
-        'tournament_outcome': tournament_outcome
     }
+
+    if is_final_hand:
+        winner_data['is_final_hand'] = True
+    if tournament_outcome:
+        winner_data['tournament_outcome'] = tournament_outcome
 
     if is_showdown:
         winner_data['hand_name'] = winner_info['hand_name']
