@@ -764,10 +764,15 @@ def handle_ai_action(game_id: str) -> None:
     action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
     if player_message and player_message != '...':
+        # Player has something to say - combine verbal and physical
         full_message = f"{player_message} {player_physical_description}".strip()
         send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+    elif player_physical_description and player_physical_description.strip():
+        # No speech but has physical reaction - show that
+        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1, action=action_text)
     else:
-        send_message(game_id, "Table", action_text, "table")
+        # Silent action - show a brief action-only message
+        send_message(game_id, current_player.name, "", "ai", sleep=1, action=action_text)
 
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)

@@ -22,37 +22,7 @@
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-}
-
-.floating-chat.entering {
-  animation: floatIn 0.3s ease-out;
-}
-
-.floating-chat.exiting {
-  animation: floatOut 0.3s ease-in forwards;
-}
-
-@keyframes floatIn {
-  from {
-    opacity: 0;
-    transform: translateY(-20px) scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes floatOut {
-  from {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-20px) scale(0.9);
-  }
+  overflow: hidden;
 }
 
 .floating-chat-avatar {
@@ -116,10 +86,19 @@
 .floating-chat-dismiss {
   width: 24px;
   height: 24px;
+  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 18px;
   flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.5;
+}
+
+.floating-chat-dismiss svg {
+  width: 16px;
+  height: 16px;
 }

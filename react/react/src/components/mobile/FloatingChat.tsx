@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, Player } from '../../types';
 import { config } from '../../config';
 import './FloatingChat.css';
 
 interface MessageWithMeta extends ChatMessage {
   addedAt: number;
-  isExiting: boolean;
+  displayDuration: number;
+  timerStartedAt: number | null; // null = timer paused (not in visible zone yet)
 }
 
 interface FloatingChatProps {
@@ -15,79 +17,163 @@ interface FloatingChatProps {
   players?: Player[];
 }
 
+// Calculate display duration based on message length
+// Base: 3 seconds, plus 50ms per character, capped between 3-15 seconds
+function calculateDuration(message: string, action?: string): number {
+  const baseMs = 3000;
+  const msPerChar = 50;
+  const minMs = 3000;
+  const maxMs = 15000;
+  const textLength = message.length > 0 ? message.length : (action?.length || 0);
+  const calculated = baseMs + (textLength * msPerChar);
+  return Math.min(maxMs, Math.max(minMs, calculated));
+}
+
+// Message component - only X button dismisses
+interface MessageItemProps {
+  msg: MessageWithMeta;
+  avatarUrl: string | null;
+  onDismiss: (id: string) => void;
+}
+
+function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
+  const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
+  const isAI = msg.type === 'ai';
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: -20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{
+        opacity: 0,
+        scale: 0.95,
+        y: -10,
+        transition: { duration: 0.2 }
+      }}
+      transition={{
+        layout: { type: "spring", stiffness: 500, damping: 35 },
+        opacity: { duration: 0.2 },
+        scale: { duration: 0.25 },
+        y: { type: "spring", stiffness: 500, damping: 35 }
+      }}
+      className="floating-chat"
+    >
+      <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}>
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
+        ) : (
+          senderInitial
+        )}
+        {isAI && !avatarUrl && <span className="ai-badge">AI</span>}
+      </div>
+      <div className="floating-chat-content">
+        <div className="floating-chat-sender">
+          {msg.action || msg.sender}
+        </div>
+        {msg.message && (
+          <div className="floating-chat-message">{msg.message}</div>
+        )}
+      </div>
+      <button
+        className="floating-chat-dismiss"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss(msg.id);
+        }}
+        aria-label="Dismiss"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+      </button>
+    </motion.div>
+  );
+}
+
+// How many messages can have active timers (visible zone)
+const ACTIVE_MESSAGE_LIMIT = 2;
+
 export function FloatingChat({ message, onDismiss, duration = 8000, players = [] }: FloatingChatProps) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
 
-  // Get avatar URL for a player by name
+  void duration; // Using per-message duration instead
+
   const getPlayerAvatar = (senderName: string): string | null => {
     const player = players.find(p => p.name === senderName);
     return player?.avatar_url ? `${config.API_URL}${player.avatar_url}` : null;
   };
 
-  // Add new message to stack when it arrives
-  // Note: Message IDs are UUIDs generated server-side, guaranteed unique per session.
-  // The processedIdsRef prevents duplicate processing during React re-renders, not ID collisions.
+  // Add new message to stack
   useEffect(() => {
     if (message && !processedIdsRef.current.has(message.id)) {
       processedIdsRef.current.add(message.id);
-      setMessages(prev => [...prev, {
-        ...message,
-        addedAt: Date.now(),
-        isExiting: false
-      }]);
+      const msgDuration = calculateDuration(message.message, message.action);
+
+      setMessages(prev => {
+        const newPosition = prev.length;
+        const isInActiveZone = newPosition < ACTIVE_MESSAGE_LIMIT;
+
+        return [...prev, {
+          ...message,
+          addedAt: Date.now(),
+          displayDuration: msgDuration,
+          timerStartedAt: isInActiveZone ? Date.now() : null
+        }];
+      });
     }
   }, [message]);
 
-  // Handle TTL expiration for each message
+  // Activate timers for messages that moved into the visible zone
+  useEffect(() => {
+    setMessages(prev => {
+      let changed = false;
+      const updated = prev.map((msg, index) => {
+        // If message is now in active zone but timer hasn't started, start it
+        if (index < ACTIVE_MESSAGE_LIMIT && msg.timerStartedAt === null) {
+          changed = true;
+          return { ...msg, timerStartedAt: Date.now() };
+        }
+        return msg;
+      });
+      return changed ? updated : prev;
+    });
+  }, [messages.length]); // Re-check when message count changes
+
+  // Handle TTL expiration
   useEffect(() => {
     if (messages.length === 0) return;
 
     const checkExpired = () => {
       const now = Date.now();
-
       setMessages(prev => {
-        let changed = false;
-        const updated = prev.map(msg => {
-          const elapsed = now - msg.addedAt;
-          if (elapsed >= duration && !msg.isExiting) {
-            changed = true;
-            return { ...msg, isExiting: true };
-          }
-          return msg;
+        const filtered = prev.filter(msg => {
+          // If timer hasn't started, message is paused - keep it
+          if (msg.timerStartedAt === null) return true;
+          const elapsed = now - msg.timerStartedAt;
+          return elapsed < msg.displayDuration;
         });
 
-        // Remove messages that finished exit animation (300ms)
-        const filtered = updated.filter(msg => {
-          if (!msg.isExiting) return true;
-          const elapsed = now - msg.addedAt;
-          return elapsed < duration + 300;
-        });
-
-        if (filtered.length !== updated.length) changed = true;
-
-        // Call onDismiss when all messages are gone
         if (filtered.length === 0 && prev.length > 0) {
           processedIdsRef.current.clear();
           onDismiss();
         }
 
-        return changed ? filtered : prev;
+        return filtered.length !== prev.length ? filtered : prev;
       });
     };
 
-    // Calculate delay to next expiration instead of polling every 100ms
+    // Calculate delay to next expiration (only for active timers)
     const now = Date.now();
-    let nextDelay = duration; // Default to full duration
+    let nextDelay = 15000;
 
     for (const msg of messages) {
-      const elapsed = now - msg.addedAt;
-      const targetDuration = msg.isExiting ? duration + 300 : duration;
-      const remaining = targetDuration - elapsed;
+      if (msg.timerStartedAt === null) continue; // Skip paused messages
+      const remaining = msg.displayDuration - (now - msg.timerStartedAt);
       if (remaining > 0 && remaining < nextDelay) {
         nextDelay = remaining;
       } else if (remaining <= 0) {
-        // Message already expired, check immediately
         nextDelay = 0;
         break;
       }
@@ -95,51 +181,31 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
 
     const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
     return () => clearTimeout(timer);
-  }, [messages, duration, onDismiss]);
+  }, [messages, onDismiss]);
 
   const handleDismiss = (id: string) => {
-    setMessages(prev =>
-      prev.map(msg => msg.id === id ? { ...msg, isExiting: true } : msg)
-    );
-    setTimeout(() => {
-      setMessages(prev => prev.filter(msg => msg.id !== id));
-    }, 300);
+    setMessages(prev => prev.filter(msg => msg.id !== id));
   };
 
   if (messages.length === 0) return null;
 
   return (
     <div className="floating-chat-stack">
-      {messages.map((msg) => {
-        const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
-        const isAI = msg.type === 'ai';
+      <AnimatePresence mode="popLayout">
+        {messages.map((msg) => {
+          const isAI = msg.type === 'ai';
+          const avatarUrl = isAI ? getPlayerAvatar(msg.sender || '') : null;
 
-        const avatarUrl = isAI ? getPlayerAvatar(msg.sender || '') : null;
-
-        return (
-          <div
-            key={msg.id}
-            className={`floating-chat ${msg.isExiting ? 'exiting' : 'entering'}`}
-            onClick={() => handleDismiss(msg.id)}
-          >
-            <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}>
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
-              ) : (
-                senderInitial
-              )}
-              {isAI && !avatarUrl && <span className="ai-badge">AI</span>}
-            </div>
-            <div className="floating-chat-content">
-              <div className="floating-chat-sender">
-                {msg.action || msg.sender}
-              </div>
-              <div className="floating-chat-message">{msg.message}</div>
-            </div>
-            <div className="floating-chat-dismiss">×</div>
-          </div>
-        );
-      })}
+          return (
+            <MessageItem
+              key={msg.id}
+              msg={msg}
+              avatarUrl={avatarUrl}
+              onDismiss={handleDismiss}
+            />
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }
