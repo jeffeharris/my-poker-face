@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import type { ChatMessage } from '../../types';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -29,6 +29,22 @@ export function MobilePokerTable({
   const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+
+  // DEBUG: Manual randomization trigger (remove after testing)
+  const [debugRandomSeed, setDebugRandomSeed] = useState(0);
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [debugRanges, setDebugRanges] = useState({
+    card1RotBase: -3,
+    card1RotRange: 7,
+    card2RotBase: 3,
+    card2RotRange: 7,
+    offsetYRange: 8,
+    gapBase: 10,
+    gapRange: 10,
+  });
+
+  // Track if cards are in "neat" (straightened) position
+  const [cardsNeat, setCardsNeat] = useState(false);
 
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
@@ -95,6 +111,29 @@ export function MobilePokerTable({
 
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
+
+  // Reset neat state when hand changes
+  useEffect(() => {
+    setCardsNeat(false);
+  }, [humanPlayer?.hand?.[0], humanPlayer?.hand?.[1]]);
+
+  // Random card transforms for natural "dealt" look - regenerates on new hand or debug trigger
+  const randomTransforms = useMemo(() => ({
+    card1: {
+      rotation: debugRanges.card1RotBase + (Math.random() * debugRanges.card1RotRange * 2 - debugRanges.card1RotRange),
+      offsetY: Math.random() * debugRanges.offsetYRange * 2 - debugRanges.offsetYRange,
+    },
+    card2: {
+      rotation: debugRanges.card2RotBase + (Math.random() * debugRanges.card2RotRange * 2 - debugRanges.card2RotRange),
+      offsetY: Math.random() * debugRanges.offsetYRange * 2 - debugRanges.offsetYRange,
+    },
+    gap: debugRanges.gapBase + (Math.random() * debugRanges.gapRange * 2 - debugRanges.gapRange),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [humanPlayer?.hand?.[0], humanPlayer?.hand?.[1], debugRandomSeed, debugRanges]);
+
+  // Use neat or random transforms based on state
+  const neatTransforms = { card1: { rotation: 0, offsetY: 0 }, card2: { rotation: 0, offsetY: 0 }, gap: 12 };
+  const cardTransforms = cardsNeat ? neatTransforms : randomTransforms;
 
   // Sort opponents by their position relative to the human player in turn order
   const opponents = (() => {
@@ -244,11 +283,29 @@ export function MobilePokerTable({
             <div className="hero-bet">Bet: ${humanPlayer.bet}</div>
           )}
         </div>
-        <div className="hero-cards">
+        <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
           {humanPlayer?.hand ? (
             <>
-              <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
-              <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
+              <div
+                onClick={() => setCardsNeat(n => !n)}
+                style={{
+                  transform: `rotate(${cardTransforms.card1.rotation}deg) translateY(${cardTransforms.card1.offsetY}px)`,
+                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
+              </div>
+              <div
+                onClick={() => setCardsNeat(n => !n)}
+                style={{
+                  transform: `rotate(${cardTransforms.card2.rotation}deg) translateY(${cardTransforms.card2.offsetY}px)`,
+                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
+              </div>
             </>
           ) : (
             <>
@@ -257,6 +314,93 @@ export function MobilePokerTable({
             </>
           )}
         </div>
+
+        {/* DEBUG: Randomize button - REMOVE AFTER TESTING */}
+        <button
+          onClick={() => setShowDebugModal(true)}
+          style={{
+            position: 'fixed',
+            bottom: '100px',
+            right: '10px',
+            zIndex: 9999,
+            padding: '8px 12px',
+            background: '#ff5722',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '12px',
+          }}
+        >
+          🎲 Debug
+        </button>
+
+        {/* DEBUG: Range adjustment modal - REMOVE AFTER TESTING */}
+        {showDebugModal && (
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: '#1a1a1a',
+            padding: '16px',
+            borderRadius: '12px',
+            zIndex: 10000,
+            minWidth: '280px',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span style={{ color: 'white', fontWeight: 'bold' }}>Card Position Debug</span>
+              <button onClick={() => setShowDebugModal(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: '18px' }}>×</button>
+            </div>
+
+            <div style={{ color: 'white', fontSize: '12px', marginBottom: '16px' }}>
+              Current: Card1 rot={cardTransforms.card1.rotation.toFixed(1)}° | Card2 rot={cardTransforms.card2.rotation.toFixed(1)}° | Gap={cardTransforms.gap.toFixed(1)}px
+            </div>
+
+            {[
+              { label: 'Card 1 Rotation Base', key: 'card1RotBase', min: -15, max: 0 },
+              { label: 'Card 1 Rotation Range (±)', key: 'card1RotRange', min: 0, max: 10 },
+              { label: 'Card 2 Rotation Base', key: 'card2RotBase', min: 0, max: 15 },
+              { label: 'Card 2 Rotation Range (±)', key: 'card2RotRange', min: 0, max: 10 },
+              { label: 'Y Offset Range (±)', key: 'offsetYRange', min: 0, max: 10 },
+              { label: 'Gap Base (px)', key: 'gapBase', min: 0, max: 30 },
+              { label: 'Gap Range (±px)', key: 'gapRange', min: 0, max: 10 },
+            ].map(({ label, key, min, max }) => (
+              <div key={key} style={{ marginBottom: '12px' }}>
+                <label style={{ color: '#aaa', fontSize: '11px', display: 'block' }}>
+                  {label}: {debugRanges[key as keyof typeof debugRanges]}
+                </label>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step={0.5}
+                  value={debugRanges[key as keyof typeof debugRanges]}
+                  onChange={(e) => setDebugRanges(r => ({ ...r, [key]: parseFloat(e.target.value) }))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            ))}
+
+            <button
+              onClick={() => setDebugRandomSeed(s => s + 1)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                background: '#4caf50',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '14px',
+                marginTop: '8px',
+              }}
+            >
+              🎲 Randomize Again
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Action Buttons - Always visible area */}

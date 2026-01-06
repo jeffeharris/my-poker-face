@@ -12,10 +12,6 @@
     user-select: none;
 }
 
-.playing-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
 
 /* Unicode Card - Simple display */
 .playing-card.unicode-card {
@@ -31,9 +27,6 @@
     font-family: "Noto Sans Symbols 2", sans-serif;
 }
 
-.playing-card.unicode-card:hover {
-    transform: scale(1.05) translateY(-2px);
-}
 
 /* Image Card - PNG/SVG image display */
 .playing-card.image-card {
@@ -51,9 +44,6 @@
     display: block;
 }
 
-.playing-card.image-card:hover {
-    transform: scale(1.05) translateY(-2px);
-}
 
 /* Image card sizes */
 .playing-card.image-card.xsmall {

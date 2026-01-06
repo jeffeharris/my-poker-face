@@ -427,14 +427,6 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-.hero-card:first-child {
-    transform: scale(1.1) rotate(-5deg);
-}
-
-.hero-card:last-child {
-    transform: scale(1.1) rotate(5deg);
-}
-
 .card-placeholder {
     width: 70px;
     height: 100px;
