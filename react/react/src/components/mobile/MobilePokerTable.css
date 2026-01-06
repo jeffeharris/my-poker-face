@@ -729,3 +729,19 @@
   }
 }
 
+/* Card deal animation - uses CSS variables set inline */
+@keyframes dealCardIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-30px) rotate(0deg) scale(0.8);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(5px) rotate(calc(var(--deal-rotation) * 0.5)) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(var(--deal-rotation)) translateY(var(--deal-offset)) scale(1);
+  }
+}
+

@@ -11,7 +11,7 @@ Coordinates:
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Callable, Dict, List, Optional, Any, Tuple
 
 from .hand_history import HandHistoryRecorder, RecordedHand
 from .session_memory import SessionMemory
@@ -184,7 +184,8 @@ class AIMemoryManager:
         # Generate commentary synchronously (legacy flow)
         return self.generate_commentary_for_hand(ai_players)
 
-    def generate_commentary_for_hand(self, ai_players: Dict[str, Any]) -> Dict[str, HandCommentary]:
+    def generate_commentary_for_hand(self, ai_players: Dict[str, Any],
+                                      on_commentary_ready: Optional[Callable] = None) -> Dict[str, HandCommentary]:
         """Generate commentary for the last completed hand.
 
         This can be called asynchronously after on_hand_complete(skip_commentary=True).
@@ -197,6 +198,8 @@ class AIMemoryManager:
 
         Args:
             ai_players: Dict mapping player names to their AIPokerPlayer objects
+            on_commentary_ready: Optional callback called immediately when each commentary
+                                 is ready. Signature: (player_name, commentary) -> None
 
         Returns:
             Dict mapping player names to their HandCommentary
@@ -288,6 +291,12 @@ class AIMemoryManager:
                 player_name, commentary = future.result()
                 if commentary:
                     commentaries[player_name] = commentary
+                    # Call callback immediately so commentary can be emitted right away
+                    if on_commentary_ready:
+                        try:
+                            on_commentary_ready(player_name, commentary)
+                        except Exception as e:
+                            logger.warning(f"Commentary callback failed for {player_name}: {e}")
 
         return commentaries
 

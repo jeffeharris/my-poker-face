@@ -12,17 +12,8 @@ import { PokerTableLayout } from '../PokerTableLayout';
 import { DebugPanel } from '../../debug/DebugPanel';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import type { Player } from '../../../types/player';
 import './PokerTable.css';
-
-interface Player {
-  name: string;
-  stack: number;
-  bet: number;
-  is_folded: boolean;
-  is_all_in: boolean;
-  is_human: boolean;
-  hand?: { rank: string; suit: string }[];
-}
 
 interface PokerTableProps {
   gameId?: string | null;

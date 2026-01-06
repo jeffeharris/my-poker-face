@@ -126,7 +126,7 @@ export function MobilePokerTable({
     if (!card1Id) {
       prevCard1Id.current = null;
     }
-  }, [card1Id, card2Id]);
+  }, [card1Id]);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -147,7 +147,7 @@ export function MobilePokerTable({
         behavior: 'smooth'
       });
     }
-  }, [gameState?.current_player_idx, currentPlayer, gameState]);
+  }, [gameState?.current_player_idx, currentPlayer?.name]);
 
   // Random card transforms for natural "dealt" look
   // Card 1: -3° base ±7° range, Card 2: +3° base ±7° range
@@ -325,7 +325,11 @@ export function MobilePokerTable({
             <div
               key={opponent.name}
               ref={(el) => {
-                if (el) opponentRefs.current.set(opponent.name, el);
+                if (el) {
+                  opponentRefs.current.set(opponent.name, el);
+                } else {
+                  opponentRefs.current.delete(opponent.name);
+                }
               }}
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''}`}
             >

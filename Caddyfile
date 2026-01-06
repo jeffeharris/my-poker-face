@@ -1,9 +1,4 @@
 mypokerfacegame.com, www.mypokerfacegame.com {
-    # Frontend (React static files)
-    handle {
-        reverse_proxy frontend:80
-    }
-
     # API routes
     handle /api/* {
         reverse_proxy backend:5000
@@ -17,5 +12,16 @@ mypokerfacegame.com, www.mypokerfacegame.com {
     # Health check
     handle /health {
         reverse_proxy backend:5000
+    }
+
+    # Service worker - never cache (ensures PWA updates propagate)
+    handle /sw.js {
+        header Cache-Control "no-cache, no-store, must-revalidate"
+        reverse_proxy frontend:80
+    }
+
+    # Frontend (React static files)
+    handle {
+        reverse_proxy frontend:80
     }
 }

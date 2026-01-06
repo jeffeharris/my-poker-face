@@ -24,7 +24,10 @@ function calculateDuration(message: string, action?: string): number {
   const msPerChar = 50;
   const minMs = 3000;
   const maxMs = 15000;
-  const textLength = message.length > 0 ? message.length : (action?.length || 0);
+  // Prefer non-empty message text; if message is empty/whitespace, fall back to action text
+  const trimmedMessage = message.trim();
+  const trimmedAction = action?.trim() ?? '';
+  const textLength = trimmedMessage.length > 0 ? trimmedMessage.length : trimmedAction.length;
   const calculated = baseMs + (textLength * msPerChar);
   return Math.min(maxMs, Math.max(minMs, calculated));
 }
@@ -181,7 +184,8 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
 
     const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
     return () => clearTimeout(timer);
-  }, [messages, onDismiss]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, onDismiss]);
 
   const handleDismiss = (id: string) => {
     setMessages(prev => prev.filter(msg => msg.id !== id));
