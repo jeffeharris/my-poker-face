@@ -25,13 +25,55 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    line-height: 0.8;
+    line-height: 1;
     text-align: center;
     overflow: hidden;
+    font-family: "Noto Sans Symbols 2", sans-serif;
 }
 
 .playing-card.unicode-card:hover {
     transform: scale(1.05) translateY(-2px);
+}
+
+/* Image Card - PNG/SVG image display */
+.playing-card.image-card {
+    background: transparent;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    padding: 0;
+    overflow: hidden;
+}
+
+.playing-card.image-card .card-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.playing-card.image-card:hover {
+    transform: scale(1.05) translateY(-2px);
+}
+
+/* Image card sizes */
+.playing-card.image-card.xsmall {
+    width: 35px;
+    height: 51px;
+}
+
+.playing-card.image-card.small {
+    width: 46px;
+    height: 67px;
+}
+
+.playing-card.image-card.medium {
+    width: 58px;
+    height: 84px;
+}
+
+.playing-card.image-card.large {
+    width: 73px;
+    height: 106px;
 }
 
 /* Card Sizes */
@@ -57,33 +99,33 @@
 .playing-card.unicode-card.xsmall {
     font-size: 4.5em;
     width: 48px;
-    height: 45px;
+    height: 65px;
     padding: 0;
-    padding-bottom: 11px;
+    padding-bottom: 3px;
 }
 
 .playing-card.unicode-card.small {
     font-size: 6em;
     width: 63px;
-    height: 62px;
+    height: 86px;
     padding: 0;
-    padding-bottom: 16px;
+    padding-bottom: 4px;
 }
 
 .playing-card.unicode-card.medium {
     font-size: 8.25em;
     width: 80px;
-    height: 86px;
+    height: 119px;
     padding: 0;
-    padding-bottom: 21px;
+    padding-bottom: 6px;
 }
 
 .playing-card.unicode-card.large {
     font-size: 10.5em;
     width: 100px;
-    height: 108px;
+    height: 151px;
     padding: 0;
-    padding-bottom: 27px;
+    padding-bottom: 8px;
 }
 
 /* Card Front */
@@ -325,29 +367,29 @@
     .playing-card.unicode-card.xsmall {
         font-size: 4.125em;
         width: 41px;
-        height: 43px;
-        padding-bottom: 9px;
+        height: 59px;
+        padding-bottom: 2px;
     }
 
     .playing-card.unicode-card.small {
         font-size: 5.775em;
         width: 56px;
-        height: 59px;
-        padding-bottom: 15px;
+        height: 83px;
+        padding-bottom: 3px;
     }
 
     .playing-card.unicode-card.medium {
         font-size: 6.75em;
         width: 65px;
-        height: 69px;
-        padding-bottom: 17px;
+        height: 97px;
+        padding-bottom: 4px;
     }
 
     .playing-card.unicode-card.large {
         font-size: 9.45em;
         width: 90px;
-        height: 97px;
-        padding-bottom: 24px;
+        height: 135px;
+        padding-bottom: 6px;
     }
 
     /* Card back responsive sizes */

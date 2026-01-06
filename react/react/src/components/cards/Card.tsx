@@ -58,8 +58,8 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
   }
 
   return (
-    <div className={`playing-card unicode-card ${cardObj.color} ${size} ${className}`}>
-      {cardObj.unicode}
+    <div className={`playing-card image-card ${size} ${className}`}>
+      <img src={cardObj.imagePath} alt={`${cardObj.rank} of ${cardObj.suit}`} className="card-image" />
     </div>
   );
 }
