@@ -21,7 +21,7 @@ interface Player {
   is_folded: boolean;
   is_all_in: boolean;
   is_human: boolean;
-  hand?: string[];
+  hand?: { rank: string; suit: string }[];
 }
 
 interface PokerTableProps {
@@ -47,7 +47,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     clearWinnerInfo,
     clearTournamentResult,
     debugTriggerTournamentEnd,
-    debugShowTournamentComplete,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,

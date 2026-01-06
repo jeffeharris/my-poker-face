@@ -29,6 +29,9 @@ interface UsePokerGameResult {
   clearWinnerInfo: () => void;
   clearTournamentResult: () => void;
   refreshGameState: (gId: string) => Promise<boolean>;
+  // Debug functions
+  debugTriggerTournamentEnd: (humanWon?: boolean) => void;
+  debugShowTournamentComplete: (humanWon?: boolean) => void;
 }
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
