@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Card } from '../../cards';
-import { getOrdinal } from '../../../types/tournament';
+import { getOrdinal, BackendCard } from '../../../types/tournament';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
-  cards: string[];
+  cards: string[] | BackendCard[];
   hand_name: string;
   hand_rank: number;
   kickers?: string[];
@@ -17,7 +17,7 @@ interface WinnerInfo {
   winning_hand?: string[];
   showdown: boolean;
   players_showdown?: { [key: string]: PlayerShowdownInfo };
-  community_cards?: string[];
+  community_cards?: string[] | BackendCard[];
   // Tournament final hand context
   is_final_hand?: boolean;
   tournament_outcome?: {
