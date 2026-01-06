@@ -278,8 +278,13 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
 
 
 def handle_eliminations(game_id: str, game_data: dict, game_state,
-                        winning_player_names: list, pot_size: int) -> Optional[bool]:
-    """Handle player eliminations. Returns True if human was eliminated."""
+                        winning_player_names: list, pot_size: int,
+                        final_hand_data: dict = None) -> Optional[bool]:
+    """Handle player eliminations. Returns True if human was eliminated.
+
+    Args:
+        final_hand_data: Winner announcement data to include in tournament_complete event
+    """
     if 'tournament_tracker' not in game_data:
         return None
 
@@ -340,7 +345,8 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
             'biggest_pot': result['biggest_pot'],
             'human_position': human_elimination_event.finishing_position,
             'human_eliminated': True,
-            'game_id': game_id
+            'game_id': game_id,
+            'final_hand_data': final_hand_data
         }, to=game_id)
 
         send_message(game_id, "Table",
@@ -352,8 +358,18 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
     return False
 
 
-def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: list) -> dict:
-    """Prepare winner announcement data for showdown."""
+def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: list,
+                          is_final_hand: bool = False,
+                          tournament_outcome: dict = None) -> dict:
+    """Prepare winner announcement data for showdown.
+
+    Args:
+        game_state: Current game state
+        winner_info: Winner info from determine_winner
+        winning_player_names: List of winner names
+        is_final_hand: Whether this is the final hand of the tournament
+        tournament_outcome: Dict with 'human_won' (bool) and 'human_position' (int)
+    """
     active_players = [p for p in game_state.players if not p.is_folded]
     is_showdown = len(active_players) > 1
 
@@ -361,8 +377,13 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
         'winners': winning_player_names,
         'winnings': winner_info['winnings'],
         'showdown': is_showdown,
-        'community_cards': []
+        'community_cards': [],
     }
+
+    if is_final_hand:
+        winner_data['is_final_hand'] = True
+    if tournament_outcome:
+        winner_data['tournament_outcome'] = tournament_outcome
 
     if is_showdown:
         winner_data['hand_name'] = winner_info['hand_name']
@@ -471,8 +492,12 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         logger.warning(f"Commentary generation failed: {e}")
 
 
-def check_tournament_complete(game_id: str, game_data: dict) -> bool:
-    """Check if tournament is complete and handle if so. Returns True if complete."""
+def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: dict = None) -> bool:
+    """Check if tournament is complete and handle if so. Returns True if complete.
+
+    Args:
+        final_hand_data: Winner announcement data to include in tournament_complete event
+    """
     if 'tournament_tracker' not in game_data:
         return False
 
@@ -499,7 +524,8 @@ def check_tournament_complete(game_id: str, game_data: dict) -> bool:
         'total_hands': result['total_hands'],
         'biggest_pot': result['biggest_pot'],
         'human_position': result.get('human_finishing_position'),
-        'game_id': game_id
+        'game_id': game_id,
+        'final_hand_data': final_hand_data
     }, to=game_id)
 
     send_message(game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system")
@@ -558,7 +584,29 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     active_players = [p for p in game_state.players if not p.is_folded]
     is_showdown = len(active_players) > 1
 
-    winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names)
+    # Determine if this is the final hand of the tournament
+    is_final_hand = False
+    tournament_outcome = None
+    if 'tournament_tracker' in game_data:
+        # Count players who still have chips after this hand
+        players_with_chips = [p for p in game_state.players if p.stack > 0]
+        if len(players_with_chips) == 1:
+            # Only one player has chips - this is the final hand
+            is_final_hand = True
+            tracker = game_data['tournament_tracker']
+            human_player = tracker.get_human_player()
+            if human_player:
+                winner = players_with_chips[0]
+                human_won = winner.name == human_player['name']
+                # Position: 1st if won, otherwise # of finished players + 1 (they're about to be eliminated)
+                human_position = 1 if human_won else len(tracker.finished_players) + 1
+                tournament_outcome = {
+                    'human_won': human_won,
+                    'human_position': human_position
+                }
+
+    winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names,
+                                        is_final_hand, tournament_outcome)
 
     if is_showdown:
         message_content = (
@@ -602,12 +650,14 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             logger.warning(f"Memory manager hand completion failed: {e}")
 
     # Handle eliminations (needs updated game_state)
-    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names, pot_size_before_award)
+    # Pass winner_data so it can be included in tournament_complete event
+    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names,
+                                           pot_size_before_award, final_hand_data=winner_data)
     if human_eliminated:
         return game_state, True
 
     # Check tournament completion
-    if check_tournament_complete(game_id, game_data):
+    if check_tournament_complete(game_id, game_data, final_hand_data=winner_data):
         return game_state, True
 
     # Wait for commentary to complete before starting new hand
