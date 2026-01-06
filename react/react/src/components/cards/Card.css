@@ -45,25 +45,25 @@
 }
 
 
-/* Image card sizes */
+/* Image card sizes - increased for better visibility */
 .playing-card.image-card.xsmall {
-    width: 35px;
-    height: 51px;
+    width: 42px;
+    height: 61px;
 }
 
 .playing-card.image-card.small {
-    width: 46px;
-    height: 67px;
+    width: 55px;
+    height: 80px;
 }
 
 .playing-card.image-card.medium {
-    width: 58px;
-    height: 84px;
+    width: 70px;
+    height: 101px;
 }
 
 .playing-card.image-card.large {
-    width: 73px;
-    height: 106px;
+    width: 88px;
+    height: 127px;
 }
 
 /* Card Sizes */
@@ -154,42 +154,46 @@
     overflow: hidden;
 }
 
-/* Card back size overrides to match unicode cards */
+/* Card back size overrides to match image cards */
 .playing-card.card-back.xsmall {
-    width: 48px;
-    height: 45px;
-    padding-bottom: 15px;
+    width: 42px;
+    height: 61px;
+    padding-bottom: 0;
 }
 
 .playing-card.card-back.small {
-    width: 63px;
-    height: 62px;
-    padding-bottom: 20px;
+    width: 55px;
+    height: 80px;
+    padding-bottom: 0;
 }
 
 .playing-card.card-back.medium {
-    width: 80px;
-    height: 86px;
-    padding-bottom: 28px;
+    width: 70px;
+    height: 101px;
+    padding-bottom: 0;
 }
 
 .playing-card.card-back.large {
-    width: 100px;
-    height: 108px;
-    padding-bottom: 35px;
+    width: 88px;
+    height: 127px;
+    padding-bottom: 0;
 }
 
 .card-back-pattern {
-    font-size: 6em;
+    font-size: 5em;
     opacity: 0.8;
 }
 
+.xsmall .card-back-pattern {
+    font-size: 3em;
+}
+
 .small .card-back-pattern {
-    font-size: 4.5em;
+    font-size: 4em;
 }
 
 .large .card-back-pattern {
-    font-size: 8.25em;
+    font-size: 6.5em;
 }
 
 /* Card Layout */
@@ -353,6 +357,29 @@
         font-size: 11px;
     }
 
+    /* Image card responsive sizes - sized to fit 5 community cards on mobile */
+    .playing-card.image-card.xsmall {
+        width: 38px;
+        height: 55px;
+    }
+
+    .playing-card.image-card.small {
+        width: 50px;
+        height: 72px;
+    }
+
+    .playing-card.image-card.medium {
+        width: 60px;
+        height: 87px;
+    }
+
+    /* Large cards (community cards) - calc to fit 5 cards with gaps on mobile */
+    /* Formula: (100vw - 32px padding - 24px gaps) / 5 = ~15vw per card */
+    .playing-card.image-card.large {
+        width: min(17vw, 80px);
+        height: min(24.5vw, 116px);
+    }
+
     /* Unicode card responsive sizes */
     .playing-card.unicode-card.xsmall {
         font-size: 4.125em;
@@ -382,29 +409,29 @@
         padding-bottom: 6px;
     }
 
-    /* Card back responsive sizes */
+    /* Card back responsive sizes - match image card sizes */
     .playing-card.card-back.xsmall {
-        width: 41px;
-        height: 43px;
-        padding-bottom: 9px;
+        width: 38px;
+        height: 55px;
+        padding-bottom: 0;
     }
 
     .playing-card.card-back.small {
-        width: 56px;
-        height: 59px;
-        padding-bottom: 15px;
+        width: 50px;
+        height: 72px;
+        padding-bottom: 0;
     }
 
     .playing-card.card-back.medium {
-        width: 65px;
-        height: 69px;
-        padding-bottom: 17px;
+        width: 60px;
+        height: 87px;
+        padding-bottom: 0;
     }
 
     .playing-card.card-back.large {
-        width: 90px;
-        height: 97px;
-        padding-bottom: 24px;
+        width: min(17vw, 80px);
+        height: min(24.5vw, 116px);
+        padding-bottom: 0;
     }
 }
 

@@ -112,10 +112,14 @@ export function MobilePokerTable({
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
 
+  // Create stable card identifiers (only changes when actual cards change)
+  const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
+  const card2Id = humanPlayer?.hand?.[1] ? `${humanPlayer.hand[1].rank}-${humanPlayer.hand[1].suit}` : null;
+
   // Reset neat state when hand changes
   useEffect(() => {
     setCardsNeat(false);
-  }, [humanPlayer?.hand?.[0], humanPlayer?.hand?.[1]]);
+  }, [card1Id, card2Id]);
 
   // Random card transforms for natural "dealt" look - regenerates on new hand or debug trigger
   const randomTransforms = useMemo(() => ({
@@ -129,7 +133,7 @@ export function MobilePokerTable({
     },
     gap: debugRanges.gapBase + (Math.random() * debugRanges.gapRange * 2 - debugRanges.gapRange),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [humanPlayer?.hand?.[0], humanPlayer?.hand?.[1], debugRandomSeed, debugRanges]);
+  }), [card1Id, card2Id, debugRandomSeed, debugRanges]);
 
   // Use neat or random transforms based on state
   const neatTransforms = { card1: { rotation: 0, offsetY: 0 }, card2: { rotation: 0, offsetY: 0 }, gap: 12 };

@@ -70,7 +70,7 @@ export function CommunityCard({ card, revealed = false }: { card?: CardType | st
 }
 
 export function HoleCard({ card, visible = false }: { card?: CardType | string | null, visible?: boolean }) {
-  return <Card card={card} faceDown={!visible} size="small" className="hole-card" />;
+  return <Card card={card} faceDown={!visible} size="large" className="hole-card" />;
 }
 
 export function DeckCard() {

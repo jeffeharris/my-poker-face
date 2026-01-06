@@ -317,26 +317,38 @@
 }
 
 .community-cards-row {
-    display: flex;
-    gap: 6px;
-    justify-content: center;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    width: 100%;
+    padding: 0 8px;
+    box-sizing: border-box;
 }
 
-/* Community card placeholder - matches medium card size */
+/* Community cards fill their grid cell - override Card.css fixed sizes */
+.community-cards-row .playing-card.image-card,
+.community-cards-row .playing-card.card-back {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
+    border: 3px solid white;
+    border-radius: 3px;
+    box-sizing: border-box;
+}
+
+.community-cards-row .playing-card .card-image {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: fill;
+}
+
+/* Community card placeholder - fills grid cell */
 .community-card-placeholder {
-    width: 80px;
-    height: 107px; /* 86px + 21px padding to match card total height */
+    width: 100%;
+    aspect-ratio: 500 / 726;
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed rgba(255, 255, 255, 0.2);
     border-radius: 6px;
-}
-
-@media (max-width: 768px) {
-    .community-card-placeholder {
-        width: 65px;
-        height: 86px; /* 69px + 17px padding for mobile */
-    }
 }
 
 .phase-indicator {
@@ -418,18 +430,34 @@
 }
 
 .hero-cards {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 12px;
-    justify-content: center;
+    width: 100%;
+    max-width: 250px;
 }
 
-.hero-card {
+/* Hero cards fill their grid cell */
+.hero-cards .playing-card.image-card,
+.hero-cards .playing-card.card-back {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 500 / 726;
+    border: 3px solid white;
+    border-radius: 3px;
+    box-sizing: border-box;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
+.hero-cards .playing-card .card-image {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: fill;
+}
+
 .card-placeholder {
-    width: 70px;
-    height: 100px;
+    width: 55px;
+    height: 80px;
     background: linear-gradient(135deg, #1e3a5f 0%, #0a1929 100%);
     border-radius: 4px;
     border: 2px dashed rgba(255, 255, 255, 0.2);
