@@ -29,6 +29,8 @@ export function MobilePokerTable({
   const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const opponentsContainerRef = useRef<HTMLDivElement>(null);
+  const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // DEBUG: Manual randomization trigger (remove after testing)
   const [debugRandomSeed, setDebugRandomSeed] = useState(0);
@@ -135,6 +137,27 @@ export function MobilePokerTable({
     }
   }, [card1Id, card2Id]);
 
+  // Auto-scroll to center the active opponent when turn changes
+  useEffect(() => {
+    if (!gameState || !currentPlayer || currentPlayer.is_human) return;
+
+    const opponentEl = opponentRefs.current.get(currentPlayer.name);
+    const containerEl = opponentsContainerRef.current;
+
+    if (opponentEl && containerEl) {
+      // Calculate scroll position to center the element
+      const containerWidth = containerEl.offsetWidth;
+      const elementLeft = opponentEl.offsetLeft;
+      const elementWidth = opponentEl.offsetWidth;
+      const scrollTarget = elementLeft - (containerWidth / 2) + (elementWidth / 2);
+
+      containerEl.scrollTo({
+        left: scrollTarget,
+        behavior: 'smooth'
+      });
+    }
+  }, [gameState?.current_player_idx, currentPlayer, gameState]);
+
   // Random card transforms for natural "dealt" look - regenerates on new hand or debug trigger
   const randomTransforms = useMemo(() => ({
     card1: {
@@ -228,7 +251,7 @@ export function MobilePokerTable({
       />
 
       {/* Opponents Strip */}
-      <div className="mobile-opponents">
+      <div className="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -237,6 +260,9 @@ export function MobilePokerTable({
           return (
             <div
               key={opponent.name}
+              ref={(el) => {
+                if (el) opponentRefs.current.set(opponent.name, el);
+              }}
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''}`}
             >
               <div className="opponent-avatar">
