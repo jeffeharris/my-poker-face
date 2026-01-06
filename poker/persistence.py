@@ -996,6 +996,7 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game ON api_usage(game_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_cost ON api_usage(estimated_cost)")
 
             logger.info("Consolidated 4 pricing_id columns into pricing_ids JSON")
         elif 'pricing_ids' not in columns:

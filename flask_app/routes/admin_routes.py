@@ -1,9 +1,12 @@
 """Admin routes for system configuration like pricing management."""
 
+import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from pathlib import Path
+
+from core.llm import UsageTracker
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -81,8 +84,11 @@ def add_pricing():
     provider = data['provider']
     model = data['model']
     unit = data['unit']
-    cost = float(data['cost'])
-    valid_from = data.get('valid_from') or datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        cost = float(data['cost'])
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Invalid cost value: must be a number'}), 400
+    valid_from = data.get('valid_from') or datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     notes = data.get('notes')
 
     try:
@@ -100,6 +106,9 @@ def add_pricing():
                 INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (provider, model, unit, cost, valid_from, notes))
+
+            # Invalidate pricing cache so future cost calculations use fresh data
+            UsageTracker.get_default().invalidate_pricing_cache()
 
             return jsonify({
                 'success': True,
@@ -124,7 +133,7 @@ def bulk_add_pricing():
     if not entries:
         return jsonify({'success': False, 'error': 'No entries provided'}), 400
 
-    now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     added = 0
     errors = []
 
@@ -135,7 +144,10 @@ def bulk_add_pricing():
                     provider = entry['provider']
                     model = entry['model']
                     unit = entry['unit']
-                    cost = float(entry['cost'])
+                    try:
+                        cost = float(entry['cost'])
+                    except (TypeError, ValueError):
+                        raise ValueError(f"Invalid cost value '{entry.get('cost')}': must be a number")
                     valid_from = entry.get('valid_from') or now
                     notes = entry.get('notes')
 
@@ -153,6 +165,9 @@ def bulk_add_pricing():
                 except Exception as e:
                     errors.append({'entry': entry, 'error': str(e)})
 
+            # Invalidate pricing cache so future cost calculations use fresh data
+            if added > 0:
+                UsageTracker.get_default().invalidate_pricing_cache()
             return jsonify({'success': True, 'added': added, 'errors': errors})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -166,6 +181,8 @@ def delete_pricing(pricing_id: int):
             cursor = conn.execute("DELETE FROM model_pricing WHERE id = ?", (pricing_id,))
             if cursor.rowcount == 0:
                 return jsonify({'success': False, 'error': 'Not found'}), 404
+            # Invalidate pricing cache so future cost calculations use fresh data
+            UsageTracker.get_default().invalidate_pricing_cache()
             return jsonify({'success': True, 'message': f'Deleted pricing entry {pricing_id}'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -192,6 +209,10 @@ def list_providers():
 @admin_bp.route('/pricing/models/<provider>', methods=['GET'])
 def list_models(provider: str):
     """List all models for a provider."""
+    # Validate provider: alphanumeric, hyphens, underscores, max 64 chars
+    if not provider or len(provider) > 64 or not re.match(r'^[\w-]+$', provider):
+        return jsonify({'success': False, 'error': 'Invalid provider format'}), 400
+
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
