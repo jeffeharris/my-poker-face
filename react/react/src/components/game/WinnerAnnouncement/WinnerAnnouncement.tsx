@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card } from '../../cards';
-import { getOrdinal, BackendCard } from '../../../types/tournament';
+import { getOrdinal, type BackendCard } from '../../../types/tournament';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
