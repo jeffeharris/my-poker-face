@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
-from core.llm import CallType
+from core.llm import CallType, LLMClient
 from ..prompt_manager import PromptManager
 from ..config import COMMENTARY_ENABLED
 from .hand_history import RecordedHand
@@ -52,6 +52,8 @@ class CommentaryGenerator:
 
     def __init__(self, prompt_manager: Optional[PromptManager] = None):
         self.prompt_manager = prompt_manager or PromptManager()
+        # Use dedicated LLM client with minimal reasoning for fast/cheap commentary
+        self._llm_client = LLMClient(reasoning_effort="minimal")
 
     def _is_hand_interesting(self, hand: RecordedHand, player_name: str) -> bool:
         """Determine if a hand is interesting enough to warrant commentary.
@@ -160,17 +162,31 @@ class CommentaryGenerator:
                 chattiness=chattiness
             )
 
-            # Get AI response with proper tracking
-            response = assistant.chat(
-                prompt,
+            # Get the player's system prompt for character voice
+            system_prompt = ""
+            if assistant and hasattr(assistant, 'system_message'):
+                system_prompt = assistant.system_message
+            elif assistant and hasattr(assistant, '_memory'):
+                system_prompt = assistant._memory.system_prompt
+
+            # Build messages for LLM call
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            # Use internal LLM client with minimal reasoning for fast/cheap commentary
+            llm_response = self._llm_client.complete(
+                messages=messages,
                 json_format=True,
                 call_type=CallType.COMMENTARY,
+                player_name=player_name,
                 hand_number=hand.hand_number,
                 prompt_template='end_of_hand_commentary'
             )
 
             # Parse response
-            commentary_data = json.loads(response)
+            commentary_data = json.loads(llm_response.content)
 
             # Build commentary object
             return HandCommentary(
