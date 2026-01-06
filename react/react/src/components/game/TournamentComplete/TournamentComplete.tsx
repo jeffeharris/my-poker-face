@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { TournamentResult } from '../../../types/tournament';
 import { getOrdinal } from '../../../types/tournament';
+import { WinnerAnnouncement } from '../WinnerAnnouncement/WinnerAnnouncement';
 import './TournamentComplete.css';
 
 interface TournamentCompleteProps {
@@ -10,6 +11,7 @@ interface TournamentCompleteProps {
 
 export function TournamentComplete({ result, onComplete }: TournamentCompleteProps) {
   const [show, setShow] = useState(false);
+  const [showFinalHand, setShowFinalHand] = useState(false);
 
   useEffect(() => {
     if (result) {
@@ -93,11 +95,29 @@ export function TournamentComplete({ result, onComplete }: TournamentCompletePro
           </div>
         </div>
 
+        {/* View Final Hand Button */}
+        {result.final_hand_data && (
+          <button className="view-final-hand-btn" onClick={() => setShowFinalHand(true)}>
+            View Final Hand
+          </button>
+        )}
+
         {/* Continue Button */}
         <button className="continue-button" onClick={onComplete}>
           Return to Menu
         </button>
       </div>
+
+      {/* Final Hand Overlay */}
+      {showFinalHand && result.final_hand_data && (
+        <WinnerAnnouncement
+          winnerInfo={{
+            ...result.final_hand_data,
+            is_final_hand: false  // Override to enable normal dismiss behavior
+          }}
+          onComplete={() => setShowFinalHand(false)}
+        />
+      )}
     </div>
   );
 }

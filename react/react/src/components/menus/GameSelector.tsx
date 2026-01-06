@@ -20,9 +20,10 @@ interface SavedGame {
 interface GameSelectorProps {
   onSelectGame: (gameId: string) => void;
   onBack: () => void;
+  onGamesChanged?: () => void;
 }
 
-export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
+export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelectorProps) {
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
@@ -64,6 +65,8 @@ export function GameSelector({ onSelectGame, onBack }: GameSelectorProps) {
       if (response.ok) {
         // Remove from local state immediately for better UX
         setSavedGames(prev => prev.filter(game => game.game_id !== gameId));
+        // Notify parent that games have changed
+        onGamesChanged?.();
         // Optionally refetch to ensure sync
         fetchGames();
       } else {

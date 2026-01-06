@@ -5,6 +5,7 @@ manageable functions for maintainability.
 """
 
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -277,8 +278,13 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
 
 
 def handle_eliminations(game_id: str, game_data: dict, game_state,
-                        winning_player_names: list, pot_size: int) -> Optional[bool]:
-    """Handle player eliminations. Returns True if human was eliminated."""
+                        winning_player_names: list, pot_size: int,
+                        final_hand_data: dict = None) -> Optional[bool]:
+    """Handle player eliminations. Returns True if human was eliminated.
+
+    Args:
+        final_hand_data: Winner announcement data to include in tournament_complete event
+    """
     if 'tournament_tracker' not in game_data:
         return None
 
@@ -339,7 +345,8 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
             'biggest_pot': result['biggest_pot'],
             'human_position': human_elimination_event.finishing_position,
             'human_eliminated': True,
-            'game_id': game_id
+            'game_id': game_id,
+            'final_hand_data': final_hand_data
         }, to=game_id)
 
         send_message(game_id, "Table",
@@ -351,8 +358,18 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
     return False
 
 
-def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: list) -> dict:
-    """Prepare winner announcement data for showdown."""
+def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: list,
+                          is_final_hand: bool = False,
+                          tournament_outcome: dict = None) -> dict:
+    """Prepare winner announcement data for showdown.
+
+    Args:
+        game_state: Current game state
+        winner_info: Winner info from determine_winner
+        winning_player_names: List of winner names
+        is_final_hand: Whether this is the final hand of the tournament
+        tournament_outcome: Dict with 'human_won' (bool) and 'human_position' (int)
+    """
     active_players = [p for p in game_state.players if not p.is_folded]
     is_showdown = len(active_players) > 1
 
@@ -360,8 +377,13 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
         'winners': winning_player_names,
         'winnings': winner_info['winnings'],
         'showdown': is_showdown,
-        'community_cards': []
+        'community_cards': [],
     }
+
+    if is_final_hand:
+        winner_data['is_final_hand'] = True
+    if tournament_outcome:
+        winner_data['tournament_outcome'] = tournament_outcome
 
     if is_showdown:
         winner_data['hand_name'] = winner_info['hand_name']
@@ -446,15 +468,20 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         for name, controller in ai_controllers.items()
     }
 
+    def emit_commentary_immediately(player_name: str, commentary) -> None:
+        """Callback to emit commentary as soon as it's ready."""
+        if commentary and commentary.table_comment:
+            logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
+            send_message(game_id, player_name, commentary.table_comment, "ai")
+
     try:
         logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
-        commentaries = memory_manager.generate_commentary_for_hand(ai_players)
+        # Pass callback to emit each commentary immediately as it completes
+        commentaries = memory_manager.generate_commentary_for_hand(
+            ai_players,
+            on_commentary_ready=emit_commentary_immediately
+        )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
-
-        for player_name, commentary in commentaries.items():
-            if commentary and commentary.table_comment:
-                logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
-                send_message(game_id, player_name, commentary.table_comment, "ai")
 
         for name, controller in ai_controllers.items():
             memory_manager.apply_learned_adjustments(
@@ -465,8 +492,12 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         logger.warning(f"Commentary generation failed: {e}")
 
 
-def check_tournament_complete(game_id: str, game_data: dict) -> bool:
-    """Check if tournament is complete and handle if so. Returns True if complete."""
+def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: dict = None) -> bool:
+    """Check if tournament is complete and handle if so. Returns True if complete.
+
+    Args:
+        final_hand_data: Winner announcement data to include in tournament_complete event
+    """
     if 'tournament_tracker' not in game_data:
         return False
 
@@ -493,7 +524,8 @@ def check_tournament_complete(game_id: str, game_data: dict) -> bool:
         'total_hands': result['total_hands'],
         'biggest_pot': result['biggest_pot'],
         'human_position': result.get('human_finishing_position'),
-        'game_id': game_id
+        'game_id': game_id,
+        'final_hand_data': final_hand_data
     }, to=game_id)
 
     send_message(game_id, "Table", f"TOURNAMENT OVER! {result['winner_name']} wins!", "system")
@@ -502,8 +534,19 @@ def check_tournament_complete(game_id: str, game_data: dict) -> bool:
 
 def _run_async_hand_complete_tasks(game_id: str, game_data: dict, game_state,
                                     winner_info: dict, winning_player_names: list,
-                                    pot_size_before_award: int) -> None:
-    """Run async tasks after winner announcement (emotional state, commentary)."""
+                                    pot_size_before_award: int,
+                                    completion_event: threading.Event = None) -> None:
+    """Run async tasks after winner announcement (emotional state, commentary).
+
+    Args:
+        game_id: The game identifier
+        game_data: Game data dictionary
+        game_state: Current game state
+        winner_info: Winner information dict
+        winning_player_names: List of winner names
+        pot_size_before_award: Pot size before awarding
+        completion_event: Optional event to signal when all tasks complete
+    """
     try:
         # Update tilt/emotional states (LLM calls)
         update_tilt_states(game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award)
@@ -515,6 +558,10 @@ def _run_async_hand_complete_tasks(game_id: str, game_data: dict, game_state,
         generate_ai_commentary(game_id, game_data)
     except Exception as e:
         logger.warning(f"Async commentary generation failed: {e}")
+    finally:
+        # Signal completion so the main game loop can proceed
+        if completion_event:
+            completion_event.set()
 
 
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
@@ -537,7 +584,29 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     active_players = [p for p in game_state.players if not p.is_folded]
     is_showdown = len(active_players) > 1
 
-    winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names)
+    # Determine if this is the final hand of the tournament
+    is_final_hand = False
+    tournament_outcome = None
+    if 'tournament_tracker' in game_data:
+        # Count players who still have chips after this hand
+        players_with_chips = [p for p in game_state.players if p.stack > 0]
+        if len(players_with_chips) == 1:
+            # Only one player has chips - this is the final hand
+            is_final_hand = True
+            tracker = game_data['tournament_tracker']
+            human_player = tracker.get_human_player()
+            if human_player:
+                winner = players_with_chips[0]
+                human_won = winner.name == human_player['name']
+                # Position: 1st if won, otherwise # of finished players + 1 (they're about to be eliminated)
+                human_position = 1 if human_won else len(tracker.finished_players) + 1
+                tournament_outcome = {
+                    'human_won': human_won,
+                    'human_position': human_position
+                }
+
+    winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names,
+                                        is_final_hand, tournament_outcome)
 
     if is_showdown:
         message_content = (
@@ -551,10 +620,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     send_message(game_id, "Table", message_content, "table", 1)
     socketio.emit('winner_announcement', winner_data, to=game_id)
 
+    # Create event to track when async commentary tasks complete
+    commentary_complete = threading.Event()
+
     # Start async tasks for emotional state and commentary (LLM calls)
+    # Commentary runs in parallel for all AI players, but we wait for all to finish
     socketio.start_background_task(
         _run_async_hand_complete_tasks,
-        game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award
+        game_id, game_data, game_state, winner_info, winning_player_names, pot_size_before_award,
+        commentary_complete
     )
 
     # Apply pressure events (fast, local calculations)
@@ -576,16 +650,25 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             logger.warning(f"Memory manager hand completion failed: {e}")
 
     # Handle eliminations (needs updated game_state)
-    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names, pot_size_before_award)
+    # Pass winner_data so it can be included in tournament_complete event
+    human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names,
+                                           pot_size_before_award, final_hand_data=winner_data)
     if human_eliminated:
         return game_state, True
 
     # Check tournament completion
-    if check_tournament_complete(game_id, game_data):
+    if check_tournament_complete(game_id, game_data, final_hand_data=winner_data):
         return game_state, True
 
-    # Delay before new hand
-    socketio.sleep(4 if is_showdown else 2)
+    # Wait for commentary to complete before starting new hand
+    # Commentary runs in parallel across AI players, but we need all to finish
+    # Use a timeout to prevent indefinite blocking if something goes wrong
+    commentary_timeout = 10  # seconds
+    if not commentary_complete.wait(timeout=commentary_timeout):
+        logger.warning(f"Commentary did not complete within {commentary_timeout}s timeout")
+
+    # Small additional delay for visual pacing
+    socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
     # Start recording new hand
@@ -764,10 +847,15 @@ def handle_ai_action(game_id: str) -> None:
     action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
     if player_message and player_message != '...':
+        # Player has something to say - combine verbal and physical
         full_message = f"{player_message} {player_physical_description}".strip()
         send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+    elif player_physical_description and player_physical_description.strip():
+        # No speech but has physical reaction - show that
+        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1, action=action_text)
     else:
-        send_message(game_id, "Table", action_text, "table")
+        # Silent action - show a brief action-only message
+        send_message(game_id, current_player.name, "", "ai", sleep=1, action=action_text)
 
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)

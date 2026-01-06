@@ -5,7 +5,19 @@ export interface Card {
   rank: 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
   value: number; // For poker hand evaluation
   unicode: string; // Unicode symbol
+  imagePath: string; // Path to PNG image
   color: 'red' | 'black';
+}
+
+// Import all card images
+const cardImages = import.meta.glob('../assets/cards/*.png', { eager: true, as: 'url' });
+
+// Generate image path for a card
+function getCardImagePath(rank: string, suit: string): string {
+  const rankCode = rank === '10' ? 'T' : rank;
+  const suitCode = suit.charAt(0).toUpperCase();
+  const key = `../assets/cards/${rankCode}${suitCode}.png`;
+  return cardImages[key] || '';
 }
 
 // Unicode playing card symbols (complete deck)
@@ -48,6 +60,7 @@ export function createDeck(): Card[] {
         rank,
         value: getRankValue(rank),
         unicode: CARD_SYMBOLS[suit][rank],
+        imagePath: getCardImagePath(rank, suit),
         color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
       });
     });
@@ -101,6 +114,7 @@ export function parseCard(cardString: string): Card | null {
     rank: rank as any,
     value: getRankValue(rank),
     unicode: CARD_SYMBOLS[suit][rank as keyof typeof CARD_SYMBOLS.spades],
+    imagePath: getCardImagePath(rank, suit),
     color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
   };
 }
@@ -147,6 +161,7 @@ export function cardFromBackend(backendCard: { rank: string; suit: string }): Ca
     rank: backendCard.rank as Card['rank'],
     value: getRankValue(backendCard.rank),
     unicode,
+    imagePath: getCardImagePath(backendCard.rank, suit),
     color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
   };
 }

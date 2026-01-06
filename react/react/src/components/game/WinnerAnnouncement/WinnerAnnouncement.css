@@ -398,3 +398,70 @@
     font-size: 14px;
   }
 }
+
+/* Tournament Outcome Banner */
+.tournament-outcome-banner {
+  padding: 16px 32px;
+  margin: 20px 0;
+  border-radius: 12px;
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  animation: bannerPulse 2s ease-in-out infinite;
+}
+
+.tournament-outcome-banner.victory {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(255, 193, 7, 0.2));
+  border: 3px solid #ffd700;
+  color: #ffd700;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+}
+
+.tournament-outcome-banner.defeat {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.15));
+  border: 2px solid #ef4444;
+  color: #f87171;
+}
+
+@keyframes bannerPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+/* Continue to Results Button */
+.continue-to-results-btn {
+  display: block;
+  margin: 30px auto 0;
+  padding: 16px 48px;
+  font-size: 18px;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.continue-to-results-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4);
+}
+
+.continue-to-results-btn:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .tournament-outcome-banner {
+    padding: 12px 20px;
+    font-size: 18px;
+    margin: 15px 0;
+  }
+
+  .continue-to-results-btn {
+    padding: 14px 32px;
+    font-size: 16px;
+    margin-top: 20px;
+  }
+}

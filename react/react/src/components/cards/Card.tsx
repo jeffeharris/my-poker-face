@@ -1,8 +1,14 @@
 import { type Card as CardType, parseCard, cardFromBackend } from '../../utils/cards';
 import './Card.css';
 
+// Backend card format (from Python API)
+interface BackendCard {
+  rank: string;
+  suit: string;
+}
+
 interface CardProps {
-  card?: CardType | string | null;
+  card?: CardType | BackendCard | string | null;
   faceDown?: boolean;
   size?: 'small' | 'medium' | 'large';
   className?: string;
@@ -58,19 +64,19 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
   }
 
   return (
-    <div className={`playing-card unicode-card ${cardObj.color} ${size} ${className}`}>
-      {cardObj.unicode}
+    <div className={`playing-card image-card ${size} ${className}`}>
+      <img src={cardObj.imagePath} alt={`${cardObj.rank} of ${cardObj.suit}`} className="card-image" />
     </div>
   );
 }
 
 // Specialized components
-export function CommunityCard({ card, revealed = false }: { card?: CardType | string | null, revealed?: boolean }) {
+export function CommunityCard({ card, revealed = false }: { card?: CardType | BackendCard | string | null, revealed?: boolean }) {
   return <Card card={card} faceDown={!revealed} size="large" className="community-card" />;
 }
 
-export function HoleCard({ card, visible = false }: { card?: CardType | string | null, visible?: boolean }) {
-  return <Card card={card} faceDown={!visible} size="small" className="hole-card" />;
+export function HoleCard({ card, visible = false }: { card?: CardType | BackendCard | string | null, visible?: boolean }) {
+  return <Card card={card} faceDown={!visible} size="large" className="hole-card" />;
 }
 
 export function DeckCard() {

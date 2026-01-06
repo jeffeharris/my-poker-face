@@ -152,8 +152,8 @@ class StructuredLLMCategorizer:
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
-        # Initialize LLM client for tracked API calls
-        self._llm_client = LLMClient(model=self.model)
+        # Initialize LLM client with minimal reasoning for fast/cheap categorization
+        self._llm_client = LLMClient(model=self.model, reasoning_effort="minimal")
 
         # Thread pool for timeout handling
         self._executor = ThreadPoolExecutor(max_workers=2)
