@@ -2,7 +2,7 @@ import { type Card as CardType, parseCard, cardFromBackend } from '../../utils/c
 import './Card.css';
 
 interface CardProps {
-  card?: CardType | string | null;
+  card?: CardType | string | { rank: string; suit: string } | null;
   faceDown?: boolean;
   size?: 'small' | 'medium' | 'large';
   className?: string;
