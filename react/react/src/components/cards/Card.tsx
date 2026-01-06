@@ -2,7 +2,7 @@ import { type Card as CardType, parseCard, cardFromBackend } from '../../utils/c
 import './Card.css';
 
 interface CardProps {
-  card?: CardType | string | null;
+  card?: CardType | string | { rank: string; suit: string } | null;
   faceDown?: boolean;
   size?: 'small' | 'medium' | 'large';
   className?: string;
@@ -70,7 +70,7 @@ export function CommunityCard({ card, revealed = false }: { card?: CardType | st
 }
 
 export function HoleCard({ card, visible = false }: { card?: CardType | string | null, visible?: boolean }) {
-  return <Card card={card} faceDown={!visible} size="small" className="hole-card" />;
+  return <Card card={card} faceDown={!visible} size="large" className="hole-card" />;
 }
 
 export function DeckCard() {

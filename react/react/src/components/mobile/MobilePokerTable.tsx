@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import type { ChatMessage } from '../../types';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -29,6 +29,11 @@ export function MobilePokerTable({
   const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const opponentsContainerRef = useRef<HTMLDivElement>(null);
+  const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Track if cards are in "neat" (straightened) position
+  const [cardsNeat, setCardsNeat] = useState(false);
 
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
@@ -95,6 +100,70 @@ export function MobilePokerTable({
 
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
+
+  // Create stable card identifiers (only changes when actual cards change)
+  const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
+  const card2Id = humanPlayer?.hand?.[1] ? `${humanPlayer.hand[1].rank}-${humanPlayer.hand[1].suit}` : null;
+
+  // Track if cards are currently being dealt (for animation)
+  const [isDealing, setIsDealing] = useState(false);
+  const prevCard1Id = useRef<string | null>(null);
+
+  // Reset neat state and trigger deal animation when hand changes
+  useEffect(() => {
+    if (card1Id && card1Id !== prevCard1Id.current) {
+      setCardsNeat(false);
+      setIsDealing(true);
+      // Reset dealing state after animation completes
+      const timer = setTimeout(() => setIsDealing(false), 600);
+      prevCard1Id.current = card1Id;
+      return () => clearTimeout(timer);
+    }
+    if (!card1Id) {
+      prevCard1Id.current = null;
+    }
+  }, [card1Id]);
+
+  // Auto-scroll to center the active opponent when turn changes
+  useEffect(() => {
+    if (!gameState || !currentPlayer || currentPlayer.is_human) return;
+
+    const opponentEl = opponentRefs.current.get(currentPlayer.name);
+    const containerEl = opponentsContainerRef.current;
+
+    if (opponentEl && containerEl) {
+      // Calculate scroll position to center the element
+      const containerWidth = containerEl.offsetWidth;
+      const elementLeft = opponentEl.offsetLeft;
+      const elementWidth = opponentEl.offsetWidth;
+      const scrollTarget = elementLeft - (containerWidth / 2) + (elementWidth / 2);
+
+      containerEl.scrollTo({
+        left: scrollTarget,
+        behavior: 'smooth'
+      });
+    }
+  }, [gameState?.current_player_idx, currentPlayer?.name]);
+
+  // Random card transforms for natural "dealt" look
+  // Card 1: -3° base ±7° range, Card 2: +3° base ±7° range
+  // Y offset: ±8px, Gap: 10px base ±10px range
+  const randomTransforms = useMemo(() => ({
+    card1: {
+      rotation: -3 + (Math.random() * 14 - 7),  // -10 to +4
+      offsetY: Math.random() * 16 - 8,          // -8 to +8
+    },
+    card2: {
+      rotation: 3 + (Math.random() * 14 - 7),   // -4 to +10
+      offsetY: Math.random() * 16 - 8,          // -8 to +8
+    },
+    gap: 10 + (Math.random() * 20 - 10),        // 0 to 20
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [card1Id, card2Id]);
+
+  // Use neat or random transforms based on state
+  const neatTransforms = { card1: { rotation: 0, offsetY: 0 }, card2: { rotation: 0, offsetY: 0 }, gap: 12 };
+  const cardTransforms = cardsNeat ? neatTransforms : randomTransforms;
 
   // Sort opponents by their position relative to the human player in turn order
   const opponents = (() => {
@@ -171,7 +240,7 @@ export function MobilePokerTable({
       />
 
       {/* Opponents Strip */}
-      <div className="mobile-opponents">
+      <div className="mobile-opponents" ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -180,6 +249,13 @@ export function MobilePokerTable({
           return (
             <div
               key={opponent.name}
+              ref={(el) => {
+                if (el) {
+                  opponentRefs.current.set(opponent.name, el);
+                } else {
+                  opponentRefs.current.delete(opponent.name);
+                }
+              }}
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''}`}
             >
               <div className="opponent-avatar">
@@ -244,11 +320,36 @@ export function MobilePokerTable({
             <div className="hero-bet">Bet: ${humanPlayer.bet}</div>
           )}
         </div>
-        <div className="hero-cards">
+        <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
           {humanPlayer?.hand ? (
             <>
-              <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
-              <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
+              <div
+                onClick={() => setCardsNeat(n => !n)}
+                style={{
+                  transform: `rotate(${cardTransforms.card1.rotation}deg) translateY(${cardTransforms.card1.offsetY}px)`,
+                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
+                  cursor: 'pointer',
+                  animation: isDealing ? `dealCardIn 0.3s ease-out forwards` : 'none',
+                  '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
+                  '--deal-offset': `${cardTransforms.card1.offsetY}px`,
+                } as React.CSSProperties}
+              >
+                <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
+              </div>
+              <div
+                onClick={() => setCardsNeat(n => !n)}
+                style={{
+                  transform: `rotate(${cardTransforms.card2.rotation}deg) translateY(${cardTransforms.card2.offsetY}px)`,
+                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
+                  cursor: 'pointer',
+                  animation: isDealing ? `dealCardIn 0.3s ease-out 0.15s forwards` : 'none',
+                  opacity: isDealing ? 0 : 1,
+                  '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
+                  '--deal-offset': `${cardTransforms.card2.offsetY}px`,
+                } as React.CSSProperties}
+              >
+                <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
+              </div>
             </>
           ) : (
             <>
@@ -257,6 +358,7 @@ export function MobilePokerTable({
             </>
           )}
         </div>
+
       </div>
 
       {/* Action Buttons - Always visible area */}
