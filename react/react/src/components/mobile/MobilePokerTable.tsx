@@ -116,9 +116,23 @@ export function MobilePokerTable({
   const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
   const card2Id = humanPlayer?.hand?.[1] ? `${humanPlayer.hand[1].rank}-${humanPlayer.hand[1].suit}` : null;
 
-  // Reset neat state when hand changes
+  // Track if cards are currently being dealt (for animation)
+  const [isDealing, setIsDealing] = useState(false);
+  const prevCard1Id = useRef<string | null>(null);
+
+  // Reset neat state and trigger deal animation when hand changes
   useEffect(() => {
-    setCardsNeat(false);
+    if (card1Id && card1Id !== prevCard1Id.current) {
+      setCardsNeat(false);
+      setIsDealing(true);
+      // Reset dealing state after animation completes
+      const timer = setTimeout(() => setIsDealing(false), 600);
+      prevCard1Id.current = card1Id;
+      return () => clearTimeout(timer);
+    }
+    if (!card1Id) {
+      prevCard1Id.current = null;
+    }
   }, [card1Id, card2Id]);
 
   // Random card transforms for natural "dealt" look - regenerates on new hand or debug trigger
@@ -296,7 +310,10 @@ export function MobilePokerTable({
                   transform: `rotate(${cardTransforms.card1.rotation}deg) translateY(${cardTransforms.card1.offsetY}px)`,
                   transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                   cursor: 'pointer',
-                }}
+                  animation: isDealing ? `dealCardIn 0.3s ease-out forwards` : 'none',
+                  '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
+                  '--deal-offset': `${cardTransforms.card1.offsetY}px`,
+                } as React.CSSProperties}
               >
                 <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
               </div>
@@ -306,7 +323,11 @@ export function MobilePokerTable({
                   transform: `rotate(${cardTransforms.card2.rotation}deg) translateY(${cardTransforms.card2.offsetY}px)`,
                   transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                   cursor: 'pointer',
-                }}
+                  animation: isDealing ? `dealCardIn 0.3s ease-out 0.15s forwards` : 'none',
+                  opacity: isDealing ? 0 : 1,
+                  '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
+                  '--deal-offset': `${cardTransforms.card2.offsetY}px`,
+                } as React.CSSProperties}
               >
                 <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
               </div>

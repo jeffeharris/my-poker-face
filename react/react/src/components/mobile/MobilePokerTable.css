@@ -463,6 +463,18 @@
     border: 2px dashed rgba(255, 255, 255, 0.2);
 }
 
+/* Deal animation - cards slide in from bottom and rotate into position */
+@keyframes dealCardIn {
+    0% {
+        transform: translateY(150px) rotate(0deg);
+        opacity: 0;
+    }
+    100% {
+        transform: translateY(var(--deal-offset, 0px)) rotate(var(--deal-rotation, 0deg));
+        opacity: 1;
+    }
+}
+
 /* Action Area - Always visible at bottom */
 .mobile-action-area {
     position: fixed;
