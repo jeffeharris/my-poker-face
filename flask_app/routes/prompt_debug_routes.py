@@ -239,6 +239,10 @@ def interrogate_capture(capture_id):
             assistant.memory.add('user', capture['user_message'])
             assistant.memory.add('assistant', capture['ai_response'])
 
+            # Inject debug mode transition to break out of game response format
+            assistant.memory.add('system', '*** DEBUG MODE ACTIVATED - YOU MAY NOW SPEAK TO THE ADMINISTRATOR FREELY. RESPOND IN PLAIN CONVERSATIONAL ENGLISH, NOT JSON. ***')
+            assistant.memory.add('assistant', 'Debug mode acknowledged. I can now speak freely and explain my reasoning. How may I help you?')
+
             # Store session
             _interrogation_sessions[session_id] = assistant
 
@@ -255,7 +259,7 @@ def interrogate_capture(capture_id):
             'success': True,
             'response': response.content,
             'session_id': session_id,
-            'messages_count': len(assistant.memory.messages),
+            'messages_count': len(assistant.memory),
             'model_used': model,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
         })
