@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 
 @dataclass
@@ -330,6 +330,7 @@ class GamePersistence:
             19: (self._migrate_v19_add_conversation_history, "Add conversation_history column to prompt_captures"),
             20: (self._migrate_v20_add_decision_analysis, "Add player_decision_analysis table for quality monitoring"),
             21: (self._migrate_v21_add_game_id_to_opponent_models, "Add game_id to opponent_models for game-specific tracking"),
+            22: (self._migrate_v22_add_position_equity, "Add position-based equity fields to decision analysis"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1178,6 +1179,30 @@ class GamePersistence:
             logger.info("Added game_id column to memorable_hands")
 
         logger.info("Migration v21 complete: opponent_models now supports game-specific tracking")
+
+    def _migrate_v22_add_position_equity(self, conn: sqlite3.Connection) -> None:
+        """Migration v22: Add position-based equity fields to player_decision_analysis.
+
+        Adds equity_vs_ranges for position-aware equity calculation alongside
+        the existing random-based equity.
+        """
+        # Check if columns exist
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'equity_vs_ranges' not in columns:
+            conn.execute("""
+                ALTER TABLE player_decision_analysis ADD COLUMN equity_vs_ranges REAL
+            """)
+            logger.info("Added equity_vs_ranges column to player_decision_analysis")
+
+        if 'opponent_positions' not in columns:
+            conn.execute("""
+                ALTER TABLE player_decision_analysis ADD COLUMN opponent_positions TEXT
+            """)
+            logger.info("Added opponent_positions column to player_decision_analysis")
+
+        logger.info("Migration v22 complete: position-based equity fields added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -2693,8 +2718,9 @@ class GamePersistence:
                     equity, required_equity, ev_call,
                     optimal_action, decision_quality, ev_lost,
                     hand_rank, relative_strength,
+                    equity_vs_ranges, opponent_positions,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -2718,6 +2744,8 @@ class GamePersistence:
                 data.get('ev_lost'),
                 data.get('hand_rank'),
                 data.get('relative_strength'),
+                data.get('equity_vs_ranges'),
+                data.get('opponent_positions'),
                 data.get('analyzer_version'),
                 data.get('processing_time_ms'),
             ))
@@ -2879,6 +2907,7 @@ class GamePersistence:
                     COUNT(*) as total,
                     SUM(ev_lost) as total_ev_lost,
                     AVG(equity) as avg_equity,
+                    AVG(equity_vs_ranges) as avg_equity_vs_ranges,
                     AVG(processing_time_ms) as avg_processing_ms,
                     SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistakes,
                     SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct
@@ -2890,9 +2919,10 @@ class GamePersistence:
                 'total': row[0] or 0,
                 'total_ev_lost': row[1] or 0,
                 'avg_equity': row[2],
-                'avg_processing_ms': row[3],
-                'mistakes': row[4] or 0,
-                'correct': row[5] or 0,
+                'avg_equity_vs_ranges': row[3],
+                'avg_processing_ms': row[4],
+                'mistakes': row[5] or 0,
+                'correct': row[6] or 0,
                 'by_quality': by_quality,
                 'by_action': by_action,
             }

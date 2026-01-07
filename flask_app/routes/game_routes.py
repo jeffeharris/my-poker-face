@@ -91,6 +91,36 @@ def analyze_player_decision(
         ]
         num_opponents = len(opponents_in_hand)
 
+        # Get opponent positions for range-based equity calculation
+        table_positions = game_state.table_positions
+        position_by_name = {name: pos for pos, name in table_positions.items()}
+        opponent_positions = [
+            position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+            for p in opponents_in_hand
+        ]
+
+        # Build OpponentInfo objects with observed stats and personality data
+        from poker.hand_ranges import build_opponent_info
+        opponent_infos = []
+        opponent_model_manager = memory_manager.get_opponent_model_manager() if memory_manager else None
+
+        for opp in opponents_in_hand:
+            opp_position = position_by_name.get(opp.name, "button")
+
+            # Get observed stats from opponent model manager
+            opp_model_data = None
+            if opponent_model_manager:
+                opp_model = opponent_model_manager.get_model(player_name, opp.name)
+                if opp_model and opp_model.tendencies:
+                    opp_model_data = opp_model.tendencies.to_dict()
+
+            opponent_infos.append(build_opponent_info(
+                name=opp.name,
+                position=opp_position,
+                is_ai=not opp.is_human,
+                opponent_model=opp_model_data,
+            ))
+
         # Calculate cost to call
         cost_to_call = max(0, game_state.highest_bet - player.bet)
 
@@ -108,6 +138,8 @@ def analyze_player_decision(
             num_opponents=num_opponents,
             action_taken=action,
             raise_amount=amount if action == 'raise' else None,
+            opponent_positions=opponent_positions,
+            opponent_infos=opponent_infos,
         )
 
         persistence.save_decision_analysis(analysis)

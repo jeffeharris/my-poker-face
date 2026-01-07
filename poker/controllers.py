@@ -409,6 +409,34 @@ class AIPlayerController:
             ]
             num_opponents = len(opponents_in_hand)
 
+            # Get opponent positions for range-based equity calculation
+            table_positions = game_state.table_positions
+            position_by_name = {name: pos for pos, name in table_positions.items()}
+            opponent_positions = [
+                position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+                for p in opponents_in_hand
+            ]
+
+            # Build OpponentInfo objects with observed stats and personality data
+            from .hand_ranges import build_opponent_info
+            opponent_infos = []
+            for opp in opponents_in_hand:
+                opp_position = position_by_name.get(opp.name, "button")
+
+                # Get observed stats from opponent model manager
+                opp_model_data = None
+                if self.opponent_model_manager:
+                    opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                    if opp_model and opp_model.tendencies:
+                        opp_model_data = opp_model.tendencies.to_dict()
+
+                opponent_infos.append(build_opponent_info(
+                    name=opp.name,
+                    position=opp_position,
+                    is_ai=not opp.is_human,
+                    opponent_model=opp_model_data,
+                ))
+
             # Get request_id from last LLM response
             llm_response = getattr(self, '_last_llm_response', None)
             request_id = llm_response.request_id if llm_response else None
@@ -428,6 +456,8 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('adding_to_pot'),
                 request_id=request_id,
+                opponent_positions=opponent_positions,
+                opponent_infos=opponent_infos,
             )
 
             self._persistence.save_decision_analysis(analysis)
