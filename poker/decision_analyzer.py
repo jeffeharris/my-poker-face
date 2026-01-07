@@ -171,14 +171,12 @@ class DecisionAnalyzer:
         )
 
         # Calculate equity if we have cards and calculator
-        if player_hand and self.calculator:
+        if player_hand and self.calculator and num_opponents > 0:
             try:
-                result = self.calculator.calculate_equity(
-                    players_hands={"hero": player_hand},
-                    board=community_cards or [],
+                # Calculate equity vs random opponent hands using Monte Carlo
+                analysis.equity = self._calculate_equity_vs_random(
+                    player_hand, community_cards or [], num_opponents
                 )
-                if result:
-                    analysis.equity = result.equities.get("hero")
             except Exception as e:
                 logger.debug(f"Equity calculation failed: {e}")
 
@@ -200,6 +198,73 @@ class DecisionAnalyzer:
 
         analysis.processing_time_ms = int((time.time() - start_time) * 1000)
         return analysis
+
+    def _calculate_equity_vs_random(
+        self,
+        player_hand: List[str],
+        community_cards: List[str],
+        num_opponents: int
+    ) -> Optional[float]:
+        """Calculate equity vs random opponent hands using Monte Carlo.
+
+        Args:
+            player_hand: Hero's hole cards as strings ['Ah', 'Kd']
+            community_cards: Board cards as strings
+            num_opponents: Number of opponents to simulate
+
+        Returns:
+            Win probability (0.0-1.0) or None if calculation fails
+        """
+        try:
+            import eval7
+            import random
+
+            # Parse hero's hand
+            hero_hand = [eval7.Card(c) for c in player_hand]
+            board = [eval7.Card(c) for c in community_cards] if community_cards else []
+
+            # Build deck excluding known cards
+            all_known = set(hero_hand + board)
+            deck = [c for c in eval7.Deck().cards if c not in all_known]
+
+            wins = 0
+            iterations = self.iterations
+
+            for _ in range(iterations):
+                # Shuffle remaining deck
+                random.shuffle(deck)
+                deck_idx = 0
+
+                # Deal random hands to opponents
+                opponent_hands = []
+                for _ in range(num_opponents):
+                    opp_hand = [deck[deck_idx], deck[deck_idx + 1]]
+                    opponent_hands.append(opp_hand)
+                    deck_idx += 2
+
+                # Deal remaining board cards
+                cards_needed = 5 - len(board)
+                sim_board = board + deck[deck_idx:deck_idx + cards_needed]
+
+                # Evaluate hands
+                hero_score = eval7.evaluate(hero_hand + sim_board)
+
+                # Check if hero beats all opponents
+                hero_wins = True
+                for opp_hand in opponent_hands:
+                    opp_score = eval7.evaluate(opp_hand + sim_board)
+                    if opp_score > hero_score:  # Higher is better in eval7
+                        hero_wins = False
+                        break
+
+                if hero_wins:
+                    wins += 1
+
+            return wins / iterations
+
+        except Exception as e:
+            logger.debug(f"Equity vs random calculation failed: {e}")
+            return None
 
     def _evaluate_quality(self, analysis: DecisionAnalysis) -> None:
         """
