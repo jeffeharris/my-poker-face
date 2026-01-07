@@ -409,6 +409,14 @@ class AIPlayerController:
             ]
             num_opponents = len(opponents_in_hand)
 
+            # Get opponent positions for range-based equity calculation
+            table_positions = game_state.table_positions
+            position_by_name = {name: pos for pos, name in table_positions.items()}
+            opponent_positions = [
+                position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+                for p in opponents_in_hand
+            ]
+
             # Get request_id from last LLM response
             llm_response = getattr(self, '_last_llm_response', None)
             request_id = llm_response.request_id if llm_response else None
@@ -428,6 +436,7 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('adding_to_pot'),
                 request_id=request_id,
+                opponent_positions=opponent_positions,
             )
 
             self._persistence.save_decision_analysis(analysis)

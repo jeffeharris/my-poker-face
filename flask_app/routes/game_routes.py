@@ -90,6 +90,14 @@ def analyze_player_decision(
         ]
         num_opponents = len(opponents_in_hand)
 
+        # Get opponent positions for range-based equity calculation
+        table_positions = game_state.table_positions
+        position_by_name = {name: pos for pos, name in table_positions.items()}
+        opponent_positions = [
+            position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+            for p in opponents_in_hand
+        ]
+
         # Calculate cost to call
         cost_to_call = max(0, game_state.highest_bet - player.current_bet)
 
@@ -107,6 +115,7 @@ def analyze_player_decision(
             num_opponents=num_opponents,
             action_taken=action,
             raise_amount=amount if action == 'raise' else None,
+            opponent_positions=opponent_positions,
         )
 
         persistence.save_decision_analysis(analysis)
