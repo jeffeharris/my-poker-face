@@ -19,6 +19,7 @@ from poker.emotional_state import EmotionalState
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
+from poker.memory.opponent_model import OpponentModelManager
 from poker.tournament_tracker import TournamentTracker
 from poker.character_images import get_avatar_url
 
@@ -231,6 +232,13 @@ def api_game_state(game_id):
                 pressure_stats = PressureStatsTracker()
 
                 memory_manager = AIMemoryManager(game_id, persistence.db_path)
+
+                # Restore opponent models from database
+                saved_opponent_models = persistence.load_opponent_models(game_id)
+                if saved_opponent_models:
+                    memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
+                    logger.info(f"[LOAD] Restored opponent models for game {game_id}")
+
                 for player in state_machine.game_state.players:
                     if not player.is_human and player.name in ai_controllers:
                         memory_manager.initialize_for_player(player.name)
@@ -448,6 +456,7 @@ def api_new_game():
     game_state_service.set_game(game_id, game_data)
 
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
 
     return jsonify({'game_id': game_id})
@@ -491,6 +500,8 @@ def api_player_action(game_id):
 
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    if 'memory_manager' in current_game_data:
+        persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
     progress_game(game_id)
 
@@ -671,6 +682,8 @@ def register_socket_events(sio):
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        if 'memory_manager' in current_game_data:
+            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
         update_and_emit_game_state(game_id)
         progress_game(game_id)

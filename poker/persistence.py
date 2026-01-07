@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 
 @dataclass
@@ -329,6 +329,7 @@ class GamePersistence:
             18: (self._migrate_v18_add_prompt_captures, "Add prompt_captures table for debugging AI decisions"),
             19: (self._migrate_v19_add_conversation_history, "Add conversation_history column to prompt_captures"),
             20: (self._migrate_v20_add_decision_analysis, "Add player_decision_analysis table for quality monitoring"),
+            21: (self._migrate_v21_add_game_id_to_opponent_models, "Add game_id to opponent_models for game-specific tracking"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1141,6 +1142,43 @@ class GamePersistence:
 
         logger.info("Created player_decision_analysis table for AI quality monitoring")
 
+    def _migrate_v21_add_game_id_to_opponent_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v21: Add game_id to opponent_models and memorable_hands.
+
+        This enables game-specific opponent tracking while preserving cross-game learning capability.
+        """
+        # Check if game_id column exists in opponent_models
+        cursor = conn.execute("PRAGMA table_info(opponent_models)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'game_id' not in columns:
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN game_id TEXT")
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opponent_models_game
+                ON opponent_models(game_id)
+            """)
+            # Update unique constraint by recreating table (SQLite limitation)
+            # For now, just add the column - uniqueness will be (game_id, observer, opponent)
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_opponent_models_unique
+                ON opponent_models(game_id, observer_name, opponent_name)
+            """)
+            logger.info("Added game_id column to opponent_models")
+
+        # Check if game_id column exists in memorable_hands
+        cursor = conn.execute("PRAGMA table_info(memorable_hands)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'game_id' not in columns:
+            conn.execute("ALTER TABLE memorable_hands ADD COLUMN game_id TEXT")
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memorable_hands_game
+                ON memorable_hands(game_id)
+            """)
+            logger.info("Added game_id column to memorable_hands")
+
+        logger.info("Migration v21 complete: opponent_models now supports game-specific tracking")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
@@ -1703,6 +1741,159 @@ class GamePersistence:
         """Delete all controller states for a game."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
+
+    # Opponent Model Persistence Methods
+    def save_opponent_models(self, game_id: str, opponent_model_manager) -> None:
+        """Save opponent models for a game.
+
+        Args:
+            game_id: The game identifier
+            opponent_model_manager: OpponentModelManager instance or dict from to_dict()
+        """
+        # Convert to dict if it's an OpponentModelManager object
+        if hasattr(opponent_model_manager, 'to_dict'):
+            models_dict = opponent_model_manager.to_dict()
+        else:
+            models_dict = opponent_model_manager
+
+        if not models_dict:
+            return
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Clear existing models for this game
+            conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
+
+            # Save each observer -> opponent -> model
+            for observer_name, opponents in models_dict.items():
+                for opponent_name, model_data in opponents.items():
+                    tendencies = model_data.get('tendencies', {})
+
+                    conn.execute("""
+                        INSERT INTO opponent_models
+                        (game_id, observer_name, opponent_name, hands_observed,
+                         vpip, pfr, aggression_factor, fold_to_cbet,
+                         bluff_frequency, showdown_win_rate, recent_trend, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (
+                        game_id,
+                        observer_name,
+                        opponent_name,
+                        tendencies.get('hands_observed', 0),
+                        tendencies.get('vpip', 0.5),
+                        tendencies.get('pfr', 0.5),
+                        tendencies.get('aggression_factor', 1.0),
+                        tendencies.get('fold_to_cbet', 0.5),
+                        tendencies.get('bluff_frequency', 0.3),
+                        tendencies.get('showdown_win_rate', 0.5),
+                        tendencies.get('recent_trend', 'stable')
+                    ))
+
+                    # Get the inserted model ID for memorable hands foreign key
+                    model_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+                    # Save memorable hands
+                    memorable_hands = model_data.get('memorable_hands', [])
+                    for hand in memorable_hands:
+                        conn.execute("""
+                            INSERT INTO memorable_hands
+                            (game_id, observer_name, opponent_name, hand_id,
+                             memory_type, impact_score, narrative, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            game_id,
+                            observer_name,
+                            opponent_name,
+                            hand.get('hand_id', 0),
+                            hand.get('memory_type', ''),
+                            hand.get('impact_score', 0.0),
+                            hand.get('narrative', ''),
+                            hand.get('timestamp', datetime.now().isoformat())
+                        ))
+
+            logger.debug(f"Saved opponent models for game {game_id}")
+
+    def load_opponent_models(self, game_id: str) -> Dict[str, Any]:
+        """Load opponent models for a game.
+
+        Returns:
+            Dict suitable for OpponentModelManager.from_dict(), or empty dict if not found
+        """
+        models_dict = {}
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Load all opponent models for this game
+            cursor = conn.execute("""
+                SELECT * FROM opponent_models WHERE game_id = ?
+            """, (game_id,))
+
+            for row in cursor.fetchall():
+                observer_name = row['observer_name']
+                opponent_name = row['opponent_name']
+
+                if observer_name not in models_dict:
+                    models_dict[observer_name] = {}
+
+                # Build tendencies dict matching OpponentTendencies.to_dict() format
+                tendencies = {
+                    'hands_observed': row['hands_observed'],
+                    'vpip': row['vpip'],
+                    'pfr': row['pfr'],
+                    'aggression_factor': row['aggression_factor'],
+                    'fold_to_cbet': row['fold_to_cbet'],
+                    'bluff_frequency': row['bluff_frequency'],
+                    'showdown_win_rate': row['showdown_win_rate'],
+                    'recent_trend': row['recent_trend'] or 'stable',
+                    # Counters - we can't restore these perfectly, but we can estimate
+                    '_vpip_count': int(row['vpip'] * row['hands_observed']),
+                    '_pfr_count': int(row['pfr'] * row['hands_observed']),
+                    '_bet_raise_count': 0,  # Can't restore
+                    '_call_count': 0,  # Can't restore
+                    '_fold_to_cbet_count': 0,  # Can't restore
+                    '_cbet_faced_count': 0,  # Can't restore
+                    '_showdowns': 0,  # Can't restore
+                    '_showdowns_won': 0,  # Can't restore
+                }
+
+                models_dict[observer_name][opponent_name] = {
+                    'observer': observer_name,
+                    'opponent': opponent_name,
+                    'tendencies': tendencies,
+                    'memorable_hands': []
+                }
+
+            # Load memorable hands
+            cursor = conn.execute("""
+                SELECT * FROM memorable_hands WHERE game_id = ?
+            """, (game_id,))
+
+            for row in cursor.fetchall():
+                observer_name = row['observer_name']
+                opponent_name = row['opponent_name']
+
+                if observer_name in models_dict and opponent_name in models_dict[observer_name]:
+                    models_dict[observer_name][opponent_name]['memorable_hands'].append({
+                        'hand_id': row['hand_id'],
+                        'memory_type': row['memory_type'],
+                        'opponent_name': opponent_name,
+                        'impact_score': row['impact_score'],
+                        'narrative': row['narrative'] or '',
+                        'hand_summary': '',  # Not stored in DB
+                        'timestamp': row['created_at'] or datetime.now().isoformat()
+                    })
+
+        if models_dict:
+            logger.debug(f"Loaded opponent models for game {game_id}: {len(models_dict)} observers")
+
+        return models_dict
+
+    def delete_opponent_models_for_game(self, game_id: str) -> None:
+        """Delete all opponent models for a game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
 
     # Tournament Results Persistence Methods
     def save_tournament_result(self, game_id: str, result: Dict[str, Any]) -> None:
