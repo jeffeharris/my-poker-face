@@ -404,7 +404,8 @@ def api_new_game():
                 state_machine,
                 llm_config=llm_config,
                 game_id=game_id,
-                owner_id=owner_id
+                owner_id=owner_id,
+                persistence=persistence
             )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(
