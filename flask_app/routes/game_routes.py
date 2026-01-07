@@ -40,6 +40,68 @@ logger = logging.getLogger(__name__)
 game_bp = Blueprint('game', __name__)
 
 
+def analyze_player_decision(
+    game_id: str,
+    player_name: str,
+    action: str,
+    amount: int,
+    state_machine,
+    game_state
+) -> None:
+    """Analyze a player decision (human or AI) and save to database.
+
+    This tracks decision quality for ALL players, not just AI.
+    """
+    try:
+        from poker.decision_analyzer import get_analyzer
+
+        player = game_state.current_player
+        if player.name != player_name:
+            # Find the player who acted (may have moved to next player already)
+            player = next((p for p in game_state.players if p.name == player_name), None)
+            if not player:
+                return
+
+        # Get cards as strings
+        community_cards = [str(c) for c in game_state.community_cards] if game_state.community_cards else []
+        player_hand = [str(c) for c in player.hand] if player.hand else []
+
+        # Count opponents still in hand
+        opponents_in_hand = [
+            p for p in game_state.players
+            if not p.is_folded and p.name != player_name
+        ]
+        num_opponents = len(opponents_in_hand)
+
+        # Calculate cost to call
+        cost_to_call = max(0, game_state.highest_bet - player.current_bet)
+
+        analyzer = get_analyzer()
+        analysis = analyzer.analyze(
+            game_id=game_id,
+            player_name=player_name,
+            hand_number=getattr(state_machine, 'hand_number', None),
+            phase=str(state_machine.current_phase.value) if state_machine.current_phase else None,
+            player_hand=player_hand,
+            community_cards=community_cards,
+            pot_total=game_state.pot.get('total', 0),
+            cost_to_call=cost_to_call,
+            player_stack=player.stack,
+            num_opponents=num_opponents,
+            action_taken=action,
+            raise_amount=amount if action == 'raise' else None,
+        )
+
+        persistence.save_decision_analysis(analysis)
+        logger.debug(
+            f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
+            f"(equity={analysis.equity:.2f if analysis.equity else 'N/A'}, "
+            f"ev_lost={analysis.ev_lost:.0f})"
+        )
+    except Exception as e:
+        logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
+
+
 def generate_game_id() -> str:
     """Generate a unique game ID based on current timestamp."""
     return str(int(time.time() * 1000))
@@ -394,7 +456,11 @@ def api_player_action(game_id):
         return jsonify({'error': 'Not human player turn'}), 400
 
     highest_bet = state_machine.game_state.highest_bet
+    pre_action_state = state_machine.game_state  # Save state before action for analysis
     game_state = play_turn(state_machine.game_state, action, amount)
+
+    # Analyze decision quality (works for both human and AI)
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state)
 
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -570,7 +636,11 @@ def register_socket_events(sio):
         state_machine = current_game_data['state_machine']
         current_player = state_machine.game_state.current_player
         highest_bet = state_machine.game_state.highest_bet
+        pre_action_state = state_machine.game_state  # Save state before action for analysis
         game_state = play_turn(state_machine.game_state, action, amount)
+
+        # Analyze decision quality (works for both human and AI)
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
