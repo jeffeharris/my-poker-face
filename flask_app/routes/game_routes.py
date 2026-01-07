@@ -53,6 +53,7 @@ def analyze_player_decision(
 
     This tracks decision quality for ALL players, not just AI.
     """
+    print(f"[DEBUG] analyze_player_decision called for {player_name} action={action}")
     try:
         from poker.decision_analyzer import get_analyzer
 
@@ -91,7 +92,7 @@ def analyze_player_decision(
         num_opponents = len(opponents_in_hand)
 
         # Calculate cost to call
-        cost_to_call = max(0, game_state.highest_bet - player.current_bet)
+        cost_to_call = max(0, game_state.highest_bet - player.bet)
 
         analyzer = get_analyzer()
         analysis = analyzer.analyze(
@@ -110,13 +111,15 @@ def analyze_player_decision(
         )
 
         persistence.save_decision_analysis(analysis)
-        logger.debug(
-            f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
-            f"(equity={analysis.equity:.2f if analysis.equity else 'N/A'}, "
-            f"ev_lost={analysis.ev_lost:.0f})"
+        equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
+        print(
+            f"[DEBUG] SAVED {player_name}: {analysis.decision_quality} "
+            f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
         )
     except Exception as e:
-        logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
+        print(f"[DEBUG] FAILED to analyze decision for {player_name}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def generate_game_id() -> str:

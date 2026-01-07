@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis } from './types';
 import './PromptDebugger.css';
 
 interface PromptDebuggerProps {
@@ -13,6 +13,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   const [stats, setStats] = useState<CaptureStats | null>(null);
   const [analysisStats, setAnalysisStats] = useState<DecisionAnalysisStats | null>(null);
   const [selectedCapture, setSelectedCapture] = useState<PromptCapture | null>(null);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<DecisionAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
@@ -104,6 +105,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
       const data = await response.json();
       setSelectedCapture(data.capture);
+      setSelectedAnalysis(data.decision_analysis || null);
       setModifiedSystemPrompt(data.capture.system_prompt);
       setModifiedUserMessage(data.capture.user_message);
       setModifiedConversationHistory(data.capture.conversation_history || []);
@@ -381,6 +383,57 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                     <span>${selectedCapture.player_stack}</span>
                   </div>
                 </div>
+
+                {/* Decision Analysis */}
+                {selectedAnalysis && (
+                  <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
+                    <h4>Decision Analysis</h4>
+                    <div className="analysis-grid">
+                      {selectedAnalysis.equity != null && (
+                        <div className="analysis-item">
+                          <label>Equity:</label>
+                          <span>{(selectedAnalysis.equity * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {selectedAnalysis.required_equity != null && (
+                        <div className="analysis-item">
+                          <label>Required Equity:</label>
+                          <span>{(selectedAnalysis.required_equity * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {selectedAnalysis.ev_call != null && (
+                        <div className="analysis-item">
+                          <label>EV (Call):</label>
+                          <span className={selectedAnalysis.ev_call >= 0 ? 'positive' : 'negative'}>
+                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}${selectedAnalysis.ev_call.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.optimal_action && (
+                        <div className="analysis-item">
+                          <label>Optimal Action:</label>
+                          <span className={`optimal-action ${selectedAnalysis.optimal_action}`}>
+                            {selectedAnalysis.optimal_action.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.decision_quality && (
+                        <div className="analysis-item quality">
+                          <label>Quality:</label>
+                          <span className={`quality-badge ${selectedAnalysis.decision_quality}`}>
+                            {selectedAnalysis.decision_quality.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.ev_lost != null && selectedAnalysis.ev_lost > 0 && (
+                        <div className="analysis-item">
+                          <label>EV Lost:</label>
+                          <span className="negative">-${selectedAnalysis.ev_lost.toFixed(0)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="detail-tabs">
                   <button

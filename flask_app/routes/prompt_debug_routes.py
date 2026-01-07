@@ -58,15 +58,19 @@ def list_captures():
 
 @prompt_debug_bp.route('/api/prompt-debug/captures/<int:capture_id>', methods=['GET'])
 def get_capture(capture_id):
-    """Get a single prompt capture with full details."""
+    """Get a single prompt capture with full details and linked decision analysis."""
     capture = persistence.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
+    # Get linked decision analysis if it exists
+    decision_analysis = persistence.get_decision_analysis_by_capture(capture_id)
+
     return jsonify({
         'success': True,
-        'capture': capture
+        'capture': capture,
+        'decision_analysis': decision_analysis
     })
 
 

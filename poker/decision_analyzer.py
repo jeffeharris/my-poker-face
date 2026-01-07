@@ -276,13 +276,34 @@ class DecisionAnalyzer:
             analysis.decision_quality = "unknown"
             return
 
-        # Determine optimal action based on EV
+        action = analysis.action_taken
+        cost_to_call = analysis.cost_to_call
+
+        # Special case: cost_to_call is 0 (can check for free)
+        if cost_to_call == 0:
+            # Never fold when you can check for free
+            analysis.optimal_action = "check"
+
+            if action == "fold":
+                # Folding when you can check for free is always a mistake
+                # EV lost is your equity share of the pot
+                analysis.decision_quality = "mistake"
+                if analysis.equity is not None and analysis.pot_total > 0:
+                    analysis.ev_lost = analysis.equity * analysis.pot_total
+                else:
+                    analysis.ev_lost = 0  # Can't calculate without equity
+            else:
+                # Check or raise are both acceptable when it's free
+                analysis.decision_quality = "correct"
+                analysis.ev_lost = 0
+            return
+
+        # Normal case: there's a cost to call
         if analysis.ev_call > 0:
             analysis.optimal_action = "call"
         else:
             analysis.optimal_action = "fold"
 
-        action = analysis.action_taken
         if action == "fold" and analysis.ev_call > 0:
             # Folded a +EV spot
             analysis.decision_quality = "mistake"

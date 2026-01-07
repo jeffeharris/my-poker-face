@@ -431,10 +431,10 @@ class AIPlayerController:
             )
 
             self._persistence.save_decision_analysis(analysis)
+            equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
             logger.debug(
                 f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
-                f"(equity={analysis.equity:.2f if analysis.equity else 'N/A'}, "
-                f"ev_lost={analysis.ev_lost:.0f})"
+                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
             )
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")

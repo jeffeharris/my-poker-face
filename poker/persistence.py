@@ -2750,6 +2750,34 @@ class GamePersistence:
                 return None
             return dict(row)
 
+    def get_decision_analysis_by_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
+        """Get decision analysis linked to a prompt capture.
+
+        Links via request_id: prompt_captures.original_request_id = player_decision_analysis.request_id
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # First try direct capture_id link
+            cursor = conn.execute(
+                "SELECT * FROM player_decision_analysis WHERE capture_id = ?",
+                (capture_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+
+            # Fall back to request_id link
+            cursor = conn.execute("""
+                SELECT pda.*
+                FROM player_decision_analysis pda
+                JOIN prompt_captures pc ON pc.original_request_id = pda.request_id
+                WHERE pc.id = ?
+            """, (capture_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
     def list_decision_analyses(
         self,
         game_id: Optional[str] = None,
