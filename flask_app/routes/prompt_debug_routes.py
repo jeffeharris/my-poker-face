@@ -2,15 +2,34 @@
 
 import json
 import logging
+import uuid
+from typing import Dict
 from flask import Blueprint, jsonify, request
 
-from core.llm import LLMClient, CallType
+from core.llm import LLMClient, CallType, Assistant
 from ..extensions import persistence
 from .. import config
 
 logger = logging.getLogger(__name__)
 
 prompt_debug_bp = Blueprint('prompt_debug', __name__)
+
+# In-memory session storage for interrogation conversations
+# Key: session_id, Value: Assistant instance
+_interrogation_sessions: Dict[str, Assistant] = {}
+
+# Context appended to system prompt for interrogation mode
+INTERROGATION_CONTEXT = """
+
+---
+[INTERROGATION MODE]
+You are now being asked follow-up questions about the decision you just made.
+Please explain your reasoning clearly and honestly. If asked about specific
+aspects of your decision (pot odds, hand strength, opponent reads, etc.),
+provide detailed explanations. Stay in character and respond as you would
+during the game, but focus on explaining your thought process.
+---
+"""
 
 
 @prompt_debug_bp.route('/api/prompt-debug/captures', methods=['GET'])
@@ -143,6 +162,106 @@ def replay_capture(capture_id):
 
     except Exception as e:
         logger.error(f"Replay failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@prompt_debug_bp.route('/api/prompt-debug/captures/<int:capture_id>/interrogate', methods=['POST'])
+def interrogate_capture(capture_id):
+    """Start or continue an interrogation conversation with the AI.
+
+    Allows users to ask follow-up questions to understand why the AI
+    made a specific decision. The AI responds in the same persona/context
+    as when it made the original decision.
+
+    Request body:
+        message: User's question to ask the AI (required)
+        session_id: Session ID for continuing a conversation (optional)
+        reset: Boolean to reset the session and start fresh (optional)
+        model: Model override (optional, defaults to original capture's model)
+
+    Response:
+        success: Boolean
+        response: AI's response text
+        session_id: Session ID for continuing the conversation
+        messages_count: Number of messages in conversation
+        model_used: Model that was used
+        latency_ms: Response latency
+    """
+    capture = persistence.get_prompt_capture(capture_id)
+
+    if not capture:
+        return jsonify({'success': False, 'error': 'Capture not found'}), 404
+
+    data = request.get_json() or {}
+
+    message = data.get('message')
+    if not message:
+        return jsonify({'success': False, 'error': 'Message is required'}), 400
+
+    session_id = data.get('session_id')
+    reset = data.get('reset', False)
+    model = data.get('model', capture.get('model', 'gpt-4o-mini'))
+
+    try:
+        # Get or create session
+        if reset and session_id and session_id in _interrogation_sessions:
+            del _interrogation_sessions[session_id]
+            session_id = None
+
+        if session_id and session_id in _interrogation_sessions:
+            # Continue existing conversation
+            assistant = _interrogation_sessions[session_id]
+        else:
+            # Create new session
+            session_id = str(uuid.uuid4())
+
+            # Build augmented system prompt
+            system_prompt = capture['system_prompt'] + INTERROGATION_CONTEXT
+
+            # Create assistant with the original context
+            assistant = Assistant(
+                system_prompt=system_prompt,
+                model=model,
+                call_type=CallType.DEBUG_INTERROGATE,
+                game_id=capture.get('game_id'),
+                player_name=capture.get('player_name'),
+            )
+
+            # Load original conversation history
+            conversation_history = capture.get('conversation_history') or []
+            for msg in conversation_history:
+                assistant.memory.add(msg.get('role', 'user'), msg.get('content', ''))
+
+            # Add the original user message and AI response to establish context
+            assistant.memory.add('user', capture['user_message'])
+            assistant.memory.add('assistant', capture['ai_response'])
+
+            # Store session
+            _interrogation_sessions[session_id] = assistant
+
+        # Send the user's question
+        response = assistant.chat_full(
+            message,
+            json_format=False,
+            call_type=CallType.DEBUG_INTERROGATE,
+            game_id=capture.get('game_id'),
+            player_name=capture.get('player_name'),
+        )
+
+        return jsonify({
+            'success': True,
+            'response': response.content,
+            'session_id': session_id,
+            'messages_count': len(assistant.memory.messages),
+            'model_used': model,
+            'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
+        })
+
+    except Exception as e:
+        logger.error(f"Interrogation failed: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

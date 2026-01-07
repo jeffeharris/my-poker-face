@@ -108,3 +108,23 @@ export interface DecisionAnalysisStats {
   by_quality: Record<string, number>;
   by_action: Record<string, number>;
 }
+
+// Interrogation mode types
+export type DebugMode = 'view' | 'replay' | 'interrogate';
+
+export interface InterrogationMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'context';
+  content: string;
+  timestamp: string;
+}
+
+export interface InterrogationResponse {
+  success: boolean;
+  response: string;
+  session_id: string;
+  messages_count: number;
+  model_used: string;
+  latency_ms: number | null;
+  error?: string;
+}

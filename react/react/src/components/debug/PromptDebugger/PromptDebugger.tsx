@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
+import { InterrogationChat } from './InterrogationChat';
 import './PromptDebugger.css';
 
 interface PromptDebuggerProps {
@@ -24,14 +25,20 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
     offset: 0,
   });
 
+  // Mode state (view, replay, interrogate)
+  const [mode, setMode] = useState<DebugMode>('view');
+
   // Replay state
-  const [replayMode, setReplayMode] = useState(false);
   const [modifiedSystemPrompt, setModifiedSystemPrompt] = useState('');
   const [modifiedUserMessage, setModifiedUserMessage] = useState('');
   const [modifiedConversationHistory, setModifiedConversationHistory] = useState<ConversationMessage[]>([]);
   const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
+
+  // Interrogation state
+  const [interrogationMessages, setInterrogationMessages] = useState<InterrogationMessage[]>([]);
+  const [interrogationSessionId, setInterrogationSessionId] = useState<string | null>(null);
 
   const fetchCaptures = useCallback(async () => {
     setLoading(true);
@@ -110,8 +117,11 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       setModifiedUserMessage(data.capture.user_message);
       setModifiedConversationHistory(data.capture.conversation_history || []);
       setUseHistory(true);
-      setReplayMode(false);
+      setMode('view');
       setReplayResult(null);
+      // Reset interrogation state for new capture
+      setInterrogationMessages([]);
+      setInterrogationSessionId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     }
@@ -437,16 +447,33 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
                 <div className="detail-tabs">
                   <button
-                    className={!replayMode ? 'active' : ''}
-                    onClick={() => setReplayMode(false)}
+                    className={mode === 'view' ? 'active' : ''}
+                    onClick={() => setMode('view')}
                   >
                     View
                   </button>
                   <button
-                    className={replayMode ? 'active' : ''}
-                    onClick={() => setReplayMode(true)}
+                    className={mode === 'replay' ? 'active' : ''}
+                    onClick={() => setMode('replay')}
                   >
                     Edit & Replay
+                  </button>
+                  <button
+                    className={mode === 'interrogate' ? 'active' : ''}
+                    onClick={() => {
+                      setMode('interrogate');
+                      // Initialize interrogation with original response as context
+                      if (selectedCapture && interrogationMessages.length === 0) {
+                        setInterrogationMessages([{
+                          id: 'original-decision',
+                          role: 'context',
+                          content: selectedCapture.ai_response,
+                          timestamp: selectedCapture.created_at,
+                        }]);
+                      }
+                    }}
+                  >
+                    Interrogate
                   </button>
                 </div>
 
@@ -486,7 +513,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                   </div>
                 )}
 
-                {!replayMode ? (
+                {mode === 'view' && (
                   <div className="detail-prompts">
                     <div className="prompt-section">
                       <h4>System Prompt</h4>
@@ -527,7 +554,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                       </details>
                     )}
                   </div>
-                ) : (
+                )}
+
+                {mode === 'replay' && (
                   <div className="replay-editor">
                     <div className="prompt-section">
                       <h4>System Prompt (editable)</h4>
@@ -633,6 +662,16 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                       </div>
                     )}
                   </div>
+                )}
+
+                {mode === 'interrogate' && (
+                  <InterrogationChat
+                    capture={selectedCapture}
+                    messages={interrogationMessages}
+                    onMessagesUpdate={setInterrogationMessages}
+                    sessionId={interrogationSessionId}
+                    onSessionIdUpdate={setInterrogationSessionId}
+                  />
                 )}
               </>
             ) : (
