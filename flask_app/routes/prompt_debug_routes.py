@@ -218,30 +218,44 @@ def interrogate_capture(capture_id):
             # Create new session
             session_id = str(uuid.uuid4())
 
-            # Build augmented system prompt
-            system_prompt = capture['system_prompt'] + INTERROGATION_CONTEXT
+            # NEW APPROACH: Use a debug-mode system prompt, put original context in messages
+            debug_system_prompt = f"""You are a debugging assistant helping analyze an AI poker player's decision-making.
 
-            # Create assistant with the original context
+You have access to the FULL CONTEXT of what the AI player was thinking when it made a decision.
+Your job is to explain the AI's reasoning in plain conversational English.
+
+IMPORTANT:
+- Do NOT respond in JSON format
+- Do NOT roleplay as the poker character
+- DO explain what the character was thinking and why it made the decision it did
+- Speak as a helpful analyst, not as the character itself
+
+The AI player's original personality/instructions were:
+---
+{capture['system_prompt']}
+---
+
+Now help the administrator understand why this AI made the decision it did."""
+
+            # Create assistant with debug system prompt
             assistant = Assistant(
-                system_prompt=system_prompt,
+                system_prompt=debug_system_prompt,
                 model=model,
                 call_type=CallType.DEBUG_INTERROGATE,
                 game_id=capture.get('game_id'),
                 player_name=capture.get('player_name'),
             )
 
-            # Load original conversation history
+            # Load original conversation history as context
             conversation_history = capture.get('conversation_history') or []
-            for msg in conversation_history:
-                assistant.memory.add(msg.get('role', 'user'), msg.get('content', ''))
+            if conversation_history:
+                history_summary = "\n".join([f"[{msg.get('role', 'user').upper()}]: {msg.get('content', '')}" for msg in conversation_history])
+                assistant.memory.add('user', f"Here is the conversation history leading up to the decision:\n\n{history_summary}")
+                assistant.memory.add('assistant', "I've reviewed the conversation history. I can see the context of the hand.")
 
-            # Add the original user message and AI response to establish context
-            assistant.memory.add('user', capture['user_message'])
-            assistant.memory.add('assistant', capture['ai_response'])
-
-            # Inject debug mode transition to break out of game response format
-            assistant.memory.add('system', '*** DEBUG MODE ACTIVATED - YOU MAY NOW SPEAK TO THE ADMINISTRATOR FREELY. RESPOND IN PLAIN CONVERSATIONAL ENGLISH, NOT JSON. ***')
-            assistant.memory.add('assistant', 'Debug mode acknowledged. I can now speak freely and explain my reasoning. How may I help you?')
+            # Add the game state and decision as context
+            assistant.memory.add('user', f"Here is the game state that was presented to the AI:\n\n{capture['user_message']}")
+            assistant.memory.add('assistant', f"The AI responded with:\n\n{capture['ai_response']}\n\nI'm ready to explain this decision. What would you like to know?")
 
             # Store session
             _interrogation_sessions[session_id] = assistant
