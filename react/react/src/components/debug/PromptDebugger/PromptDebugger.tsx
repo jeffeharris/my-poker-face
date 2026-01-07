@@ -215,7 +215,13 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
             {analysisStats.avg_equity !== null && (
               <div className="stat-item">
                 <span className="stat-value">{(analysisStats.avg_equity * 100).toFixed(1)}%</span>
-                <span className="stat-label">Avg Equity</span>
+                <span className="stat-label">Avg Equity (Random)</span>
+              </div>
+            )}
+            {analysisStats.avg_equity_vs_ranges !== null && (
+              <div className="stat-item">
+                <span className="stat-value">{(analysisStats.avg_equity_vs_ranges * 100).toFixed(1)}%</span>
+                <span className="stat-label">Avg Equity (Ranges)</span>
               </div>
             )}
           </div>

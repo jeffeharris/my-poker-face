@@ -9,7 +9,7 @@ import json
 import time
 import logging
 from dataclasses import dataclass, asdict
-from typing import Optional, List
+from typing import Optional, List, Any
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +132,7 @@ class DecisionAnalyzer:
         request_id: Optional[str] = None,
         capture_id: Optional[int] = None,
         opponent_positions: Optional[List[str]] = None,
+        opponent_infos: Optional[List[Any]] = None,
     ) -> DecisionAnalysis:
         """
         Analyze a decision and return analysis result.
@@ -152,7 +153,9 @@ class DecisionAnalyzer:
             request_id: Link to api_usage table
             capture_id: Link to prompt_captures table
             opponent_positions: List of opponent position names for range-based equity
-                               (e.g., ['button', 'big_blind_player'])
+                               (e.g., ['button', 'big_blind_player']) - backward compat
+            opponent_infos: List of OpponentInfo objects with observed stats and
+                           personality data for more accurate range estimation
 
         Returns:
             DecisionAnalysis with equity and quality assessment
@@ -187,13 +190,20 @@ class DecisionAnalyzer:
             except Exception as e:
                 logger.debug(f"Equity calculation failed: {e}")
 
-            # Also calculate equity vs position-based ranges if positions provided
-            if opponent_positions:
+            # Calculate equity vs ranges - prefer opponent_infos (with stats) over positions
+            range_data = opponent_infos if opponent_infos else opponent_positions
+            if range_data:
                 try:
                     analysis.equity_vs_ranges = self._calculate_equity_vs_ranges(
-                        player_hand, community_cards or [], opponent_positions
+                        player_hand, community_cards or [], range_data
                     )
-                    analysis.opponent_positions = json.dumps(opponent_positions)
+                    # Store opponent positions for reference
+                    if opponent_positions:
+                        analysis.opponent_positions = json.dumps(opponent_positions)
+                    elif opponent_infos:
+                        # Extract positions from opponent_infos
+                        positions = [getattr(o, 'position', 'unknown') for o in opponent_infos]
+                        analysis.opponent_positions = json.dumps(positions)
                 except Exception as e:
                     logger.debug(f"Equity vs ranges calculation failed: {e}")
 
@@ -287,18 +297,20 @@ class DecisionAnalyzer:
         self,
         player_hand: List[str],
         community_cards: List[str],
-        opponent_positions: List[str]
+        opponent_infos: List[Any]  # List of OpponentInfo or position strings
     ) -> Optional[float]:
-        """Calculate equity vs position-based opponent hand ranges.
+        """Calculate equity vs opponent hand ranges using fallback hierarchy.
 
-        Instead of dealing random hands to opponents, this samples from
-        realistic hand ranges based on each opponent's table position.
+        Uses the following priority for range estimation:
+        1. In-game observed stats (if enough hands observed)
+        2. Personality traits (for AI players)
+        3. Position-based static ranges (fallback)
 
         Args:
             player_hand: Hero's hole cards as strings ['Ah', 'Kd']
             community_cards: Board cards as strings
-            opponent_positions: List of position names for each opponent
-                               (e.g., ['button', 'big_blind_player'])
+            opponent_infos: List of OpponentInfo objects or position strings
+                           (position strings are converted to basic OpponentInfo)
 
         Returns:
             Win probability (0.0-1.0) or None if calculation fails
@@ -306,7 +318,12 @@ class DecisionAnalyzer:
         try:
             import eval7
             import random
-            from .hand_ranges import sample_hands_for_opponents
+            from .hand_ranges import (
+                sample_hands_for_opponent_infos,
+                sample_hands_for_opponents,
+                OpponentInfo,
+                EquityConfig,
+            )
 
             # Parse hero's hand
             hero_hand = [eval7.Card(c) for c in player_hand]
@@ -322,12 +339,26 @@ class DecisionAnalyzer:
             wins = 0
             iterations = self.iterations
             rng = random.Random()
+            config = EquityConfig()
+
+            # Check if we have OpponentInfo objects or just position strings
+            use_opponent_infos = (
+                opponent_infos and
+                len(opponent_infos) > 0 and
+                hasattr(opponent_infos[0], 'name')
+            )
 
             for _ in range(iterations):
-                # Sample opponent hands from position-based ranges
-                opponent_hands_raw = sample_hands_for_opponents(
-                    opponent_positions, excluded_cards, rng
-                )
+                # Sample opponent hands using appropriate method
+                if use_opponent_infos:
+                    opponent_hands_raw = sample_hands_for_opponent_infos(
+                        opponent_infos, excluded_cards, config, rng
+                    )
+                else:
+                    # Backward compatibility: treat as position strings
+                    opponent_hands_raw = sample_hands_for_opponents(
+                        opponent_infos, excluded_cards, rng
+                    )
 
                 # Skip iteration if we couldn't sample valid hands
                 if None in opponent_hands_raw:

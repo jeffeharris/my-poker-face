@@ -2879,6 +2879,7 @@ class GamePersistence:
                     COUNT(*) as total,
                     SUM(ev_lost) as total_ev_lost,
                     AVG(equity) as avg_equity,
+                    AVG(equity_vs_ranges) as avg_equity_vs_ranges,
                     AVG(processing_time_ms) as avg_processing_ms,
                     SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistakes,
                     SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct
@@ -2890,9 +2891,10 @@ class GamePersistence:
                 'total': row[0] or 0,
                 'total_ev_lost': row[1] or 0,
                 'avg_equity': row[2],
-                'avg_processing_ms': row[3],
-                'mistakes': row[4] or 0,
-                'correct': row[5] or 0,
+                'avg_equity_vs_ranges': row[3],
+                'avg_processing_ms': row[4],
+                'mistakes': row[5] or 0,
+                'correct': row[6] or 0,
                 'by_quality': by_quality,
                 'by_action': by_action,
             }

@@ -47,7 +47,8 @@ def analyze_player_decision(
     action: str,
     amount: int,
     state_machine,
-    game_state
+    game_state,
+    memory_manager=None
 ) -> None:
     """Analyze a player decision (human or AI) and save to database.
 
@@ -98,6 +99,28 @@ def analyze_player_decision(
             for p in opponents_in_hand
         ]
 
+        # Build OpponentInfo objects with observed stats and personality data
+        from poker.hand_ranges import build_opponent_info
+        opponent_infos = []
+        opponent_model_manager = memory_manager.get_opponent_model_manager() if memory_manager else None
+
+        for opp in opponents_in_hand:
+            opp_position = position_by_name.get(opp.name, "button")
+
+            # Get observed stats from opponent model manager
+            opp_model_data = None
+            if opponent_model_manager:
+                opp_model = opponent_model_manager.get_model(player_name, opp.name)
+                if opp_model and opp_model.tendencies:
+                    opp_model_data = opp_model.tendencies.to_dict()
+
+            opponent_infos.append(build_opponent_info(
+                name=opp.name,
+                position=opp_position,
+                is_ai=not opp.is_human,
+                opponent_model=opp_model_data,
+            ))
+
         # Calculate cost to call
         cost_to_call = max(0, game_state.highest_bet - player.current_bet)
 
@@ -116,6 +139,7 @@ def analyze_player_decision(
             action_taken=action,
             raise_amount=amount if action == 'raise' else None,
             opponent_positions=opponent_positions,
+            opponent_infos=opponent_infos,
         )
 
         persistence.save_decision_analysis(analysis)
@@ -494,7 +518,8 @@ def api_player_action(game_id):
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Analyze decision quality (works for both human and AI)
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state)
+    memory_manager = current_game_data.get('memory_manager')
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, memory_manager)
 
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -676,7 +701,8 @@ def register_socket_events(sio):
         game_state = play_turn(state_machine.game_state, action, amount)
 
         # Analyze decision quality (works for both human and AI)
-        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state)
+        memory_manager = current_game_data.get('memory_manager')
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, memory_manager)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")

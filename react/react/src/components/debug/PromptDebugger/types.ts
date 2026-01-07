@@ -87,6 +87,8 @@ export interface DecisionAnalysis {
   action_taken: string | null;
   raise_amount: number | null;
   equity: number | null;
+  equity_vs_ranges: number | null;  // Equity vs position-based ranges
+  opponent_positions: string | null; // JSON array of opponent positions
   required_equity: number | null;
   ev_call: number | null;
   optimal_action: string | null;
@@ -100,6 +102,7 @@ export interface DecisionAnalysisStats {
   total: number;
   total_ev_lost: number;
   avg_equity: number | null;
+  avg_equity_vs_ranges: number | null;  // Average equity vs position-based ranges
   avg_processing_ms: number | null;
   mistakes: number;
   correct: number;
