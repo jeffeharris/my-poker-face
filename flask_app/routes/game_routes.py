@@ -47,13 +47,14 @@ def analyze_player_decision(
     action: str,
     amount: int,
     state_machine,
-    game_state
+    game_state,
+    hand_number: int = None
 ) -> None:
     """Analyze a player decision (human or AI) and save to database.
 
     This tracks decision quality for ALL players, not just AI.
     """
-    print(f"[DEBUG] analyze_player_decision called for {player_name} action={action}")
+    print(f"[DEBUG] analyze_player_decision called for {player_name} action={action} hand={hand_number}")
     try:
         from poker.decision_analyzer import get_analyzer
 
@@ -98,7 +99,7 @@ def analyze_player_decision(
         analysis = analyzer.analyze(
             game_id=game_id,
             player_name=player_name,
-            hand_number=getattr(state_machine, 'hand_number', None),
+            hand_number=hand_number,
             phase=str(state_machine.current_phase.value) if state_machine.current_phase else None,
             player_hand=player_hand,
             community_cards=community_cards,
@@ -488,7 +489,9 @@ def api_player_action(game_id):
     game_state = play_turn(state_machine.game_state, action, amount)
 
     # Analyze decision quality (works for both human and AI)
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state)
+    memory_manager = current_game_data.get('memory_manager')
+    hand_number = memory_manager.hand_count if memory_manager else None
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number)
 
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -670,7 +673,9 @@ def register_socket_events(sio):
         game_state = play_turn(state_machine.game_state, action, amount)
 
         # Analyze decision quality (works for both human and AI)
-        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state)
+        memory_manager = current_game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
