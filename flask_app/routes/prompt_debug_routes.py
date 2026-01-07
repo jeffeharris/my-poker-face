@@ -77,6 +77,8 @@ def replay_capture(capture_id):
     Request body:
         system_prompt: Modified system prompt (optional)
         user_message: Modified user message (optional)
+        conversation_history: Modified conversation history (optional, list of {role, content})
+        use_history: Whether to include conversation history (default: True)
         model: Model to use (optional, defaults to original)
     """
     capture = persistence.get_prompt_capture(capture_id)
@@ -91,13 +93,28 @@ def replay_capture(capture_id):
     user_message = data.get('user_message', capture['user_message'])
     model = data.get('model', capture.get('model', 'gpt-4o-mini'))
 
+    # Handle conversation history
+    use_history = data.get('use_history', True)
+    conversation_history = data.get('conversation_history', capture.get('conversation_history', []))
+
     try:
         # Create LLM client and replay the prompt
         client = LLMClient(model=model)
 
+        # Build messages array
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+
+        # Include conversation history if enabled
+        if use_history and conversation_history:
+            for msg in conversation_history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+
+        # Add the current user message
         messages.append({"role": "user", "content": user_message})
 
         # Only use json_format if the messages mention "json" (OpenAI requirement)
@@ -115,7 +132,9 @@ def replay_capture(capture_id):
             'original_response': capture['ai_response'],
             'new_response': response.content,
             'model_used': model,
-            'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None
+            'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
+            'messages_count': len(messages),
+            'used_history': use_history and bool(conversation_history)
         })
 
     except Exception as e:

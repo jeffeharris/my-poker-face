@@ -56,6 +56,8 @@ export interface ReplayResponse {
   new_response: string;
   model_used: string;
   latency_ms: number | null;
+  messages_count?: number;
+  used_history?: boolean;
   error?: string;
 }
 

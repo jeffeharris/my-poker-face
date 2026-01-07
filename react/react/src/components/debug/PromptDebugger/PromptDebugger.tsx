@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage } from './types';
 import './PromptDebugger.css';
 
 interface PromptDebuggerProps {
@@ -27,6 +27,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   const [replayMode, setReplayMode] = useState(false);
   const [modifiedSystemPrompt, setModifiedSystemPrompt] = useState('');
   const [modifiedUserMessage, setModifiedUserMessage] = useState('');
+  const [modifiedConversationHistory, setModifiedConversationHistory] = useState<ConversationMessage[]>([]);
+  const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
 
@@ -104,6 +106,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       setSelectedCapture(data.capture);
       setModifiedSystemPrompt(data.capture.system_prompt);
       setModifiedUserMessage(data.capture.user_message);
+      setModifiedConversationHistory(data.capture.conversation_history || []);
+      setUseHistory(true);
       setReplayMode(false);
       setReplayResult(null);
     } catch (err) {
@@ -127,6 +131,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
           body: JSON.stringify({
             system_prompt: modifiedSystemPrompt,
             user_message: modifiedUserMessage,
+            conversation_history: modifiedConversationHistory,
+            use_history: useHistory,
           }),
         }
       );
@@ -142,6 +148,22 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
     } finally {
       setReplaying(false);
     }
+  };
+
+  const updateHistoryMessage = (index: number, field: 'role' | 'content', value: string) => {
+    setModifiedConversationHistory(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value as ConversationMessage['role'] };
+      return updated;
+    });
+  };
+
+  const removeHistoryMessage = (index: number) => {
+    setModifiedConversationHistory(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const addHistoryMessage = () => {
+    setModifiedConversationHistory(prev => [...prev, { role: 'user', content: '' }]);
   };
 
   const formatPotOdds = (potOdds: number | null) => {
@@ -462,6 +484,61 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         rows={10}
                       />
                     </div>
+
+                    {/* Conversation History Editor */}
+                    <div className="prompt-section conversation-history-editor">
+                      <div className="history-header">
+                        <h4>Conversation History ({modifiedConversationHistory.length} messages)</h4>
+                        <label className="history-toggle">
+                          <input
+                            type="checkbox"
+                            checked={useHistory}
+                            onChange={(e) => setUseHistory(e.target.checked)}
+                          />
+                          Include in replay
+                        </label>
+                      </div>
+
+                      {useHistory && (
+                        <div className={`history-editor ${!useHistory ? 'disabled' : ''}`}>
+                          {modifiedConversationHistory.map((msg, idx) => (
+                            <div key={idx} className="history-message-editor">
+                              <select
+                                value={msg.role}
+                                onChange={(e) => updateHistoryMessage(idx, 'role', e.target.value)}
+                              >
+                                <option value="user">user</option>
+                                <option value="assistant">assistant</option>
+                                <option value="system">system</option>
+                              </select>
+                              <textarea
+                                value={msg.content}
+                                onChange={(e) => updateHistoryMessage(idx, 'content', e.target.value)}
+                                rows={3}
+                                placeholder="Message content..."
+                              />
+                              <button
+                                className="remove-message"
+                                onClick={() => removeHistoryMessage(idx)}
+                                title="Remove message"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <button className="add-message" onClick={addHistoryMessage}>
+                            + Add Message
+                          </button>
+                        </div>
+                      )}
+
+                      {!useHistory && modifiedConversationHistory.length > 0 && (
+                        <div className="history-disabled-notice">
+                          {modifiedConversationHistory.length} message(s) will be excluded from replay
+                        </div>
+                      )}
+                    </div>
+
                     <div className="prompt-section">
                       <h4>User Message (editable)</h4>
                       <textarea
@@ -493,6 +570,12 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         <div className="replay-meta">
                           Model: {replayResult.model_used}
                           {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
+                          {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
+                          {replayResult.used_history !== undefined && (
+                            <span className={replayResult.used_history ? 'history-used' : 'history-skipped'}>
+                              {replayResult.used_history ? ' | History included' : ' | History excluded'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
