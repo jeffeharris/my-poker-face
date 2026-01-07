@@ -250,7 +250,7 @@ class UsageTracker:
                     pricing_ids={"image": pricing.id}
                 )
         else:
-            # Text pricing: look up input, output, and optionally cached SKUs
+            # Text pricing: look up input, output, and optionally cached/reasoning SKUs
             input_pricing = self._get_sku_pricing(conn, provider, model, 'input_tokens_1m')
             output_pricing = self._get_sku_pricing(conn, provider, model, 'output_tokens_1m')
 
@@ -261,18 +261,25 @@ class UsageTracker:
             cached_pricing = self._get_sku_pricing(conn, provider, model, 'cached_input_tokens_1m')
             cached_cost_per_m = cached_pricing.cost if cached_pricing else input_pricing.cost / 2
 
+            # Get reasoning pricing (fallback to output rate if not specified)
+            reasoning_pricing = self._get_sku_pricing(conn, provider, model, 'reasoning_tokens_1m')
+            reasoning_cost_per_m = reasoning_pricing.cost if reasoning_pricing else output_pricing.cost
+
             # Calculate cost
             uncached_input = response.input_tokens - response.cached_tokens
             input_cost = uncached_input * input_pricing.cost / 1_000_000
             cached_cost = response.cached_tokens * cached_cost_per_m / 1_000_000
             output_cost = response.output_tokens * output_pricing.cost / 1_000_000
+            reasoning_cost = response.reasoning_tokens * reasoning_cost_per_m / 1_000_000
 
             pricing_ids = {"input": input_pricing.id, "output": output_pricing.id}
             if cached_pricing:
                 pricing_ids["cached"] = cached_pricing.id
+            if reasoning_pricing:
+                pricing_ids["reasoning"] = reasoning_pricing.id
 
             return self.CostResult(
-                cost=input_cost + cached_cost + output_cost,
+                cost=input_cost + cached_cost + output_cost + reasoning_cost,
                 pricing_ids=pricing_ids
             )
 
