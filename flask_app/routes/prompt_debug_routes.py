@@ -223,3 +223,102 @@ def cleanup_captures():
         'success': True,
         'deleted': deleted
     })
+
+
+# ========== Decision Analysis Endpoints ==========
+
+@prompt_debug_bp.route('/api/prompt-debug/analysis', methods=['GET'])
+def list_decision_analyses():
+    """List decision analyses with optional filtering.
+
+    Query params:
+        game_id: Filter by game
+        player_name: Filter by AI player
+        decision_quality: Filter by quality (correct, mistake, unknown)
+        min_ev_lost: Filter by minimum EV lost
+        limit: Max results (default 50)
+        offset: Pagination offset (default 0)
+    """
+    filters = {
+        'game_id': request.args.get('game_id'),
+        'player_name': request.args.get('player_name'),
+        'decision_quality': request.args.get('decision_quality'),
+        'min_ev_lost': float(request.args.get('min_ev_lost')) if request.args.get('min_ev_lost') else None,
+        'limit': int(request.args.get('limit', 50)),
+        'offset': int(request.args.get('offset', 0)),
+    }
+
+    # Remove None values
+    filters = {k: v for k, v in filters.items() if v is not None}
+
+    result = persistence.list_decision_analyses(**filters)
+
+    # Also get stats
+    stats = persistence.get_decision_analysis_stats(filters.get('game_id'))
+
+    return jsonify({
+        'success': True,
+        'analyses': result['analyses'],
+        'total': result['total'],
+        'stats': stats
+    })
+
+
+@prompt_debug_bp.route('/api/prompt-debug/analysis/<int:analysis_id>', methods=['GET'])
+def get_decision_analysis(analysis_id):
+    """Get a single decision analysis by ID."""
+    analysis = persistence.get_decision_analysis(analysis_id)
+
+    if not analysis:
+        return jsonify({'success': False, 'error': 'Analysis not found'}), 404
+
+    return jsonify({
+        'success': True,
+        'analysis': analysis
+    })
+
+
+@prompt_debug_bp.route('/api/prompt-debug/analysis-stats', methods=['GET'])
+def get_analysis_stats():
+    """Get aggregate statistics for decision analyses.
+
+    Query params:
+        game_id: Filter by game (optional)
+    """
+    game_id = request.args.get('game_id')
+
+    stats = persistence.get_decision_analysis_stats(game_id)
+
+    return jsonify({
+        'success': True,
+        'stats': stats
+    })
+
+
+@prompt_debug_bp.route('/api/game/<game_id>/decision-quality', methods=['GET'])
+def get_game_decision_quality(game_id):
+    """Get decision quality summary for a specific game.
+
+    Returns aggregate stats for AI decision quality in this game.
+    """
+    stats = persistence.get_decision_analysis_stats(game_id)
+
+    # Calculate quality metrics
+    total = stats.get('total', 0)
+    mistakes = stats.get('mistakes', 0)
+    correct = stats.get('correct', 0)
+
+    quality_rate = (correct / total * 100) if total > 0 else 0
+
+    return jsonify({
+        'success': True,
+        'game_id': game_id,
+        'total_decisions': total,
+        'correct': correct,
+        'mistakes': mistakes,
+        'quality_rate': round(quality_rate, 1),
+        'total_ev_lost': round(stats.get('total_ev_lost', 0), 2),
+        'avg_equity': round(stats.get('avg_equity', 0) * 100, 1) if stats.get('avg_equity') else None,
+        'by_action': stats.get('by_action', {}),
+        'by_quality': stats.get('by_quality', {}),
+    })

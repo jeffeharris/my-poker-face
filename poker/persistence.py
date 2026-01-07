@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 @dataclass
@@ -328,6 +328,7 @@ class GamePersistence:
             17: (self._migrate_v17_consolidate_pricing_ids, "Replace 4 pricing_id columns with single JSON column"),
             18: (self._migrate_v18_add_prompt_captures, "Add prompt_captures table for debugging AI decisions"),
             19: (self._migrate_v19_add_conversation_history, "Add conversation_history column to prompt_captures"),
+            20: (self._migrate_v20_add_decision_analysis, "Add player_decision_analysis table for quality monitoring"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1073,6 +1074,72 @@ class GamePersistence:
         if 'raw_api_response' not in columns:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN raw_api_response TEXT")
             logger.info("Added raw_api_response column to prompt_captures")
+
+    def _migrate_v20_add_decision_analysis(self, conn: sqlite3.Connection) -> None:
+        """Migration v20: Add player_decision_analysis table for quality monitoring.
+
+        This table stores equity and decision quality metrics for EVERY AI decision,
+        enabling quality monitoring across all games without storing full prompts.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_decision_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                -- Link to other tables (nullable - not all may exist)
+                request_id TEXT,              -- Links to api_usage.request_id
+                capture_id INTEGER,           -- Links to prompt_captures.id (if captured)
+
+                -- Identity
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                hand_number INTEGER,
+                phase TEXT,
+
+                -- Game State (compact)
+                pot_total INTEGER,
+                cost_to_call INTEGER,
+                player_stack INTEGER,
+                num_opponents INTEGER,
+
+                -- Cards (for recalculation)
+                player_hand TEXT,             -- JSON: ["As", "Kd"]
+                community_cards TEXT,         -- JSON: ["Jh", "2d", "5s"]
+
+                -- Decision
+                action_taken TEXT,
+                raise_amount INTEGER,
+
+                -- Equity Analysis
+                equity REAL,                  -- Win probability (0.0-1.0)
+                required_equity REAL,         -- Minimum equity to call profitably
+                ev_call REAL,                 -- Expected value of calling
+
+                -- Decision Quality
+                optimal_action TEXT,          -- "fold", "call", "raise"
+                decision_quality TEXT,        -- "correct", "mistake", "marginal", "unknown"
+                ev_lost REAL,                 -- EV lost if suboptimal
+
+                -- Hand Strength
+                hand_rank INTEGER,            -- eval7 rank (lower = stronger)
+                relative_strength REAL,       -- Percentile (0-100)
+
+                -- Processing Metadata
+                analyzer_version TEXT,
+                processing_time_ms INTEGER,
+
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create indexes for efficient querying
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)")
+
+        logger.info("Created player_decision_analysis table for AI quality monitoring")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -2406,3 +2473,207 @@ class GamePersistence:
             cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
             conn.commit()
             return cursor.rowcount
+
+    # ========== Decision Analysis Methods ==========
+
+    def save_decision_analysis(self, analysis) -> int:
+        """Save a decision analysis to the database.
+
+        Args:
+            analysis: DecisionAnalysis dataclass or dict with analysis data
+
+        Returns:
+            The ID of the inserted row.
+        """
+        # Convert dataclass to dict if needed
+        if hasattr(analysis, 'to_dict'):
+            data = analysis.to_dict()
+        else:
+            data = analysis
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO player_decision_analysis (
+                    request_id, capture_id,
+                    game_id, player_name, hand_number, phase,
+                    pot_total, cost_to_call, player_stack, num_opponents,
+                    player_hand, community_cards,
+                    action_taken, raise_amount,
+                    equity, required_equity, ev_call,
+                    optimal_action, decision_quality, ev_lost,
+                    hand_rank, relative_strength,
+                    analyzer_version, processing_time_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('request_id'),
+                data.get('capture_id'),
+                data.get('game_id'),
+                data.get('player_name'),
+                data.get('hand_number'),
+                data.get('phase'),
+                data.get('pot_total'),
+                data.get('cost_to_call'),
+                data.get('player_stack'),
+                data.get('num_opponents'),
+                data.get('player_hand'),
+                data.get('community_cards'),
+                data.get('action_taken'),
+                data.get('raise_amount'),
+                data.get('equity'),
+                data.get('required_equity'),
+                data.get('ev_call'),
+                data.get('optimal_action'),
+                data.get('decision_quality'),
+                data.get('ev_lost'),
+                data.get('hand_rank'),
+                data.get('relative_strength'),
+                data.get('analyzer_version'),
+                data.get('processing_time_ms'),
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_decision_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single decision analysis by ID."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM player_decision_analysis WHERE id = ?",
+                (analysis_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def get_decision_analysis_by_request(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """Get decision analysis by api_usage request_id."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM player_decision_analysis WHERE request_id = ?",
+                (request_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def list_decision_analyses(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        decision_quality: Optional[str] = None,
+        min_ev_lost: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List decision analyses with optional filtering.
+
+        Returns:
+            Dict with 'analyses' list and 'total' count.
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("player_name = ?")
+            params.append(player_name)
+        if decision_quality:
+            conditions.append("decision_quality = ?")
+            params.append(decision_quality)
+        if min_ev_lost is not None:
+            conditions.append("ev_lost >= ?")
+            params.append(min_ev_lost)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            count_cursor = conn.execute(
+                f"SELECT COUNT(*) FROM player_decision_analysis {where_clause}",
+                params
+            )
+            total = count_cursor.fetchone()[0]
+
+            # Get analyses with pagination
+            query = f"""
+                SELECT *
+                FROM player_decision_analysis
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            cursor = conn.execute(query, params)
+
+            analyses = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                'analyses': analyses,
+                'total': total
+            }
+
+    def get_decision_analysis_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get aggregate statistics for decision analyses.
+
+        Args:
+            game_id: Optional filter by game
+
+        Returns:
+            Dict with aggregate stats including:
+            - total: Total number of analyses
+            - by_quality: Count by decision quality
+            - by_action: Count by action taken
+            - total_ev_lost: Sum of EV lost
+            - avg_equity: Average equity across decisions
+            - avg_processing_ms: Average processing time
+        """
+        where_clause = "WHERE game_id = ?" if game_id else ""
+        params = [game_id] if game_id else []
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Count by quality
+            cursor = conn.execute(f"""
+                SELECT decision_quality, COUNT(*) as count
+                FROM player_decision_analysis {where_clause}
+                GROUP BY decision_quality
+            """, params)
+            by_quality = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Count by action
+            cursor = conn.execute(f"""
+                SELECT action_taken, COUNT(*) as count
+                FROM player_decision_analysis {where_clause}
+                GROUP BY action_taken
+            """, params)
+            by_action = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Aggregate stats
+            cursor = conn.execute(f"""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(ev_lost) as total_ev_lost,
+                    AVG(equity) as avg_equity,
+                    AVG(processing_time_ms) as avg_processing_ms,
+                    SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistakes,
+                    SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct
+                FROM player_decision_analysis {where_clause}
+            """, params)
+            row = cursor.fetchone()
+
+            return {
+                'total': row[0] or 0,
+                'total_ev_lost': row[1] or 0,
+                'avg_equity': row[2],
+                'avg_processing_ms': row[3],
+                'mistakes': row[4] or 0,
+                'correct': row[5] or 0,
+                'by_quality': by_quality,
+                'by_action': by_action,
+            }

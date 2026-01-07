@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats } from './types';
 import './PromptDebugger.css';
 
 interface PromptDebuggerProps {
@@ -11,6 +11,7 @@ interface PromptDebuggerProps {
 export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   const [captures, setCaptures] = useState<PromptCapture[]>([]);
   const [stats, setStats] = useState<CaptureStats | null>(null);
+  const [analysisStats, setAnalysisStats] = useState<DecisionAnalysisStats | null>(null);
   const [selectedCapture, setSelectedCapture] = useState<PromptCapture | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,9 +64,30 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
     }
   }, [filters]);
 
+  const fetchAnalysisStats = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.game_id) params.set('game_id', filters.game_id);
+
+      const response = await fetch(
+        `${config.API_URL}/api/prompt-debug/analysis-stats?${params}`,
+        { credentials: 'include' }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setAnalysisStats(data.stats);
+      }
+    } catch (err) {
+      // Silently ignore - analysis stats are optional
+      console.debug('Failed to fetch analysis stats:', err);
+    }
+  }, [filters.game_id]);
+
   useEffect(() => {
     fetchCaptures();
-  }, [fetchCaptures]);
+    fetchAnalysisStats();
+  }, [fetchCaptures, fetchAnalysisStats]);
 
   const fetchCaptureDetail = async (captureId: number) => {
     try {
@@ -168,6 +190,34 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                 <span className="stat-label">{action}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Decision Analysis Stats */}
+        {analysisStats && analysisStats.total > 0 && (
+          <div className="debugger-stats analysis-stats">
+            <div className="stat-item">
+              <span className="stat-value">{analysisStats.total}</span>
+              <span className="stat-label">Decisions Analyzed</span>
+            </div>
+            <div className="stat-item stat-success">
+              <span className="stat-value">{analysisStats.correct}</span>
+              <span className="stat-label">Correct</span>
+            </div>
+            <div className="stat-item stat-danger">
+              <span className="stat-value">{analysisStats.mistakes}</span>
+              <span className="stat-label">Mistakes</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value">${Math.round(analysisStats.total_ev_lost)}</span>
+              <span className="stat-label">Total EV Lost</span>
+            </div>
+            {analysisStats.avg_equity !== null && (
+              <div className="stat-item">
+                <span className="stat-value">{(analysisStats.avg_equity * 100).toFixed(1)}%</span>
+                <span className="stat-label">Avg Equity</span>
+              </div>
+            )}
           </div>
         )}
 

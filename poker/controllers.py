@@ -270,6 +270,9 @@ class AIPlayerController:
             if response_dict.get('adding_to_pot', 0) == 0:
                 response_dict['adding_to_pot'] = validated.get('adding_to_pot', 0)
 
+        # Analyze decision quality (always, for monitoring)
+        self._analyze_decision(response_dict, context)
+
         # Capture prompt data for debugging if enabled
         if self.debug_capture and self._persistence:
             self._capture_prompt_data(
@@ -360,7 +363,62 @@ class AIPlayerController:
             logger.debug(f"[PROMPT_CAPTURE] Saved capture {capture_id} for {self.player_name}")
         except Exception as e:
             logger.warning(f"[PROMPT_CAPTURE] Failed to capture prompt data: {e}")
-    
+
+    def _analyze_decision(self, response_dict: Dict, context: Dict) -> None:
+        """Analyze decision quality and save to database.
+
+        This runs for EVERY AI decision to track quality metrics.
+        """
+        if not self._persistence:
+            return
+
+        try:
+            from poker.decision_analyzer import get_analyzer
+
+            game_state = self.state_machine.game_state
+            player = game_state.current_player
+
+            # Get cards as strings
+            community_cards = [str(c) for c in game_state.community_cards] if game_state.community_cards else []
+            player_hand = [str(c) for c in player.hand] if player.hand else []
+
+            # Count opponents still in hand
+            opponents_in_hand = [
+                p for p in game_state.players
+                if not p.is_folded and p.name != player.name
+            ]
+            num_opponents = len(opponents_in_hand)
+
+            # Get request_id from last LLM response
+            llm_response = getattr(self, '_last_llm_response', None)
+            request_id = llm_response.request_id if llm_response else None
+
+            analyzer = get_analyzer()
+            analysis = analyzer.analyze(
+                game_id=self.game_id,
+                player_name=self.player_name,
+                hand_number=self.current_hand_number,
+                phase=str(self.state_machine.current_phase.value) if self.state_machine.current_phase else None,
+                player_hand=player_hand,
+                community_cards=community_cards,
+                pot_total=game_state.pot.get('total', 0),
+                cost_to_call=context.get('call_amount', 0),
+                player_stack=player.stack,
+                num_opponents=num_opponents,
+                action_taken=response_dict.get('action'),
+                raise_amount=response_dict.get('adding_to_pot'),
+                request_id=request_id,
+            )
+
+            self._persistence.save_decision_analysis(analysis)
+            logger.debug(
+                f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
+                f"(equity={analysis.equity:.2f if analysis.equity else 'N/A'}, "
+                f"ev_lost={analysis.ev_lost:.0f})"
+            )
+        except Exception as e:
+            logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
+
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
         context = {}

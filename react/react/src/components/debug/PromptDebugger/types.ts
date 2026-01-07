@@ -70,3 +70,39 @@ export interface CaptureFilters {
   limit?: number;
   offset?: number;
 }
+
+export interface DecisionAnalysis {
+  id: number;
+  created_at: string;
+  game_id: string;
+  player_name: string;
+  hand_number: number | null;
+  phase: string | null;
+  pot_total: number | null;
+  cost_to_call: number | null;
+  player_stack: number | null;
+  num_opponents: number | null;
+  player_hand: string | null;
+  community_cards: string | null;
+  action_taken: string | null;
+  raise_amount: number | null;
+  equity: number | null;
+  required_equity: number | null;
+  ev_call: number | null;
+  optimal_action: string | null;
+  decision_quality: string | null;
+  ev_lost: number | null;
+  analyzer_version: string | null;
+  processing_time_ms: number | null;
+}
+
+export interface DecisionAnalysisStats {
+  total: number;
+  total_ev_lost: number;
+  avg_equity: number | null;
+  avg_processing_ms: number | null;
+  mistakes: number;
+  correct: number;
+  by_quality: Record<string, number>;
+  by_action: Record<string, number>;
+}

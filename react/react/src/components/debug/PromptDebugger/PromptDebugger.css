@@ -41,6 +41,20 @@
   color: #ff6b6b;
 }
 
+.stat-item.stat-success .stat-value {
+  color: #4ecca3;
+}
+
+.stat-item.stat-danger .stat-value {
+  color: #ff6b6b;
+}
+
+/* Analysis Stats Section */
+.debugger-stats.analysis-stats {
+  background: rgba(78, 204, 163, 0.1);
+  border: 1px solid rgba(78, 204, 163, 0.2);
+}
+
 .stat-item.action-fold .stat-value { color: #ff6b6b; }
 .stat-item.action-check .stat-value { color: #4ecca3; }
 .stat-item.action-call .stat-value { color: #00d4ff; }
