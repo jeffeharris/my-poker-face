@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 19
 
 
 @dataclass
@@ -326,6 +326,8 @@ class GamePersistence:
             15: (self._migrate_v15_add_pricing_validity_dates, "Add valid_from and valid_until to model_pricing"),
             16: (self._migrate_v16_add_pricing_id_to_usage, "Add pricing_id foreign key to api_usage"),
             17: (self._migrate_v17_consolidate_pricing_ids, "Replace 4 pricing_id columns with single JSON column"),
+            18: (self._migrate_v18_add_prompt_captures, "Add prompt_captures table for debugging AI decisions"),
+            19: (self._migrate_v19_add_conversation_history, "Add conversation_history column to prompt_captures"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1005,6 +1007,72 @@ class GamePersistence:
             logger.info("Added pricing_ids column to api_usage table")
         else:
             logger.info("pricing_ids column already exists, no migration needed")
+
+    def _migrate_v18_add_prompt_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v18: Add prompt_captures table for debugging AI decisions.
+
+        This table stores full prompts and responses for AI player decisions,
+        enabling analysis and replay of AI behavior.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_captures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                hand_number INTEGER,
+                phase TEXT NOT NULL,
+                action_taken TEXT,
+                system_prompt TEXT NOT NULL,
+                user_message TEXT NOT NULL,
+                ai_response TEXT NOT NULL,
+                pot_total INTEGER,
+                cost_to_call INTEGER,
+                pot_odds REAL,
+                player_stack INTEGER,
+                community_cards TEXT,
+                player_hand TEXT,
+                valid_actions TEXT,
+                raise_amount INTEGER,
+                model TEXT,
+                latency_ms INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                tags TEXT,
+                notes TEXT,
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create indexes for efficient querying
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+
+        logger.info("Created prompt_captures table for AI decision debugging")
+
+    def _migrate_v19_add_conversation_history(self, conn: sqlite3.Connection) -> None:
+        """Migration v19: Add conversation_history column to prompt_captures.
+
+        This stores the full conversation history (prior messages) that were
+        sent to the LLM, which affects the AI's decision.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'conversation_history' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN conversation_history TEXT")
+            logger.info("Added conversation_history column to prompt_captures")
+
+        # Also add raw_api_response column
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+        if 'raw_api_response' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN raw_api_response TEXT")
+            logger.info("Added raw_api_response column to prompt_captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -2049,3 +2117,292 @@ class GamePersistence:
 
         logger.info(f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped")
         return {'added': added, 'skipped': skipped, 'updated': updated}
+
+    # Prompt Capture Methods (for AI decision debugging)
+    def save_prompt_capture(self, capture: Dict[str, Any]) -> int:
+        """Save a prompt capture for debugging AI decisions.
+
+        Args:
+            capture: Dict containing capture data with keys:
+                - game_id, player_name, hand_number, phase
+                - system_prompt, user_message, ai_response
+                - pot_total, cost_to_call, pot_odds, player_stack
+                - community_cards, player_hand, valid_actions
+                - action_taken, raise_amount
+                - model, latency_ms, input_tokens, output_tokens
+
+        Returns:
+            The ID of the inserted capture.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO prompt_captures (
+                    -- Identity
+                    game_id, player_name, hand_number,
+                    -- Game State
+                    phase, pot_total, cost_to_call, pot_odds, player_stack,
+                    community_cards, player_hand, valid_actions,
+                    -- Decision
+                    action_taken, raise_amount,
+                    -- Prompts (INPUT)
+                    system_prompt, conversation_history, user_message, raw_request,
+                    -- Response (OUTPUT)
+                    ai_response, raw_api_response,
+                    -- LLM Config
+                    model, reasoning_effort,
+                    -- Metrics
+                    latency_ms, input_tokens, output_tokens,
+                    -- Tracking
+                    original_request_id,
+                    -- User Annotations
+                    tags, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                # Identity
+                capture.get('game_id'),
+                capture.get('player_name'),
+                capture.get('hand_number'),
+                # Game State
+                capture.get('phase'),
+                capture.get('pot_total'),
+                capture.get('cost_to_call'),
+                capture.get('pot_odds'),
+                capture.get('player_stack'),
+                json.dumps(capture.get('community_cards')) if capture.get('community_cards') else None,
+                json.dumps(capture.get('player_hand')) if capture.get('player_hand') else None,
+                json.dumps(capture.get('valid_actions')) if capture.get('valid_actions') else None,
+                # Decision
+                capture.get('action_taken'),
+                capture.get('raise_amount'),
+                # Prompts (INPUT)
+                capture.get('system_prompt'),
+                json.dumps(capture.get('conversation_history')) if capture.get('conversation_history') else None,
+                capture.get('user_message'),
+                capture.get('raw_request'),
+                # Response (OUTPUT)
+                capture.get('ai_response'),
+                capture.get('raw_api_response'),
+                # LLM Config
+                capture.get('model'),
+                capture.get('reasoning_effort'),
+                # Metrics
+                capture.get('latency_ms'),
+                capture.get('input_tokens'),
+                capture.get('output_tokens'),
+                # Tracking
+                capture.get('original_request_id'),
+                # User Annotations
+                json.dumps(capture.get('tags', [])),
+                capture.get('notes'),
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_prompt_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single prompt capture by ID.
+
+        Joins with api_usage to get cached_tokens, reasoning_tokens, and estimated_cost.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # Join with api_usage to get usage metrics (cached tokens, reasoning tokens, cost)
+            cursor = conn.execute("""
+                SELECT pc.*,
+                       au.cached_tokens,
+                       au.reasoning_tokens,
+                       au.estimated_cost
+                FROM prompt_captures pc
+                LEFT JOIN api_usage au ON pc.original_request_id = au.request_id
+                WHERE pc.id = ?
+            """, (capture_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            capture = dict(row)
+            # Parse JSON fields
+            for field in ['community_cards', 'player_hand', 'valid_actions', 'tags', 'conversation_history']:
+                if capture.get(field):
+                    try:
+                        capture[field] = json.loads(capture[field])
+                    except json.JSONDecodeError:
+                        pass
+            return capture
+
+    def list_prompt_captures(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        action: Optional[str] = None,
+        phase: Optional[str] = None,
+        min_pot_odds: Optional[float] = None,
+        max_pot_odds: Optional[float] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List prompt captures with optional filtering.
+
+        Returns:
+            Dict with 'captures' list and 'total' count.
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("player_name = ?")
+            params.append(player_name)
+        if action:
+            conditions.append("action_taken = ?")
+            params.append(action)
+        if phase:
+            conditions.append("phase = ?")
+            params.append(phase)
+        if min_pot_odds is not None:
+            conditions.append("pot_odds >= ?")
+            params.append(min_pot_odds)
+        if max_pot_odds is not None:
+            conditions.append("pot_odds <= ?")
+            params.append(max_pot_odds)
+        if tags:
+            # Match any of the provided tags
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("tags LIKE ?")
+                params.append(f'%"{tag}"%')
+            conditions.append(f"({' OR '.join(tag_conditions)})")
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            count_cursor = conn.execute(
+                f"SELECT COUNT(*) FROM prompt_captures {where_clause}",
+                params
+            )
+            total = count_cursor.fetchone()[0]
+
+            # Get captures with pagination
+            query = f"""
+                SELECT id, created_at, game_id, player_name, hand_number, phase,
+                       action_taken, pot_total, cost_to_call, pot_odds, player_stack,
+                       community_cards, player_hand, model, latency_ms, tags, notes
+                FROM prompt_captures
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            cursor = conn.execute(query, params)
+
+            captures = []
+            for row in cursor.fetchall():
+                capture = dict(row)
+                # Parse JSON fields
+                for field in ['community_cards', 'player_hand', 'tags']:
+                    if capture.get(field):
+                        try:
+                            capture[field] = json.loads(capture[field])
+                        except json.JSONDecodeError:
+                            pass
+                captures.append(capture)
+
+            return {
+                'captures': captures,
+                'total': total
+            }
+
+    def get_prompt_capture_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get aggregate statistics for prompt captures."""
+        where_clause = "WHERE game_id = ?" if game_id else ""
+        params = [game_id] if game_id else []
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Count by action
+            cursor = conn.execute(f"""
+                SELECT action_taken, COUNT(*) as count
+                FROM prompt_captures {where_clause}
+                GROUP BY action_taken
+            """, params)
+            by_action = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Count by phase
+            cursor = conn.execute(f"""
+                SELECT phase, COUNT(*) as count
+                FROM prompt_captures {where_clause}
+                GROUP BY phase
+            """, params)
+            by_phase = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Suspicious folds (high pot odds)
+            suspicious_params = params + [5.0]  # pot odds > 5:1
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM prompt_captures
+                {where_clause}
+                {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?
+            """, suspicious_params)
+            suspicious_folds = cursor.fetchone()[0]
+
+            # Total captures
+            cursor = conn.execute(f"SELECT COUNT(*) FROM prompt_captures {where_clause}", params)
+            total = cursor.fetchone()[0]
+
+            return {
+                'total': total,
+                'by_action': by_action,
+                'by_phase': by_phase,
+                'suspicious_folds': suspicious_folds
+            }
+
+    def update_prompt_capture_tags(
+        self,
+        capture_id: int,
+        tags: List[str],
+        notes: Optional[str] = None
+    ) -> bool:
+        """Update tags and notes for a prompt capture."""
+        with sqlite3.connect(self.db_path) as conn:
+            if notes is not None:
+                conn.execute(
+                    "UPDATE prompt_captures SET tags = ?, notes = ? WHERE id = ?",
+                    (json.dumps(tags), notes, capture_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE prompt_captures SET tags = ? WHERE id = ?",
+                    (json.dumps(tags), capture_id)
+                )
+            conn.commit()
+            return conn.total_changes > 0
+
+    def delete_prompt_captures(self, game_id: Optional[str] = None, before_date: Optional[str] = None) -> int:
+        """Delete prompt captures, optionally filtered by game or date.
+
+        Args:
+            game_id: Delete captures for a specific game
+            before_date: Delete captures before this date (ISO format)
+
+        Returns:
+            Number of captures deleted.
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if before_date:
+            conditions.append("created_at < ?")
+            params.append(before_date)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
+            conn.commit()
+            return cursor.rowcount

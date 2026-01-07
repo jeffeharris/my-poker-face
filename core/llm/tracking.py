@@ -39,6 +39,7 @@ class CallType(str, Enum):
     IMAGE_DESCRIPTION = "image_description"
     CATEGORIZATION = "categorization"
     SPADES_DECISION = "spades_decision"
+    DEBUG_REPLAY = "debug_replay"
 
 
 class UsageTracker:

@@ -71,12 +71,14 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, llm_config=None,
                  session_memory=None, opponent_model_manager=None,
-                 game_id=None, owner_id=None):
+                 game_id=None, owner_id=None, debug_capture=False, persistence=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
         self.game_id = game_id
         self.owner_id = owner_id
+        self.debug_capture = debug_capture
+        self._persistence = persistence
         self.ai_player = AIPokerPlayer(
             player_name,
             llm_config=self.llm_config,
@@ -201,13 +203,17 @@ class AIPlayerController:
         )
         
         # Use JSON mode for more reliable structured responses
-        response_json = self.assistant.chat(
+        llm_response = self.assistant.chat_full(
             decision_prompt,
             json_format=True,
             hand_number=self.current_hand_number,
             prompt_template='decision'
         )
+        response_json = llm_response.content
         response_dict = parse_json_response(response_json)
+
+        # Store LLM response for capture (latency, tokens, etc.)
+        self._last_llm_response = llm_response
         
         # Validate response has required keys (only action is truly required)
         required_keys = ('action',)
@@ -263,8 +269,97 @@ class AIPlayerController:
             # Preserve adding_to_pot if it was set, otherwise use validated value
             if response_dict.get('adding_to_pot', 0) == 0:
                 response_dict['adding_to_pot'] = validated.get('adding_to_pot', 0)
-        
+
+        # Capture prompt data for debugging if enabled
+        if self.debug_capture and self._persistence:
+            self._capture_prompt_data(
+                decision_prompt=decision_prompt,
+                response_json=response_json,
+                response_dict=response_dict,
+                context=context
+            )
+
         return response_dict
+
+    def _capture_prompt_data(self, decision_prompt: str, response_json: str,
+                             response_dict: Dict, context: Dict) -> None:
+        """Capture prompt and response data for debugging AI decisions."""
+        try:
+            game_state = self.state_machine.game_state
+            player = game_state.current_player
+
+            # Calculate pot odds
+            cost_to_call = context.get('call_amount', 0)
+            pot_total = game_state.pot.get('total', 0)
+            pot_odds = pot_total / cost_to_call if cost_to_call > 0 else None
+
+            # Get community cards and player hand as strings
+            community_cards = [str(c) for c in game_state.community_cards] if game_state.community_cards else []
+            player_hand = [str(c) for c in player.hand] if player.hand else []
+
+            # Get conversation history (prior messages that influence the AI's decision)
+            conversation_history = self.assistant.memory.get_history() if hasattr(self.assistant, 'memory') else []
+
+            # Serialize raw API response if available (contains reasoning tokens, etc.)
+            raw_api_response = None
+            llm_response = getattr(self, '_last_llm_response', None)
+            if llm_response and llm_response.raw_response:
+                try:
+                    # OpenAI response objects have model_dump_json() method
+                    if hasattr(llm_response.raw_response, 'model_dump_json'):
+                        raw_api_response = llm_response.raw_response.model_dump_json()
+                    elif hasattr(llm_response.raw_response, 'to_dict'):
+                        raw_api_response = json.dumps(llm_response.raw_response.to_dict())
+                except Exception as e:
+                    logger.debug(f"Could not serialize raw_response: {e}")
+
+            # Build raw_request - the full messages array sent to the LLM
+            raw_request = None
+            try:
+                messages = self.assistant.memory.get_messages() if hasattr(self.assistant, 'memory') else []
+                raw_request = json.dumps(messages)
+            except Exception as e:
+                logger.debug(f"Could not serialize raw_request: {e}")
+
+            # Get reasoning_effort if available
+            reasoning_effort = None
+            if hasattr(self.assistant, '_client') and hasattr(self.assistant._client, '_provider'):
+                provider = self.assistant._client._provider
+                if hasattr(provider, 'reasoning_effort'):
+                    reasoning_effort = provider.reasoning_effort
+
+            capture_data = {
+                'game_id': self.game_id,
+                'player_name': self.player_name,
+                'hand_number': self.current_hand_number,
+                'phase': str(self.state_machine.current_phase.value) if self.state_machine.current_phase else None,
+                'system_prompt': self.assistant.system_message,
+                'user_message': decision_prompt,
+                'ai_response': response_json,
+                'conversation_history': conversation_history,
+                'raw_request': raw_request,
+                'raw_api_response': raw_api_response,
+                'pot_total': pot_total,
+                'cost_to_call': cost_to_call,
+                'pot_odds': pot_odds,
+                'player_stack': player.stack,
+                'community_cards': community_cards,
+                'player_hand': player_hand,
+                'valid_actions': context.get('valid_actions', []),
+                'action_taken': response_dict.get('action'),
+                'raise_amount': response_dict.get('adding_to_pot') if response_dict.get('action') == 'raise' else None,
+                'model': llm_response.model if llm_response else None,
+                'reasoning_effort': reasoning_effort,
+                'latency_ms': int(llm_response.latency_ms) if llm_response else None,
+                'input_tokens': llm_response.input_tokens if llm_response else None,
+                'output_tokens': llm_response.output_tokens if llm_response else None,
+                'original_request_id': llm_response.request_id if llm_response else None,
+            }
+
+            capture_id = self._persistence.save_prompt_capture(capture_data)
+            logger.debug(f"[PROMPT_CAPTURE] Saved capture {capture_id} for {self.player_name}")
+        except Exception as e:
+            logger.warning(f"[PROMPT_CAPTURE] Failed to capture prompt data: {e}")
     
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
@@ -478,9 +573,23 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
         f"Your cost to call: ${cost_to_call}\n"
     )
 
-    hand_update_message = persona_state + hand_state + pot_state + (
+    # Calculate pot odds for clearer decision making
+    if cost_to_call > 0:
+        pot_odds = current_pot / cost_to_call
+        equity_needed = 100 / (pot_odds + 1)
+        pot_odds_guidance = (
+            f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
+            f"You only need {equity_needed:.0f}% equity to break even on a call. "
+        )
+        if pot_odds >= 10:
+            pot_odds_guidance += f"With {pot_odds:.0f}:1 odds, you should rarely fold - you only need to win 1 in {pot_odds+1:.0f} times."
+        elif pot_odds >= 4:
+            pot_odds_guidance += "These are favorable odds for calling with reasonable hands."
+    else:
+        pot_odds_guidance = "You can check for free - no cost to see more cards."
+
+    hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
         f"Consider your table position and the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
-        f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
         f"You cannot bet more than you have, ${player_money}.\n"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"

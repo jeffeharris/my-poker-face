@@ -10,6 +10,7 @@ interface GameMenuProps {
   onContinueGame: () => void;
   onManagePersonalities: () => void;
   onViewStats?: () => void;
+  onPromptDebugger?: () => void;
   savedGamesCount: number;
 }
 
@@ -21,6 +22,7 @@ export function GameMenu({
   onContinueGame,
   onManagePersonalities,
   onViewStats,
+  onPromptDebugger,
   savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
@@ -123,6 +125,22 @@ export function GameMenu({
               <div className="option-arrow">→</div>
             </button>
           )}
+
+          {onPromptDebugger && (
+            <button
+              className="menu-option prompt-debugger"
+              onClick={onPromptDebugger}
+              onMouseEnter={() => setHoveredOption('debugger')}
+              onMouseLeave={() => setHoveredOption(null)}
+            >
+              <div className="option-icon">🔬</div>
+              <div className="option-content">
+                <h3>Prompt Debugger</h3>
+                <p>Analyze and replay AI decision prompts</p>
+              </div>
+              <div className="option-arrow">→</div>
+            </button>
+          )}
         </div>
 
       <div className="game-menu__footer">
@@ -133,6 +151,7 @@ export function GameMenu({
           {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
           {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
           {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
+          {hoveredOption === 'debugger' && "Debug AI decisions by viewing and replaying captured prompts."}
           {!hoveredOption && "Ready to test your poker face?"}
         </p>
       </div>

@@ -8,6 +8,7 @@ import { GameMenu } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
+import { PromptDebugger } from './components/debug/PromptDebugger'
 import { LoginForm } from './components/auth/LoginForm'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
@@ -21,7 +22,7 @@ import './App.css'
 const MAX_GAMES_GUEST = 3;
 const MAX_GAMES_USER = 10;
 
-type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats'
+type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats' | 'prompt-debugger'
 
 interface Theme {
   id: string;
@@ -315,6 +316,7 @@ function App() {
           onContinueGame={handleContinueGame}
           onManagePersonalities={() => setCurrentView('personalities')}
           onViewStats={() => setCurrentView('stats')}
+          onPromptDebugger={() => setCurrentView('prompt-debugger')}
           savedGamesCount={savedGamesCount}
         />
       )}
@@ -363,6 +365,9 @@ function App() {
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
       {currentView === 'stats' && (
         <CareerStats onBack={() => setCurrentView('game-menu')} />
+      )}
+      {currentView === 'prompt-debugger' && (
+        <PromptDebugger onBack={() => setCurrentView('game-menu')} />
       )}
 
       {/* Max Games Error Modal */}

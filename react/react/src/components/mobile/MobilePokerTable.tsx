@@ -46,6 +46,26 @@ export function MobilePokerTable({
 
   // Debug mode state
   const [showDebugButtons, setShowDebugButtons] = useState(false);
+  const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
+
+  // Toggle prompt capture for debugging AI decisions
+  const togglePromptCapture = async () => {
+    if (!gameId) return;
+    try {
+      const newState = !promptCaptureEnabled;
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: newState }),
+      });
+      if (response.ok) {
+        setPromptCaptureEnabled(newState);
+      }
+    } catch (error) {
+      console.error('Failed to toggle prompt capture:', error);
+    }
+  };
 
   // Use the shared hook for all socket/state management
   const {
@@ -308,6 +328,19 @@ export function MobilePokerTable({
                 }}
               >
                 Test: Won
+              </button>
+              <button
+                onClick={togglePromptCapture}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: promptCaptureEnabled ? '#e74c3c' : '#3498db',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                {promptCaptureEnabled ? '🔴 Stop Capture' : '⏺️ Capture AI'}
               </button>
             </>
           )}
