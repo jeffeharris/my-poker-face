@@ -115,7 +115,8 @@ function App() {
       'themed-game': 'Themed Game - My Poker Face',
       'custom-game': 'Custom Game - My Poker Face',
       'elasticity-demo': 'Elasticity Demo - My Poker Face',
-      'stats': 'My Stats - My Poker Face'
+      'stats': 'My Stats - My Poker Face',
+      'prompt-debugger': 'Prompt Debugger - My Poker Face'
     };
     
     document.title = titles[currentView] || 'My Poker Face';
