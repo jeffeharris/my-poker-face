@@ -437,7 +437,9 @@ class AIPokerPlayer(PokerPlayer):
         hole_cards = [str(card) for card in self.cards]
         current_pot = hand_state["current_pot"]
         # current_bet = current_pot.current_bet     # removed this because i wasn't able to get the ai player to understand how to bet when i included this, the pot, the cost to call etc.
-        cost_to_call = current_pot.get_player_cost_to_call(self.name)
+        raw_cost_to_call = current_pot.get_player_cost_to_call(self.name)
+        # Effective cost is capped at player's stack (they can only risk what they have)
+        cost_to_call = min(raw_cost_to_call, player_money)
         player_options = self.options
 
         # create a list of the action comments and then send them to the table manager to summarize

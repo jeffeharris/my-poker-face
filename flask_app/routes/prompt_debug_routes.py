@@ -103,6 +103,7 @@ def replay_capture(capture_id):
         conversation_history: Modified conversation history (optional, list of {role, content})
         use_history: Whether to include conversation history (default: True)
         model: Model to use (optional, defaults to original)
+        reasoning_effort: Reasoning effort level (optional, defaults to original or 'low')
     """
     capture = persistence.get_prompt_capture(capture_id)
 
@@ -114,7 +115,8 @@ def replay_capture(capture_id):
     # Use modified prompts or originals
     system_prompt = data.get('system_prompt', capture['system_prompt'])
     user_message = data.get('user_message', capture['user_message'])
-    model = data.get('model', capture.get('model', 'gpt-4o-mini'))
+    model = data.get('model', capture.get('model', 'gpt-5-nano'))
+    reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
 
     # Handle conversation history
     use_history = data.get('use_history', True)
@@ -122,7 +124,7 @@ def replay_capture(capture_id):
 
     try:
         # Create LLM client and replay the prompt
-        client = LLMClient(model=model)
+        client = LLMClient(model=model, reasoning_effort=reasoning_effort)
 
         # Build messages array
         messages = []
@@ -155,6 +157,7 @@ def replay_capture(capture_id):
             'original_response': capture['ai_response'],
             'new_response': response.content,
             'model_used': model,
+            'reasoning_effort_used': reasoning_effort,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
             'messages_count': len(messages),
             'used_history': use_history and bool(conversation_history)
@@ -181,6 +184,7 @@ def interrogate_capture(capture_id):
         session_id: Session ID for continuing a conversation (optional)
         reset: Boolean to reset the session and start fresh (optional)
         model: Model override (optional, defaults to original capture's model)
+        reasoning_effort: Reasoning effort level (optional, defaults to 'low')
 
     Response:
         success: Boolean
@@ -188,6 +192,7 @@ def interrogate_capture(capture_id):
         session_id: Session ID for continuing the conversation
         messages_count: Number of messages in conversation
         model_used: Model that was used
+        reasoning_effort_used: Reasoning effort level used
         latency_ms: Response latency
     """
     capture = persistence.get_prompt_capture(capture_id)
@@ -203,7 +208,8 @@ def interrogate_capture(capture_id):
 
     session_id = data.get('session_id')
     reset = data.get('reset', False)
-    model = data.get('model', capture.get('model', 'gpt-4o-mini'))
+    model = data.get('model', capture.get('model', 'gpt-5-nano'))
+    reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
 
     try:
         # Get or create session
@@ -241,6 +247,7 @@ Now help the administrator understand why this AI made the decision it did."""
             assistant = Assistant(
                 system_prompt=debug_system_prompt,
                 model=model,
+                reasoning_effort=reasoning_effort,
                 call_type=CallType.DEBUG_INTERROGATE,
                 game_id=capture.get('game_id'),
                 player_name=capture.get('player_name'),
@@ -279,6 +286,7 @@ Now help the administrator understand why this AI made the decision it did."""
             'session_id': session_id,
             'messages_count': len(assistant.memory),
             'model_used': model,
+            'reasoning_effort_used': reasoning_effort,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
         })
 

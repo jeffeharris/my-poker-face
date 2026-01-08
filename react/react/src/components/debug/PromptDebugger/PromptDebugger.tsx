@@ -35,10 +35,73 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const [replayModel, setReplayModel] = useState('gpt-5-nano');
+  const [replayReasoningEffort, setReplayReasoningEffort] = useState('minimal');
 
   // Interrogation state
   const [interrogationMessages, setInterrogationMessages] = useState<InterrogationMessage[]>([]);
   const [interrogationSessionId, setInterrogationSessionId] = useState<string | null>(null);
+  const [interrogateModel, setInterrogateModel] = useState('gpt-5-nano');
+  const [interrogateReasoningEffort, setInterrogateReasoningEffort] = useState('minimal');
+
+  // Model configuration (fetched from API)
+  const [availableModels, setAvailableModels] = useState<string[]>(['gpt-5-nano', 'gpt-5-mini', 'gpt-5']);
+  const reasoningLevels = ['minimal', 'low', 'medium', 'high'];
+
+  const fetchModels = useCallback(async () => {
+    try {
+      const response = await fetch(`${config.API_URL}/api/models`, { credentials: 'include' });
+      const data = await response.json();
+      if (data.success && data.models) {
+        setAvailableModels(data.models);
+      }
+    } catch (err) {
+      console.debug('Failed to fetch models, using defaults:', err);
+    }
+  }, []);
+
+  // Build the raw request messages array
+  const buildRawRequest = useCallback((capture: PromptCapture) => {
+    const messages: Array<{ role: string; content: string }> = [];
+
+    // System prompt
+    if (capture.system_prompt) {
+      messages.push({ role: 'system', content: capture.system_prompt });
+    }
+
+    // Conversation history (prior turns only - current turn is stored separately)
+    if (capture.conversation_history) {
+      for (const msg of capture.conversation_history) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+
+    // Current user message
+    if (capture.user_message) {
+      messages.push({ role: 'user', content: capture.user_message });
+    }
+
+    return {
+      model: capture.model,
+      messages,
+      // Include other request params if available
+      ...(capture.reasoning_effort && { reasoning_effort: capture.reasoning_effort }),
+    };
+  }, []);
+
+  // Download JSON file helper
+  const downloadJson = useCallback((data: unknown, filename: string) => {
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
 
   const fetchCaptures = useCallback(async () => {
     setLoading(true);
@@ -97,7 +160,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   useEffect(() => {
     fetchCaptures();
     fetchAnalysisStats();
-  }, [fetchCaptures, fetchAnalysisStats]);
+    fetchModels();
+  }, [fetchCaptures, fetchAnalysisStats, fetchModels]);
 
   const fetchCaptureDetail = async (captureId: number) => {
     try {
@@ -119,9 +183,14 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       setUseHistory(true);
       setMode('view');
       setReplayResult(null);
+      // Set initial model/reasoning from capture (use original values)
+      setReplayModel(data.capture.model || 'gpt-5-nano');
+      setReplayReasoningEffort(data.capture.reasoning_effort || 'minimal');
       // Reset interrogation state for new capture
       setInterrogationMessages([]);
       setInterrogationSessionId(null);
+      setInterrogateModel(data.capture.model || 'gpt-5-nano');
+      setInterrogateReasoningEffort(data.capture.reasoning_effort || 'minimal');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     }
@@ -145,6 +214,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
             user_message: modifiedUserMessage,
             conversation_history: modifiedConversationHistory,
             use_history: useHistory,
+            model: replayModel,
+            reasoning_effort: replayReasoningEffort,
           }),
         }
       );
@@ -411,6 +482,19 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                           <span>{(selectedAnalysis.equity * 100).toFixed(1)}%</span>
                         </div>
                       )}
+                      {selectedAnalysis.equity_vs_ranges != null && (
+                        <div className="analysis-item">
+                          <label>Equity vs Ranges:</label>
+                          <span>
+                            {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
+                            {selectedAnalysis.opponent_positions && (
+                              <span className="opponent-positions">
+                                {' '}(vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                       {selectedAnalysis.required_equity != null && (
                         <div className="analysis-item">
                           <label>Required Equity:</label>
@@ -486,36 +570,28 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                 {/* Token & Latency Info */}
                 {(selectedCapture.input_tokens || selectedCapture.latency_ms) && (
                   <div className="token-info">
-                    {selectedCapture.model && (
-                      <span>
-                        Model: {selectedCapture.model}
-                        {selectedCapture.reasoning_effort && ` (${selectedCapture.reasoning_effort})`}
-                      </span>
-                    )}
-                    {selectedCapture.input_tokens != null && (
-                      <span>
-                        In: {selectedCapture.input_tokens.toLocaleString()} tokens
-                        {selectedCapture.cached_tokens != null && selectedCapture.cached_tokens > 0 && (
-                          <span className="token-pct cached">
-                            {' '}({Math.round((selectedCapture.cached_tokens / selectedCapture.input_tokens) * 100)}% cached)
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {selectedCapture.output_tokens != null && (
-                      <span>
-                        Out: {selectedCapture.output_tokens.toLocaleString()} tokens
-                        {selectedCapture.reasoning_tokens != null && selectedCapture.reasoning_tokens > 0 && (
-                          <span className="token-pct reasoning">
-                            {' '}({Math.round((selectedCapture.reasoning_tokens / selectedCapture.output_tokens) * 100)}% reasoning)
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {selectedCapture.latency_ms && <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>}
-                    {selectedCapture.estimated_cost != null && (
-                      <span className="cost">Cost: ${selectedCapture.estimated_cost.toFixed(4)}</span>
-                    )}
+                    <div className="token-info-row">
+                      {selectedCapture.model && (
+                        <span>
+                          Model: {selectedCapture.model}
+                          {selectedCapture.reasoning_effort && ` (${selectedCapture.reasoning_effort})`}
+                        </span>
+                      )}
+                      {selectedCapture.latency_ms && <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>}
+                      {selectedCapture.estimated_cost != null && (
+                        <span className="cost">Cost: ${selectedCapture.estimated_cost.toFixed(4)}</span>
+                      )}
+                    </div>
+                    <div className="token-info-row">
+                      <span className="token-count cached">Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}</span>
+                      <span className="token-count input">Input: {((selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)).toLocaleString()}</span>
+                      <span className="token-count total-in">Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="token-info-row">
+                      <span className="token-count reasoning">Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}</span>
+                      <span className="token-count output">Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}</span>
+                      <span className="token-count total-out">Total Out: {((selectedCapture.reasoning_tokens ?? 0) + (selectedCapture.output_tokens ?? 0)).toLocaleString()}</span>
+                    </div>
                   </div>
                 )}
 
@@ -548,6 +624,32 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                     <div className="prompt-section">
                       <h4>AI Response</h4>
                       <pre>{selectedCapture.ai_response}</pre>
+                    </div>
+
+                    {/* Download buttons */}
+                    <div className="download-buttons">
+                      <button
+                        className="download-button"
+                        onClick={() => {
+                          const request = buildRawRequest(selectedCapture);
+                          const filename = `request_${selectedCapture.id}_${selectedCapture.player_name}_h${selectedCapture.hand_number || 0}.json`;
+                          downloadJson(request, filename);
+                        }}
+                      >
+                        Download Request
+                      </button>
+                      {selectedCapture.raw_api_response && (
+                        <button
+                          className="download-button"
+                          onClick={() => {
+                            const response = JSON.parse(selectedCapture.raw_api_response!);
+                            const filename = `response_${selectedCapture.id}_${selectedCapture.player_name}_h${selectedCapture.hand_number || 0}.json`;
+                            downloadJson(response, filename);
+                          }}
+                        >
+                          Download Response
+                        </button>
+                      )}
                     </div>
 
                     {/* Raw API Response - contains reasoning tokens, etc. */}
@@ -635,6 +737,33 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         rows={15}
                       />
                     </div>
+
+                    {/* Model and Reasoning Settings */}
+                    <div className="replay-settings">
+                      <div className="setting-group">
+                        <label>Model:</label>
+                        <select
+                          value={replayModel}
+                          onChange={(e) => setReplayModel(e.target.value)}
+                        >
+                          {availableModels.map(model => (
+                            <option key={model} value={model}>{model}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="setting-group">
+                        <label>Reasoning:</label>
+                        <select
+                          value={replayReasoningEffort}
+                          onChange={(e) => setReplayReasoningEffort(e.target.value)}
+                        >
+                          {reasoningLevels.map(level => (
+                            <option key={level} value={level}>{level}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
                     <button
                       className="replay-button"
                       onClick={handleReplay}
@@ -657,6 +786,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         </div>
                         <div className="replay-meta">
                           Model: {replayResult.model_used}
+                          {replayResult.reasoning_effort_used && ` (${replayResult.reasoning_effort_used})`}
                           {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
                           {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
                           {replayResult.used_history !== undefined && (
@@ -677,6 +807,12 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                     onMessagesUpdate={setInterrogationMessages}
                     sessionId={interrogationSessionId}
                     onSessionIdUpdate={setInterrogationSessionId}
+                    model={interrogateModel}
+                    onModelChange={setInterrogateModel}
+                    reasoningEffort={interrogateReasoningEffort}
+                    onReasoningEffortChange={setInterrogateReasoningEffort}
+                    availableModels={availableModels}
+                    reasoningLevels={reasoningLevels}
                   />
                 )}
               </>

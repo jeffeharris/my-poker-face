@@ -167,9 +167,11 @@ class AIPlayerController:
         print(message)
 
         # Context for fallback
-        cost_to_call = game_state.highest_bet - game_state.current_player.bet
         player_stack = game_state.current_player.stack
-        
+        raw_cost_to_call = game_state.highest_bet - game_state.current_player.bet
+        # Effective cost is capped at player's stack (they can only risk what they have)
+        cost_to_call = min(raw_cost_to_call, player_stack)
+
         # Use resilient AI call
         response_dict = self._get_ai_decision(
             message=message,
@@ -301,7 +303,17 @@ class AIPlayerController:
             player_hand = [str(c) for c in player.hand] if player.hand else []
 
             # Get conversation history (prior messages that influence the AI's decision)
-            conversation_history = self.assistant.memory.get_history() if hasattr(self.assistant, 'memory') else []
+            # Exclude the last user/assistant pair since they're stored separately as user_message and ai_response
+            conversation_history = []
+            if hasattr(self.assistant, 'memory'):
+                full_history = self.assistant.memory.get_history()
+                # Remove last assistant message (ai_response) if present
+                if full_history and full_history[-1].get('role') == 'assistant':
+                    full_history = full_history[:-1]
+                # Remove last user message (user_message/decision_prompt) if present
+                if full_history and full_history[-1].get('role') == 'user':
+                    full_history = full_history[:-1]
+                conversation_history = full_history
 
             # Serialize raw API response if available (contains reasoning tokens, etc.)
             raw_api_response = None
@@ -648,7 +660,9 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     hole_cards = [str(_ensure_card(c)) for c in player.hand]
     current_pot = game_state.pot['total']
     current_bet = game_state.current_player.bet
-    cost_to_call = game_state.highest_bet - game_state.current_player.bet
+    raw_cost_to_call = game_state.highest_bet - game_state.current_player.bet
+    # Effective cost is capped at player's stack (they can only risk what they have)
+    cost_to_call = min(raw_cost_to_call, player_money)
     player_options = game_state.current_player_options
 
     # create a list of the action comments and then send them to the table manager to summarize
