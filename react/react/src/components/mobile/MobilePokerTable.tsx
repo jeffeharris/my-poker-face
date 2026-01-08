@@ -57,6 +57,8 @@ export function MobilePokerTable({
     winnerInfo,
     tournamentResult,
     isConnected,
+    queuedAction,
+    setQueuedAction,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
@@ -438,32 +440,66 @@ export function MobilePokerTable({
 
       {/* Action Buttons - Always visible area */}
       <div className="mobile-action-area">
-        {showActionButtons && currentPlayer ? (
-          <MobileActionButtons
-            playerOptions={gameState.player_options}
-            currentPlayerStack={currentPlayer.stack}
-            highestBet={gameState.highest_bet}
-            currentPlayerBet={currentPlayer.bet}
-            minRaise={gameState.min_raise}
-            bigBlind={gameState.big_blind}
-            potSize={gameState.pot.total}
-            onAction={handlePlayerAction}
-            onQuickChat={() => setShowQuickChat(true)}
-          />
-        ) : (
-          <div className="mobile-waiting-bar">
-            <span className="waiting-text">
-              {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
-            </span>
-            <button
-              className="action-btn chat-btn"
-              onClick={() => setShowQuickChat(true)}
-            >
-              <span className="btn-icon">💬</span>
-              <span className="btn-label">Chat</span>
-            </button>
-          </div>
-        )}
+        <div className="mobile-action-buttons">
+          {showActionButtons && currentPlayer ? (
+            <>
+              {gameState.player_options.includes('fold') && (
+                <button className="action-btn fold-btn" onClick={() => handlePlayerAction('fold')}>
+                  <span className="btn-icon">✕</span>
+                  <span className="btn-label">Fold</span>
+                </button>
+              )}
+              {gameState.player_options.includes('check') && (
+                <button className="action-btn check-btn" onClick={() => handlePlayerAction('check')}>
+                  <span className="btn-icon">✓</span>
+                  <span className="btn-label">Check</span>
+                </button>
+              )}
+              {gameState.player_options.includes('call') && (
+                <button className="action-btn call-btn" onClick={() => handlePlayerAction('call')}>
+                  <span className="btn-icon">→</span>
+                  <span className="btn-label">Call ${gameState.highest_bet - (currentPlayer?.bet || 0)}</span>
+                </button>
+              )}
+              {(gameState.player_options.includes('bet') || gameState.player_options.includes('raise')) && (
+                <button className="action-btn raise-btn" onClick={() => handlePlayerAction('raise', gameState.min_raise)}>
+                  <span className="btn-icon">↑</span>
+                  <span className="btn-label">{gameState.player_options.includes('raise') ? 'Raise' : 'Bet'}</span>
+                </button>
+              )}
+              {gameState.player_options.includes('all_in') && (
+                <button className="action-btn allin-btn" onClick={() => handlePlayerAction('all_in')}>
+                  <span className="btn-icon">★</span>
+                  <span className="btn-label">All-In</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="waiting-text">
+                {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
+              </span>
+              {/* Preemptive Check/Fold - only show if player hasn't folded */}
+              {humanPlayer && !humanPlayer.is_folded && (
+                <button
+                  className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
+                  onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
+                >
+                  <span className="btn-icon">{queuedAction === 'check_fold' ? '✓' : '✓✕'}</span>
+                  <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Check/Fold'}</span>
+                </button>
+              )}
+            </>
+          )}
+          {/* Chat button - always in same position */}
+          <button
+            className="action-btn chat-btn"
+            onClick={() => setShowQuickChat(true)}
+          >
+            <span className="btn-icon">💬</span>
+            <span className="btn-label">Chat</span>
+          </button>
+        </div>
       </div>
 
       {/* Quick Chat Overlay */}
