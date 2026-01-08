@@ -1285,10 +1285,21 @@ class GamePersistence:
         game_json = json.dumps(state_dict)
         
         with sqlite3.connect(self.db_path) as conn:
+            # Use ON CONFLICT DO UPDATE to preserve columns not being updated
+            # (like debug_capture_enabled) instead of INSERT OR REPLACE which
+            # deletes and re-inserts, resetting unspecified columns to defaults
             conn.execute("""
-                INSERT OR REPLACE INTO games 
+                INSERT INTO games
                 (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name)
                 VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(game_id) DO UPDATE SET
+                    updated_at = CURRENT_TIMESTAMP,
+                    phase = excluded.phase,
+                    num_players = excluded.num_players,
+                    pot_size = excluded.pot_size,
+                    game_state_json = excluded.game_state_json,
+                    owner_id = excluded.owner_id,
+                    owner_name = excluded.owner_name
             """, (
                 game_id,
                 state_machine.current_phase.value,
