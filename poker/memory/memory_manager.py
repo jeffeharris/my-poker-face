@@ -58,6 +58,17 @@ class AIMemoryManager:
         self._lock = threading.Lock()
         self._last_recorded_hand: Optional[RecordedHand] = None
 
+        # Persistence layer (set externally to avoid circular imports)
+        self._persistence = None
+
+    def set_persistence(self, persistence) -> None:
+        """Set the persistence layer for saving hand history.
+
+        Args:
+            persistence: GamePersistence instance
+        """
+        self._persistence = persistence
+
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
 
@@ -67,8 +78,11 @@ class AIMemoryManager:
         if player_name in self.initialized_players:
             return
 
-        # Create session memory
-        self.session_memories[player_name] = SessionMemory(player_name)
+        # Create session memory with DB backing if persistence is available
+        session_memory = SessionMemory(player_name)
+        if self._persistence:
+            session_memory.set_persistence(self._persistence, self.game_id)
+        self.session_memories[player_name] = session_memory
 
         self.initialized_players.add(player_name)
         logger.info(f"Initialized memory systems for {player_name}")
@@ -176,6 +190,13 @@ class AIMemoryManager:
             # Store for async commentary generation (thread-safe)
             with self._lock:
                 self._last_recorded_hand = recorded_hand
+
+            # Persist hand to database
+            if self._persistence:
+                try:
+                    self._persistence.save_hand_history(recorded_hand)
+                except Exception as e:
+                    logger.warning(f"Failed to persist hand history: {e}")
         except Exception as e:
             logger.error(f"Failed to complete hand recording: {e}")
             return {}

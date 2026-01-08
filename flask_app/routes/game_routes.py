@@ -130,7 +130,7 @@ def analyze_player_decision(
         analysis = analyzer.analyze(
             game_id=game_id,
             player_name=player_name,
-            hand_number=getattr(state_machine, 'hand_number', None),
+            hand_number=hand_number,
             phase=state_machine.current_phase.name if state_machine.current_phase else None,
             player_hand=player_hand,
             community_cards=community_cards,
@@ -268,6 +268,13 @@ def api_game_state(game_id):
                 pressure_stats = PressureStatsTracker()
 
                 memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
+                memory_manager.set_persistence(persistence)  # Enable hand history saving
+
+                # Restore hand count from database
+                restored_hand_count = persistence.get_hand_count(game_id)
+                if restored_hand_count > 0:
+                    memory_manager.hand_count = restored_hand_count
+                    logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
 
                 # Restore opponent models from database
                 saved_opponent_models = persistence.load_opponent_models(game_id)
@@ -453,6 +460,7 @@ def api_new_game():
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
     memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
+    memory_manager.set_persistence(persistence)  # Enable hand history saving
     for player in state_machine.game_state.players:
         if not player.is_human:
             memory_manager.initialize_for_player(player.name)

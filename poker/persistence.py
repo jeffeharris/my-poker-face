@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 
 
 @dataclass
@@ -333,6 +333,7 @@ class GamePersistence:
             22: (self._migrate_v22_add_position_equity, "Add position-based equity fields to decision analysis"),
             23: (self._migrate_v23_add_player_position, "Add player_position to decision analysis"),
             24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
+            25: (self._migrate_v25_add_opponent_notes, "Add notes column to opponent_models for player observations"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1242,6 +1243,20 @@ class GamePersistence:
 
         logger.info("Migration v24 complete: prompt versioning added")
 
+    def _migrate_v25_add_opponent_notes(self, conn: sqlite3.Connection) -> None:
+        """Migration v25: Add notes column to opponent_models for player observations.
+
+        Stores observations like "caught bluffing twice", "folds to 3-bets".
+        """
+        cursor = conn.execute("PRAGMA table_info(opponent_models)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'notes' not in columns:
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN notes TEXT")
+            logger.info("Added notes column to opponent_models")
+
+        logger.info("Migration v25 complete: opponent notes added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
@@ -1836,8 +1851,8 @@ class GamePersistence:
                         INSERT INTO opponent_models
                         (game_id, observer_name, opponent_name, hands_observed,
                          vpip, pfr, aggression_factor, fold_to_cbet,
-                         bluff_frequency, showdown_win_rate, recent_trend, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                         bluff_frequency, showdown_win_rate, recent_trend, notes, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     """, (
                         game_id,
                         observer_name,
@@ -1849,7 +1864,8 @@ class GamePersistence:
                         tendencies.get('fold_to_cbet', 0.5),
                         tendencies.get('bluff_frequency', 0.3),
                         tendencies.get('showdown_win_rate', 0.5),
-                        tendencies.get('recent_trend', 'stable')
+                        tendencies.get('recent_trend', 'stable'),
+                        model_data.get('notes')
                     ))
 
                     # Get the inserted model ID for memorable hands foreign key
@@ -1924,7 +1940,8 @@ class GamePersistence:
                     'observer': observer_name,
                     'opponent': opponent_name,
                     'tendencies': tendencies,
-                    'memorable_hands': []
+                    'memorable_hands': [],
+                    'notes': row['notes'] if 'notes' in row.keys() else None
                 }
 
             # Load memorable hands
@@ -1957,6 +1974,278 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
+
+    # Hand History Persistence Methods
+    def save_hand_history(self, recorded_hand) -> int:
+        """Save a completed hand to the database.
+
+        Args:
+            recorded_hand: RecordedHand instance from hand_history.py
+
+        Returns:
+            The database ID of the saved hand
+        """
+        # Convert to dict if it's a RecordedHand object
+        if hasattr(recorded_hand, 'to_dict'):
+            hand_dict = recorded_hand.to_dict()
+        else:
+            hand_dict = recorded_hand
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT OR REPLACE INTO hand_history
+                (game_id, hand_number, timestamp, players_json, hole_cards_json,
+                 community_cards_json, actions_json, winners_json, pot_size, showdown)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                hand_dict['game_id'],
+                hand_dict['hand_number'],
+                hand_dict.get('timestamp', datetime.now().isoformat()),
+                json.dumps(hand_dict.get('players', [])),
+                json.dumps(hand_dict.get('hole_cards', {})),
+                json.dumps(hand_dict.get('community_cards', [])),
+                json.dumps(hand_dict.get('actions', [])),
+                json.dumps(hand_dict.get('winners', [])),
+                hand_dict.get('pot_size', 0),
+                hand_dict.get('was_showdown', False)
+            ))
+
+            hand_id = cursor.lastrowid
+            logger.debug(f"Saved hand #{hand_dict['hand_number']} for game {hand_dict['game_id']}")
+            return hand_id
+
+    def get_hand_count(self, game_id: str) -> int:
+        """Get the current hand count for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            The maximum hand_number for this game, or 0 if no hands recorded
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT MAX(hand_number) FROM hand_history WHERE game_id = ?",
+                (game_id,)
+            )
+            result = cursor.fetchone()[0]
+            return result or 0
+
+    def load_hand_history(self, game_id: str, limit: int = None) -> List[Dict[str, Any]]:
+        """Load hand history for a game.
+
+        Args:
+            game_id: The game identifier
+            limit: Optional limit on number of hands to load (most recent first)
+
+        Returns:
+            List of hand dicts suitable for RecordedHand.from_dict()
+        """
+        hands = []
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            query = """
+                SELECT * FROM hand_history
+                WHERE game_id = ?
+                ORDER BY hand_number DESC
+            """
+            if limit:
+                query += f" LIMIT {limit}"
+
+            cursor = conn.execute(query, (game_id,))
+
+            for row in cursor.fetchall():
+                hand = {
+                    'id': row['id'],
+                    'game_id': row['game_id'],
+                    'hand_number': row['hand_number'],
+                    'timestamp': row['timestamp'],
+                    'players': json.loads(row['players_json'] or '[]'),
+                    'hole_cards': json.loads(row['hole_cards_json'] or '{}'),
+                    'community_cards': json.loads(row['community_cards_json'] or '[]'),
+                    'actions': json.loads(row['actions_json'] or '[]'),
+                    'winners': json.loads(row['winners_json'] or '[]'),
+                    'pot_size': row['pot_size'] or 0,
+                    'was_showdown': bool(row['showdown'])
+                }
+                hands.append(hand)
+
+        # Return in chronological order (oldest first)
+        hands.reverse()
+
+        if hands:
+            logger.debug(f"Loaded {len(hands)} hands for game {game_id}")
+
+        return hands
+
+    def delete_hand_history_for_game(self, game_id: str) -> None:
+        """Delete all hand history for a game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM hand_history WHERE game_id = ?", (game_id,))
+
+    def get_session_stats(self, game_id: str, player_name: str) -> Dict[str, Any]:
+        """Compute session statistics for a player from hand history.
+
+        Args:
+            game_id: The game identifier
+            player_name: The player to get stats for
+
+        Returns:
+            Dict with session statistics:
+                - hands_played: Total hands where player participated
+                - hands_won: Hands where player won
+                - total_winnings: Net chip change (positive = up, negative = down)
+                - biggest_pot_won: Largest pot won
+                - biggest_pot_lost: Largest pot lost at showdown
+                - current_streak: 'winning', 'losing', or 'neutral'
+                - streak_count: Length of current streak
+                - recent_hands: List of last N hand summaries
+        """
+        stats = {
+            'hands_played': 0,
+            'hands_won': 0,
+            'total_winnings': 0,
+            'biggest_pot_won': 0,
+            'biggest_pot_lost': 0,
+            'current_streak': 'neutral',
+            'streak_count': 0,
+            'recent_hands': []
+        }
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get all hands for this game, ordered by hand_number
+            cursor = conn.execute("""
+                SELECT hand_number, players_json, winners_json, actions_json, pot_size, showdown
+                FROM hand_history
+                WHERE game_id = ?
+                ORDER BY hand_number ASC
+            """, (game_id,))
+
+            outcomes = []  # Track outcomes for streak calculation
+
+            for row in cursor.fetchall():
+                players = json.loads(row['players_json'] or '[]')
+                winners = json.loads(row['winners_json'] or '[]')
+                actions = json.loads(row['actions_json'] or '[]')
+                pot_size = row['pot_size'] or 0
+
+                # Check if player participated in this hand
+                player_in_hand = any(p.get('name') == player_name for p in players)
+                if not player_in_hand:
+                    continue
+
+                stats['hands_played'] += 1
+
+                # Check if player won
+                player_won = False
+                amount_won = 0
+                for winner in winners:
+                    if winner.get('name') == player_name:
+                        player_won = True
+                        amount_won = winner.get('amount_won', 0)
+                        break
+
+                # Calculate amount lost (sum of player's bets)
+                amount_bet = sum(
+                    a.get('amount', 0)
+                    for a in actions
+                    if a.get('player_name') == player_name
+                )
+
+                # Determine outcome
+                if player_won:
+                    stats['hands_won'] += 1
+                    stats['total_winnings'] += amount_won
+                    outcomes.append('won')
+                    if pot_size > stats['biggest_pot_won']:
+                        stats['biggest_pot_won'] = pot_size
+                else:
+                    # Check if folded or lost at showdown
+                    folded = any(
+                        a.get('player_name') == player_name and a.get('action') == 'fold'
+                        for a in actions
+                    )
+                    if folded:
+                        outcomes.append('folded')
+                        stats['total_winnings'] -= amount_bet
+                    else:
+                        # Lost at showdown
+                        outcomes.append('lost')
+                        stats['total_winnings'] -= amount_bet
+                        if pot_size > stats['biggest_pot_lost']:
+                            stats['biggest_pot_lost'] = pot_size
+
+                # Build recent hand summary (keep last 5)
+                if len(stats['recent_hands']) >= 5:
+                    stats['recent_hands'].pop(0)
+
+                outcome_str = outcomes[-1]
+                if outcome_str == 'won':
+                    summary = f"Hand {row['hand_number']}: Won ${amount_won}"
+                elif outcome_str == 'folded':
+                    summary = f"Hand {row['hand_number']}: Folded"
+                else:
+                    summary = f"Hand {row['hand_number']}: Lost ${amount_bet}"
+                stats['recent_hands'].append(summary)
+
+            # Calculate current streak from outcomes
+            if outcomes:
+                current = outcomes[-1]
+                if current in ('won', 'lost'):
+                    streak_type = 'winning' if current == 'won' else 'losing'
+                    streak_count = 1
+                    for outcome in reversed(outcomes[:-1]):
+                        if (streak_type == 'winning' and outcome == 'won') or \
+                           (streak_type == 'losing' and outcome == 'lost'):
+                            streak_count += 1
+                        else:
+                            break
+                    stats['current_streak'] = streak_type
+                    stats['streak_count'] = streak_count
+
+        return stats
+
+    def get_session_context_for_prompt(self, game_id: str, player_name: str,
+                                        max_recent: int = 3) -> str:
+        """Get formatted session context string for AI prompts.
+
+        Args:
+            game_id: The game identifier
+            player_name: The player to get context for
+            max_recent: Maximum number of recent hands to include
+
+        Returns:
+            Formatted string suitable for injection into AI prompts
+        """
+        stats = self.get_session_stats(game_id, player_name)
+
+        parts = []
+
+        # Session overview
+        if stats['hands_played'] > 0:
+            win_rate = (stats['hands_won'] / stats['hands_played']) * 100
+            parts.append(f"Session: {stats['hands_won']}/{stats['hands_played']} hands won ({win_rate:.0f}%)")
+
+            # Net result
+            if stats['total_winnings'] > 0:
+                parts.append(f"Up ${stats['total_winnings']}")
+            elif stats['total_winnings'] < 0:
+                parts.append(f"Down ${abs(stats['total_winnings'])}")
+
+            # Current streak (only show if 2+)
+            if stats['streak_count'] >= 2:
+                parts.append(f"On a {stats['streak_count']}-hand {stats['current_streak']} streak")
+
+        # Recent hands
+        recent = stats['recent_hands'][-max_recent:]
+        if recent:
+            parts.append("Recent: " + " | ".join(recent))
+
+        return ". ".join(parts) if parts else ""
 
     # Tournament Results Persistence Methods
     def save_tournament_result(self, game_id: str, result: Dict[str, Any]) -> None:
