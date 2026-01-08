@@ -128,7 +128,7 @@ def analyze_player_decision(
             game_id=game_id,
             player_name=player_name,
             hand_number=getattr(state_machine, 'hand_number', None),
-            phase=str(state_machine.current_phase.value) if state_machine.current_phase else None,
+            phase=state_machine.current_phase.name if state_machine.current_phase else None,
             player_hand=player_hand,
             community_cards=community_cards,
             pot_total=game_state.pot.get('total', 0),
