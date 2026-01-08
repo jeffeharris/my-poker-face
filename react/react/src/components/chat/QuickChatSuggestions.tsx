@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
@@ -52,6 +52,11 @@ export function QuickChatSuggestions({
   const [loading, setLoading] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState(0);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [containerHeight, setContainerHeight] = useState<number | null>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Cache suggestions by target+tone+length+intensity combination
+  const suggestionsCache = useRef<Record<string, TargetedSuggestion[]>>({});
 
   // Length and intensity toggles with localStorage persistence
   const [length, setLength] = useState<ChatLength>(
@@ -59,6 +64,13 @@ export function QuickChatSuggestions({
   );
   const [intensity, setIntensity] = useState<ChatIntensity>(
     () => (localStorage.getItem('quickchat_intensity') as ChatIntensity) || 'chill'
+  );
+
+  // Helper to generate cache key
+  const getCacheKey = useCallback(
+    (target: string | null, tone: ChatTone, len: ChatLength, int: ChatIntensity) =>
+      `${target || 'table'}_${tone}_${len}_${int}`,
+    []
   );
 
   // Persist toggles to localStorage
@@ -73,11 +85,16 @@ export function QuickChatSuggestions({
   // Get AI players (non-human, not folded)
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
 
-  const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone) => {
-    // Cooldown check
+  const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
+    // Cooldown check (skip if force refresh)
     const now = Date.now();
-    if (now - lastFetchTime < SUGGESTION_FETCH_COOLDOWN_MS) {
+    if (!forceRefresh && now - lastFetchTime < SUGGESTION_FETCH_COOLDOWN_MS) {
       return;
+    }
+
+    // Capture current height before loading to prevent jitter
+    if (suggestionsRef.current) {
+      setContainerHeight(suggestionsRef.current.offsetHeight);
     }
 
     setLoading(true);
@@ -96,7 +113,11 @@ export function QuickChatSuggestions({
       if (response.fallback) {
         console.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
       }
-      setSuggestions(response.suggestions || []);
+      const newSuggestions = response.suggestions || [];
+      setSuggestions(newSuggestions);
+      // Cache the suggestions
+      const cacheKey = getCacheKey(target, tone, length, intensity);
+      suggestionsCache.current[cacheKey] = newSuggestions;
       setLastFetchTime(now);
     } catch (error) {
       console.error('[QuickChat] Failed to fetch suggestions:', error);
@@ -107,23 +128,62 @@ export function QuickChatSuggestions({
       ]);
     } finally {
       setLoading(false);
+      setContainerHeight(null); // Release fixed height
     }
-  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity]);
+  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey]);
+
+  // Check cache when length/intensity changes and auto-fetch if no cache
+  useEffect(() => {
+    if (selectedTarget !== null && selectedTone !== null) {
+      const cacheKey = getCacheKey(selectedTarget, selectedTone, length, intensity);
+      const cached = suggestionsCache.current[cacheKey];
+      if (cached) {
+        setSuggestions(cached);
+      } else {
+        // No cache - capture height and fetch new suggestions
+        if (suggestionsRef.current) {
+          setContainerHeight(suggestionsRef.current.offsetHeight);
+        }
+        fetchSuggestions(selectedTarget, selectedTone, true);
+      }
+    }
+  }, [length, intensity, selectedTarget, selectedTone, getCacheKey, fetchSuggestions]);
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);
-    setSuggestions([]); // Clear old suggestions
-    // If tone is already selected, fetch new suggestions
+    // Check cache for this target with current tone
     if (selectedTone) {
-      fetchSuggestions(target, selectedTone);
+      const cacheKey = getCacheKey(target, selectedTone, length, intensity);
+      const cached = suggestionsCache.current[cacheKey];
+      if (cached) {
+        setSuggestions(cached);
+      } else {
+        // Capture height before fetching
+        if (suggestionsRef.current) {
+          setContainerHeight(suggestionsRef.current.offsetHeight);
+        }
+        fetchSuggestions(target, selectedTone, true);
+      }
+    } else {
+      setSuggestions([]);
     }
   };
 
   const handleToneSelect = (tone: ChatTone) => {
     setSelectedTone(tone);
-    // Only fetch if a target is selected
+    // Check cache for this tone with current target
     if (selectedTarget) {
-      fetchSuggestions(selectedTarget, tone);
+      const cacheKey = getCacheKey(selectedTarget, tone, length, intensity);
+      const cached = suggestionsCache.current[cacheKey];
+      if (cached) {
+        setSuggestions(cached);
+      } else {
+        // Capture height before fetching
+        if (suggestionsRef.current) {
+          setContainerHeight(suggestionsRef.current.offsetHeight);
+        }
+        fetchSuggestions(selectedTarget, tone, true);
+      }
     }
   };
 
@@ -138,8 +198,7 @@ export function QuickChatSuggestions({
 
   const handleRefresh = () => {
     if (selectedTone) {
-      setLastFetchTime(0); // Reset cooldown
-      fetchSuggestions(selectedTarget, selectedTone);
+      fetchSuggestions(selectedTarget, selectedTone, true);
     }
   };
 
@@ -218,42 +277,6 @@ export function QuickChatSuggestions({
         </div>
       </div>
 
-      {/* Modifiers row */}
-      <div className="modifier-toggles">
-        <div className="toggle-group">
-          <button
-            className={`toggle-btn ${length === 'short' ? 'active' : ''}`}
-            onClick={() => setLength('short')}
-            title="Short responses"
-          >
-            Short
-          </button>
-          <button
-            className={`toggle-btn ${length === 'long' ? 'active' : ''}`}
-            onClick={() => setLength('long')}
-            title="Longer responses"
-          >
-            Long
-          </button>
-        </div>
-        <div className="toggle-group">
-          <button
-            className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
-            onClick={() => setIntensity('chill')}
-            title="Playful and light"
-          >
-            Chill
-          </button>
-          <button
-            className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
-            onClick={() => setIntensity('spicy')}
-            title="No filter"
-          >
-            🌶️
-          </button>
-        </div>
-      </div>
-
       {/* Tone selector */}
       <div className="tone-selector">
         <div className="selector-label">Goal?</div>
@@ -275,32 +298,69 @@ export function QuickChatSuggestions({
       {/* Suggestions display */}
       {(loading || suggestions.length > 0) && (
         <div className="suggestions-section">
-          <div className="selector-label">Say:</div>
-          <div className="suggestions-container">
+          <div className="suggestions-header">
+            <div className="selector-label">Say:</div>
+            <div className="modifier-toggles">
+              <div className="toggle-group">
+                <button
+                  className={`toggle-btn ${length === 'short' ? 'active' : ''}`}
+                  onClick={() => setLength('short')}
+                >
+                  Short
+                </button>
+                <button
+                  className={`toggle-btn ${length === 'long' ? 'active' : ''}`}
+                  onClick={() => setLength('long')}
+                >
+                  Long
+                </button>
+              </div>
+              <div className="toggle-group">
+                <button
+                  className={`toggle-btn ${intensity === 'chill' ? 'active' : ''}`}
+                  onClick={() => setIntensity('chill')}
+                >
+                  Chill
+                </button>
+                <button
+                  className={`toggle-btn ${intensity === 'spicy' ? 'active' : ''}`}
+                  onClick={() => setIntensity('spicy')}
+                >
+                  🌶️
+                </button>
+              </div>
+            </div>
+            <button
+              className="refresh-btn"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                if (!loading) handleRefresh();
+              }}
+              disabled={loading}
+              tabIndex={-1}
+            >
+              ↻
+            </button>
+          </div>
+          <div
+            ref={suggestionsRef}
+            className="suggestions-container"
+            style={containerHeight ? { height: containerHeight } : undefined}
+          >
             {loading ? (
               <div className="suggestion-loading">
                 <span className="loading-dots">Thinking</span>
               </div>
             ) : (
-              <>
-                {suggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    className={`suggestion-pill tone-${suggestion.tone}`}
-                    onClick={() => handleSuggestionClick(suggestion.text)}
-                  >
-                    {suggestion.text}
-                  </button>
-                ))}
+              suggestions.map((suggestion, index) => (
                 <button
-                  className="refresh-btn"
-                  onClick={handleRefresh}
-                  disabled={loading}
-                  title="Get new suggestions"
+                  key={index}
+                  className={`suggestion-pill tone-${suggestion.tone}`}
+                  onClick={() => handleSuggestionClick(suggestion.text)}
                 >
-                  🔄
+                  {suggestion.text}
                 </button>
-              </>
+              ))
             )}
           </div>
         </div>

@@ -509,7 +509,7 @@
     left: 0;
     right: 0;
     width: 100%;
-    z-index: 50;
+    z-index: var(--z-sticky);
     height: 12dvh;
     min-height: 12dvh;
     margin: 0;
@@ -539,30 +539,18 @@
     background: linear-gradient(135deg, #26a69a 0%, #00897b 100%);
     color: white;
     box-shadow: 0 4px 12px rgba(38, 166, 154, 0.4);
-    flex: 4;
-    animation: fadeInDelayed 0.3s ease-out 0.5s both;
+    flex: 2;
 }
 
-@keyframes fadeInDelayed {
-    from {
-        opacity: 0;
-        transform: scale(0.9);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
+/* Balance chat button with preemptive button in waiting mode */
+.mobile-action-buttons:has(.waiting-text) .chat-btn {
+    flex: 2;
+    width: auto;
 }
 
 .preemptive-btn.queued {
     background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
     box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
-    animation: queuedPulse 2s ease-in-out infinite;
-}
-
-@keyframes queuedPulse {
-    0%, 100% { box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4); }
-    50% { box-shadow: 0 4px 20px rgba(76, 175, 80, 0.6); }
 }
 
 /* Chat Sheet */
@@ -681,26 +669,19 @@
     cursor: pointer;
 }
 
-/* Quick Chat Overlay */
+/* Quick Chat Overlay - matches raise sheet style */
 .quick-chat-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  z-index: 100;
+  inset: 0;
+  z-index: var(--z-modal);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .quick-chat-modal {
   width: 100%;
-  max-width: 500px;
-  background: rgba(20, 20, 30, 0.98);
+  background: #1a1a1a;
   border-radius: 20px 20px 0 0;
   overflow: hidden;
   animation: slideUp 0.3s ease-out;
@@ -710,40 +691,25 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 16px;
   color: white;
   font-weight: 600;
   font-size: 16px;
 }
 
 .quick-chat-modal-header button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
   color: white;
-  font-size: 20px;
+  font-size: 14px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.quick-chat-modal-header button:active {
-  background: rgba(255, 255, 255, 0.2);
 }
 
 @keyframes slideUp {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
 /* Card deal animation - uses CSS variables set inline */
