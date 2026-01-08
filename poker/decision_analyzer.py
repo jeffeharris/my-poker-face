@@ -180,6 +180,21 @@ class DecisionAnalyzer:
             analyzer_version=self.VERSION,
         )
 
+        # Calculate hand strength if we have cards
+        if player_hand and community_cards:
+            try:
+                import eval7
+                hero_hand = [eval7.Card(c) for c in player_hand]
+                board = [eval7.Card(c) for c in community_cards]
+                # eval7.evaluate returns higher scores for better hands
+                analysis.hand_rank = eval7.evaluate(hero_hand + board)
+                # Convert to relative strength (0-100 percentile)
+                # eval7 scores range from ~0 to ~7462 (royal flush)
+                # Higher = better, so we calculate percentile directly
+                analysis.relative_strength = min(100, (analysis.hand_rank / 7462) * 100)
+            except Exception as e:
+                logger.debug(f"Hand strength calculation failed: {e}")
+
         # Calculate equity if we have cards and calculator
         if player_hand and self.calculator and num_opponents > 0:
             try:
