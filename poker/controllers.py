@@ -433,7 +433,6 @@ class AIPlayerController:
                 opponent_infos.append(build_opponent_info(
                     name=opp.name,
                     position=opp_position,
-                    is_ai=not opp.is_human,
                     opponent_model=opp_model_data,
                 ))
 

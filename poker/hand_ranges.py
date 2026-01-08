@@ -6,10 +6,8 @@ equity calculations to sample from position-appropriate hand ranges
 rather than completely random hands.
 
 Fallback hierarchy for estimating opponent ranges:
-1. In-game observed stats (if enough hands observed)
-2. Cross-game historical stats (if enabled)
-3. Personality traits (for AI players)
-4. Position-based static ranges (universal fallback)
+1. In-game observed stats (VPIP-based, if enough hands observed)
+2. Position-based static ranges (universal fallback)
 
 Hand notation:
 - Pairs: "AA", "KK", "JJ"
@@ -17,11 +15,9 @@ Hand notation:
 - Offsuit: "AKo", "KQo" (different suits)
 """
 
-import json
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Set, List, Tuple, Optional, Dict, Any
 import logging
 
@@ -32,9 +28,7 @@ logger = logging.getLogger(__name__)
 class EquityConfig:
     """Configuration for equity calculation behavior."""
     use_in_game_stats: bool = True       # Use observed stats from current game
-    use_cross_game_stats: bool = False   # Use historical stats across games
     min_hands_for_stats: int = 5         # Minimum hands before using observed stats
-    use_personality_priors: bool = True  # Use AI personality traits as starting point
 
 
 @dataclass
@@ -48,13 +42,6 @@ class OpponentInfo:
     vpip: Optional[float] = None         # Voluntarily Put $ In Pot (0-1)
     pfr: Optional[float] = None          # Pre-Flop Raise % (0-1)
     aggression: Optional[float] = None   # Aggression factor
-
-    # Personality priors (from personalities.json)
-    personality_aggression: Optional[float] = None  # 0-1
-    personality_bluff_tendency: Optional[float] = None  # 0-1
-
-    # Whether this is an AI or human player
-    is_ai: bool = False
 
 
 class Position(Enum):
@@ -421,30 +408,6 @@ def estimate_range_from_vpip(vpip: float) -> Set[str]:
         return expanded
 
 
-def estimate_range_from_personality(aggression: float, bluff_tendency: float) -> Set[str]:
-    """Estimate starting range based on personality traits.
-
-    Args:
-        aggression: Aggression trait (0.0 - 1.0)
-        bluff_tendency: Bluff tendency trait (0.0 - 1.0)
-
-    Returns:
-        Set of canonical hand notations
-    """
-    # Combine aggression and bluff tendency to estimate looseness
-    # Higher values = wider ranges
-    looseness = (aggression * 0.6 + bluff_tendency * 0.4)
-
-    if looseness <= 0.3:
-        return EARLY_POSITION_RANGE
-    elif looseness <= 0.5:
-        return MIDDLE_POSITION_RANGE
-    elif looseness <= 0.7:
-        return BLIND_DEFENSE_RANGE
-    else:
-        return LATE_POSITION_RANGE
-
-
 def adjust_range_for_position(base_range: Set[str], position: Position) -> Set[str]:
     """Adjust a range based on table position.
 
@@ -476,9 +439,8 @@ def get_opponent_range(
     """Get estimated hand range for an opponent using fallback hierarchy.
 
     Priority:
-    1. In-game observed stats (if enough hands)
-    2. Personality traits (for AI players)
-    3. Position-based static ranges (fallback)
+    1. In-game observed stats (if enough hands observed)
+    2. Position-based static ranges (fallback)
 
     Args:
         opponent: OpponentInfo with available data
@@ -504,22 +466,7 @@ def get_opponent_range(
             f"VPIP={opponent.vpip:.2f}, range={len(base_range)} hands"
         )
 
-    # Priority 2: Personality traits (for AI players)
-    elif (config.use_personality_priors and
-          opponent.is_ai and
-          opponent.personality_aggression is not None):
-
-        base_range = estimate_range_from_personality(
-            opponent.personality_aggression,
-            opponent.personality_bluff_tendency or 0.5
-        )
-        logger.debug(
-            f"Using personality priors for {opponent.name}: "
-            f"aggression={opponent.personality_aggression:.2f}, "
-            f"range={len(base_range)} hands"
-        )
-
-    # Priority 3: Position-based static ranges (fallback)
+    # Priority 2: Position-based static ranges (fallback)
     if base_range is None:
         base_range = get_range_for_position(position)
         logger.debug(
@@ -603,65 +550,9 @@ def sample_hands_for_opponent_infos(
     return hands
 
 
-# ============================================================================
-# Personality Loading
-# ============================================================================
-
-_PERSONALITIES_CACHE: Optional[Dict[str, Any]] = None
-
-
-def _load_personalities_json() -> Dict[str, Any]:
-    """Load personalities from JSON file (cached)."""
-    global _PERSONALITIES_CACHE
-
-    if _PERSONALITIES_CACHE is not None:
-        return _PERSONALITIES_CACHE
-
-    # Find personalities.json relative to this file
-    this_dir = Path(__file__).parent
-    json_path = this_dir / 'personalities.json'
-
-    if not json_path.exists():
-        logger.warning(f"personalities.json not found at {json_path}")
-        return {}
-
-    try:
-        with open(json_path, 'r') as f:
-            data = json.load(f)
-            _PERSONALITIES_CACHE = data.get('personalities', {})
-            return _PERSONALITIES_CACHE
-    except Exception as e:
-        logger.error(f"Error loading personalities.json: {e}")
-        return {}
-
-
-def get_personality_traits(player_name: str) -> Optional[Dict[str, float]]:
-    """Get personality traits for an AI player.
-
-    Args:
-        player_name: Name of the AI player
-
-    Returns:
-        Dict with 'aggression' and 'bluff_tendency' keys, or None if not found
-    """
-    personalities = _load_personalities_json()
-
-    if player_name not in personalities:
-        return None
-
-    config = personalities[player_name]
-    traits = config.get('personality_traits', {})
-
-    return {
-        'aggression': traits.get('aggression', 0.5),
-        'bluff_tendency': traits.get('bluff_tendency', 0.5),
-    }
-
-
 def build_opponent_info(
     name: str,
     position: str,
-    is_ai: bool = False,
     opponent_model: Optional[Dict[str, Any]] = None,
 ) -> OpponentInfo:
     """Build OpponentInfo from available data sources.
@@ -669,7 +560,6 @@ def build_opponent_info(
     Args:
         name: Player name
         position: Table position name
-        is_ai: Whether this is an AI player
         opponent_model: Dict with observed stats (vpip, pfr, aggression, hands_observed)
 
     Returns:
@@ -678,7 +568,6 @@ def build_opponent_info(
     info = OpponentInfo(
         name=name,
         position=position,
-        is_ai=is_ai,
     )
 
     # Load observed stats from opponent model
@@ -687,12 +576,5 @@ def build_opponent_info(
         info.vpip = opponent_model.get('vpip')
         info.pfr = opponent_model.get('pfr')
         info.aggression = opponent_model.get('aggression_factor')
-
-    # Load personality traits for AI players
-    if is_ai:
-        traits = get_personality_traits(name)
-        if traits:
-            info.personality_aggression = traits.get('aggression')
-            info.personality_bluff_tendency = traits.get('bluff_tendency')
 
     return info
