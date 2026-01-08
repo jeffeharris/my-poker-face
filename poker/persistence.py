@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 
 
 @dataclass
@@ -334,6 +334,7 @@ class GamePersistence:
             23: (self._migrate_v23_add_player_position, "Add player_position to decision analysis"),
             24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
             25: (self._migrate_v25_add_opponent_notes, "Add notes column to opponent_models for player observations"),
+            26: (self._migrate_v26_add_debug_capture, "Add debug_capture_enabled column to games table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1257,6 +1258,21 @@ class GamePersistence:
 
         logger.info("Migration v25 complete: opponent notes added")
 
+    def _migrate_v26_add_debug_capture(self, conn: sqlite3.Connection) -> None:
+        """Migration v26: Add debug_capture_enabled column to games table.
+
+        Persists the debug capture toggle state so it survives game reloads.
+        Defaults to FALSE (off).
+        """
+        cursor = conn.execute("PRAGMA table_info(games)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'debug_capture_enabled' not in columns:
+            conn.execute("ALTER TABLE games ADD COLUMN debug_capture_enabled BOOLEAN DEFAULT 0")
+            logger.info("Added debug_capture_enabled column to games table")
+
+        logger.info("Migration v26 complete: debug_capture_enabled added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
@@ -2030,6 +2046,41 @@ class GamePersistence:
             )
             result = cursor.fetchone()[0]
             return result or 0
+
+    def get_debug_capture_enabled(self, game_id: str) -> bool:
+        """Get the debug capture enabled state for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            True if debug capture is enabled, False otherwise (default)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT debug_capture_enabled FROM games WHERE game_id = ?",
+                (game_id,)
+            )
+            result = cursor.fetchone()
+            return bool(result[0]) if result and result[0] else False
+
+    def set_debug_capture_enabled(self, game_id: str, enabled: bool) -> bool:
+        """Set the debug capture enabled state for a game.
+
+        Args:
+            game_id: The game identifier
+            enabled: Whether debug capture should be enabled
+
+        Returns:
+            True if the update succeeded, False otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE games SET debug_capture_enabled = ? WHERE game_id = ?",
+                (1 if enabled else 0, game_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def load_hand_history(self, game_id: str, limit: int = None) -> List[Dict[str, Any]]:
         """Load hand history for a game.

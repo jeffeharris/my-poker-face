@@ -336,6 +336,25 @@ def get_capture_stats():
     })
 
 
+@prompt_debug_bp.route('/api/prompt-debug/game/<game_id>/debug-mode', methods=['GET'])
+def get_debug_mode(game_id):
+    """Get the current debug capture mode state for a game.
+
+    Returns:
+        success: Boolean
+        debug_capture: Boolean indicating if debug capture is enabled
+        game_id: The game ID
+    """
+    # Check persisted state in database
+    enabled = persistence.get_debug_capture_enabled(game_id)
+
+    return jsonify({
+        'success': True,
+        'debug_capture': enabled,
+        'game_id': game_id
+    })
+
+
 @prompt_debug_bp.route('/api/prompt-debug/game/<game_id>/debug-mode', methods=['POST'])
 def toggle_debug_mode(game_id):
     """Toggle debug capture mode for a game.
@@ -352,6 +371,9 @@ def toggle_debug_mode(game_id):
     game_data = game_state_service.get_game(game_id)
     if not game_data:
         return jsonify({'success': False, 'error': 'Game not found'}), 404
+
+    # Persist the state to the database
+    persistence.set_debug_capture_enabled(game_id, enabled)
 
     # Enable debug capture on all AI controllers
     controllers = game_state_service.get_ai_controllers(game_id)

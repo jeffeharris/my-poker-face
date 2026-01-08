@@ -38,6 +38,27 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
   const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
   const [captureStats, setCaptureStats] = useState<{ total: number; suspicious_folds: number } | null>(null);
 
+  // Fetch debug mode state on mount and when gameId changes
+  useEffect(() => {
+    if (!gameId) return;
+
+    const fetchDebugModeState = async () => {
+      try {
+        const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPromptCaptureEnabled(data.debug_capture || false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch debug mode state:', error);
+      }
+    };
+
+    fetchDebugModeState();
+  }, [gameId]);
+
   // Sample cards for demo
   const demoCards = [
     'AS', 'KH', '5D', 'QC', 'JH', '10S', '2C', '7D'

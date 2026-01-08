@@ -289,6 +289,15 @@ def api_game_state(game_id):
                         controller.session_memory = memory_manager.get_session_memory(player.name)
                         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
 
+                # Restore debug capture state from database
+                debug_capture_enabled = persistence.get_debug_capture_enabled(game_id)
+                if debug_capture_enabled:
+                    for controller in ai_controllers.values():
+                        if hasattr(controller, 'debug_capture'):
+                            controller.debug_capture = True
+                            controller._persistence = persistence
+                    logger.info(f"[LOAD] Restored debug capture mode (enabled) for game {game_id}")
+
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
                 starting_players = [
