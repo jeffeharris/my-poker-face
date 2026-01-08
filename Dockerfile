@@ -18,12 +18,18 @@ COPY . .
 # Create directory for database
 RUN mkdir -p /app/data
 
+# Make scripts executable
+RUN chmod +x bin/docker-entrypoint.sh bin/seed_personalities.py
+
 # Expose the Flask port
 EXPOSE 5000
 
 # Set environment variables
 ENV FLASK_APP=flask_app.ui_web
 ENV PYTHONPATH=/app
+
+# Use entrypoint to run setup tasks before starting app
+ENTRYPOINT ["bin/docker-entrypoint.sh"]
 
 # Run the Flask app
 CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=5000"]

@@ -77,6 +77,8 @@ export function MobilePokerTable({
     winnerInfo,
     tournamentResult,
     isConnected,
+    queuedAction,
+    setQueuedAction,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
@@ -484,7 +486,22 @@ export function MobilePokerTable({
             onQuickChat={() => setShowQuickChat(true)}
           />
         ) : (
-          <div className="mobile-waiting-bar">
+          <div className="mobile-action-buttons">
+            {/* Preemptive Check/Fold - shows when AI is thinking and it's this player's view */}
+            {humanPlayer &&
+             humanPlayer.name === playerName &&
+             !humanPlayer.is_folded &&
+             aiThinking &&
+             currentPlayer &&
+             !currentPlayer.is_human && (
+              <button
+                className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
+                onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
+              >
+                <span className="btn-icon">{queuedAction === 'check_fold' ? '✓' : '✓✕'}</span>
+                <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}</span>
+              </button>
+            )}
             <span className="waiting-text">
               {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
             </span>
@@ -504,8 +521,9 @@ export function MobilePokerTable({
         <div className="quick-chat-overlay" onClick={() => setShowQuickChat(false)}>
           <div className="quick-chat-modal" onClick={e => e.stopPropagation()}>
             <div className="quick-chat-modal-header">
-              <span>Quick Chat</span>
-              <button onClick={() => setShowQuickChat(false)}>×</button>
+              <button onClick={() => setShowQuickChat(false)}>Cancel</button>
+              <span className="header-title">Quick Chat</span>
+              <div aria-hidden="true" style={{ visibility: 'hidden' }}>Cancel</div>
             </div>
             <QuickChatSuggestions
               gameId={providedGameId}
