@@ -12,6 +12,8 @@ interface UsePokerGameOptions {
   onGameLoadFailed?: () => void;
 }
 
+type QueuedAction = 'check_fold' | null;
+
 interface UsePokerGameResult {
   gameState: GameState | null;
   loading: boolean;
@@ -24,6 +26,8 @@ interface UsePokerGameResult {
   eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
   isConnected: boolean;
+  queuedAction: QueuedAction;
+  setQueuedAction: (action: QueuedAction) => void;
   handlePlayerAction: (action: string, amount?: number) => Promise<void>;
   handleSendMessage: (message: string) => Promise<void>;
   clearWinnerInfo: () => void;
@@ -63,9 +67,17 @@ export function usePokerGame({
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
+  const [queuedAction, setQueuedAction] = useState<QueuedAction>(null);
+  const queuedActionRef = useRef<QueuedAction>(null);
+  const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
 
   const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
+
+  // Keep ref in sync with state for use in socket callbacks
+  useEffect(() => {
+    queuedActionRef.current = queuedAction;
+  }, [queuedAction]);
 
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
@@ -157,9 +169,20 @@ export function usePokerGame({
       }
     });
 
-    socket.on('player_turn_start', (data: { current_player_options: string[] }) => {
-      console.log('Player turn started, options:', data.current_player_options);
+    socket.on('player_turn_start', (data: { current_player_options: string[], cost_to_call: number }) => {
+      console.log('Player turn started, options:', data.current_player_options, 'cost_to_call:', data.cost_to_call);
+      console.log('Queued action:', queuedActionRef.current);
       setAiThinking(false);
+
+      // Check for queued preemptive action
+      if (queuedActionRef.current === 'check_fold') {
+        const action = data.cost_to_call === 0 ? 'check' : 'fold';
+        console.log('Executing queued Check/Fold action:', action);
+        setQueuedAction(null);
+        handlePlayerActionRef.current(action);
+        return; // Action will trigger new state update
+      }
+
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -172,6 +195,7 @@ export function usePokerGame({
     socket.on('winner_announcement', (data: any) => {
       console.log('Winner announcement received:', data);
       setWinnerInfo(data);
+      setQueuedAction(null); // Clear queue when hand ends
     });
 
     socket.on('player_eliminated', (data: EliminationEvent) => {
@@ -364,6 +388,8 @@ export function usePokerGame({
   const handlePlayerAction = useCallback(async (action: string, amount?: number) => {
     if (!gameId) return;
 
+    // Clear any queued action since user is acting manually
+    setQueuedAction(null);
     setAiThinking(true);
 
     try {
@@ -388,6 +414,9 @@ export function usePokerGame({
       setAiThinking(false);
     }
   }, [gameId]);
+
+  // Keep ref in sync for socket callback access (update synchronously)
+  handlePlayerActionRef.current = handlePlayerAction;
 
   const handleSendMessage = useCallback(async (message: string) => {
     if (!gameId) return;
@@ -620,6 +649,8 @@ export function usePokerGame({
     eliminationEvents,
     socketRef,
     isConnected,
+    queuedAction,
+    setQueuedAction,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
