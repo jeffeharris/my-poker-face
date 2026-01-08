@@ -477,7 +477,7 @@ export function MobilePokerTable({
           ) : (
             <>
               {/* Preemptive Check/Fold - on left where fold button normally is */}
-              {humanPlayer && !humanPlayer.is_folded && (
+              {humanPlayer && !humanPlayer.is_folded && aiThinking && currentPlayer && !currentPlayer.is_human && (
                 <button
                   className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
                   onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
