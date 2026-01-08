@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
+import { InterrogationChat } from './InterrogationChat';
 import './PromptDebugger.css';
 
 interface PromptDebuggerProps {
@@ -13,6 +14,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   const [stats, setStats] = useState<CaptureStats | null>(null);
   const [analysisStats, setAnalysisStats] = useState<DecisionAnalysisStats | null>(null);
   const [selectedCapture, setSelectedCapture] = useState<PromptCapture | null>(null);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<DecisionAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
@@ -23,12 +25,20 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
     offset: 0,
   });
 
+  // Mode state (view, replay, interrogate)
+  const [mode, setMode] = useState<DebugMode>('view');
+
   // Replay state
-  const [replayMode, setReplayMode] = useState(false);
   const [modifiedSystemPrompt, setModifiedSystemPrompt] = useState('');
   const [modifiedUserMessage, setModifiedUserMessage] = useState('');
+  const [modifiedConversationHistory, setModifiedConversationHistory] = useState<ConversationMessage[]>([]);
+  const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
+
+  // Interrogation state
+  const [interrogationMessages, setInterrogationMessages] = useState<InterrogationMessage[]>([]);
+  const [interrogationSessionId, setInterrogationSessionId] = useState<string | null>(null);
 
   const fetchCaptures = useCallback(async () => {
     setLoading(true);
@@ -102,10 +112,16 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
       const data = await response.json();
       setSelectedCapture(data.capture);
+      setSelectedAnalysis(data.decision_analysis || null);
       setModifiedSystemPrompt(data.capture.system_prompt);
       setModifiedUserMessage(data.capture.user_message);
-      setReplayMode(false);
+      setModifiedConversationHistory(data.capture.conversation_history || []);
+      setUseHistory(true);
+      setMode('view');
       setReplayResult(null);
+      // Reset interrogation state for new capture
+      setInterrogationMessages([]);
+      setInterrogationSessionId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     }
@@ -127,6 +143,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
           body: JSON.stringify({
             system_prompt: modifiedSystemPrompt,
             user_message: modifiedUserMessage,
+            conversation_history: modifiedConversationHistory,
+            use_history: useHistory,
           }),
         }
       );
@@ -142,6 +160,22 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
     } finally {
       setReplaying(false);
     }
+  };
+
+  const updateHistoryMessage = (index: number, field: 'role' | 'content', value: string) => {
+    setModifiedConversationHistory(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value as ConversationMessage['role'] };
+      return updated;
+    });
+  };
+
+  const removeHistoryMessage = (index: number) => {
+    setModifiedConversationHistory(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const addHistoryMessage = () => {
+    setModifiedConversationHistory(prev => [...prev, { role: 'user', content: '' }]);
   };
 
   const formatPotOdds = (potOdds: number | null) => {
@@ -366,18 +400,86 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                   </div>
                 </div>
 
+                {/* Decision Analysis */}
+                {selectedAnalysis && (
+                  <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
+                    <h4>Decision Analysis</h4>
+                    <div className="analysis-grid">
+                      {selectedAnalysis.equity != null && (
+                        <div className="analysis-item">
+                          <label>Equity:</label>
+                          <span>{(selectedAnalysis.equity * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {selectedAnalysis.required_equity != null && (
+                        <div className="analysis-item">
+                          <label>Required Equity:</label>
+                          <span>{(selectedAnalysis.required_equity * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {selectedAnalysis.ev_call != null && (
+                        <div className="analysis-item">
+                          <label>EV (Call):</label>
+                          <span className={selectedAnalysis.ev_call >= 0 ? 'positive' : 'negative'}>
+                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}${selectedAnalysis.ev_call.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.optimal_action && (
+                        <div className="analysis-item">
+                          <label>Optimal Action:</label>
+                          <span className={`optimal-action ${selectedAnalysis.optimal_action}`}>
+                            {selectedAnalysis.optimal_action.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.decision_quality && (
+                        <div className="analysis-item quality">
+                          <label>Quality:</label>
+                          <span className={`quality-badge ${selectedAnalysis.decision_quality}`}>
+                            {selectedAnalysis.decision_quality.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.ev_lost != null && selectedAnalysis.ev_lost > 0 && (
+                        <div className="analysis-item">
+                          <label>EV Lost:</label>
+                          <span className="negative">-${selectedAnalysis.ev_lost.toFixed(0)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="detail-tabs">
                   <button
-                    className={!replayMode ? 'active' : ''}
-                    onClick={() => setReplayMode(false)}
+                    className={mode === 'view' ? 'active' : ''}
+                    onClick={() => setMode('view')}
                   >
                     View
                   </button>
                   <button
-                    className={replayMode ? 'active' : ''}
-                    onClick={() => setReplayMode(true)}
+                    className={mode === 'replay' ? 'active' : ''}
+                    onClick={() => setMode('replay')}
                   >
                     Edit & Replay
+                  </button>
+                  <button
+                    className={mode === 'interrogate' ? 'active' : ''}
+                    onClick={() => {
+                      setMode('interrogate');
+                      // Initialize interrogation with original response as context
+                      if (selectedCapture && interrogationMessages.length === 0) {
+                        setInterrogationMessages([{
+                          id: 'original-decision',
+                          role: 'context',
+                          content: selectedCapture.ai_response,
+                          timestamp: selectedCapture.created_at,
+                        }]);
+                      }
+                    }}
+                  >
+                    Interrogate
                   </button>
                 </div>
 
@@ -417,7 +519,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                   </div>
                 )}
 
-                {!replayMode ? (
+                {mode === 'view' && (
                   <div className="detail-prompts">
                     <div className="prompt-section">
                       <h4>System Prompt</h4>
@@ -458,7 +560,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                       </details>
                     )}
                   </div>
-                ) : (
+                )}
+
+                {mode === 'replay' && (
                   <div className="replay-editor">
                     <div className="prompt-section">
                       <h4>System Prompt (editable)</h4>
@@ -468,6 +572,61 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         rows={10}
                       />
                     </div>
+
+                    {/* Conversation History Editor */}
+                    <div className="prompt-section conversation-history-editor">
+                      <div className="history-header">
+                        <h4>Conversation History ({modifiedConversationHistory.length} messages)</h4>
+                        <label className="history-toggle">
+                          <input
+                            type="checkbox"
+                            checked={useHistory}
+                            onChange={(e) => setUseHistory(e.target.checked)}
+                          />
+                          Include in replay
+                        </label>
+                      </div>
+
+                      {useHistory && (
+                        <div className={`history-editor ${!useHistory ? 'disabled' : ''}`}>
+                          {modifiedConversationHistory.map((msg, idx) => (
+                            <div key={idx} className="history-message-editor">
+                              <select
+                                value={msg.role}
+                                onChange={(e) => updateHistoryMessage(idx, 'role', e.target.value)}
+                              >
+                                <option value="user">user</option>
+                                <option value="assistant">assistant</option>
+                                <option value="system">system</option>
+                              </select>
+                              <textarea
+                                value={msg.content}
+                                onChange={(e) => updateHistoryMessage(idx, 'content', e.target.value)}
+                                rows={3}
+                                placeholder="Message content..."
+                              />
+                              <button
+                                className="remove-message"
+                                onClick={() => removeHistoryMessage(idx)}
+                                title="Remove message"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <button className="add-message" onClick={addHistoryMessage}>
+                            + Add Message
+                          </button>
+                        </div>
+                      )}
+
+                      {!useHistory && modifiedConversationHistory.length > 0 && (
+                        <div className="history-disabled-notice">
+                          {modifiedConversationHistory.length} message(s) will be excluded from replay
+                        </div>
+                      )}
+                    </div>
+
                     <div className="prompt-section">
                       <h4>User Message (editable)</h4>
                       <textarea
@@ -499,10 +658,26 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         <div className="replay-meta">
                           Model: {replayResult.model_used}
                           {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
+                          {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
+                          {replayResult.used_history !== undefined && (
+                            <span className={replayResult.used_history ? 'history-used' : 'history-skipped'}>
+                              {replayResult.used_history ? ' | History included' : ' | History excluded'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
                   </div>
+                )}
+
+                {mode === 'interrogate' && (
+                  <InterrogationChat
+                    capture={selectedCapture}
+                    messages={interrogationMessages}
+                    onMessagesUpdate={setInterrogationMessages}
+                    sessionId={interrogationSessionId}
+                    onSessionIdUpdate={setInterrogationSessionId}
+                  />
                 )}
               </>
             ) : (

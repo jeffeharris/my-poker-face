@@ -440,6 +440,18 @@ class DecisionAnalyzer:
             analysis.decision_quality = "unknown"
             return
 
+        # Special case: folding when you can check for free is always a mistake
+        # You're giving up your equity share of the pot for no reason
+        if analysis.cost_to_call == 0 and analysis.action_taken == "fold":
+            analysis.optimal_action = "check"
+            analysis.decision_quality = "mistake"
+            if analysis.equity is not None and analysis.pot_total > 0:
+                # EV lost = your equity share of the pot you're abandoning
+                analysis.ev_lost = analysis.equity * analysis.pot_total
+            else:
+                analysis.ev_lost = 0  # Can't calculate without equity
+            return
+
         equity = analysis.equity or 0
         num_opponents = analysis.num_opponents or 1
         phase = analysis.phase

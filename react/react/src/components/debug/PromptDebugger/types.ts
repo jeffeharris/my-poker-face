@@ -56,6 +56,8 @@ export interface ReplayResponse {
   new_response: string;
   model_used: string;
   latency_ms: number | null;
+  messages_count?: number;
+  used_history?: boolean;
   error?: string;
 }
 
@@ -109,4 +111,24 @@ export interface DecisionAnalysisStats {
   correct: number;
   by_quality: Record<string, number>;
   by_action: Record<string, number>;
+}
+
+// Interrogation mode types
+export type DebugMode = 'view' | 'replay' | 'interrogate';
+
+export interface InterrogationMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'context';
+  content: string;
+  timestamp: string;
+}
+
+export interface InterrogationResponse {
+  success: boolean;
+  response: string;
+  session_id: string;
+  messages_count: number;
+  model_used: string;
+  latency_ms: number | null;
+  error?: string;
 }

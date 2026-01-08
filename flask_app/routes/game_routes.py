@@ -48,6 +48,7 @@ def analyze_player_decision(
     amount: int,
     state_machine,
     game_state,
+    hand_number: int = None,
     memory_manager=None
 ) -> None:
     """Analyze a player decision (human or AI) and save to database.
@@ -122,7 +123,7 @@ def analyze_player_decision(
             ))
 
         # Calculate cost to call
-        cost_to_call = max(0, game_state.highest_bet - player.current_bet)
+        cost_to_call = max(0, game_state.highest_bet - player.bet)
 
         analyzer = get_analyzer()
         analysis = analyzer.analyze(
@@ -144,10 +145,10 @@ def analyze_player_decision(
         )
 
         persistence.save_decision_analysis(analysis)
+        equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
             f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
-            f"(equity={analysis.equity:.2f if analysis.equity else 'N/A'}, "
-            f"ev_lost={analysis.ev_lost:.0f})"
+            f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
         )
     except Exception as e:
         logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
@@ -265,7 +266,7 @@ def api_game_state(game_id):
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
 
-                memory_manager = AIMemoryManager(game_id, persistence.db_path)
+                memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
 
                 # Restore opponent models from database
                 saved_opponent_models = persistence.load_opponent_models(game_id)
@@ -437,7 +438,8 @@ def api_new_game():
                 state_machine,
                 llm_config=llm_config,
                 game_id=game_id,
-                owner_id=owner_id
+                owner_id=owner_id,
+                persistence=persistence
             )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(
@@ -449,7 +451,7 @@ def api_new_game():
     pressure_detector = PressureEventDetector(elasticity_manager)
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-    memory_manager = AIMemoryManager(game_id, persistence.db_path)
+    memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
     for player in state_machine.game_state.players:
         if not player.is_human:
             memory_manager.initialize_for_player(player.name)
@@ -520,7 +522,8 @@ def api_player_action(game_id):
 
     # Analyze decision quality (works for both human and AI)
     memory_manager = current_game_data.get('memory_manager')
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, memory_manager)
+    hand_number = memory_manager.hand_count if memory_manager else None
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -703,7 +706,8 @@ def register_socket_events(sio):
 
         # Analyze decision quality (works for both human and AI)
         memory_manager = current_game_data.get('memory_manager')
-        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, memory_manager)
+        hand_number = memory_manager.hand_count if memory_manager else None
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
