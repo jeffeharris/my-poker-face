@@ -63,12 +63,19 @@ def record_action_in_memory(game_data: dict, player_name: str, action: str,
              if hasattr(state_machine.current_phase, 'name')
              else str(state_machine.current_phase))
 
+    # Get active players for c-bet tracking
+    active_players = [
+        p.name for p in game_state.players
+        if not p.is_folded
+    ] if hasattr(game_state, 'players') else None
+
     memory_manager.on_action(
         player_name=player_name,
         action=action,
         amount=amount,
         phase=phase,
-        pot_total=pot_total
+        pot_total=pot_total,
+        active_players=active_players
     )
 
 
