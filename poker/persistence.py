@@ -1884,9 +1884,6 @@ class GamePersistence:
                         model_data.get('notes')
                     ))
 
-                    # Get the inserted model ID for memorable hands foreign key
-                    model_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
                     # Save memorable hands
                     memorable_hands = model_data.get('memorable_hands', [])
                     for hand in memorable_hands:
@@ -2888,12 +2885,13 @@ class GamePersistence:
 
             capture = dict(row)
             # Parse JSON fields
+            capture_id_for_log = capture.get('id')
             for field in ['community_cards', 'player_hand', 'valid_actions', 'tags', 'conversation_history']:
                 if capture.get(field):
                     try:
                         capture[field] = json.loads(capture[field])
                     except json.JSONDecodeError:
-                        pass
+                        logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
             return capture
 
     def list_prompt_captures(
@@ -2971,12 +2969,13 @@ class GamePersistence:
             for row in cursor.fetchall():
                 capture = dict(row)
                 # Parse JSON fields
+                capture_id_for_log = capture.get('id')
                 for field in ['community_cards', 'player_hand', 'tags']:
                     if capture.get(field):
                         try:
                             capture[field] = json.loads(capture[field])
                         except json.JSONDecodeError:
-                            pass
+                            logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
                 captures.append(capture)
 
             return {

@@ -40,14 +40,10 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
     Summarize messages since the player's last message, with clear separation
     between previous hand and current hand actions.
     """
-    # Find the new hand marker and player's last message
-    new_hand_index = -1
+    # Find the player's last message
     last_message_index = -1
 
     for i, msg in enumerate(messages):
-        content = msg.get('content', msg.get('message', ''))
-        if 'NEW HAND DEALT' in content:
-            new_hand_index = i
         if msg['sender'] == name:
             last_message_index = i
 

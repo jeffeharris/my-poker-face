@@ -690,7 +690,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                       </div>
 
                       {useHistory && (
-                        <div className={`history-editor ${!useHistory ? 'disabled' : ''}`}>
+                        <div className="history-editor">
                           {modifiedConversationHistory.map((msg, idx) => (
                             <div key={idx} className="history-message-editor">
                               <select

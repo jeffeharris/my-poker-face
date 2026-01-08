@@ -203,8 +203,6 @@ class AIMemoryManager:
 
         # Update opponent models with showdown info
         if recorded_hand.was_showdown:
-            winner_names = {w.name for w in recorded_hand.winners}
-
             # Track all players at showdown (winners and losers)
             for player in recorded_hand.players:
                 outcome = recorded_hand.get_player_outcome(player.name)
