@@ -55,6 +55,7 @@ export interface ReplayResponse {
   original_response: string;
   new_response: string;
   model_used: string;
+  reasoning_effort_used?: string;
   latency_ms: number | null;
   messages_count?: number;
   used_history?: boolean;
@@ -129,6 +130,7 @@ export interface InterrogationResponse {
   session_id: string;
   messages_count: number;
   model_used: string;
+  reasoning_effort_used?: string;
   latency_ms: number | null;
   error?: string;
 }

@@ -122,8 +122,9 @@ def analyze_player_decision(
                 opponent_model=opp_model_data,
             ))
 
-        # Calculate cost to call
-        cost_to_call = max(0, game_state.highest_bet - player.bet)
+        # Calculate effective cost to call (capped at player's stack)
+        raw_cost_to_call = max(0, game_state.highest_bet - player.bet)
+        cost_to_call = min(raw_cost_to_call, player.stack)
 
         analyzer = get_analyzer()
         analysis = analyzer.analyze(

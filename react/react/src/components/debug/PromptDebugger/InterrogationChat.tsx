@@ -8,6 +8,12 @@ interface InterrogationChatProps {
   onMessagesUpdate: (messages: InterrogationMessage[]) => void;
   sessionId: string | null;
   onSessionIdUpdate: (sessionId: string | null) => void;
+  model: string;
+  onModelChange: (model: string) => void;
+  reasoningEffort: string;
+  onReasoningEffortChange: (effort: string) => void;
+  availableModels: string[];
+  reasoningLevels: string[];
 }
 
 // Suggested quick questions based on action type
@@ -45,6 +51,12 @@ export function InterrogationChat({
   onMessagesUpdate,
   sessionId,
   onSessionIdUpdate,
+  model,
+  onModelChange,
+  reasoningEffort,
+  onReasoningEffortChange,
+  availableModels,
+  reasoningLevels,
 }: InterrogationChatProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -84,6 +96,8 @@ export function InterrogationChat({
           body: JSON.stringify({
             message: userMessage.content,
             session_id: sessionId,
+            model: model,
+            reasoning_effort: reasoningEffort,
           }),
         }
       );
@@ -202,6 +216,39 @@ export function InterrogationChat({
           ))}
         </div>
       )}
+
+      {/* Model and Reasoning Settings */}
+      <div className="interrogation-settings">
+        <div className="setting-group">
+          <label>Model:</label>
+          <select
+            value={model}
+            onChange={(e) => onModelChange(e.target.value)}
+            disabled={sessionId !== null}
+            title={sessionId ? "Reset to change model" : "Select model"}
+          >
+            {availableModels.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+        <div className="setting-group">
+          <label>Reasoning:</label>
+          <select
+            value={reasoningEffort}
+            onChange={(e) => onReasoningEffortChange(e.target.value)}
+            disabled={sessionId !== null}
+            title={sessionId ? "Reset to change reasoning" : "Select reasoning level"}
+          >
+            {reasoningLevels.map(level => (
+              <option key={level} value={level}>{level}</option>
+            ))}
+          </select>
+        </div>
+        {sessionId && (
+          <span className="settings-note">Reset to change settings</span>
+        )}
+      </div>
 
       {/* Input */}
       <form
