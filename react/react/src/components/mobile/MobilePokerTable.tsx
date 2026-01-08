@@ -476,10 +476,7 @@ export function MobilePokerTable({
             </>
           ) : (
             <>
-              <span className="waiting-text">
-                {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
-              </span>
-              {/* Preemptive Check/Fold - only show if player hasn't folded */}
+              {/* Preemptive Check/Fold - on left where fold button normally is */}
               {humanPlayer && !humanPlayer.is_folded && (
                 <button
                   className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
@@ -489,6 +486,9 @@ export function MobilePokerTable({
                   <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Check/Fold'}</span>
                 </button>
               )}
+              <span className="waiting-text">
+                {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
+              </span>
             </>
           )}
           {/* Chat button - always in same position */}

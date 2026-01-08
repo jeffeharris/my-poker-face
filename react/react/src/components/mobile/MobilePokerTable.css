@@ -519,10 +519,13 @@
 
 /* Waiting text - Shows when it's not player's turn */
 .mobile-action-buttons .waiting-text {
-    flex: 1;
+    flex: 6;
     font-size: 16px;
     color: rgba(255, 255, 255, 0.7);
     text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     animation: pulse 2s ease-in-out infinite;
 }
 
@@ -536,6 +539,19 @@
     background: linear-gradient(135deg, #26a69a 0%, #00897b 100%);
     color: white;
     box-shadow: 0 4px 12px rgba(38, 166, 154, 0.4);
+    flex: 4;
+    animation: fadeInDelayed 0.3s ease-out 0.5s both;
+}
+
+@keyframes fadeInDelayed {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 .preemptive-btn.queued {
