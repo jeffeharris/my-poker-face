@@ -50,8 +50,11 @@ class HandCommentary:
 class CommentaryGenerator:
     """Generates end-of-hand commentary for AI players."""
 
-    def __init__(self, prompt_manager: Optional[PromptManager] = None):
+    def __init__(self, prompt_manager: Optional[PromptManager] = None,
+                 game_id: Optional[str] = None, owner_id: Optional[str] = None):
         self.prompt_manager = prompt_manager or PromptManager()
+        self.game_id = game_id
+        self.owner_id = owner_id
         # Use dedicated LLM client with minimal reasoning for fast/cheap commentary
         self._llm_client = LLMClient(reasoning_effort="minimal")
 
@@ -180,6 +183,8 @@ class CommentaryGenerator:
                 messages=messages,
                 json_format=True,
                 call_type=CallType.COMMENTARY,
+                game_id=self.game_id,
+                owner_id=self.owner_id,
                 player_name=player_name,
                 hand_number=hand.hand_number,
                 prompt_template='end_of_hand_commentary'

@@ -265,7 +265,7 @@ def api_game_state(game_id):
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
 
-                memory_manager = AIMemoryManager(game_id, persistence.db_path)
+                memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
 
                 # Restore opponent models from database
                 saved_opponent_models = persistence.load_opponent_models(game_id)
@@ -450,7 +450,7 @@ def api_new_game():
     pressure_detector = PressureEventDetector(elasticity_manager)
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-    memory_manager = AIMemoryManager(game_id, persistence.db_path)
+    memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
     for player in state_machine.game_state.players:
         if not player.is_human:
             memory_manager.initialize_for_player(player.name)

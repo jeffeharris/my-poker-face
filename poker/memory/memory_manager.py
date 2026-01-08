@@ -25,20 +25,22 @@ logger = logging.getLogger(__name__)
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
 
-    def __init__(self, game_id: str, db_path: Optional[str] = None):
+    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None):
         """Initialize the memory manager.
 
         Args:
             game_id: Unique identifier for the game
             db_path: Path to database for persistence (optional)
+            owner_id: Owner/user ID for tracking (optional)
         """
         self.game_id = game_id
         self.db_path = db_path
+        self.owner_id = owner_id
 
         # Core systems
         self.hand_recorder = HandHistoryRecorder(game_id)
         self.opponent_model_manager = OpponentModelManager()
-        self.commentary_generator = CommentaryGenerator()
+        self.commentary_generator = CommentaryGenerator(game_id=game_id, owner_id=owner_id)
 
         # Per-player session memories
         self.session_memories: Dict[str, SessionMemory] = {}
