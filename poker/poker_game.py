@@ -643,8 +643,8 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     :param game_state: (PokerGameState)
         The current state of the poker game, including players, community cards, and contributions.
     :return: (Dict)
-        A dictionary with calculated winnings for each player and information on the winning hand.
-            - 'winnings': {player_name: amount_won, ...}
+        A dictionary with pot breakdown and information on the winning hand.
+            - 'pot_breakdown': list of pots with winners and amounts
             - 'winning_hand': details of the best hand
             - 'hand_name': Name of the winning hand
     """
@@ -652,15 +652,16 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     active_players = [p for p in game_state.players if not p.is_folded and p.bet > 0]
     # Handle edge case: no active players
     if not active_players:
-        return {'winnings': {}, 'winning_hand': [], 'hand_name': ''}
+        return {'pot_breakdown': [], 'winning_hand': [], 'hand_name': '', 'hand_rank': 10}
     active_players_sorted = sorted(active_players, key=lambda p: p.bet)
     # Prepare community cards for hand evaluation (handle both Card objects and dicts)
     community_cards = [
         card if isinstance(card, Card) else Card(card['rank'], card['suit'])
         for card in game_state.community_cards
     ]
-    # Track winnings for each player
-    winnings = {}
+    # Track pot breakdown for each tier
+    pot_breakdown = []
+    pot_index = 0
     # Track each player's remaining contributions independently
     remaining_contributions = {p.name: p.bet for p in game_state.players}
     # List to track evaluated hands for all eligible players
@@ -693,9 +694,15 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         best_hand = hands[0][1]
         tier_winners = [hand[0] for hand in hands if hand[1] == best_hand]
         split_amount = tier_pot // len(tier_winners)
-        # Distribute winnings for this tier
-        for winner_name in tier_winners:
-            winnings[winner_name] = winnings.get(winner_name, 0) + split_amount
+        # Add pot info to breakdown
+        pot_name = 'Main Pot' if pot_index == 0 else f'Side Pot {pot_index}'
+        pot_breakdown.append({
+            'pot_name': pot_name,
+            'total_amount': tier_pot,
+            'winners': [{'name': name, 'amount': split_amount} for name in tier_winners],
+            'hand_name': best_hand['hand_name']
+        })
+        pot_index += 1
         # Subtract the tier contribution from each eligible player's contribution without modifying player objects
         for player_name in remaining_contributions:
             remaining_contributions[player_name] -= min(remaining_contributions[player_name], tier_contribution)
@@ -708,13 +715,13 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     evaluated_hands.sort(key=lambda x: x[1]["hand_rank"])
     best_overall_hand = evaluated_hands[0][1]
 
-    # Prepare the result to include only winnings and winning hand details
+    # Prepare the result to include pot breakdown and winning hand details
     # Keep raw numeric values for internal use (e.g., pressure_detector comparisons)
     # and convert to display names for UI (e.g., 14 -> 'A', 11 -> 'J')
     raw_hand_values = best_overall_hand["hand_values"] + best_overall_hand["kicker_values"]
     display_hand = [rank_to_display(v) for v in raw_hand_values]
     winner_info = {
-        'winnings': winnings,
+        'pot_breakdown': pot_breakdown,
         'winning_hand': display_hand,
         'winning_hand_values': raw_hand_values,  # Keep numeric values for internal comparisons
         'hand_name': best_overall_hand['hand_name'],
@@ -725,13 +732,20 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     return winner_info
 
 
-def award_pot_winnings(game_state, winnings):
+def award_pot_winnings(game_state, winner_info):
+    """Award winnings to winning players by adding to their stack."""
+    # Sum winnings per player from pot_breakdown
+    winnings = {}
+    for pot in winner_info.get('pot_breakdown', []):
+        for winner in pot['winners']:
+            winnings[winner['name']] = winnings.get(winner['name'], 0) + winner['amount']
+
     # Reward winning players
-    for name in winnings:
-        if winnings[name] > 0:
+    for name, amount in winnings.items():
+        if amount > 0:
             # Retrieve the player index for the player of the winning hand
             _, player_idx = game_state.get_player_by_name(name)
             current_stack = game_state.players[player_idx].stack
-            new_stack_total = winnings[name] + current_stack
+            new_stack_total = amount + current_stack
             game_state = game_state.update_player(player_idx=player_idx, stack=new_stack_total)
     return game_state

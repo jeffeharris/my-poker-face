@@ -82,6 +82,8 @@ export function MobilePokerTable({
     clearWinnerInfo,
     clearTournamentResult,
     debugTriggerTournamentEnd,
+    debugTriggerSplitPot,
+    debugTriggerSidePot,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -341,6 +343,32 @@ export function MobilePokerTable({
                 }}
               >
                 {promptCaptureEnabled ? '🔴 Stop Capture' : '⏺️ Capture AI'}
+              </button>
+              <button
+                onClick={() => debugTriggerSplitPot()}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: '#9b59b6',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Test: Split Pot
+              </button>
+              <button
+                onClick={() => debugTriggerSidePot()}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: '#3498db',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Test: Side Pots
               </button>
             </>
           )}

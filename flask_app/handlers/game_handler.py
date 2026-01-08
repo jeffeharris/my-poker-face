@@ -376,7 +376,7 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
 
     winner_data = {
         'winners': winning_player_names,
-        'winnings': winner_info['winnings'],
+        'pot_breakdown': winner_info.get('pot_breakdown', []),
         'showdown': is_showdown,
         'community_cards': [],
     }
@@ -572,11 +572,16 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         tuple: (updated_game_state, should_return) - should_return is True if game should end
     """
     winner_info = determine_winner(game_state)
-    winning_player_names = list(winner_info['winnings'].keys())
+    # Compute winning player names from pot_breakdown
+    all_winners = set()
+    for pot in winner_info.get('pot_breakdown', []):
+        for winner in pot['winners']:
+            all_winners.add(winner['name'])
+    winning_player_names = list(all_winners)
     pot_size_before_award = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
 
     # Award winnings FIRST so chip counts are updated
-    game_state = award_pot_winnings(game_state, winner_info['winnings'])
+    game_state = award_pot_winnings(game_state, winner_info)
 
     # Prepare winner announcement data
     winning_players_string = (', '.join(winning_player_names[:-1]) +

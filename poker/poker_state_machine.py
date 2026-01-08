@@ -204,7 +204,7 @@ def showdown_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
 def evaluating_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for EVALUATING_HAND phase transition."""
     winner_info = determine_winner(state.game_state)
-    new_game_state = award_pot_winnings(state.game_state, winner_info['winnings'])
+    new_game_state = award_pot_winnings(state.game_state, winner_info)
     
     if winner_info:
         return (state

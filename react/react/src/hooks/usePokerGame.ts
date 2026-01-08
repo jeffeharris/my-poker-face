@@ -32,6 +32,8 @@ interface UsePokerGameResult {
   // Debug functions
   debugTriggerTournamentEnd: (humanWon?: boolean) => void;
   debugShowTournamentComplete: (humanWon?: boolean) => void;
+  debugTriggerSplitPot: () => void;
+  debugTriggerSidePot: () => void;
 }
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
@@ -408,9 +410,15 @@ export function usePokerGame({
 
   // Debug function to trigger tournament end flow for testing
   const debugTriggerTournamentEnd = useCallback((humanWon: boolean = false) => {
+    const winnerName = humanWon ? (playerName || 'You') : 'Batman';
     const mockWinnerData = {
-      winners: humanWon ? [playerName || 'You'] : ['Batman'],
-      winnings: { [humanWon ? (playerName || 'You') : 'Batman']: 5000 },
+      winners: [winnerName],
+      pot_breakdown: [{
+        pot_name: 'Main Pot',
+        total_amount: 5000,
+        winners: [{ name: winnerName, amount: 5000 }],
+        hand_name: 'Full House'
+      }],
       hand_name: 'Full House',
       showdown: true,
       is_final_hand: true,
@@ -441,6 +449,116 @@ export function usePokerGame({
       }
     };
     console.log('[DEBUG] Triggering tournament end with mock data:', mockWinnerData);
+    setWinnerInfo(mockWinnerData);
+  }, [playerName]);
+
+  // Debug function to trigger split pot scenario (two winners with equal hands)
+  const debugTriggerSplitPot = useCallback(() => {
+    const humanName = playerName || 'You';
+    const mockWinnerData = {
+      winners: [humanName, 'Batman'],
+      pot_breakdown: [{
+        pot_name: 'Main Pot',
+        total_amount: 3000,
+        winners: [
+          { name: humanName, amount: 1500 },
+          { name: 'Batman', amount: 1500 }
+        ],
+        hand_name: 'Two Pair'
+      }],
+      hand_name: 'Two Pair',
+      showdown: true,
+      community_cards: [
+        { rank: 'A', suit: 'hearts' },
+        { rank: 'K', suit: 'hearts' },
+        { rank: '7', suit: 'spades' },
+        { rank: '7', suit: 'diamonds' },
+        { rank: '2', suit: 'clubs' }
+      ],
+      players_showdown: {
+        [humanName]: {
+          cards: [{ rank: 'A', suit: 'spades' }, { rank: 'K', suit: 'diamonds' }],
+          hand_name: 'Two Pair',
+          hand_rank: 7,
+          kickers: ['2']
+        },
+        'Batman': {
+          cards: [{ rank: 'A', suit: 'clubs' }, { rank: 'K', suit: 'spades' }],
+          hand_name: 'Two Pair',
+          hand_rank: 7,
+          kickers: ['2']
+        },
+        'Joker': {
+          cards: [{ rank: 'Q', suit: 'hearts' }, { rank: 'J', suit: 'hearts' }],
+          hand_name: 'Pair',
+          hand_rank: 8,
+          kickers: ['A', 'K', 'Q']
+        }
+      }
+    };
+    console.log('[DEBUG] Triggering split pot with mock data:', mockWinnerData);
+    setWinnerInfo(mockWinnerData);
+  }, [playerName]);
+
+  // Debug function to trigger side pot scenario (all-in with multiple pots)
+  const debugTriggerSidePot = useCallback(() => {
+    const humanName = playerName || 'You';
+    const mockWinnerData = {
+      winners: [humanName, 'Batman'],
+      pot_breakdown: [
+        {
+          pot_name: 'Main Pot',
+          total_amount: 1500,
+          winners: [{ name: 'Joker', amount: 1500 }],
+          hand_name: 'Flush'
+        },
+        {
+          pot_name: 'Side Pot 1',
+          total_amount: 2000,
+          winners: [
+            { name: humanName, amount: 1000 },
+            { name: 'Batman', amount: 1000 }
+          ],
+          hand_name: 'Two Pair'
+        },
+        {
+          pot_name: 'Side Pot 2',
+          total_amount: 800,
+          winners: [{ name: humanName, amount: 800 }],
+          hand_name: 'Two Pair'
+        }
+      ],
+      hand_name: 'Flush',
+      showdown: true,
+      community_cards: [
+        { rank: 'A', suit: 'hearts' },
+        { rank: '9', suit: 'hearts' },
+        { rank: '7', suit: 'hearts' },
+        { rank: '4', suit: 'spades' },
+        { rank: '2', suit: 'clubs' }
+      ],
+      players_showdown: {
+        [humanName]: {
+          cards: [{ rank: 'A', suit: 'spades' }, { rank: 'A', suit: 'diamonds' }],
+          hand_name: 'Two Pair',
+          hand_rank: 7,
+          kickers: ['9']
+        },
+        'Batman': {
+          cards: [{ rank: 'A', suit: 'clubs' }, { rank: '9', suit: 'spades' }],
+          hand_name: 'Two Pair',
+          hand_rank: 7,
+          kickers: ['7']
+        },
+        'Joker': {
+          cards: [{ rank: 'K', suit: 'hearts' }, { rank: 'J', suit: 'hearts' }],
+          hand_name: 'Flush',
+          hand_rank: 5,
+          kickers: []
+        }
+      }
+    };
+    console.log('[DEBUG] Triggering side pot with mock data:', mockWinnerData);
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
 
@@ -510,5 +628,7 @@ export function usePokerGame({
     // Debug functions
     debugTriggerTournamentEnd,
     debugShowTournamentComplete,
+    debugTriggerSplitPot,
+    debugTriggerSidePot,
   };
 }
