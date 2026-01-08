@@ -30,6 +30,7 @@ class DecisionAnalysis:
     player_name: str
     hand_number: Optional[int] = None
     phase: Optional[str] = None
+    player_position: Optional[str] = None  # Hero's table position (button, UTG, etc.)
     request_id: Optional[str] = None
     capture_id: Optional[int] = None
 
@@ -131,6 +132,7 @@ class DecisionAnalyzer:
         raise_amount: Optional[int] = None,
         request_id: Optional[str] = None,
         capture_id: Optional[int] = None,
+        player_position: Optional[str] = None,
         opponent_positions: Optional[List[str]] = None,
         opponent_infos: Optional[List[Any]] = None,
     ) -> DecisionAnalysis:
@@ -152,6 +154,7 @@ class DecisionAnalyzer:
             raise_amount: Amount raised (if action is raise)
             request_id: Link to api_usage table
             capture_id: Link to prompt_captures table
+            player_position: Hero's table position (e.g., 'button', 'under_the_gun')
             opponent_positions: List of opponent position names for range-based equity
                                (e.g., ['button', 'big_blind_player']) - backward compat
             opponent_infos: List of OpponentInfo objects with observed stats and
@@ -167,6 +170,7 @@ class DecisionAnalyzer:
             player_name=player_name,
             hand_number=hand_number,
             phase=phase,
+            player_position=player_position,
             request_id=request_id,
             capture_id=capture_id,
             pot_total=pot_total,

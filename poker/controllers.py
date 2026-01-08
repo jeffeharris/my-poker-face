@@ -409,9 +409,10 @@ class AIPlayerController:
             ]
             num_opponents = len(opponents_in_hand)
 
-            # Get opponent positions for range-based equity calculation
+            # Get positions for range-based equity calculation
             table_positions = game_state.table_positions
             position_by_name = {name: pos for pos, name in table_positions.items()}
+            player_position = position_by_name.get(self.player_name)
             opponent_positions = [
                 position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
                 for p in opponents_in_hand
@@ -455,6 +456,7 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('adding_to_pot'),
                 request_id=request_id,
+                player_position=player_position,
                 opponent_positions=opponent_positions,
                 opponent_infos=opponent_infos,
             )

@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 
 @dataclass
@@ -331,6 +331,7 @@ class GamePersistence:
             20: (self._migrate_v20_add_decision_analysis, "Add player_decision_analysis table for quality monitoring"),
             21: (self._migrate_v21_add_game_id_to_opponent_models, "Add game_id to opponent_models for game-specific tracking"),
             22: (self._migrate_v22_add_position_equity, "Add position-based equity fields to decision analysis"),
+            23: (self._migrate_v23_add_player_position, "Add player_position to decision analysis"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1203,6 +1204,19 @@ class GamePersistence:
             logger.info("Added opponent_positions column to player_decision_analysis")
 
         logger.info("Migration v22 complete: position-based equity fields added")
+
+    def _migrate_v23_add_player_position(self, conn: sqlite3.Connection) -> None:
+        """Migration v23: Add player_position to track hero's table position."""
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'player_position' not in columns:
+            conn.execute("""
+                ALTER TABLE player_decision_analysis ADD COLUMN player_position TEXT
+            """)
+            logger.info("Added player_position column to player_decision_analysis")
+
+        logger.info("Migration v23 complete: player_position added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -2711,7 +2725,7 @@ class GamePersistence:
             cursor = conn.execute("""
                 INSERT INTO player_decision_analysis (
                     request_id, capture_id,
-                    game_id, player_name, hand_number, phase,
+                    game_id, player_name, hand_number, phase, player_position,
                     pot_total, cost_to_call, player_stack, num_opponents,
                     player_hand, community_cards,
                     action_taken, raise_amount,
@@ -2720,7 +2734,7 @@ class GamePersistence:
                     hand_rank, relative_strength,
                     equity_vs_ranges, opponent_positions,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -2728,6 +2742,7 @@ class GamePersistence:
                 data.get('player_name'),
                 data.get('hand_number'),
                 data.get('phase'),
+                data.get('player_position'),
                 data.get('pot_total'),
                 data.get('cost_to_call'),
                 data.get('player_stack'),

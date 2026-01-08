@@ -78,6 +78,7 @@ export interface DecisionAnalysis {
   player_name: string;
   hand_number: number | null;
   phase: string | null;
+  player_position: string | null;  // Hero's table position (button, UTG, etc.)
   pot_total: number | null;
   cost_to_call: number | null;
   player_stack: number | null;
