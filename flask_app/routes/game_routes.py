@@ -48,7 +48,8 @@ def analyze_player_decision(
     amount: int,
     state_machine,
     game_state,
-    hand_number: int = None
+    hand_number: int = None,
+    memory_manager=None
 ) -> None:
     """Analyze a player decision (human or AI) and save to database.
 
@@ -521,7 +522,7 @@ def api_player_action(game_id):
     # Analyze decision quality (works for both human and AI)
     memory_manager = current_game_data.get('memory_manager')
     hand_number = memory_manager.hand_count if memory_manager else None
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number)
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -705,7 +706,7 @@ def register_socket_events(sio):
         # Analyze decision quality (works for both human and AI)
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
-        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number)
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
