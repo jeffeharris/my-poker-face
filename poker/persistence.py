@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 
 @dataclass
@@ -332,6 +332,7 @@ class GamePersistence:
             21: (self._migrate_v21_add_game_id_to_opponent_models, "Add game_id to opponent_models for game-specific tracking"),
             22: (self._migrate_v22_add_position_equity, "Add position-based equity fields to decision analysis"),
             23: (self._migrate_v23_add_player_position, "Add player_position to decision analysis"),
+            24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1217,6 +1218,29 @@ class GamePersistence:
             logger.info("Added player_position column to player_decision_analysis")
 
         logger.info("Migration v23 complete: player_position added")
+
+    def _migrate_v24_add_prompt_versioning(self, conn: sqlite3.Connection) -> None:
+        """Migration v24: Add prompt version tracking to prompt_captures.
+
+        Tracks which version of a prompt template was used, plus a hash
+        for detecting unversioned changes.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'prompt_template' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_template TEXT")
+            logger.info("Added prompt_template column to prompt_captures")
+
+        if 'prompt_version' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_version TEXT")
+            logger.info("Added prompt_version column to prompt_captures")
+
+        if 'prompt_hash' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_hash TEXT")
+            logger.info("Added prompt_hash column to prompt_captures")
+
+        logger.info("Migration v24 complete: prompt versioning added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -2451,9 +2475,11 @@ class GamePersistence:
                     latency_ms, input_tokens, output_tokens,
                     -- Tracking
                     original_request_id,
+                    -- Prompt Versioning
+                    prompt_template, prompt_version, prompt_hash,
                     -- User Annotations
                     tags, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -2488,6 +2514,10 @@ class GamePersistence:
                 capture.get('output_tokens'),
                 # Tracking
                 capture.get('original_request_id'),
+                # Prompt Versioning
+                capture.get('prompt_template'),
+                capture.get('prompt_version'),
+                capture.get('prompt_hash'),
                 # User Annotations
                 json.dumps(capture.get('tags', [])),
                 capture.get('notes'),

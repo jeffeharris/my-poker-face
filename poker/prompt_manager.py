@@ -1,17 +1,30 @@
 """
 Centralized prompt management for AI players.
 """
+import hashlib
 import json
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
+
+
+def compute_prompt_hash(text: str) -> str:
+    """Compute a short hash of prompt text for change detection."""
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
 @dataclass
 class PromptTemplate:
     """Structured prompt template with configurable sections."""
     name: str
+    version: str = "1.0.0"
     sections: Dict[str, str] = field(default_factory=dict)
-    
+
+    @property
+    def template_hash(self) -> str:
+        """Hash of the template content for detecting unversioned changes."""
+        content = json.dumps(self.sections, sort_keys=True)
+        return compute_prompt_hash(content)
+
     def render(self, **kwargs) -> str:
         """Render the prompt with provided variables."""
         rendered_sections = []
@@ -391,7 +404,16 @@ class PromptManager:
         if template_name not in self.templates:
             raise ValueError(f"Template '{template_name}' not found")
         return self.templates[template_name]
-    
+
+    def get_version_info(self, template_name: str) -> dict:
+        """Get version info for a template."""
+        template = self.get_template(template_name)
+        return {
+            'template_name': template.name,
+            'version': template.version,
+            'hash': template.template_hash,
+        }
+
     def render_prompt(self, template_name: str, **kwargs) -> str:
         """Render a template with provided variables."""
         template = self.get_template(template_name)

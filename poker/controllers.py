@@ -35,36 +35,74 @@ class ConsolePlayerController:
         return human_player_action(ui_data, player_options)
 
 
-def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
-    # Find the index of the last message from the Player with 'name'
+def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
+    """
+    Summarize messages since the player's last message, with clear separation
+    between previous hand and current hand actions.
+    """
+    # Find the new hand marker and player's last message
+    new_hand_index = -1
     last_message_index = -1
-    for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
-        if messages[i]['sender'] == name:
-            last_message_index = i
-            break
 
-    # Convert messages to strings, including action if present
-    converted_messages = []
-    for msg in messages:
+    for i, msg in enumerate(messages):
+        content = msg.get('content', msg.get('message', ''))
+        if 'NEW HAND DEALT' in content:
+            new_hand_index = i
+        if msg['sender'] == name:
+            last_message_index = i
+
+    # Convert a single message to string
+    def format_message(msg):
         sender = msg['sender']
         content = msg.get('content', msg.get('message', ''))
         action = msg.get('action', '')
 
-        if action and content:
-            # Action + chat: "Trump raises $100: You're gonna lose!"
-            converted_messages.append(f"{sender} {action}: {content}")
-        elif action:
-            # Action only
-            converted_messages.append(f"{sender} {action}")
-        else:
-            # Chat/system message only
-            converted_messages.append(f"{sender}: {content}")
+        # Skip the raw "NEW HAND DEALT" system message - we'll add our own separator
+        if 'NEW HAND DEALT' in content:
+            return None
 
-    # Return the messages since the player's last message
-    if last_message_index >= 0:
-        return converted_messages[last_message_index:]
+        if action and content:
+            return f"  {sender} {action}: \"{content}\""
+        elif action:
+            return f"  {sender} {action}"
+        else:
+            # Chat or system message
+            return f"  {content}" if sender == 'Table' else f"  {sender}: \"{content}\""
+
+    # Determine which messages to include (since player's last message)
+    start_idx = last_message_index if last_message_index >= 0 else 0
+    relevant_messages = messages[start_idx:]
+
+    # Split into previous hand and current hand
+    previous_hand = []
+    current_hand = []
+
+    for msg in relevant_messages:
+        content = msg.get('content', msg.get('message', ''))
+        if 'NEW HAND DEALT' in content:
+            # Everything after this is current hand
+            previous_hand = current_hand
+            current_hand = []
+        else:
+            formatted = format_message(msg)
+            if formatted:
+                current_hand.append(formatted)
+
+    # Build output
+    parts = []
+
+    if previous_hand:
+        parts.append("Previous hand:")
+        parts.extend(previous_hand)
+        parts.append("")
+
+    parts.append("This hand:")
+    if current_hand:
+        parts.extend(current_hand)
     else:
-        return converted_messages
+        parts.append("  (No actions yet)")
+
+    return "\n".join(parts)
 
 
 
@@ -331,6 +369,9 @@ class AIPlayerController:
                 if hasattr(provider, 'reasoning_effort'):
                     reasoning_effort = provider.reasoning_effort
 
+            # Get prompt version info
+            version_info = self.prompt_manager.get_version_info('decision')
+
             capture_data = {
                 'game_id': self.game_id,
                 'player_name': self.player_name,
@@ -357,6 +398,9 @@ class AIPlayerController:
                 'input_tokens': llm_response.input_tokens if llm_response else None,
                 'output_tokens': llm_response.output_tokens if llm_response else None,
                 'original_request_id': llm_response.request_id if llm_response else None,
+                'prompt_template': version_info['template_name'],
+                'prompt_version': version_info['version'],
+                'prompt_hash': version_info['hash'],
             }
 
             capture_id = self._persistence.save_prompt_capture(capture_data)
@@ -673,13 +717,20 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
         f"Community Cards: {community_cards}\n"
         f"Table Positions: {table_positions}\n"
         f"Opponent Status:\n{opponent_status}\n"
-        f"Actions since your last turn: {action_summary}\n"
+        f"Recent Actions:\n{action_summary}\n"
     )
+
+    # Blind levels
+    big_blind = game_state.current_ante
+    small_blind = big_blind // 2
+    blinds_remaining = player_money / big_blind if big_blind > 0 else float('inf')
 
     pot_state = (
         f"Pot Total: ${current_pot}\n"
         f"How much you've bet: ${current_bet}\n"
         f"Your cost to call: ${cost_to_call}\n"
+        f"Blinds: ${small_blind}/${big_blind}\n"
+        f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
     )
 
     # Calculate pot odds for clearer decision making
@@ -698,7 +749,6 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
         pot_odds_guidance = "You can check for free - no cost to see more cards."
 
     hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
-        f"Consider your table position and the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
         f"You cannot bet more than you have, ${player_money}.\n"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"
