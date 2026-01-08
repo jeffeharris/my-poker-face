@@ -418,32 +418,159 @@ class DecisionAnalyzer:
 
     def _evaluate_quality(self, analysis: DecisionAnalysis) -> None:
         """
-        Evaluate decision quality based on EV.
+        Evaluate decision quality based on EV and optimal action.
 
         Sets optimal_action, decision_quality, and ev_lost on the analysis.
+
+        Optimal action is determined by:
+        - Fold: EV(call) < 0
+        - Call: EV(call) > 0 but equity not high enough to raise for value
+        - Raise: High equity where raising extracts more value
+
+        Decision quality considers:
+        - "correct": Action matches or is close to optimal
+        - "marginal": Action is defensible but not optimal
+        - "mistake": Clear error (e.g., folding +EV, calling -EV)
         """
         if analysis.ev_call is None:
             analysis.decision_quality = "unknown"
             return
 
-        # Determine optimal action based on EV
-        if analysis.ev_call > 0:
-            analysis.optimal_action = "call"
-        else:
-            analysis.optimal_action = "fold"
+        equity = analysis.equity or 0
+        num_opponents = analysis.num_opponents or 1
+        phase = analysis.phase
 
+        # Determine optimal action using sophisticated logic
+        analysis.optimal_action = self._determine_optimal_action(
+            equity=equity,
+            ev_call=analysis.ev_call,
+            required_equity=analysis.required_equity,
+            num_opponents=num_opponents,
+            phase=phase,
+            pot_total=analysis.pot_total or 0,
+            cost_to_call=analysis.cost_to_call or 0,
+            player_stack=analysis.player_stack or 0,
+        )
+
+        # Evaluate decision quality
         action = analysis.action_taken
-        if action == "fold" and analysis.ev_call > 0:
-            # Folded a +EV spot
+        optimal = analysis.optimal_action
+
+        if action == optimal:
+            analysis.decision_quality = "correct"
+            analysis.ev_lost = 0
+        elif action == "fold" and analysis.ev_call > 0:
+            # Folded a +EV spot - clear mistake
             analysis.decision_quality = "mistake"
             analysis.ev_lost = analysis.ev_call
         elif action in ("call", "raise", "all_in") and analysis.ev_call < 0:
-            # Called/raised a -EV spot
+            # Called/raised a -EV spot - clear mistake
             analysis.decision_quality = "mistake"
             analysis.ev_lost = -analysis.ev_call
+        elif action == "call" and optimal == "raise":
+            # Called when should have raised - marginal (still +EV)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0  # Didn't lose EV, just didn't maximize
+        elif action == "raise" and optimal == "call":
+            # Raised when calling was optimal - marginal (still +EV)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0
+        elif action == "check" and optimal == "raise":
+            # Checked when should have bet - marginal (missed value)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0
+        elif action == "raise" and optimal == "check":
+            # Bet when should have checked - marginal (built pot unnecessarily)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0
         else:
             analysis.decision_quality = "correct"
             analysis.ev_lost = 0
+
+    def _determine_optimal_action(
+        self,
+        equity: float,
+        ev_call: float,
+        required_equity: float,
+        num_opponents: int,
+        phase: Optional[str],
+        pot_total: int,
+        cost_to_call: int,
+        player_stack: int,
+    ) -> str:
+        """
+        Determine the optimal action based on game theory considerations.
+
+        Args:
+            equity: Win probability (0-1)
+            ev_call: Expected value of calling
+            required_equity: Minimum equity needed to call profitably
+            num_opponents: Number of opponents in the hand
+            phase: Game phase (PRE_FLOP, FLOP, TURN, RIVER)
+            pot_total: Current pot size
+            cost_to_call: Amount needed to call
+            player_stack: Player's remaining chips
+
+        Returns:
+            Optimal action: "fold", "check", "call", or "raise"
+        """
+        # Check if this is a check/bet situation (no cost to call)
+        can_check = cost_to_call == 0
+
+        # Calculate value raise/bet threshold based on opponents
+        # With more opponents, need higher equity to raise for value
+        # Heads-up: ~55% equity is enough to value raise
+        # Multi-way: Need ~60-70% equity
+        base_raise_threshold = 0.55
+        opponent_adjustment = (num_opponents - 1) * 0.05  # +5% per extra opponent
+        raise_threshold = min(0.75, base_raise_threshold + opponent_adjustment)
+
+        # Stack-to-pot ratio affects decision
+        # Deep stacks = more implied odds, can call lighter
+        # Short stacks = less room to maneuver, raise or fold
+        spr = player_stack / pot_total if pot_total > 0 else 10
+
+        # Phase adjustments
+        is_preflop = phase == "PRE_FLOP" if phase else False
+
+        # If we can check (no cost to call)
+        if can_check:
+            # Should we bet for value or check?
+            if equity >= raise_threshold:
+                # Strong hand - bet for value
+                return "raise"
+            elif not is_preflop and equity > 0.50 and spr < 3:
+                # Post-flop, good equity, short SPR - bet to deny equity
+                return "raise"
+            else:
+                # Check - see free cards or pot control
+                return "check"
+
+        # There's a bet to call - evaluate fold/call/raise
+        if ev_call < 0:
+            return "fold"
+
+        # Determine optimal action when facing a bet
+        if equity >= raise_threshold:
+            # Strong hand - raise for value
+            return "raise"
+        elif equity >= required_equity:
+            # Enough equity to continue but not to raise
+            # Consider semi-bluff potential
+            if is_preflop and equity > 0.45 and spr > 5:
+                # Pre-flop with decent equity and deep stacks - can raise
+                return "raise"
+            elif not is_preflop and equity > 0.50 and spr < 3:
+                # Post-flop, good equity, short SPR - raise to deny equity
+                return "raise"
+            else:
+                return "call"
+        else:
+            # Below required equity - should fold
+            # But if we have very good implied odds (deep SPR), might call
+            if spr > 10 and equity > required_equity * 0.7:
+                return "call"  # Implied odds play
+            return "fold"
 
 
 # Singleton instance for reuse
