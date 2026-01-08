@@ -19,6 +19,7 @@ from poker.emotional_state import EmotionalState
 from poker.pressure_detector import PressureEventDetector
 from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
+from poker.memory.opponent_model import OpponentModelManager
 from poker.tournament_tracker import TournamentTracker
 from poker.character_images import get_avatar_url
 
@@ -38,6 +39,120 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 game_bp = Blueprint('game', __name__)
+
+
+def analyze_player_decision(
+    game_id: str,
+    player_name: str,
+    action: str,
+    amount: int,
+    state_machine,
+    game_state,
+    hand_number: int = None,
+    memory_manager=None
+) -> None:
+    """Analyze a player decision (human or AI) and save to database.
+
+    This tracks decision quality for ALL players, not just AI.
+    """
+    try:
+        from poker.decision_analyzer import get_analyzer
+
+        player = game_state.current_player
+        if player.name != player_name:
+            # Find the player who acted (may have moved to next player already)
+            player = next((p for p in game_state.players if p.name == player_name), None)
+            if not player:
+                return
+
+        # Get cards in format equity calculator understands
+        def card_to_string(c):
+            """Convert card (dict or Card object) to short string like '8h'."""
+            if isinstance(c, dict):
+                rank = c.get('rank', '')
+                suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
+                if rank == '10':
+                    rank = 'T'
+                return f"{rank}{suit}"
+            else:
+                s = str(c)
+                suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
+                for symbol, letter in suit_map.items():
+                    s = s.replace(symbol, letter)
+                s = s.replace('10', 'T')
+                return s
+
+        community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+        player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
+
+        # Count opponents still in hand
+        opponents_in_hand = [
+            p for p in game_state.players
+            if not p.is_folded and p.name != player_name
+        ]
+        num_opponents = len(opponents_in_hand)
+
+        # Get positions for range-based equity calculation
+        table_positions = game_state.table_positions
+        position_by_name = {name: pos for pos, name in table_positions.items()}
+        player_position = position_by_name.get(player_name)
+        opponent_positions = [
+            position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+            for p in opponents_in_hand
+        ]
+
+        # Build OpponentInfo objects with observed stats and personality data
+        from poker.hand_ranges import build_opponent_info
+        opponent_infos = []
+        opponent_model_manager = memory_manager.get_opponent_model_manager() if memory_manager else None
+
+        for opp in opponents_in_hand:
+            opp_position = position_by_name.get(opp.name, "button")
+
+            # Get observed stats from opponent model manager
+            opp_model_data = None
+            if opponent_model_manager:
+                opp_model = opponent_model_manager.get_model(player_name, opp.name)
+                if opp_model and opp_model.tendencies:
+                    opp_model_data = opp_model.tendencies.to_dict()
+
+            opponent_infos.append(build_opponent_info(
+                name=opp.name,
+                position=opp_position,
+                opponent_model=opp_model_data,
+            ))
+
+        # Calculate effective cost to call (capped at player's stack)
+        raw_cost_to_call = max(0, game_state.highest_bet - player.bet)
+        cost_to_call = min(raw_cost_to_call, player.stack)
+
+        analyzer = get_analyzer()
+        analysis = analyzer.analyze(
+            game_id=game_id,
+            player_name=player_name,
+            hand_number=hand_number,
+            phase=state_machine.current_phase.name if state_machine.current_phase else None,
+            player_hand=player_hand,
+            community_cards=community_cards,
+            pot_total=game_state.pot.get('total', 0),
+            cost_to_call=cost_to_call,
+            player_stack=player.stack,
+            num_opponents=num_opponents,
+            action_taken=action,
+            raise_amount=amount if action == 'raise' else None,
+            player_position=player_position,
+            opponent_positions=opponent_positions,
+            opponent_infos=opponent_infos,
+        )
+
+        persistence.save_decision_analysis(analysis)
+        equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
+        logger.debug(
+            f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
+            f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
+        )
+    except Exception as e:
+        logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
 
 
 def generate_game_id() -> str:
@@ -152,13 +267,36 @@ def api_game_state(game_id):
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
 
-                memory_manager = AIMemoryManager(game_id, persistence.db_path)
+                memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
+                memory_manager.set_persistence(persistence)  # Enable hand history saving
+
+                # Restore hand count from database
+                restored_hand_count = persistence.get_hand_count(game_id)
+                if restored_hand_count > 0:
+                    memory_manager.hand_count = restored_hand_count
+                    logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
+
+                # Restore opponent models from database
+                saved_opponent_models = persistence.load_opponent_models(game_id)
+                if saved_opponent_models:
+                    memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
+                    logger.info(f"[LOAD] Restored opponent models for game {game_id}")
+
                 for player in state_machine.game_state.players:
                     if not player.is_human and player.name in ai_controllers:
                         memory_manager.initialize_for_player(player.name)
                         controller = ai_controllers[player.name]
                         controller.session_memory = memory_manager.get_session_memory(player.name)
                         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+
+                # Restore debug capture state from database
+                debug_capture_enabled = persistence.get_debug_capture_enabled(game_id)
+                if debug_capture_enabled:
+                    for controller in ai_controllers.values():
+                        if hasattr(controller, 'debug_capture'):
+                            controller.debug_capture = True
+                            controller._persistence = persistence
+                    logger.info(f"[LOAD] Restored debug capture mode (enabled) for game {game_id}")
 
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
@@ -317,7 +455,8 @@ def api_new_game():
                 state_machine,
                 llm_config=llm_config,
                 game_id=game_id,
-                owner_id=owner_id
+                owner_id=owner_id,
+                persistence=persistence
             )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(
@@ -329,7 +468,8 @@ def api_new_game():
     pressure_detector = PressureEventDetector(elasticity_manager)
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-    memory_manager = AIMemoryManager(game_id, persistence.db_path)
+    memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
+    memory_manager.set_persistence(persistence)  # Enable hand history saving
     for player in state_machine.game_state.players:
         if not player.is_human:
             memory_manager.initialize_for_player(player.name)
@@ -370,6 +510,7 @@ def api_new_game():
     game_state_service.set_game(game_id, game_data)
 
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
 
     return jsonify({'game_id': game_id})
@@ -394,7 +535,13 @@ def api_player_action(game_id):
         return jsonify({'error': 'Not human player turn'}), 400
 
     highest_bet = state_machine.game_state.highest_bet
+    pre_action_state = state_machine.game_state  # Save state before action for analysis
     game_state = play_turn(state_machine.game_state, action, amount)
+
+    # Analyze decision quality (works for both human and AI)
+    memory_manager = current_game_data.get('memory_manager')
+    hand_number = memory_manager.hand_count if memory_manager else None
+    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
@@ -409,6 +556,8 @@ def api_player_action(game_id):
 
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    if 'memory_manager' in current_game_data:
+        persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
     progress_game(game_id)
 
@@ -570,7 +719,13 @@ def register_socket_events(sio):
         state_machine = current_game_data['state_machine']
         current_player = state_machine.game_state.current_player
         highest_bet = state_machine.game_state.highest_bet
+        pre_action_state = state_machine.game_state  # Save state before action for analysis
         game_state = play_turn(state_machine.game_state, action, amount)
+
+        # Analyze decision quality (works for both human and AI)
+        memory_manager = current_game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
@@ -585,6 +740,8 @@ def register_socket_events(sio):
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        if 'memory_manager' in current_game_data:
+            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
         update_and_emit_game_state(game_id)
         progress_game(game_id)

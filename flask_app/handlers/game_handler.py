@@ -59,7 +59,8 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                 player.name,
                 state_machine,
                 game_id=game_id,
-                owner_id=owner_id
+                owner_id=owner_id,
+                persistence=persistence_layer
             )
 
             if player.name in ai_states:

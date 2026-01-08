@@ -35,48 +35,84 @@ class ConsolePlayerController:
         return human_player_action(ui_data, player_options)
 
 
-def summarize_messages(messages: List[Dict[str, str]], name: str) -> List[str]:
-    # Find the index of the last message from the Player with 'name'
+def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
+    """
+    Summarize messages since the player's last message, with clear separation
+    between previous hand and current hand actions.
+    """
+    # Find the player's last message
     last_message_index = -1
-    for i in range(len(messages) - 1, -1, -1):  # Iterate backwards
-        if messages[i]['sender'] == name:
-            last_message_index = i
-            break
 
-    # Convert messages to strings, including action if present
-    converted_messages = []
-    for msg in messages:
+    for i, msg in enumerate(messages):
+        if msg['sender'] == name:
+            last_message_index = i
+
+    # Convert a single message to string
+    def format_message(msg):
         sender = msg['sender']
         content = msg.get('content', msg.get('message', ''))
         action = msg.get('action', '')
 
-        if action and content:
-            # Action + chat: "Trump raises $100: You're gonna lose!"
-            converted_messages.append(f"{sender} {action}: {content}")
-        elif action:
-            # Action only
-            converted_messages.append(f"{sender} {action}")
-        else:
-            # Chat/system message only
-            converted_messages.append(f"{sender}: {content}")
+        # Skip the raw "NEW HAND DEALT" system message - we'll add our own separator
+        if 'NEW HAND DEALT' in content:
+            return None
 
-    # Return the messages since the player's last message
-    if last_message_index >= 0:
-        return converted_messages[last_message_index:]
+        if action and content:
+            return f"  {sender} {action}: \"{content}\""
+        elif action:
+            return f"  {sender} {action}"
+        else:
+            # Chat or system message
+            return f"  {content}" if sender == 'Table' else f"  {sender}: \"{content}\""
+
+    # Determine which messages to include (since player's last message)
+    start_idx = last_message_index if last_message_index >= 0 else 0
+    relevant_messages = messages[start_idx:]
+
+    # Split into previous hand and current hand
+    previous_hand = []
+    current_hand = []
+
+    for msg in relevant_messages:
+        content = msg.get('content', msg.get('message', ''))
+        if 'NEW HAND DEALT' in content:
+            # Everything after this is current hand
+            previous_hand = current_hand
+            current_hand = []
+        else:
+            formatted = format_message(msg)
+            if formatted:
+                current_hand.append(formatted)
+
+    # Build output
+    parts = []
+
+    if previous_hand:
+        parts.append("Previous hand:")
+        parts.extend(previous_hand)
+        parts.append("")
+
+    parts.append("This hand:")
+    if current_hand:
+        parts.extend(current_hand)
     else:
-        return converted_messages
+        parts.append("  (No actions yet)")
+
+    return "\n".join(parts)
 
 
 
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, llm_config=None,
                  session_memory=None, opponent_model_manager=None,
-                 game_id=None, owner_id=None):
+                 game_id=None, owner_id=None, debug_capture=False, persistence=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
         self.game_id = game_id
         self.owner_id = owner_id
+        self.debug_capture = debug_capture
+        self._persistence = persistence
         self.ai_player = AIPokerPlayer(
             player_name,
             llm_config=self.llm_config,
@@ -165,9 +201,11 @@ class AIPlayerController:
         print(message)
 
         # Context for fallback
-        cost_to_call = game_state.highest_bet - game_state.current_player.bet
         player_stack = game_state.current_player.stack
-        
+        raw_cost_to_call = game_state.highest_bet - game_state.current_player.bet
+        # Effective cost is capped at player's stack (they can only risk what they have)
+        cost_to_call = min(raw_cost_to_call, player_stack)
+
         # Use resilient AI call
         response_dict = self._get_ai_decision(
             message=message,
@@ -201,13 +239,17 @@ class AIPlayerController:
         )
         
         # Use JSON mode for more reliable structured responses
-        response_json = self.assistant.chat(
+        llm_response = self.assistant.chat_full(
             decision_prompt,
             json_format=True,
             hand_number=self.current_hand_number,
             prompt_template='decision'
         )
+        response_json = llm_response.content
         response_dict = parse_json_response(response_json)
+
+        # Store LLM response for capture (latency, tokens, etc.)
+        self._last_llm_response = llm_response
         
         # Validate response has required keys (only action is truly required)
         required_keys = ('action',)
@@ -263,9 +305,223 @@ class AIPlayerController:
             # Preserve adding_to_pot if it was set, otherwise use validated value
             if response_dict.get('adding_to_pot', 0) == 0:
                 response_dict['adding_to_pot'] = validated.get('adding_to_pot', 0)
-        
+
+        # Analyze decision quality (always, for monitoring)
+        self._analyze_decision(response_dict, context)
+
+        # Capture prompt data for debugging if enabled
+        if self.debug_capture and self._persistence:
+            self._capture_prompt_data(
+                decision_prompt=decision_prompt,
+                response_json=response_json,
+                response_dict=response_dict,
+                context=context
+            )
+
         return response_dict
-    
+
+    def _capture_prompt_data(self, decision_prompt: str, response_json: str,
+                             response_dict: Dict, context: Dict) -> None:
+        """Capture prompt and response data for debugging AI decisions."""
+        try:
+            game_state = self.state_machine.game_state
+            player = game_state.current_player
+
+            # Calculate pot odds
+            cost_to_call = context.get('call_amount', 0)
+            pot_total = game_state.pot.get('total', 0)
+            pot_odds = pot_total / cost_to_call if cost_to_call > 0 else None
+
+            # Get community cards and player hand as strings
+            community_cards = [str(c) for c in game_state.community_cards] if game_state.community_cards else []
+            player_hand = [str(c) for c in player.hand] if player.hand else []
+
+            # Get conversation history (prior messages that influence the AI's decision)
+            # Exclude the last user/assistant pair since they're stored separately as user_message and ai_response
+            conversation_history = []
+            if hasattr(self.assistant, 'memory'):
+                full_history = self.assistant.memory.get_history()
+                # Remove last assistant message (ai_response) if present
+                if full_history and full_history[-1].get('role') == 'assistant':
+                    full_history = full_history[:-1]
+                # Remove last user message (user_message/decision_prompt) if present
+                if full_history and full_history[-1].get('role') == 'user':
+                    full_history = full_history[:-1]
+                conversation_history = full_history
+
+            # Serialize raw API response if available (contains reasoning tokens, etc.)
+            raw_api_response = None
+            llm_response = getattr(self, '_last_llm_response', None)
+            if llm_response and llm_response.raw_response:
+                try:
+                    # OpenAI response objects have model_dump_json() method
+                    if hasattr(llm_response.raw_response, 'model_dump_json'):
+                        raw_api_response = llm_response.raw_response.model_dump_json()
+                    elif hasattr(llm_response.raw_response, 'to_dict'):
+                        raw_api_response = json.dumps(llm_response.raw_response.to_dict())
+                except Exception as e:
+                    logger.debug(f"Could not serialize raw_response: {e}")
+
+            # Build raw_request - the full messages array sent to the LLM
+            raw_request = None
+            try:
+                messages = self.assistant.memory.get_messages() if hasattr(self.assistant, 'memory') else []
+                raw_request = json.dumps(messages)
+            except Exception as e:
+                logger.debug(f"Could not serialize raw_request: {e}")
+
+            # Get reasoning_effort if available
+            reasoning_effort = None
+            if hasattr(self.assistant, '_client') and hasattr(self.assistant._client, '_provider'):
+                provider = self.assistant._client._provider
+                if hasattr(provider, 'reasoning_effort'):
+                    reasoning_effort = provider.reasoning_effort
+
+            # Get prompt version info
+            version_info = self.prompt_manager.get_version_info('decision')
+
+            capture_data = {
+                'game_id': self.game_id,
+                'player_name': self.player_name,
+                'hand_number': self.current_hand_number,
+                'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
+                'system_prompt': self.assistant.system_message,
+                'user_message': decision_prompt,
+                'ai_response': response_json,
+                'conversation_history': conversation_history,
+                'raw_request': raw_request,
+                'raw_api_response': raw_api_response,
+                'pot_total': pot_total,
+                'cost_to_call': cost_to_call,
+                'pot_odds': pot_odds,
+                'player_stack': player.stack,
+                'community_cards': community_cards,
+                'player_hand': player_hand,
+                'valid_actions': context.get('valid_actions', []),
+                'action_taken': response_dict.get('action'),
+                'raise_amount': response_dict.get('adding_to_pot') if response_dict.get('action') == 'raise' else None,
+                'model': llm_response.model if llm_response else None,
+                'reasoning_effort': reasoning_effort,
+                'latency_ms': int(llm_response.latency_ms) if llm_response else None,
+                'input_tokens': llm_response.input_tokens if llm_response else None,
+                'output_tokens': llm_response.output_tokens if llm_response else None,
+                'original_request_id': llm_response.request_id if llm_response else None,
+                'prompt_template': version_info['template_name'],
+                'prompt_version': version_info['version'],
+                'prompt_hash': version_info['hash'],
+            }
+
+            capture_id = self._persistence.save_prompt_capture(capture_data)
+            logger.debug(f"[PROMPT_CAPTURE] Saved capture {capture_id} for {self.player_name}")
+        except Exception as e:
+            logger.warning(f"[PROMPT_CAPTURE] Failed to capture prompt data: {e}")
+
+    def _analyze_decision(self, response_dict: Dict, context: Dict) -> None:
+        """Analyze decision quality and save to database.
+
+        This runs for EVERY AI decision to track quality metrics.
+        """
+        if not self._persistence:
+            return
+
+        try:
+            from poker.decision_analyzer import get_analyzer
+
+            game_state = self.state_machine.game_state
+            player = game_state.current_player
+
+            # Get cards in format equity calculator understands
+            def card_to_string(c):
+                """Convert card (dict or Card object) to short string like '8h'."""
+                if isinstance(c, dict):
+                    rank = c.get('rank', '')
+                    suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
+                    # Handle 10 -> T
+                    if rank == '10':
+                        rank = 'T'
+                    return f"{rank}{suit}"
+                else:
+                    # Card object - use str() which gives "8♥" format
+                    s = str(c)
+                    # Convert Unicode suits to letters
+                    suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
+                    for symbol, letter in suit_map.items():
+                        s = s.replace(symbol, letter)
+                    # Handle 10 -> T
+                    s = s.replace('10', 'T')
+                    return s
+
+            community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+            player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
+
+            # Count opponents still in hand
+            opponents_in_hand = [
+                p for p in game_state.players
+                if not p.is_folded and p.name != player.name
+            ]
+            num_opponents = len(opponents_in_hand)
+
+            # Get positions for range-based equity calculation
+            table_positions = game_state.table_positions
+            position_by_name = {name: pos for pos, name in table_positions.items()}
+            player_position = position_by_name.get(self.player_name)
+            opponent_positions = [
+                position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+                for p in opponents_in_hand
+            ]
+
+            # Build OpponentInfo objects with observed stats and personality data
+            from .hand_ranges import build_opponent_info
+            opponent_infos = []
+            for opp in opponents_in_hand:
+                opp_position = position_by_name.get(opp.name, "button")
+
+                # Get observed stats from opponent model manager
+                opp_model_data = None
+                if self.opponent_model_manager:
+                    opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                    if opp_model and opp_model.tendencies:
+                        opp_model_data = opp_model.tendencies.to_dict()
+
+                opponent_infos.append(build_opponent_info(
+                    name=opp.name,
+                    position=opp_position,
+                    opponent_model=opp_model_data,
+                ))
+
+            # Get request_id from last LLM response
+            llm_response = getattr(self, '_last_llm_response', None)
+            request_id = llm_response.request_id if llm_response else None
+
+            analyzer = get_analyzer()
+            analysis = analyzer.analyze(
+                game_id=self.game_id,
+                player_name=self.player_name,
+                hand_number=self.current_hand_number,
+                phase=self.state_machine.current_phase.name if self.state_machine.current_phase else None,
+                player_hand=player_hand,
+                community_cards=community_cards,
+                pot_total=game_state.pot.get('total', 0),
+                cost_to_call=context.get('call_amount', 0),
+                player_stack=player.stack,
+                num_opponents=num_opponents,
+                action_taken=response_dict.get('action'),
+                raise_amount=response_dict.get('adding_to_pot'),
+                request_id=request_id,
+                player_position=player_position,
+                opponent_positions=opponent_positions,
+                opponent_infos=opponent_infos,
+            )
+
+            self._persistence.save_decision_analysis(analysis)
+            equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
+            logger.debug(
+                f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
+                f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f})"
+            )
+        except Exception as e:
+            logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
+
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
         context = {}
@@ -444,7 +700,9 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     hole_cards = [str(_ensure_card(c)) for c in player.hand]
     current_pot = game_state.pot['total']
     current_bet = game_state.current_player.bet
-    cost_to_call = game_state.highest_bet - game_state.current_player.bet
+    raw_cost_to_call = game_state.highest_bet - game_state.current_player.bet
+    # Effective cost is capped at player's stack (they can only risk what they have)
+    cost_to_call = min(raw_cost_to_call, player_money)
     player_options = game_state.current_player_options
 
     # create a list of the action comments and then send them to the table manager to summarize
@@ -469,18 +727,38 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
         f"Community Cards: {community_cards}\n"
         f"Table Positions: {table_positions}\n"
         f"Opponent Status:\n{opponent_status}\n"
-        f"Actions since your last turn: {action_summary}\n"
+        f"Recent Actions:\n{action_summary}\n"
     )
+
+    # Blind levels
+    big_blind = game_state.current_ante
+    small_blind = big_blind // 2
+    blinds_remaining = player_money / big_blind if big_blind > 0 else float('inf')
 
     pot_state = (
         f"Pot Total: ${current_pot}\n"
         f"How much you've bet: ${current_bet}\n"
         f"Your cost to call: ${cost_to_call}\n"
+        f"Blinds: ${small_blind}/${big_blind}\n"
+        f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
     )
 
-    hand_update_message = persona_state + hand_state + pot_state + (
-        f"Consider your table position and the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
-        f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
+    # Calculate pot odds for clearer decision making
+    if cost_to_call > 0:
+        pot_odds = current_pot / cost_to_call
+        equity_needed = 100 / (pot_odds + 1)
+        pot_odds_guidance = (
+            f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
+            f"You only need {equity_needed:.0f}% equity to break even on a call. "
+        )
+        if pot_odds >= 10:
+            pot_odds_guidance += f"With {pot_odds:.0f}:1 odds, you should rarely fold - you only need to win 1 in {pot_odds+1:.0f} times."
+        elif pot_odds >= 4:
+            pot_odds_guidance += "These are favorable odds for calling with reasonable hands."
+    else:
+        pot_odds_guidance = "You can check for free - no cost to see more cards."
+
+    hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
         f"You cannot bet more than you have, ${player_money}.\n"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"

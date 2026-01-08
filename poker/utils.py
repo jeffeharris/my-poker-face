@@ -127,8 +127,10 @@ def prepare_ui_data(game_state) -> Tuple[Dict, List]:
         - A list of player options available for the current player.
     """
     player_options = game_state.current_player_options
-    cost_to_call_bet = game_state.highest_bet - game_state.current_player.bet
     current_player = game_state.current_player
+    raw_cost_to_call = game_state.highest_bet - current_player.bet
+    # Effective cost is capped at player's stack (they can only risk what they have)
+    effective_cost_to_call = min(raw_cost_to_call, current_player.stack)
     opponents = [p.name for p in game_state.players if p != current_player]
 
     ui_data = {
@@ -136,7 +138,7 @@ def prepare_ui_data(game_state) -> Tuple[Dict, List]:
         'player_hand': current_player.hand,
         'pot_total': game_state.pot['total'],
         'player_stack': current_player.stack,
-        'cost_to_call': cost_to_call_bet,
+        'cost_to_call': effective_cost_to_call,
         'player_name': current_player.name,
         'opponents': opponents,
     }

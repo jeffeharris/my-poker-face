@@ -25,20 +25,22 @@ logger = logging.getLogger(__name__)
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
 
-    def __init__(self, game_id: str, db_path: Optional[str] = None):
+    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None):
         """Initialize the memory manager.
 
         Args:
             game_id: Unique identifier for the game
             db_path: Path to database for persistence (optional)
+            owner_id: Owner/user ID for tracking (optional)
         """
         self.game_id = game_id
         self.db_path = db_path
+        self.owner_id = owner_id
 
         # Core systems
         self.hand_recorder = HandHistoryRecorder(game_id)
         self.opponent_model_manager = OpponentModelManager()
-        self.commentary_generator = CommentaryGenerator()
+        self.commentary_generator = CommentaryGenerator(game_id=game_id, owner_id=owner_id)
 
         # Per-player session memories
         self.session_memories: Dict[str, SessionMemory] = {}
@@ -47,9 +49,25 @@ class AIMemoryManager:
         self.hand_count = 0
         self.initialized_players: set = set()
 
+        # C-bet tracking (reset each hand)
+        self._preflop_raiser: Optional[str] = None  # Who raised preflop
+        self._cbet_made: bool = False  # Has a c-bet been made this hand
+        self._players_facing_cbet: set = set()  # Players who need to respond to c-bet
+
         # Thread safety for parallel commentary generation
         self._lock = threading.Lock()
         self._last_recorded_hand: Optional[RecordedHand] = None
+
+        # Persistence layer (set externally to avoid circular imports)
+        self._persistence = None
+
+    def set_persistence(self, persistence) -> None:
+        """Set the persistence layer for saving hand history.
+
+        Args:
+            persistence: GamePersistence instance
+        """
+        self._persistence = persistence
 
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
@@ -60,8 +78,11 @@ class AIMemoryManager:
         if player_name in self.initialized_players:
             return
 
-        # Create session memory
-        self.session_memories[player_name] = SessionMemory(player_name)
+        # Create session memory with DB backing if persistence is available
+        session_memory = SessionMemory(player_name)
+        if self._persistence:
+            session_memory.set_persistence(self._persistence, self.game_id)
+        self.session_memories[player_name] = session_memory
 
         self.initialized_players.add(player_name)
         logger.info(f"Initialized memory systems for {player_name}")
@@ -75,10 +96,16 @@ class AIMemoryManager:
         """
         self.hand_count = hand_number
         self.hand_recorder.start_hand(game_state, hand_number)
+
+        # Reset c-bet tracking for new hand
+        self._preflop_raiser = None
+        self._cbet_made = False
+        self._players_facing_cbet = set()
+
         logger.debug(f"Started recording hand #{hand_number}")
 
     def on_action(self, player_name: str, action: str, amount: int,
-                  phase: str, pot_total: int) -> None:
+                  phase: str, pot_total: int, active_players: List[str] = None) -> None:
         """Record an action and update opponent models.
 
         Args:
@@ -87,9 +114,37 @@ class AIMemoryManager:
             amount: Amount added to pot
             phase: Current game phase ('PRE_FLOP', 'FLOP', 'TURN', 'RIVER')
             pot_total: Total pot after the action
+            active_players: List of players still in the hand (for c-bet tracking)
         """
         # Record to hand history
         self.hand_recorder.record_action(player_name, action, amount, phase, pot_total)
+
+        # Track preflop raiser for c-bet detection
+        if phase == 'PRE_FLOP' and action == 'raise':
+            self._preflop_raiser = player_name
+
+        # Detect c-bet: preflop raiser bets on flop
+        if (phase == 'FLOP' and
+            action in ('bet', 'raise') and
+            player_name == self._preflop_raiser and
+            not self._cbet_made):
+            self._cbet_made = True
+            # All other active players are facing the c-bet
+            if active_players:
+                self._players_facing_cbet = {p for p in active_players if p != player_name}
+            logger.debug(f"C-bet detected from {player_name}, facing: {self._players_facing_cbet}")
+
+        # Track response to c-bet
+        if self._cbet_made and player_name in self._players_facing_cbet:
+            folded = (action == 'fold')
+            # Update fold_to_cbet for all AI observers
+            for observer in self.initialized_players:
+                if observer != player_name:
+                    model = self.opponent_model_manager.get_model(observer, player_name)
+                    model.tendencies.update_fold_to_cbet(folded)
+            # Remove from facing set (they've responded)
+            self._players_facing_cbet.discard(player_name)
+            logger.debug(f"{player_name} {'folded to' if folded else 'called/raised'} c-bet")
 
         # Update opponent models for all AI observers
         for observer in self.initialized_players:
@@ -135,17 +190,32 @@ class AIMemoryManager:
             # Store for async commentary generation (thread-safe)
             with self._lock:
                 self._last_recorded_hand = recorded_hand
+
+            # Persist hand to database
+            if self._persistence:
+                try:
+                    self._persistence.save_hand_history(recorded_hand)
+                except Exception as e:
+                    logger.warning(f"Failed to persist hand history: {e}")
         except Exception as e:
             logger.error(f"Failed to complete hand recording: {e}")
             return {}
 
         # Update opponent models with showdown info
         if recorded_hand.was_showdown:
-            for winner in recorded_hand.winners:
+            # Track all players at showdown (winners and losers)
+            for player in recorded_hand.players:
+                outcome = recorded_hand.get_player_outcome(player.name)
+
+                # Skip players who folded - they weren't at showdown
+                if outcome == 'folded':
+                    continue
+
+                # Update opponent models for all observers
                 for observer in self.initialized_players:
-                    if observer != winner.name:
-                        model = self.opponent_model_manager.get_model(observer, winner.name)
-                        model.observe_showdown(won=True)
+                    if observer != player.name:
+                        model = self.opponent_model_manager.get_model(observer, player.name)
+                        model.observe_showdown(won=(outcome == 'won'))
 
         # Update session memories
         for player_name, session_memory in self.session_memories.items():

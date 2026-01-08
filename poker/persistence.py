@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 26
 
 
 @dataclass
@@ -326,6 +326,15 @@ class GamePersistence:
             15: (self._migrate_v15_add_pricing_validity_dates, "Add valid_from and valid_until to model_pricing"),
             16: (self._migrate_v16_add_pricing_id_to_usage, "Add pricing_id foreign key to api_usage"),
             17: (self._migrate_v17_consolidate_pricing_ids, "Replace 4 pricing_id columns with single JSON column"),
+            18: (self._migrate_v18_add_prompt_captures, "Add prompt_captures table for debugging AI decisions"),
+            19: (self._migrate_v19_add_conversation_history, "Add conversation_history column to prompt_captures"),
+            20: (self._migrate_v20_add_decision_analysis, "Add player_decision_analysis table for quality monitoring"),
+            21: (self._migrate_v21_add_game_id_to_opponent_models, "Add game_id to opponent_models for game-specific tracking"),
+            22: (self._migrate_v22_add_position_equity, "Add position-based equity fields to decision analysis"),
+            23: (self._migrate_v23_add_player_position, "Add player_position to decision analysis"),
+            24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
+            25: (self._migrate_v25_add_opponent_notes, "Add notes column to opponent_models for player observations"),
+            26: (self._migrate_v26_add_debug_capture, "Add debug_capture_enabled column to games table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1006,6 +1015,264 @@ class GamePersistence:
         else:
             logger.info("pricing_ids column already exists, no migration needed")
 
+    def _migrate_v18_add_prompt_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v18: Add prompt_captures table for debugging AI decisions.
+
+        This table stores full prompts and responses for AI player decisions,
+        enabling analysis and replay of AI behavior.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_captures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                hand_number INTEGER,
+                phase TEXT NOT NULL,
+                action_taken TEXT,
+                system_prompt TEXT NOT NULL,
+                user_message TEXT NOT NULL,
+                ai_response TEXT NOT NULL,
+                pot_total INTEGER,
+                cost_to_call INTEGER,
+                pot_odds REAL,
+                player_stack INTEGER,
+                community_cards TEXT,
+                player_hand TEXT,
+                valid_actions TEXT,
+                raise_amount INTEGER,
+                model TEXT,
+                latency_ms INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                tags TEXT,
+                notes TEXT,
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create indexes for efficient querying
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+
+        logger.info("Created prompt_captures table for AI decision debugging")
+
+    def _migrate_v19_add_conversation_history(self, conn: sqlite3.Connection) -> None:
+        """Migration v19: Add conversation_history column to prompt_captures.
+
+        This stores the full conversation history (prior messages) that were
+        sent to the LLM, which affects the AI's decision.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'conversation_history' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN conversation_history TEXT")
+            logger.info("Added conversation_history column to prompt_captures")
+
+        # Also add raw_api_response column
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+        if 'raw_api_response' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN raw_api_response TEXT")
+            logger.info("Added raw_api_response column to prompt_captures")
+
+    def _migrate_v20_add_decision_analysis(self, conn: sqlite3.Connection) -> None:
+        """Migration v20: Add player_decision_analysis table for quality monitoring.
+
+        This table stores equity and decision quality metrics for EVERY AI decision,
+        enabling quality monitoring across all games without storing full prompts.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS player_decision_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                -- Link to other tables (nullable - not all may exist)
+                request_id TEXT,              -- Links to api_usage.request_id
+                capture_id INTEGER,           -- Links to prompt_captures.id (if captured)
+
+                -- Identity
+                game_id TEXT NOT NULL,
+                player_name TEXT NOT NULL,
+                hand_number INTEGER,
+                phase TEXT,
+
+                -- Game State (compact)
+                pot_total INTEGER,
+                cost_to_call INTEGER,
+                player_stack INTEGER,
+                num_opponents INTEGER,
+
+                -- Cards (for recalculation)
+                player_hand TEXT,             -- JSON: ["As", "Kd"]
+                community_cards TEXT,         -- JSON: ["Jh", "2d", "5s"]
+
+                -- Decision
+                action_taken TEXT,
+                raise_amount INTEGER,
+
+                -- Equity Analysis
+                equity REAL,                  -- Win probability (0.0-1.0)
+                required_equity REAL,         -- Minimum equity to call profitably
+                ev_call REAL,                 -- Expected value of calling
+
+                -- Decision Quality
+                optimal_action TEXT,          -- "fold", "call", "raise"
+                decision_quality TEXT,        -- "correct", "mistake", "marginal", "unknown"
+                ev_lost REAL,                 -- EV lost if suboptimal
+
+                -- Hand Strength
+                hand_rank INTEGER,            -- eval7 rank (lower = stronger)
+                relative_strength REAL,       -- Percentile (0-100)
+
+                -- Processing Metadata
+                analyzer_version TEXT,
+                processing_time_ms INTEGER,
+
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create indexes for efficient querying
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)")
+
+        logger.info("Created player_decision_analysis table for AI quality monitoring")
+
+    def _migrate_v21_add_game_id_to_opponent_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v21: Add game_id to opponent_models and memorable_hands.
+
+        This enables game-specific opponent tracking while preserving cross-game learning capability.
+        """
+        # Check if game_id column exists in opponent_models
+        cursor = conn.execute("PRAGMA table_info(opponent_models)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'game_id' not in columns:
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN game_id TEXT")
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opponent_models_game
+                ON opponent_models(game_id)
+            """)
+            # Update unique constraint by recreating table (SQLite limitation)
+            # For now, just add the column - uniqueness will be (game_id, observer, opponent)
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_opponent_models_unique
+                ON opponent_models(game_id, observer_name, opponent_name)
+            """)
+            logger.info("Added game_id column to opponent_models")
+
+        # Check if game_id column exists in memorable_hands
+        cursor = conn.execute("PRAGMA table_info(memorable_hands)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'game_id' not in columns:
+            conn.execute("ALTER TABLE memorable_hands ADD COLUMN game_id TEXT")
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memorable_hands_game
+                ON memorable_hands(game_id)
+            """)
+            logger.info("Added game_id column to memorable_hands")
+
+        logger.info("Migration v21 complete: opponent_models now supports game-specific tracking")
+
+    def _migrate_v22_add_position_equity(self, conn: sqlite3.Connection) -> None:
+        """Migration v22: Add position-based equity fields to player_decision_analysis.
+
+        Adds equity_vs_ranges for position-aware equity calculation alongside
+        the existing random-based equity.
+        """
+        # Check if columns exist
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'equity_vs_ranges' not in columns:
+            conn.execute("""
+                ALTER TABLE player_decision_analysis ADD COLUMN equity_vs_ranges REAL
+            """)
+            logger.info("Added equity_vs_ranges column to player_decision_analysis")
+
+        if 'opponent_positions' not in columns:
+            conn.execute("""
+                ALTER TABLE player_decision_analysis ADD COLUMN opponent_positions TEXT
+            """)
+            logger.info("Added opponent_positions column to player_decision_analysis")
+
+        logger.info("Migration v22 complete: position-based equity fields added")
+
+    def _migrate_v23_add_player_position(self, conn: sqlite3.Connection) -> None:
+        """Migration v23: Add player_position to track hero's table position."""
+        cursor = conn.execute("PRAGMA table_info(player_decision_analysis)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'player_position' not in columns:
+            conn.execute("""
+                ALTER TABLE player_decision_analysis ADD COLUMN player_position TEXT
+            """)
+            logger.info("Added player_position column to player_decision_analysis")
+
+        logger.info("Migration v23 complete: player_position added")
+
+    def _migrate_v24_add_prompt_versioning(self, conn: sqlite3.Connection) -> None:
+        """Migration v24: Add prompt version tracking to prompt_captures.
+
+        Tracks which version of a prompt template was used, plus a hash
+        for detecting unversioned changes.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'prompt_template' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_template TEXT")
+            logger.info("Added prompt_template column to prompt_captures")
+
+        if 'prompt_version' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_version TEXT")
+            logger.info("Added prompt_version column to prompt_captures")
+
+        if 'prompt_hash' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_hash TEXT")
+            logger.info("Added prompt_hash column to prompt_captures")
+
+        logger.info("Migration v24 complete: prompt versioning added")
+
+    def _migrate_v25_add_opponent_notes(self, conn: sqlite3.Connection) -> None:
+        """Migration v25: Add notes column to opponent_models for player observations.
+
+        Stores observations like "caught bluffing twice", "folds to 3-bets".
+        """
+        cursor = conn.execute("PRAGMA table_info(opponent_models)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'notes' not in columns:
+            conn.execute("ALTER TABLE opponent_models ADD COLUMN notes TEXT")
+            logger.info("Added notes column to opponent_models")
+
+        logger.info("Migration v25 complete: opponent notes added")
+
+    def _migrate_v26_add_debug_capture(self, conn: sqlite3.Connection) -> None:
+        """Migration v26: Add debug_capture_enabled column to games table.
+
+        Persists the debug capture toggle state so it survives game reloads.
+        Defaults to FALSE (off).
+        """
+        cursor = conn.execute("PRAGMA table_info(games)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'debug_capture_enabled' not in columns:
+            conn.execute("ALTER TABLE games ADD COLUMN debug_capture_enabled BOOLEAN DEFAULT 0")
+            logger.info("Added debug_capture_enabled column to games table")
+
+        logger.info("Migration v26 complete: debug_capture_enabled added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
@@ -1018,10 +1285,21 @@ class GamePersistence:
         game_json = json.dumps(state_dict)
         
         with sqlite3.connect(self.db_path) as conn:
+            # Use ON CONFLICT DO UPDATE to preserve columns not being updated
+            # (like debug_capture_enabled) instead of INSERT OR REPLACE which
+            # deletes and re-inserts, resetting unspecified columns to defaults
             conn.execute("""
-                INSERT OR REPLACE INTO games 
+                INSERT INTO games
                 (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name)
                 VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(game_id) DO UPDATE SET
+                    updated_at = CURRENT_TIMESTAMP,
+                    phase = excluded.phase,
+                    num_players = excluded.num_players,
+                    pot_size = excluded.pot_size,
+                    game_state_json = excluded.game_state_json,
+                    owner_id = excluded.owner_id,
+                    owner_name = excluded.owner_name
             """, (
                 game_id,
                 state_machine.current_phase.value,
@@ -1569,6 +1847,465 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
 
+    # Opponent Model Persistence Methods
+    def save_opponent_models(self, game_id: str, opponent_model_manager) -> None:
+        """Save opponent models for a game.
+
+        Args:
+            game_id: The game identifier
+            opponent_model_manager: OpponentModelManager instance or dict from to_dict()
+        """
+        # Convert to dict if it's an OpponentModelManager object
+        if hasattr(opponent_model_manager, 'to_dict'):
+            models_dict = opponent_model_manager.to_dict()
+        else:
+            models_dict = opponent_model_manager
+
+        if not models_dict:
+            return
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Clear existing models for this game
+            conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
+
+            # Save each observer -> opponent -> model
+            for observer_name, opponents in models_dict.items():
+                for opponent_name, model_data in opponents.items():
+                    tendencies = model_data.get('tendencies', {})
+
+                    conn.execute("""
+                        INSERT INTO opponent_models
+                        (game_id, observer_name, opponent_name, hands_observed,
+                         vpip, pfr, aggression_factor, fold_to_cbet,
+                         bluff_frequency, showdown_win_rate, recent_trend, notes, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (
+                        game_id,
+                        observer_name,
+                        opponent_name,
+                        tendencies.get('hands_observed', 0),
+                        tendencies.get('vpip', 0.5),
+                        tendencies.get('pfr', 0.5),
+                        tendencies.get('aggression_factor', 1.0),
+                        tendencies.get('fold_to_cbet', 0.5),
+                        tendencies.get('bluff_frequency', 0.3),
+                        tendencies.get('showdown_win_rate', 0.5),
+                        tendencies.get('recent_trend', 'stable'),
+                        model_data.get('notes')
+                    ))
+
+                    # Save memorable hands
+                    memorable_hands = model_data.get('memorable_hands', [])
+                    for hand in memorable_hands:
+                        conn.execute("""
+                            INSERT INTO memorable_hands
+                            (game_id, observer_name, opponent_name, hand_id,
+                             memory_type, impact_score, narrative, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            game_id,
+                            observer_name,
+                            opponent_name,
+                            hand.get('hand_id', 0),
+                            hand.get('memory_type', ''),
+                            hand.get('impact_score', 0.0),
+                            hand.get('narrative', ''),
+                            hand.get('timestamp', datetime.now().isoformat())
+                        ))
+
+            logger.debug(f"Saved opponent models for game {game_id}")
+
+    def load_opponent_models(self, game_id: str) -> Dict[str, Any]:
+        """Load opponent models for a game.
+
+        Returns:
+            Dict suitable for OpponentModelManager.from_dict(), or empty dict if not found
+        """
+        models_dict = {}
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Load all opponent models for this game
+            cursor = conn.execute("""
+                SELECT * FROM opponent_models WHERE game_id = ?
+            """, (game_id,))
+
+            for row in cursor.fetchall():
+                observer_name = row['observer_name']
+                opponent_name = row['opponent_name']
+
+                if observer_name not in models_dict:
+                    models_dict[observer_name] = {}
+
+                # Build tendencies dict matching OpponentTendencies.to_dict() format
+                tendencies = {
+                    'hands_observed': row['hands_observed'],
+                    'vpip': row['vpip'],
+                    'pfr': row['pfr'],
+                    'aggression_factor': row['aggression_factor'],
+                    'fold_to_cbet': row['fold_to_cbet'],
+                    'bluff_frequency': row['bluff_frequency'],
+                    'showdown_win_rate': row['showdown_win_rate'],
+                    'recent_trend': row['recent_trend'] or 'stable',
+                    # Counters - we can't restore these perfectly, but we can estimate
+                    '_vpip_count': int(row['vpip'] * row['hands_observed']),
+                    '_pfr_count': int(row['pfr'] * row['hands_observed']),
+                    '_bet_raise_count': 0,  # Can't restore
+                    '_call_count': 0,  # Can't restore
+                    '_fold_to_cbet_count': 0,  # Can't restore
+                    '_cbet_faced_count': 0,  # Can't restore
+                    '_showdowns': 0,  # Can't restore
+                    '_showdowns_won': 0,  # Can't restore
+                }
+
+                models_dict[observer_name][opponent_name] = {
+                    'observer': observer_name,
+                    'opponent': opponent_name,
+                    'tendencies': tendencies,
+                    'memorable_hands': [],
+                    'notes': row['notes'] if 'notes' in row.keys() else None
+                }
+
+            # Load memorable hands
+            cursor = conn.execute("""
+                SELECT * FROM memorable_hands WHERE game_id = ?
+            """, (game_id,))
+
+            for row in cursor.fetchall():
+                observer_name = row['observer_name']
+                opponent_name = row['opponent_name']
+
+                if observer_name in models_dict and opponent_name in models_dict[observer_name]:
+                    models_dict[observer_name][opponent_name]['memorable_hands'].append({
+                        'hand_id': row['hand_id'],
+                        'memory_type': row['memory_type'],
+                        'opponent_name': opponent_name,
+                        'impact_score': row['impact_score'],
+                        'narrative': row['narrative'] or '',
+                        'hand_summary': '',  # Not stored in DB
+                        'timestamp': row['created_at'] or datetime.now().isoformat()
+                    })
+
+        if models_dict:
+            logger.debug(f"Loaded opponent models for game {game_id}: {len(models_dict)} observers")
+
+        return models_dict
+
+    def delete_opponent_models_for_game(self, game_id: str) -> None:
+        """Delete all opponent models for a game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
+
+    # Hand History Persistence Methods
+    def save_hand_history(self, recorded_hand) -> int:
+        """Save a completed hand to the database.
+
+        Args:
+            recorded_hand: RecordedHand instance from hand_history.py
+
+        Returns:
+            The database ID of the saved hand
+        """
+        # Convert to dict if it's a RecordedHand object
+        if hasattr(recorded_hand, 'to_dict'):
+            hand_dict = recorded_hand.to_dict()
+        else:
+            hand_dict = recorded_hand
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT OR REPLACE INTO hand_history
+                (game_id, hand_number, timestamp, players_json, hole_cards_json,
+                 community_cards_json, actions_json, winners_json, pot_size, showdown)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                hand_dict['game_id'],
+                hand_dict['hand_number'],
+                hand_dict.get('timestamp', datetime.now().isoformat()),
+                json.dumps(hand_dict.get('players', [])),
+                json.dumps(hand_dict.get('hole_cards', {})),
+                json.dumps(hand_dict.get('community_cards', [])),
+                json.dumps(hand_dict.get('actions', [])),
+                json.dumps(hand_dict.get('winners', [])),
+                hand_dict.get('pot_size', 0),
+                hand_dict.get('was_showdown', False)
+            ))
+
+            hand_id = cursor.lastrowid
+            logger.debug(f"Saved hand #{hand_dict['hand_number']} for game {hand_dict['game_id']}")
+            return hand_id
+
+    def get_hand_count(self, game_id: str) -> int:
+        """Get the current hand count for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            The maximum hand_number for this game, or 0 if no hands recorded
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT MAX(hand_number) FROM hand_history WHERE game_id = ?",
+                (game_id,)
+            )
+            result = cursor.fetchone()[0]
+            return result or 0
+
+    def get_debug_capture_enabled(self, game_id: str) -> bool:
+        """Get the debug capture enabled state for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            True if debug capture is enabled, False otherwise (default)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT debug_capture_enabled FROM games WHERE game_id = ?",
+                (game_id,)
+            )
+            result = cursor.fetchone()
+            return bool(result[0]) if result and result[0] else False
+
+    def set_debug_capture_enabled(self, game_id: str, enabled: bool) -> bool:
+        """Set the debug capture enabled state for a game.
+
+        Args:
+            game_id: The game identifier
+            enabled: Whether debug capture should be enabled
+
+        Returns:
+            True if the update succeeded, False otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE games SET debug_capture_enabled = ? WHERE game_id = ?",
+                (1 if enabled else 0, game_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def load_hand_history(self, game_id: str, limit: int = None) -> List[Dict[str, Any]]:
+        """Load hand history for a game.
+
+        Args:
+            game_id: The game identifier
+            limit: Optional limit on number of hands to load (most recent first)
+
+        Returns:
+            List of hand dicts suitable for RecordedHand.from_dict()
+        """
+        hands = []
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            query = """
+                SELECT * FROM hand_history
+                WHERE game_id = ?
+                ORDER BY hand_number DESC
+            """
+            if limit:
+                query += f" LIMIT {limit}"
+
+            cursor = conn.execute(query, (game_id,))
+
+            for row in cursor.fetchall():
+                hand = {
+                    'id': row['id'],
+                    'game_id': row['game_id'],
+                    'hand_number': row['hand_number'],
+                    'timestamp': row['timestamp'],
+                    'players': json.loads(row['players_json'] or '[]'),
+                    'hole_cards': json.loads(row['hole_cards_json'] or '{}'),
+                    'community_cards': json.loads(row['community_cards_json'] or '[]'),
+                    'actions': json.loads(row['actions_json'] or '[]'),
+                    'winners': json.loads(row['winners_json'] or '[]'),
+                    'pot_size': row['pot_size'] or 0,
+                    'was_showdown': bool(row['showdown'])
+                }
+                hands.append(hand)
+
+        # Return in chronological order (oldest first)
+        hands.reverse()
+
+        if hands:
+            logger.debug(f"Loaded {len(hands)} hands for game {game_id}")
+
+        return hands
+
+    def delete_hand_history_for_game(self, game_id: str) -> None:
+        """Delete all hand history for a game."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM hand_history WHERE game_id = ?", (game_id,))
+
+    def get_session_stats(self, game_id: str, player_name: str) -> Dict[str, Any]:
+        """Compute session statistics for a player from hand history.
+
+        Args:
+            game_id: The game identifier
+            player_name: The player to get stats for
+
+        Returns:
+            Dict with session statistics:
+                - hands_played: Total hands where player participated
+                - hands_won: Hands where player won
+                - total_winnings: Net chip change (positive = up, negative = down)
+                - biggest_pot_won: Largest pot won
+                - biggest_pot_lost: Largest pot lost at showdown
+                - current_streak: 'winning', 'losing', or 'neutral'
+                - streak_count: Length of current streak
+                - recent_hands: List of last N hand summaries
+        """
+        stats = {
+            'hands_played': 0,
+            'hands_won': 0,
+            'total_winnings': 0,
+            'biggest_pot_won': 0,
+            'biggest_pot_lost': 0,
+            'current_streak': 'neutral',
+            'streak_count': 0,
+            'recent_hands': []
+        }
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get all hands for this game, ordered by hand_number
+            cursor = conn.execute("""
+                SELECT hand_number, players_json, winners_json, actions_json, pot_size, showdown
+                FROM hand_history
+                WHERE game_id = ?
+                ORDER BY hand_number ASC
+            """, (game_id,))
+
+            outcomes = []  # Track outcomes for streak calculation
+
+            for row in cursor.fetchall():
+                players = json.loads(row['players_json'] or '[]')
+                winners = json.loads(row['winners_json'] or '[]')
+                actions = json.loads(row['actions_json'] or '[]')
+                pot_size = row['pot_size'] or 0
+
+                # Check if player participated in this hand
+                player_in_hand = any(p.get('name') == player_name for p in players)
+                if not player_in_hand:
+                    continue
+
+                stats['hands_played'] += 1
+
+                # Check if player won
+                player_won = False
+                amount_won = 0
+                for winner in winners:
+                    if winner.get('name') == player_name:
+                        player_won = True
+                        amount_won = winner.get('amount_won', 0)
+                        break
+
+                # Calculate amount lost (sum of player's bets)
+                amount_bet = sum(
+                    a.get('amount', 0)
+                    for a in actions
+                    if a.get('player_name') == player_name
+                )
+
+                # Determine outcome
+                if player_won:
+                    stats['hands_won'] += 1
+                    stats['total_winnings'] += amount_won
+                    outcomes.append('won')
+                    if pot_size > stats['biggest_pot_won']:
+                        stats['biggest_pot_won'] = pot_size
+                else:
+                    # Check if folded or lost at showdown
+                    folded = any(
+                        a.get('player_name') == player_name and a.get('action') == 'fold'
+                        for a in actions
+                    )
+                    if folded:
+                        outcomes.append('folded')
+                        stats['total_winnings'] -= amount_bet
+                    else:
+                        # Lost at showdown
+                        outcomes.append('lost')
+                        stats['total_winnings'] -= amount_bet
+                        if pot_size > stats['biggest_pot_lost']:
+                            stats['biggest_pot_lost'] = pot_size
+
+                # Build recent hand summary (keep last 5)
+                if len(stats['recent_hands']) >= 5:
+                    stats['recent_hands'].pop(0)
+
+                outcome_str = outcomes[-1]
+                if outcome_str == 'won':
+                    summary = f"Hand {row['hand_number']}: Won ${amount_won}"
+                elif outcome_str == 'folded':
+                    summary = f"Hand {row['hand_number']}: Folded"
+                else:
+                    summary = f"Hand {row['hand_number']}: Lost ${amount_bet}"
+                stats['recent_hands'].append(summary)
+
+            # Calculate current streak from outcomes
+            if outcomes:
+                current = outcomes[-1]
+                if current in ('won', 'lost'):
+                    streak_type = 'winning' if current == 'won' else 'losing'
+                    streak_count = 1
+                    for outcome in reversed(outcomes[:-1]):
+                        if (streak_type == 'winning' and outcome == 'won') or \
+                           (streak_type == 'losing' and outcome == 'lost'):
+                            streak_count += 1
+                        else:
+                            break
+                    stats['current_streak'] = streak_type
+                    stats['streak_count'] = streak_count
+
+        return stats
+
+    def get_session_context_for_prompt(self, game_id: str, player_name: str,
+                                        max_recent: int = 3) -> str:
+        """Get formatted session context string for AI prompts.
+
+        Args:
+            game_id: The game identifier
+            player_name: The player to get context for
+            max_recent: Maximum number of recent hands to include
+
+        Returns:
+            Formatted string suitable for injection into AI prompts
+        """
+        stats = self.get_session_stats(game_id, player_name)
+
+        parts = []
+
+        # Session overview
+        if stats['hands_played'] > 0:
+            win_rate = (stats['hands_won'] / stats['hands_played']) * 100
+            parts.append(f"Session: {stats['hands_won']}/{stats['hands_played']} hands won ({win_rate:.0f}%)")
+
+            # Net result
+            if stats['total_winnings'] > 0:
+                parts.append(f"Up ${stats['total_winnings']}")
+            elif stats['total_winnings'] < 0:
+                parts.append(f"Down ${abs(stats['total_winnings'])}")
+
+            # Current streak (only show if 2+)
+            if stats['streak_count'] >= 2:
+                parts.append(f"On a {stats['streak_count']}-hand {stats['current_streak']} streak")
+
+        # Recent hands
+        recent = stats['recent_hands'][-max_recent:]
+        if recent:
+            parts.append("Recent: " + " | ".join(recent))
+
+        return ". ".join(parts) if parts else ""
+
     # Tournament Results Persistence Methods
     def save_tournament_result(self, game_id: str, result: Dict[str, Any]) -> None:
         """Save tournament result when game completes.
@@ -2049,3 +2786,538 @@ class GamePersistence:
 
         logger.info(f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped")
         return {'added': added, 'skipped': skipped, 'updated': updated}
+
+    # Prompt Capture Methods (for AI decision debugging)
+    def save_prompt_capture(self, capture: Dict[str, Any]) -> int:
+        """Save a prompt capture for debugging AI decisions.
+
+        Args:
+            capture: Dict containing capture data with keys:
+                - game_id, player_name, hand_number, phase
+                - system_prompt, user_message, ai_response
+                - pot_total, cost_to_call, pot_odds, player_stack
+                - community_cards, player_hand, valid_actions
+                - action_taken, raise_amount
+                - model, latency_ms, input_tokens, output_tokens
+
+        Returns:
+            The ID of the inserted capture.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO prompt_captures (
+                    -- Identity
+                    game_id, player_name, hand_number,
+                    -- Game State
+                    phase, pot_total, cost_to_call, pot_odds, player_stack,
+                    community_cards, player_hand, valid_actions,
+                    -- Decision
+                    action_taken, raise_amount,
+                    -- Prompts (INPUT)
+                    system_prompt, conversation_history, user_message, raw_request,
+                    -- Response (OUTPUT)
+                    ai_response, raw_api_response,
+                    -- LLM Config
+                    model, reasoning_effort,
+                    -- Metrics
+                    latency_ms, input_tokens, output_tokens,
+                    -- Tracking
+                    original_request_id,
+                    -- Prompt Versioning
+                    prompt_template, prompt_version, prompt_hash,
+                    -- User Annotations
+                    tags, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                # Identity
+                capture.get('game_id'),
+                capture.get('player_name'),
+                capture.get('hand_number'),
+                # Game State
+                capture.get('phase'),
+                capture.get('pot_total'),
+                capture.get('cost_to_call'),
+                capture.get('pot_odds'),
+                capture.get('player_stack'),
+                json.dumps(capture.get('community_cards')) if capture.get('community_cards') else None,
+                json.dumps(capture.get('player_hand')) if capture.get('player_hand') else None,
+                json.dumps(capture.get('valid_actions')) if capture.get('valid_actions') else None,
+                # Decision
+                capture.get('action_taken'),
+                capture.get('raise_amount'),
+                # Prompts (INPUT)
+                capture.get('system_prompt'),
+                json.dumps(capture.get('conversation_history')) if capture.get('conversation_history') else None,
+                capture.get('user_message'),
+                capture.get('raw_request'),
+                # Response (OUTPUT)
+                capture.get('ai_response'),
+                capture.get('raw_api_response'),
+                # LLM Config
+                capture.get('model'),
+                capture.get('reasoning_effort'),
+                # Metrics
+                capture.get('latency_ms'),
+                capture.get('input_tokens'),
+                capture.get('output_tokens'),
+                # Tracking
+                capture.get('original_request_id'),
+                # Prompt Versioning
+                capture.get('prompt_template'),
+                capture.get('prompt_version'),
+                capture.get('prompt_hash'),
+                # User Annotations
+                json.dumps(capture.get('tags', [])),
+                capture.get('notes'),
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_prompt_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single prompt capture by ID.
+
+        Joins with api_usage to get cached_tokens, reasoning_tokens, and estimated_cost.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # Join with api_usage to get usage metrics (cached tokens, reasoning tokens, cost)
+            cursor = conn.execute("""
+                SELECT pc.*,
+                       au.cached_tokens,
+                       au.reasoning_tokens,
+                       au.estimated_cost
+                FROM prompt_captures pc
+                LEFT JOIN api_usage au ON pc.original_request_id = au.request_id
+                WHERE pc.id = ?
+            """, (capture_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            capture = dict(row)
+            # Parse JSON fields
+            capture_id_for_log = capture.get('id')
+            for field in ['community_cards', 'player_hand', 'valid_actions', 'tags', 'conversation_history']:
+                if capture.get(field):
+                    try:
+                        capture[field] = json.loads(capture[field])
+                    except json.JSONDecodeError:
+                        logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+            return capture
+
+    def list_prompt_captures(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        action: Optional[str] = None,
+        phase: Optional[str] = None,
+        min_pot_odds: Optional[float] = None,
+        max_pot_odds: Optional[float] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List prompt captures with optional filtering.
+
+        Returns:
+            Dict with 'captures' list and 'total' count.
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("player_name = ?")
+            params.append(player_name)
+        if action:
+            conditions.append("action_taken = ?")
+            params.append(action)
+        if phase:
+            conditions.append("phase = ?")
+            params.append(phase)
+        if min_pot_odds is not None:
+            conditions.append("pot_odds >= ?")
+            params.append(min_pot_odds)
+        if max_pot_odds is not None:
+            conditions.append("pot_odds <= ?")
+            params.append(max_pot_odds)
+        if tags:
+            # Match any of the provided tags
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("tags LIKE ?")
+                params.append(f'%"{tag}"%')
+            conditions.append(f"({' OR '.join(tag_conditions)})")
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            count_cursor = conn.execute(
+                f"SELECT COUNT(*) FROM prompt_captures {where_clause}",
+                params
+            )
+            total = count_cursor.fetchone()[0]
+
+            # Get captures with pagination
+            query = f"""
+                SELECT id, created_at, game_id, player_name, hand_number, phase,
+                       action_taken, pot_total, cost_to_call, pot_odds, player_stack,
+                       community_cards, player_hand, model, latency_ms, tags, notes
+                FROM prompt_captures
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            cursor = conn.execute(query, params)
+
+            captures = []
+            for row in cursor.fetchall():
+                capture = dict(row)
+                # Parse JSON fields
+                capture_id_for_log = capture.get('id')
+                for field in ['community_cards', 'player_hand', 'tags']:
+                    if capture.get(field):
+                        try:
+                            capture[field] = json.loads(capture[field])
+                        except json.JSONDecodeError:
+                            logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+                captures.append(capture)
+
+            return {
+                'captures': captures,
+                'total': total
+            }
+
+    def get_prompt_capture_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get aggregate statistics for prompt captures."""
+        where_clause = "WHERE game_id = ?" if game_id else ""
+        params = [game_id] if game_id else []
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Count by action
+            cursor = conn.execute(f"""
+                SELECT action_taken, COUNT(*) as count
+                FROM prompt_captures {where_clause}
+                GROUP BY action_taken
+            """, params)
+            by_action = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Count by phase
+            cursor = conn.execute(f"""
+                SELECT phase, COUNT(*) as count
+                FROM prompt_captures {where_clause}
+                GROUP BY phase
+            """, params)
+            by_phase = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Suspicious folds (high pot odds)
+            suspicious_params = params + [5.0]  # pot odds > 5:1
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM prompt_captures
+                {where_clause}
+                {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?
+            """, suspicious_params)
+            suspicious_folds = cursor.fetchone()[0]
+
+            # Total captures
+            cursor = conn.execute(f"SELECT COUNT(*) FROM prompt_captures {where_clause}", params)
+            total = cursor.fetchone()[0]
+
+            return {
+                'total': total,
+                'by_action': by_action,
+                'by_phase': by_phase,
+                'suspicious_folds': suspicious_folds
+            }
+
+    def update_prompt_capture_tags(
+        self,
+        capture_id: int,
+        tags: List[str],
+        notes: Optional[str] = None
+    ) -> bool:
+        """Update tags and notes for a prompt capture."""
+        with sqlite3.connect(self.db_path) as conn:
+            if notes is not None:
+                conn.execute(
+                    "UPDATE prompt_captures SET tags = ?, notes = ? WHERE id = ?",
+                    (json.dumps(tags), notes, capture_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE prompt_captures SET tags = ? WHERE id = ?",
+                    (json.dumps(tags), capture_id)
+                )
+            conn.commit()
+            return conn.total_changes > 0
+
+    def delete_prompt_captures(self, game_id: Optional[str] = None, before_date: Optional[str] = None) -> int:
+        """Delete prompt captures, optionally filtered by game or date.
+
+        Args:
+            game_id: Delete captures for a specific game
+            before_date: Delete captures before this date (ISO format)
+
+        Returns:
+            Number of captures deleted.
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if before_date:
+            conditions.append("created_at < ?")
+            params.append(before_date)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
+            conn.commit()
+            return cursor.rowcount
+
+    # ========== Decision Analysis Methods ==========
+
+    def save_decision_analysis(self, analysis) -> int:
+        """Save a decision analysis to the database.
+
+        Args:
+            analysis: DecisionAnalysis dataclass or dict with analysis data
+
+        Returns:
+            The ID of the inserted row.
+        """
+        # Convert dataclass to dict if needed
+        if hasattr(analysis, 'to_dict'):
+            data = analysis.to_dict()
+        else:
+            data = analysis
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO player_decision_analysis (
+                    request_id, capture_id,
+                    game_id, player_name, hand_number, phase, player_position,
+                    pot_total, cost_to_call, player_stack, num_opponents,
+                    player_hand, community_cards,
+                    action_taken, raise_amount,
+                    equity, required_equity, ev_call,
+                    optimal_action, decision_quality, ev_lost,
+                    hand_rank, relative_strength,
+                    equity_vs_ranges, opponent_positions,
+                    analyzer_version, processing_time_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data.get('request_id'),
+                data.get('capture_id'),
+                data.get('game_id'),
+                data.get('player_name'),
+                data.get('hand_number'),
+                data.get('phase'),
+                data.get('player_position'),
+                data.get('pot_total'),
+                data.get('cost_to_call'),
+                data.get('player_stack'),
+                data.get('num_opponents'),
+                data.get('player_hand'),
+                data.get('community_cards'),
+                data.get('action_taken'),
+                data.get('raise_amount'),
+                data.get('equity'),
+                data.get('required_equity'),
+                data.get('ev_call'),
+                data.get('optimal_action'),
+                data.get('decision_quality'),
+                data.get('ev_lost'),
+                data.get('hand_rank'),
+                data.get('relative_strength'),
+                data.get('equity_vs_ranges'),
+                data.get('opponent_positions'),
+                data.get('analyzer_version'),
+                data.get('processing_time_ms'),
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_decision_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single decision analysis by ID."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM player_decision_analysis WHERE id = ?",
+                (analysis_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def get_decision_analysis_by_request(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """Get decision analysis by api_usage request_id."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM player_decision_analysis WHERE request_id = ?",
+                (request_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def get_decision_analysis_by_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
+        """Get decision analysis linked to a prompt capture.
+
+        Links via request_id: prompt_captures.original_request_id = player_decision_analysis.request_id
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # First try direct capture_id link
+            cursor = conn.execute(
+                "SELECT * FROM player_decision_analysis WHERE capture_id = ?",
+                (capture_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+
+            # Fall back to request_id link
+            cursor = conn.execute("""
+                SELECT pda.*
+                FROM player_decision_analysis pda
+                JOIN prompt_captures pc ON pc.original_request_id = pda.request_id
+                WHERE pc.id = ?
+            """, (capture_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def list_decision_analyses(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        decision_quality: Optional[str] = None,
+        min_ev_lost: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List decision analyses with optional filtering.
+
+        Returns:
+            Dict with 'analyses' list and 'total' count.
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("player_name = ?")
+            params.append(player_name)
+        if decision_quality:
+            conditions.append("decision_quality = ?")
+            params.append(decision_quality)
+        if min_ev_lost is not None:
+            conditions.append("ev_lost >= ?")
+            params.append(min_ev_lost)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            count_cursor = conn.execute(
+                f"SELECT COUNT(*) FROM player_decision_analysis {where_clause}",
+                params
+            )
+            total = count_cursor.fetchone()[0]
+
+            # Get analyses with pagination
+            query = f"""
+                SELECT *
+                FROM player_decision_analysis
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            cursor = conn.execute(query, params)
+
+            analyses = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                'analyses': analyses,
+                'total': total
+            }
+
+    def get_decision_analysis_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get aggregate statistics for decision analyses.
+
+        Args:
+            game_id: Optional filter by game
+
+        Returns:
+            Dict with aggregate stats including:
+            - total: Total number of analyses
+            - by_quality: Count by decision quality
+            - by_action: Count by action taken
+            - total_ev_lost: Sum of EV lost
+            - avg_equity: Average equity across decisions
+            - avg_processing_ms: Average processing time
+        """
+        where_clause = "WHERE game_id = ?" if game_id else ""
+        params = [game_id] if game_id else []
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Count by quality
+            cursor = conn.execute(f"""
+                SELECT decision_quality, COUNT(*) as count
+                FROM player_decision_analysis {where_clause}
+                GROUP BY decision_quality
+            """, params)
+            by_quality = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Count by action
+            cursor = conn.execute(f"""
+                SELECT action_taken, COUNT(*) as count
+                FROM player_decision_analysis {where_clause}
+                GROUP BY action_taken
+            """, params)
+            by_action = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Aggregate stats
+            cursor = conn.execute(f"""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(ev_lost) as total_ev_lost,
+                    AVG(equity) as avg_equity,
+                    AVG(equity_vs_ranges) as avg_equity_vs_ranges,
+                    AVG(processing_time_ms) as avg_processing_ms,
+                    SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistakes,
+                    SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct
+                FROM player_decision_analysis {where_clause}
+            """, params)
+            row = cursor.fetchone()
+
+            return {
+                'total': row[0] or 0,
+                'total_ev_lost': row[1] or 0,
+                'avg_equity': row[2],
+                'avg_equity_vs_ranges': row[3],
+                'avg_processing_ms': row[4],
+                'mistakes': row[5] or 0,
+                'correct': row[6] or 0,
+                'by_quality': by_quality,
+                'by_action': by_action,
+            }

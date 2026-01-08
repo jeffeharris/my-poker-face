@@ -1,0 +1,601 @@
+"""
+Decision Analyzer for AI Player Quality Monitoring.
+
+Analyzes AI decisions inline (called after every decision) to track
+decision quality and difficulty metrics without storing full prompts.
+"""
+
+import json
+import time
+import logging
+from dataclasses import dataclass, asdict
+from typing import Optional, List, Any
+
+logger = logging.getLogger(__name__)
+
+# Import equity calculator - gracefully degrade if not available
+try:
+    from poker.equity_calculator import EquityCalculator, EVAL7_AVAILABLE
+except ImportError:
+    EVAL7_AVAILABLE = False
+    EquityCalculator = None
+
+
+@dataclass
+class DecisionAnalysis:
+    """Analysis result for a single AI decision."""
+
+    # Identity
+    game_id: str
+    player_name: str
+    hand_number: Optional[int] = None
+    phase: Optional[str] = None
+    player_position: Optional[str] = None  # Hero's table position (button, UTG, etc.)
+    request_id: Optional[str] = None
+    capture_id: Optional[int] = None
+
+    # Game state
+    pot_total: int = 0
+    cost_to_call: int = 0
+    player_stack: int = 0
+    num_opponents: int = 1
+    player_hand: Optional[str] = None  # JSON string
+    community_cards: Optional[str] = None  # JSON string
+
+    # Decision
+    action_taken: Optional[str] = None
+    raise_amount: Optional[int] = None
+
+    # Equity analysis
+    equity: Optional[float] = None
+    required_equity: float = 0
+    ev_call: Optional[float] = None
+
+    # Quality
+    optimal_action: Optional[str] = None
+    decision_quality: str = "unknown"
+    ev_lost: float = 0
+
+    # Hand strength
+    hand_rank: Optional[int] = None
+    relative_strength: Optional[float] = None
+
+    # Position-based equity (alternative to random)
+    equity_vs_ranges: Optional[float] = None  # Equity against position-based ranges
+    opponent_positions: Optional[str] = None  # JSON list of opponent positions
+
+    # Metadata
+    analyzer_version: str = "1.0"
+    processing_time_ms: Optional[int] = None
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for persistence."""
+        return asdict(self)
+
+
+class DecisionAnalyzer:
+    """
+    Analyzes AI decisions inline (called after every decision).
+
+    Usage:
+        analyzer = DecisionAnalyzer()
+        analysis = analyzer.analyze(
+            game_id="game_123",
+            player_name="Batman",
+            hand_number=5,
+            phase="FLOP",
+            player_hand=["As", "Kd"],
+            community_cards=["Jh", "2d", "5s"],
+            pot_total=100,
+            cost_to_call=20,
+            player_stack=500,
+            num_opponents=2,
+            action_taken="call",
+        )
+        # analysis.decision_quality = "correct" or "mistake"
+        # analysis.ev_lost = 0 if correct, else EV difference
+    """
+
+    VERSION = "1.0"
+
+    def __init__(self, iterations: int = 2000):
+        """
+        Initialize the analyzer.
+
+        Args:
+            iterations: Monte Carlo iterations for equity calculation.
+                       Lower = faster but less accurate. 2000 ≈ 20ms.
+        """
+        self.iterations = iterations
+        self._calculator = None
+
+    @property
+    def calculator(self):
+        """Lazy-load the equity calculator."""
+        if self._calculator is None and EVAL7_AVAILABLE:
+            self._calculator = EquityCalculator(self.iterations)
+        return self._calculator
+
+    def analyze(
+        self,
+        game_id: str,
+        player_name: str,
+        hand_number: Optional[int],
+        phase: Optional[str],
+        player_hand: List[str],
+        community_cards: List[str],
+        pot_total: int,
+        cost_to_call: int,
+        player_stack: int,
+        num_opponents: int,
+        action_taken: str,
+        raise_amount: Optional[int] = None,
+        request_id: Optional[str] = None,
+        capture_id: Optional[int] = None,
+        player_position: Optional[str] = None,
+        opponent_positions: Optional[List[str]] = None,
+        opponent_infos: Optional[List[Any]] = None,
+    ) -> DecisionAnalysis:
+        """
+        Analyze a decision and return analysis result.
+
+        Args:
+            game_id: Game identifier
+            player_name: AI player name
+            hand_number: Current hand number
+            phase: Game phase (PRE_FLOP, FLOP, TURN, RIVER)
+            player_hand: List of hole cards as strings (e.g., ["As", "Kd"])
+            community_cards: List of community cards as strings
+            pot_total: Total pot size
+            cost_to_call: Amount needed to call
+            player_stack: Player's remaining chips
+            num_opponents: Number of opponents still in hand
+            action_taken: The action the AI chose
+            raise_amount: Amount raised (if action is raise)
+            request_id: Link to api_usage table
+            capture_id: Link to prompt_captures table
+            player_position: Hero's table position (e.g., 'button', 'under_the_gun')
+            opponent_positions: List of opponent position names for range-based equity
+                               (e.g., ['button', 'big_blind_player']) - backward compat
+            opponent_infos: List of OpponentInfo objects with observed stats and
+                           personality data for more accurate range estimation
+
+        Returns:
+            DecisionAnalysis with equity and quality assessment
+        """
+        start_time = time.time()
+
+        analysis = DecisionAnalysis(
+            game_id=game_id,
+            player_name=player_name,
+            hand_number=hand_number,
+            phase=phase,
+            player_position=player_position,
+            request_id=request_id,
+            capture_id=capture_id,
+            pot_total=pot_total,
+            cost_to_call=cost_to_call,
+            player_stack=player_stack,
+            num_opponents=num_opponents,
+            player_hand=json.dumps(player_hand) if player_hand else None,
+            community_cards=json.dumps(community_cards) if community_cards else None,
+            action_taken=action_taken,
+            raise_amount=raise_amount,
+            analyzer_version=self.VERSION,
+        )
+
+        # Calculate hand strength if we have cards
+        if player_hand and community_cards:
+            try:
+                import eval7
+                hero_hand = [eval7.Card(c) for c in player_hand]
+                board = [eval7.Card(c) for c in community_cards]
+                # eval7.evaluate returns higher scores for better hands
+                analysis.hand_rank = eval7.evaluate(hero_hand + board)
+                # Convert to relative strength (0-100 percentile)
+                # eval7 scores range from ~0 to ~7462 (royal flush)
+                # Higher = better, so we calculate percentile directly
+                analysis.relative_strength = min(100, (analysis.hand_rank / 7462) * 100)
+            except Exception as e:
+                logger.debug(f"Hand strength calculation failed: {e}")
+
+        # Calculate equity if we have cards and calculator
+        if player_hand and self.calculator and num_opponents > 0:
+            try:
+                # Calculate equity vs random opponent hands using Monte Carlo
+                analysis.equity = self._calculate_equity_vs_random(
+                    player_hand, community_cards or [], num_opponents
+                )
+            except Exception as e:
+                logger.debug(f"Equity calculation failed: {e}")
+
+            # Calculate equity vs ranges - prefer opponent_infos (with stats) over positions
+            range_data = opponent_infos if opponent_infos else opponent_positions
+            if range_data:
+                try:
+                    analysis.equity_vs_ranges = self._calculate_equity_vs_ranges(
+                        player_hand, community_cards or [], range_data
+                    )
+                    # Store opponent positions for reference
+                    if opponent_positions:
+                        analysis.opponent_positions = json.dumps(opponent_positions)
+                    elif opponent_infos:
+                        # Extract positions from opponent_infos
+                        positions = [getattr(o, 'position', 'unknown') for o in opponent_infos]
+                        analysis.opponent_positions = json.dumps(positions)
+                except Exception as e:
+                    logger.debug(f"Equity vs ranges calculation failed: {e}")
+
+        # Calculate required equity and EV
+        if cost_to_call > 0 and pot_total > 0:
+            analysis.required_equity = cost_to_call / (pot_total + cost_to_call)
+            if analysis.equity is not None:
+                # EV(call) = (equity * pot) - ((1-equity) * call_cost)
+                analysis.ev_call = (analysis.equity * pot_total) - (
+                    (1 - analysis.equity) * cost_to_call
+                )
+        else:
+            # Free check - no cost to see more cards
+            analysis.required_equity = 0
+            analysis.ev_call = 0
+
+        # Evaluate decision quality
+        self._evaluate_quality(analysis)
+
+        analysis.processing_time_ms = int((time.time() - start_time) * 1000)
+        return analysis
+
+    def _calculate_equity_vs_random(
+        self,
+        player_hand: List[str],
+        community_cards: List[str],
+        num_opponents: int
+    ) -> Optional[float]:
+        """Calculate equity vs random opponent hands using Monte Carlo.
+
+        Args:
+            player_hand: Hero's hole cards as strings ['Ah', 'Kd']
+            community_cards: Board cards as strings
+            num_opponents: Number of opponents to simulate
+
+        Returns:
+            Win probability (0.0-1.0) or None if calculation fails
+        """
+        try:
+            import eval7
+            import random
+
+            # Parse hero's hand
+            hero_hand = [eval7.Card(c) for c in player_hand]
+            board = [eval7.Card(c) for c in community_cards] if community_cards else []
+
+            # Build deck excluding known cards
+            all_known = set(hero_hand + board)
+            deck = [c for c in eval7.Deck().cards if c not in all_known]
+
+            wins = 0
+            iterations = self.iterations
+
+            for _ in range(iterations):
+                # Shuffle remaining deck
+                random.shuffle(deck)
+                deck_idx = 0
+
+                # Deal random hands to opponents
+                opponent_hands = []
+                for _ in range(num_opponents):
+                    opp_hand = [deck[deck_idx], deck[deck_idx + 1]]
+                    opponent_hands.append(opp_hand)
+                    deck_idx += 2
+
+                # Deal remaining board cards
+                cards_needed = 5 - len(board)
+                sim_board = board + deck[deck_idx:deck_idx + cards_needed]
+
+                # Evaluate hands
+                hero_score = eval7.evaluate(hero_hand + sim_board)
+
+                # Check if hero beats all opponents
+                hero_wins = True
+                for opp_hand in opponent_hands:
+                    opp_score = eval7.evaluate(opp_hand + sim_board)
+                    if opp_score > hero_score:  # Higher is better in eval7
+                        hero_wins = False
+                        break
+
+                if hero_wins:
+                    wins += 1
+
+            return wins / iterations
+
+        except Exception as e:
+            logger.debug(f"Equity vs random calculation failed: {e}")
+            return None
+
+    def _calculate_equity_vs_ranges(
+        self,
+        player_hand: List[str],
+        community_cards: List[str],
+        opponent_infos: List[Any]  # List of OpponentInfo or position strings
+    ) -> Optional[float]:
+        """Calculate equity vs opponent hand ranges using fallback hierarchy.
+
+        Uses the following priority for range estimation:
+        1. In-game observed stats (if enough hands observed)
+        2. Personality traits (for AI players)
+        3. Position-based static ranges (fallback)
+
+        Args:
+            player_hand: Hero's hole cards as strings ['Ah', 'Kd']
+            community_cards: Board cards as strings
+            opponent_infos: List of OpponentInfo objects or position strings
+                           (position strings are converted to basic OpponentInfo)
+
+        Returns:
+            Win probability (0.0-1.0) or None if calculation fails
+        """
+        try:
+            import eval7
+            import random
+            from .hand_ranges import (
+                sample_hands_for_opponent_infos,
+                sample_hands_for_opponents,
+                OpponentInfo,
+                EquityConfig,
+            )
+
+            # Parse hero's hand
+            hero_hand = [eval7.Card(c) for c in player_hand]
+            board = [eval7.Card(c) for c in community_cards] if community_cards else []
+
+            # Build set of excluded cards (hero's hand + board)
+            excluded_cards = set(player_hand + (community_cards or []))
+
+            # Build deck excluding known cards
+            all_known = set(hero_hand + board)
+            deck = [c for c in eval7.Deck().cards if c not in all_known]
+
+            wins = 0
+            iterations = self.iterations
+            rng = random.Random()
+            config = EquityConfig()
+
+            # Check if we have OpponentInfo objects or just position strings
+            use_opponent_infos = (
+                opponent_infos and
+                len(opponent_infos) > 0 and
+                hasattr(opponent_infos[0], 'name')
+            )
+
+            for _ in range(iterations):
+                # Sample opponent hands using appropriate method
+                if use_opponent_infos:
+                    opponent_hands_raw = sample_hands_for_opponent_infos(
+                        opponent_infos, excluded_cards, config, rng
+                    )
+                else:
+                    # Backward compatibility: treat as position strings
+                    opponent_hands_raw = sample_hands_for_opponents(
+                        opponent_infos, excluded_cards, rng
+                    )
+
+                # Skip iteration if we couldn't sample valid hands
+                if None in opponent_hands_raw:
+                    continue
+
+                # Convert to eval7 cards
+                opponent_hands = []
+                opp_cards_set = set()
+                for hand in opponent_hands_raw:
+                    opp_hand = [eval7.Card(hand[0]), eval7.Card(hand[1])]
+                    opponent_hands.append(opp_hand)
+                    opp_cards_set.add(opp_hand[0])
+                    opp_cards_set.add(opp_hand[1])
+
+                # Build deck excluding all known cards for this iteration
+                iter_deck = [c for c in deck if c not in opp_cards_set]
+                rng.shuffle(iter_deck)
+
+                # Deal remaining board cards
+                cards_needed = 5 - len(board)
+                sim_board = board + iter_deck[:cards_needed]
+
+                # Evaluate hands
+                hero_score = eval7.evaluate(hero_hand + sim_board)
+
+                # Check if hero beats all opponents
+                hero_wins = True
+                for opp_hand in opponent_hands:
+                    opp_score = eval7.evaluate(opp_hand + sim_board)
+                    if opp_score > hero_score:  # Higher is better in eval7
+                        hero_wins = False
+                        break
+
+                if hero_wins:
+                    wins += 1
+
+            return wins / iterations if iterations > 0 else None
+
+        except Exception as e:
+            logger.debug(f"Equity vs ranges calculation failed: {e}")
+            return None
+
+    def _evaluate_quality(self, analysis: DecisionAnalysis) -> None:
+        """
+        Evaluate decision quality based on EV and optimal action.
+
+        Sets optimal_action, decision_quality, and ev_lost on the analysis.
+
+        Optimal action is determined by:
+        - Fold: EV(call) < 0
+        - Call: EV(call) > 0 but equity not high enough to raise for value
+        - Raise: High equity where raising extracts more value
+
+        Decision quality considers:
+        - "correct": Action matches or is close to optimal
+        - "marginal": Action is defensible but not optimal
+        - "mistake": Clear error (e.g., folding +EV, calling -EV)
+        """
+        if analysis.ev_call is None:
+            analysis.decision_quality = "unknown"
+            return
+
+        # Special case: folding when you can check for free is always a mistake
+        # You're giving up your equity share of the pot for no reason
+        if analysis.cost_to_call == 0 and analysis.action_taken == "fold":
+            analysis.optimal_action = "check"
+            analysis.decision_quality = "mistake"
+            if analysis.equity is not None and analysis.pot_total > 0:
+                # EV lost = your equity share of the pot you're abandoning
+                analysis.ev_lost = analysis.equity * analysis.pot_total
+            else:
+                analysis.ev_lost = 0  # Can't calculate without equity
+            return
+
+        equity = analysis.equity or 0
+        num_opponents = analysis.num_opponents or 1
+        phase = analysis.phase
+
+        # Determine optimal action using sophisticated logic
+        analysis.optimal_action = self._determine_optimal_action(
+            equity=equity,
+            ev_call=analysis.ev_call,
+            required_equity=analysis.required_equity,
+            num_opponents=num_opponents,
+            phase=phase,
+            pot_total=analysis.pot_total or 0,
+            cost_to_call=analysis.cost_to_call or 0,
+            player_stack=analysis.player_stack or 0,
+        )
+
+        # Evaluate decision quality
+        action = analysis.action_taken
+        optimal = analysis.optimal_action
+
+        if action == optimal:
+            analysis.decision_quality = "correct"
+            analysis.ev_lost = 0
+        elif action == "fold" and analysis.ev_call > 0:
+            # Folded a +EV spot - clear mistake
+            analysis.decision_quality = "mistake"
+            analysis.ev_lost = analysis.ev_call
+        elif action in ("call", "raise", "all_in") and analysis.ev_call < 0:
+            # Called/raised a -EV spot - clear mistake
+            analysis.decision_quality = "mistake"
+            analysis.ev_lost = -analysis.ev_call
+        elif action == "call" and optimal == "raise":
+            # Called when should have raised - marginal (still +EV)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0  # Didn't lose EV, just didn't maximize
+        elif action == "raise" and optimal == "call":
+            # Raised when calling was optimal - marginal (still +EV)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0
+        elif action == "check" and optimal == "raise":
+            # Checked when should have bet - marginal (missed value)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0
+        elif action == "raise" and optimal == "check":
+            # Bet when should have checked - marginal (built pot unnecessarily)
+            analysis.decision_quality = "marginal"
+            analysis.ev_lost = 0
+        else:
+            analysis.decision_quality = "correct"
+            analysis.ev_lost = 0
+
+    def _determine_optimal_action(
+        self,
+        equity: float,
+        ev_call: float,
+        required_equity: float,
+        num_opponents: int,
+        phase: Optional[str],
+        pot_total: int,
+        cost_to_call: int,
+        player_stack: int,
+    ) -> str:
+        """
+        Determine the optimal action based on game theory considerations.
+
+        Args:
+            equity: Win probability (0-1)
+            ev_call: Expected value of calling
+            required_equity: Minimum equity needed to call profitably
+            num_opponents: Number of opponents in the hand
+            phase: Game phase (PRE_FLOP, FLOP, TURN, RIVER)
+            pot_total: Current pot size
+            cost_to_call: Amount needed to call
+            player_stack: Player's remaining chips
+
+        Returns:
+            Optimal action: "fold", "check", "call", or "raise"
+        """
+        # Check if this is a check/bet situation (no cost to call)
+        can_check = cost_to_call == 0
+
+        # Calculate value raise/bet threshold based on opponents
+        # With more opponents, need higher equity to raise for value
+        # Heads-up: ~55% equity is enough to value raise
+        # Multi-way: Need ~60-70% equity
+        base_raise_threshold = 0.55
+        opponent_adjustment = (num_opponents - 1) * 0.05  # +5% per extra opponent
+        raise_threshold = min(0.75, base_raise_threshold + opponent_adjustment)
+
+        # Stack-to-pot ratio affects decision
+        # Deep stacks = more implied odds, can call lighter
+        # Short stacks = less room to maneuver, raise or fold
+        spr = player_stack / pot_total if pot_total > 0 else 10
+
+        # Phase adjustments
+        is_preflop = phase == "PRE_FLOP" if phase else False
+
+        # If we can check (no cost to call)
+        if can_check:
+            # Should we bet for value or check?
+            if equity >= raise_threshold:
+                # Strong hand - bet for value
+                return "raise"
+            elif not is_preflop and equity > 0.50 and spr < 3:
+                # Post-flop, good equity, short SPR - bet to deny equity
+                return "raise"
+            else:
+                # Check - see free cards or pot control
+                return "check"
+
+        # There's a bet to call - evaluate fold/call/raise
+        if ev_call < 0:
+            return "fold"
+
+        # Determine optimal action when facing a bet
+        if equity >= raise_threshold:
+            # Strong hand - raise for value
+            return "raise"
+        elif equity >= required_equity:
+            # Enough equity to continue but not to raise
+            # Consider semi-bluff potential
+            if is_preflop and equity > 0.45 and spr > 5:
+                # Pre-flop with decent equity and deep stacks - can raise
+                return "raise"
+            elif not is_preflop and equity > 0.50 and spr < 3:
+                # Post-flop, good equity, short SPR - raise to deny equity
+                return "raise"
+            else:
+                return "call"
+        else:
+            # Below required equity - should fold
+            # But if we have very good implied odds (deep SPR), might call
+            if spr > 10 and equity > required_equity * 0.7:
+                return "call"  # Implied odds play
+            return "fold"
+
+
+# Singleton instance for reuse
+_analyzer_instance: Optional[DecisionAnalyzer] = None
+
+
+def get_analyzer(iterations: int = 2000) -> DecisionAnalyzer:
+    """Get or create the singleton analyzer instance."""
+    global _analyzer_instance
+    if _analyzer_instance is None:
+        _analyzer_instance = DecisionAnalyzer(iterations)
+    return _analyzer_instance

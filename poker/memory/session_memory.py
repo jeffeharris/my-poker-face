@@ -113,13 +113,37 @@ class SessionContext:
 
 
 class SessionMemory:
-    """Manages context that persists across hands within a session."""
+    """Manages context that persists across hands within a session.
+
+    Can operate in two modes:
+    1. DB-backed (preferred): Queries hand_history table for stats
+    2. In-memory (legacy/fallback): Tracks stats in memory
+
+    DB mode is enabled by calling set_persistence() with a GamePersistence instance.
+    """
 
     def __init__(self, player_name: str, max_hand_memory: int = SESSION_MEMORY_HANDS):
         self.player_name = player_name
         self.max_hand_memory = max_hand_memory
         self.hand_memories: List[HandMemory] = []
         self.context = SessionContext()
+
+        # DB-backed mode (set via set_persistence)
+        self._persistence = None
+        self._game_id: str = None
+
+    def set_persistence(self, persistence, game_id: str) -> None:
+        """Enable DB-backed mode for session stats.
+
+        When enabled, get_context_for_prompt() will query hand_history
+        instead of using in-memory tracking.
+
+        Args:
+            persistence: GamePersistence instance
+            game_id: The game identifier
+        """
+        self._persistence = persistence
+        self._game_id = game_id
 
     def record_hand_outcome(self, hand_number: int, outcome: str, pot_size: int,
                            amount_won_or_lost: int, notable_events: List[str] = None) -> None:
@@ -204,12 +228,22 @@ class SessionMemory:
     def get_context_for_prompt(self, max_tokens: int = MEMORY_CONTEXT_TOKENS) -> str:
         """Generate context string for injection into AI prompts.
 
+        If DB-backed mode is enabled (via set_persistence), queries hand_history
+        for accurate, persistent stats. Otherwise falls back to in-memory tracking.
+
         Args:
             max_tokens: Approximate maximum tokens to use
 
         Returns:
             Formatted string with session context
         """
+        # Use DB-backed stats if persistence is available
+        if self._persistence and self._game_id:
+            return self._persistence.get_session_context_for_prompt(
+                self._game_id, self.player_name, max_recent=3
+            )
+
+        # Fallback to in-memory tracking (legacy mode)
         parts = []
 
         # Session overview

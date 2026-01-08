@@ -89,7 +89,7 @@ services:
   metabase:
     image: metabase/metabase
     ports:
-      - "${METABASE_PORT:-3001}:3000"
+      - "${METABASE_PORT:-3002}:3000"
     volumes:
       - ./data:/data:ro
       - metabase-data:/metabase-data
