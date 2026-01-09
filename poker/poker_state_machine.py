@@ -23,6 +23,7 @@ class PokerPhase(Enum):
     SHOWDOWN = auto()
     EVALUATING_HAND = auto()
     HAND_OVER = auto()
+    GAME_OVER = auto()  # Terminal state for completed tournaments
 
     @classmethod
     def _to_string(cls, phase):
@@ -38,6 +39,7 @@ class PokerPhase(Enum):
             cls.SHOWDOWN: "Showdown",
             cls.EVALUATING_HAND: "Determining Winners",
             cls.HAND_OVER: "Hand Over",
+            cls.GAME_OVER: "Game Over",
         }
         return phase_to_strings.get(phase, "Unknown Phase")
 
