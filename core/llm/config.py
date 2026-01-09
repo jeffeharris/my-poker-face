@@ -12,7 +12,7 @@ FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL)
 
 # Default reasoning effort for GPT-5 models
 # Options: 'minimal', 'low', 'medium', 'high'
-DEFAULT_REASONING_EFFORT = "low"
+DEFAULT_REASONING_EFFORT = "minimal"
 
 # Default max completion tokens (includes both reasoning + output tokens)
 # Must be high enough to allow reasoning AND produce output

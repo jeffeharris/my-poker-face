@@ -432,14 +432,35 @@ def api_new_game():
 
     requested_personalities = data.get('personalities', [])
     llm_config = data.get('llm_config', {})
+    starting_stack = data.get('starting_stack', 10000)
+    big_blind = data.get('big_blind', 50)
+    blind_growth = data.get('blind_growth', 1.5)
+    blinds_increase = data.get('blinds_increase', 6)
+    max_blind = data.get('max_blind', 0)  # 0 = no limit
+
+    # Validate: ensure starting stack is at least 10x big blind
+    if starting_stack < big_blind * 10:
+        starting_stack = big_blind * 10
 
     if requested_personalities:
         ai_player_names = requested_personalities
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
-    game_state = initialize_game_state(player_names=ai_player_names, human_name=player_name)
-    base_state_machine = PokerStateMachine(game_state=game_state)
+    game_state = initialize_game_state(
+        player_names=ai_player_names,
+        human_name=player_name,
+        starting_stack=starting_stack,
+        big_blind=big_blind
+    )
+
+    # Blind escalation config
+    blind_config = {
+        'growth': blind_growth,
+        'hands_per_level': blinds_increase,
+        'max_blind': max_blind
+    }
+    base_state_machine = PokerStateMachine(game_state=game_state, blind_config=blind_config)
     state_machine = StateMachineAdapter(base_state_machine)
 
     # Generate game_id first so it can be passed to controllers for tracking
