@@ -155,66 +155,6 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
               </div>
             </div>
 
-            <div className="setting">
-              <label>Starting Stack</label>
-              <select
-                value={startingStack}
-                onChange={(e) => setStartingStack(parseInt(e.target.value))}
-              >
-                {stackOptions.map(stack => (
-                  <option key={stack} value={stack}>{stack.toLocaleString()}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="setting">
-              <label>Big Blind</label>
-              <select
-                value={bigBlind}
-                onChange={(e) => setBigBlind(parseInt(e.target.value))}
-              >
-                {blindOptions.map(blind => (
-                  <option key={blind} value={blind}>{blind}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="setting">
-              <label>Blinds Increase</label>
-              <select
-                value={blindsIncrease}
-                onChange={(e) => setBlindsIncrease(parseInt(e.target.value))}
-              >
-                {blindsIncreaseOptions.map(hands => (
-                  <option key={hands} value={hands}>Every {hands} hands</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="setting">
-              <label>Blind Growth</label>
-              <select
-                value={blindGrowth}
-                onChange={(e) => setBlindGrowth(parseFloat(e.target.value))}
-              >
-                {blindGrowthOptions.map(rate => (
-                  <option key={rate} value={rate}>{rate}x</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="setting">
-              <label>Max Blind</label>
-              <select
-                value={maxBlind}
-                onChange={(e) => setMaxBlind(parseInt(e.target.value))}
-              >
-                {maxBlindOptions.map(cap => (
-                  <option key={cap} value={cap}>{cap === 0 ? 'No Limit' : cap.toLocaleString()}</option>
-                ))}
-              </select>
-            </div>
-
             <div className="setting-row">
               <div className="setting">
                 <label>AI Model</label>
@@ -239,6 +179,72 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                     <option key={level} value={level}>
                       {level.charAt(0).toUpperCase() + level.slice(1)}
                     </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="setting-row">
+              <div className="setting">
+                <label>Starting Stack</label>
+                <select
+                  value={startingStack}
+                  onChange={(e) => setStartingStack(parseInt(e.target.value))}
+                >
+                  {stackOptions.map(stack => (
+                    <option key={stack} value={stack}>{stack.toLocaleString()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="setting">
+                <label>Big Blind</label>
+                <select
+                  value={bigBlind}
+                  onChange={(e) => setBigBlind(parseInt(e.target.value))}
+                >
+                  {blindOptions.map(blind => (
+                    <option key={blind} value={blind}>{blind}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="setting-row">
+              <div className="setting">
+                <label>Blinds Increase</label>
+                <select
+                  value={blindsIncrease}
+                  onChange={(e) => setBlindsIncrease(parseInt(e.target.value))}
+                >
+                  {blindsIncreaseOptions.map(hands => (
+                    <option key={hands} value={hands}>Every {hands} hands</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="setting">
+                <label>Blind Growth</label>
+                <select
+                  value={blindGrowth}
+                  onChange={(e) => setBlindGrowth(parseFloat(e.target.value))}
+                >
+                  {blindGrowthOptions.map(rate => (
+                    <option key={rate} value={rate}>{rate}x</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="setting-row">
+              <div className="setting">
+                <label>Blind Cap</label>
+                <select
+                  value={maxBlind}
+                  onChange={(e) => setMaxBlind(parseInt(e.target.value))}
+                >
+                  {maxBlindOptions.map(cap => (
+                    <option key={cap} value={cap}>{cap === 0 ? 'No cap' : cap.toLocaleString()}</option>
                   ))}
                 </select>
               </div>
