@@ -87,6 +87,21 @@ class AIMemoryManager:
         self.initialized_players.add(player_name)
         logger.info(f"Initialized memory systems for {player_name}")
 
+    def initialize_human_observer(self, player_name: str) -> None:
+        """Add human player as an observer for opponent modeling.
+
+        Unlike AI players, humans don't need session memory or other AI systems,
+        but they should still track observations about opponents.
+
+        Args:
+            player_name: Name of the human player
+        """
+        if player_name in self.initialized_players:
+            return
+
+        self.initialized_players.add(player_name)
+        logger.info(f"Initialized human observer: {player_name}")
+
     def on_hand_start(self, game_state: Any, hand_number: int) -> None:
         """Called when a new hand begins.
 

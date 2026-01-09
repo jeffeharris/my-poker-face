@@ -6,6 +6,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
@@ -213,6 +214,10 @@ export function MobilePokerTable({
       });
   })();
 
+  // Heads-up mode: only 1 AI opponent remains
+  const isHeadsUp = opponents.length === 1;
+  const headsUpOpponent = isHeadsUp ? opponents[0] : null;
+
   const showActionButtons = currentPlayer?.is_human &&
                            !currentPlayer.is_folded &&
                            gameState?.player_options &&
@@ -378,7 +383,7 @@ export function MobilePokerTable({
       )}
 
       {/* Opponents Strip */}
-      <div className="mobile-opponents" ref={opponentsContainerRef}>
+      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -394,7 +399,7 @@ export function MobilePokerTable({
                   opponentRefs.current.delete(opponent.name);
                 }
               }}
-              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''}`}
+              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''}`}
             >
               <div className="opponent-avatar">
                 {opponent.avatar_url ? (
@@ -420,6 +425,15 @@ export function MobilePokerTable({
             </div>
           );
         })}
+
+        {/* Heads-up psychology panel */}
+        {isHeadsUp && headsUpOpponent && providedGameId && (
+          <HeadsUpOpponentPanel
+            opponent={headsUpOpponent}
+            gameId={providedGameId}
+            humanPlayerName={humanPlayer?.name}
+          />
+        )}
       </div>
 
       {/* Community Cards - Always show 5 slots */}
