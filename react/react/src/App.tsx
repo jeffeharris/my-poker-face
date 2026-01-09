@@ -202,7 +202,7 @@ function App() {
     fetchSavedGamesCount();
   };
 
-  const handleStartCustomGame = async (selectedPersonalities: string[], llmConfig?: { model: string; reasoning_effort: string }) => {
+  const handleStartCustomGame = async (selectedPersonalities: string[], llmConfig?: { model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number }) => {
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -213,7 +213,12 @@ function App() {
         body: JSON.stringify({
           playerName,
           personalities: selectedPersonalities,
-          llm_config: llmConfig
+          llm_config: llmConfig,
+          starting_stack: llmConfig?.starting_stack,
+          big_blind: llmConfig?.big_blind,
+          blind_growth: llmConfig?.blind_growth,
+          blinds_increase: llmConfig?.blinds_increase,
+          max_blind: llmConfig?.max_blind
         }),
       });
 

@@ -564,21 +564,28 @@ def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
     return game_state.update(current_player_idx=next_active_player_idx)
 
 
-def initialize_game_state(player_names: List[str], human_name: str = "Player") -> PokerGameState:
+def initialize_game_state(
+    player_names: List[str],
+    human_name: str = "Player",
+    starting_stack: int = STACK_SIZE,
+    big_blind: int = ANTE
+) -> PokerGameState:
     """
     Generate a new game state and prepare the game for the initial round of betting.
         - get a new deck of shuffled cards
         - deal cards to starting players
         - set dealer, current_player
-    
+
     :param player_names: List of AI player names
     :param human_name: Name of the human player (default: "Player")
+    :param starting_stack: Starting chip stack for each player (default: 10000)
+    :param big_blind: Starting big blind amount (default: 50)
     """
     # Create a tuple of Human and AI players to be added to the game state
-    ai_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=False) for n in player_names)
-    test_players = tuple(Player(name=n, stack=STACK_SIZE, is_human=True) for n in player_names)
-    new_players = (Player(name=human_name, stack=STACK_SIZE, is_human=True),) + (ai_players if not TEST_MODE else test_players)
-    game_state = PokerGameState(players=new_players)
+    ai_players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
+    test_players = tuple(Player(name=n, stack=starting_stack, is_human=True) for n in player_names)
+    new_players = (Player(name=human_name, stack=starting_stack, is_human=True),) + (ai_players if not TEST_MODE else test_players)
+    game_state = PokerGameState(players=new_players, current_ante=big_blind, last_raise_amount=big_blind)
 
     return game_state
 

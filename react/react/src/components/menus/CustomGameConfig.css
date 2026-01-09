@@ -54,6 +54,16 @@
   gap: var(--space-2);
 }
 
+.setting-row {
+  display: flex;
+  gap: var(--space-4);
+  grid-column: 1 / -1;
+}
+
+.setting-row .setting {
+  flex: 1;
+}
+
 .setting label {
   font-family: var(--font-body);
   color: var(--color-text-tertiary);

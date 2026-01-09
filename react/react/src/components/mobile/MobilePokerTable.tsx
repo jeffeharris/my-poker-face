@@ -529,8 +529,13 @@ export function MobilePokerTable({
           />
         ) : (
           <div className="mobile-action-buttons">
-            {/* Preemptive Check/Fold - shows when AI is thinking */}
-            {humanPlayer && !humanPlayer.is_folded && aiThinking && currentPlayer && !currentPlayer.is_human && (
+            {/* Preemptive Check/Fold - shows when AI is thinking and it's this player's view */}
+            {humanPlayer &&
+             humanPlayer.name === playerName &&
+             !humanPlayer.is_folded &&
+             aiThinking &&
+             currentPlayer &&
+             !currentPlayer.is_human && (
               <button
                 className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
                 onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
@@ -560,7 +565,7 @@ export function MobilePokerTable({
             <div className="quick-chat-modal-header">
               <button onClick={() => setShowQuickChat(false)}>Cancel</button>
               <span className="header-title">Quick Chat</span>
-              <button style={{ visibility: 'hidden' }}>Cancel</button>
+              <div aria-hidden="true" style={{ visibility: 'hidden' }}>Cancel</div>
             </div>
             <QuickChatSuggestions
               gameId={providedGameId}

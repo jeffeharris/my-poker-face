@@ -17,6 +17,11 @@ interface Personality {
 interface LLMConfig {
   model: string;
   reasoning_effort: string;
+  starting_stack?: number;
+  big_blind?: number;
+  blind_growth?: number;
+  blinds_increase?: number;
+  max_blind?: number;
 }
 
 interface CustomGameConfigProps {
@@ -29,14 +34,27 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const [selectedPersonalities, setSelectedPersonalities] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const [difficulty, setDifficulty] = useState('normal');
 
   // Model configuration state
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('gpt-5-nano');
-  const [reasoningLevels] = useState(['minimal', 'low', 'medium', 'high']);
-  const [selectedReasoning, setSelectedReasoning] = useState('low');
+  const [reasoningLevels] = useState(['minimal', 'low']);
+  const [selectedReasoning, setSelectedReasoning] = useState('minimal');
   const [modelsLoading, setModelsLoading] = useState(true);
+
+  // Game configuration state
+  const [stackOptions] = useState([1000, 2500, 5000, 10000, 20000]);
+  const [blindOptions] = useState([10, 25, 50, 100, 200]);
+  const [startingStack, setStartingStack] = useState(10000);
+  const [bigBlind, setBigBlind] = useState(50);
+
+  // Blind escalation settings
+  const [blindGrowthOptions] = useState([1.25, 1.5, 2]);
+  const [blindsIncreaseOptions] = useState([4, 6, 8, 10]);
+  const [maxBlindOptions] = useState([200, 500, 1000, 2000, 5000, 0]); // 0 = no limit
+  const [blindGrowth, setBlindGrowth] = useState(1.5);
+  const [blindsIncrease, setBlindsIncrease] = useState(6);
+  const [maxBlind, setMaxBlind] = useState(0); // no limit by default
 
   useEffect(() => {
     fetchPersonalities();
@@ -64,7 +82,11 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
       if (data.success) {
         setAvailableModels(data.models);
         setSelectedModel(data.default_model || 'gpt-5-nano');
-        setSelectedReasoning(data.default_reasoning || 'low');
+        // Only use API default if it's in our allowed list (minimal, low)
+        const apiReasoning = data.default_reasoning;
+        if (apiReasoning === 'minimal' || apiReasoning === 'low') {
+          setSelectedReasoning(apiReasoning);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch models:', error);
@@ -91,7 +113,12 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
     if (selectedPersonalities.length > 0) {
       const llmConfig: LLMConfig = {
         model: selectedModel,
-        reasoning_effort: selectedReasoning
+        reasoning_effort: selectedReasoning,
+        starting_stack: startingStack,
+        big_blind: bigBlind,
+        blind_growth: blindGrowth,
+        blinds_increase: blindsIncrease,
+        max_blind: maxBlind
       };
       onStartGame(selectedPersonalities, llmConfig);
     }
@@ -127,46 +154,94 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                 {selectedPersonalities.length} / 5
               </div>
             </div>
-            
-            <div className="setting">
-              <label>Difficulty</label>
-              <select
-                value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value)}
-                disabled
-              >
-                <option value="easy">Easy</option>
-                <option value="normal">Normal</option>
-                <option value="hard">Hard</option>
-              </select>
-              <span className="coming-soon">Coming soon</span>
-            </div>
 
             <div className="setting">
-              <label>AI Model</label>
+              <label>Starting Stack</label>
               <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                disabled={modelsLoading}
+                value={startingStack}
+                onChange={(e) => setStartingStack(parseInt(e.target.value))}
               >
-                {availableModels.map(model => (
-                  <option key={model} value={model}>{model}</option>
+                {stackOptions.map(stack => (
+                  <option key={stack} value={stack}>{stack.toLocaleString()}</option>
                 ))}
               </select>
             </div>
 
             <div className="setting">
-              <label>Reasoning Level</label>
+              <label>Big Blind</label>
               <select
-                value={selectedReasoning}
-                onChange={(e) => setSelectedReasoning(e.target.value)}
+                value={bigBlind}
+                onChange={(e) => setBigBlind(parseInt(e.target.value))}
               >
-                {reasoningLevels.map(level => (
-                  <option key={level} value={level}>
-                    {level.charAt(0).toUpperCase() + level.slice(1)}
-                  </option>
+                {blindOptions.map(blind => (
+                  <option key={blind} value={blind}>{blind}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="setting">
+              <label>Blinds Increase</label>
+              <select
+                value={blindsIncrease}
+                onChange={(e) => setBlindsIncrease(parseInt(e.target.value))}
+              >
+                {blindsIncreaseOptions.map(hands => (
+                  <option key={hands} value={hands}>Every {hands} hands</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="setting">
+              <label>Blind Growth</label>
+              <select
+                value={blindGrowth}
+                onChange={(e) => setBlindGrowth(parseFloat(e.target.value))}
+              >
+                {blindGrowthOptions.map(rate => (
+                  <option key={rate} value={rate}>{rate}x</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="setting">
+              <label>Max Blind</label>
+              <select
+                value={maxBlind}
+                onChange={(e) => setMaxBlind(parseInt(e.target.value))}
+              >
+                {maxBlindOptions.map(cap => (
+                  <option key={cap} value={cap}>{cap === 0 ? 'No Limit' : cap.toLocaleString()}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="setting-row">
+              <div className="setting">
+                <label>AI Model</label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  disabled={modelsLoading}
+                >
+                  {availableModels.map(model => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="setting">
+                <label>Reasoning</label>
+                <select
+                  value={selectedReasoning}
+                  onChange={(e) => setSelectedReasoning(e.target.value)}
+                >
+                  {reasoningLevels.map(level => (
+                    <option key={level} value={level}>
+                      {level.charAt(0).toUpperCase() + level.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </div>

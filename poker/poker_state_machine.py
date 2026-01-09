@@ -52,10 +52,17 @@ class PokerPhase(Enum):
 # ============================================================================
 
 @dataclass(frozen=True)
+class BlindConfig:
+    """Immutable blind escalation configuration."""
+    growth: float = 2.0  # multiplier for blind increase
+    hands_per_level: int = 5  # hands between increases
+    max_blind: int = 0  # 0 = no limit
+
+@dataclass(frozen=True)
 class StateMachineStats:
     """Immutable statistics tracking for the state machine."""
     hand_count: int = 0
-    
+
     def increment_hand_count(self) -> 'StateMachineStats':
         """Return new stats with incremented hand count."""
         return replace(self, hand_count=self.hand_count + 1)
@@ -71,6 +78,7 @@ class ImmutableStateMachine:
     phase: PokerPhase
     stats: StateMachineStats = field(default_factory=StateMachineStats)
     snapshots: Tuple[PokerGameState, ...] = field(default_factory=tuple)
+    blind_config: BlindConfig = field(default_factory=BlindConfig)
     
     def with_game_state(self, game_state: PokerGameState) -> 'ImmutableStateMachine':
         """Return new state with updated game state."""
@@ -219,14 +227,19 @@ def evaluating_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for HAND_OVER phase transition."""
     new_game_state = reset_game_state_for_new_hand(state.game_state)
-    
+
     # Increment hand count
     new_stats = state.stats.increment_hand_count()
-    
-    # Double ante every 5 hands
-    if new_stats.hand_count % 5 == 0:
-        new_game_state = new_game_state.update(current_ante=new_game_state.current_ante * 2)
-    
+
+    # Increase blinds based on config
+    blind_cfg = state.blind_config
+    if new_stats.hand_count % blind_cfg.hands_per_level == 0:
+        new_ante = int(new_game_state.current_ante * blind_cfg.growth)
+        # Apply max blind cap if set (0 = no limit)
+        if blind_cfg.max_blind > 0:
+            new_ante = min(new_ante, blind_cfg.max_blind)
+        new_game_state = new_game_state.update(current_ante=new_ante, last_raise_amount=new_ante)
+
     return (state
             .with_game_state(new_game_state)
             .with_stats(new_stats)
@@ -272,28 +285,50 @@ class PokerStateMachine:
     Immutable poker state machine.
     All methods that modify state return a new instance.
     """
-    
-    def __init__(self, game_state: PokerGameState, 
-                 _internal_state: Optional[ImmutableStateMachine] = None):
+
+    def __init__(self, game_state: PokerGameState,
+                 _internal_state: Optional[ImmutableStateMachine] = None,
+                 blind_config: Optional[dict] = None):
         """
         Initialize state machine.
-        
+
         Args:
             game_state: Initial game state (used for new games)
             _internal_state: Internal state (used for creating new instances)
+            blind_config: Optional dict with 'growth', 'hands_per_level', 'max_blind'
         """
         if _internal_state is not None:
             self._state = _internal_state
         else:
+            # Create BlindConfig from dict if provided
+            if blind_config:
+                bc = BlindConfig(
+                    growth=blind_config.get('growth', 2.0),
+                    hands_per_level=blind_config.get('hands_per_level', 5),
+                    max_blind=blind_config.get('max_blind', 0)
+                )
+            else:
+                bc = BlindConfig()
+
             self._state = ImmutableStateMachine(
                 game_state=game_state,
-                phase=PokerPhase.INITIALIZING_GAME
+                phase=PokerPhase.INITIALIZING_GAME,
+                blind_config=bc
             )
 
     @classmethod
-    def from_saved_state(cls, game_state: PokerGameState, phase: PokerPhase) -> 'PokerStateMachine':
+    def from_saved_state(cls, game_state: PokerGameState, phase: PokerPhase,
+                         blind_config: Optional[dict] = None) -> 'PokerStateMachine':
         """Create a state machine from a saved game state with a specific phase."""
-        internal = ImmutableStateMachine(game_state=game_state, phase=phase)
+        if blind_config:
+            bc = BlindConfig(
+                growth=blind_config.get('growth', 2.0),
+                hands_per_level=blind_config.get('hands_per_level', 5),
+                max_blind=blind_config.get('max_blind', 0)
+            )
+        else:
+            bc = BlindConfig()
+        internal = ImmutableStateMachine(game_state=game_state, phase=phase, blind_config=bc)
         return cls(game_state, _internal_state=internal)
 
     # ========================================================================
