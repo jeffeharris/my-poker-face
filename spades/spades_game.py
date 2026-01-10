@@ -48,12 +48,12 @@ def deal_cards():
     deck.shuffle()
     # TODO: <NEXT-STEP> replace "deck" with Deck()
     hands = {name: [] for name in player_names}
-    for i, card in enumerate(deck.card_deck.cards):     # TODO: make it easier to access the iterable cards for a Deck
+    for i, card in enumerate(deck.cards.cards):     # TODO: make it easier to access the iterable cards for a Deck
         player = list(hands.keys())[i % 4]
         hands[player].append(card.to_dict())
     # Sort each hand
     for hand in hands.values():
-        hand.sort(key=lambda x: (deck.card_deck.SUITS.index(x["suit"]), deck.card_deck.RANKS.index(x["rank"])))
+        hand.sort(key=lambda x: (deck.cards.SUITS.index(x["suit"]), deck.cards.RANKS.index(x["rank"])))
     return hands
 
 # Initialize game state

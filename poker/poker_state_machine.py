@@ -406,28 +406,55 @@ class PokerStateMachine:
             game_state=None,
             _internal_state=new_internal_state
         )
-    
+
+    # ========================================================================
+    # Mutable-style compatibility methods (for Flask integration)
+    # These mutate internal state to provide familiar mutable interface
+    # ========================================================================
+
+    @game_state.setter
+    def game_state(self, new_game_state: PokerGameState) -> None:
+        """Set game state (compatibility method for Flask)."""
+        self._state = self._state.with_game_state(new_game_state)
+
+    @phase.setter
+    def phase(self, new_phase: PokerPhase) -> None:
+        """Set phase (compatibility method for Flask)."""
+        self._state = self._state.with_phase(new_phase)
+
+    def advance_state(self) -> None:
+        """
+        Advance state machine by one step (mutable-style).
+        Compatibility method for Flask - mutates internal state.
+        """
+        self._state = advance_state_pure(self._state)
+
+    def update_phase(self, new_phase: PokerPhase) -> None:
+        """
+        Update to specified phase (mutable-style).
+        Compatibility method for Flask - mutates internal state.
+        """
+        self._state = self._state.with_phase(new_phase)
+
     def run_until_player_action(self) -> 'PokerStateMachine':
         """
-        Run until player action needed.
-        Returns a new PokerStateMachine instance.
+        Run until player action needed (mutable-style).
+        Mutates internal state and returns self for chaining.
         """
-        current = self
-        while not current.awaiting_action:
-            current = current.advance()
-        return current
+        while not self.awaiting_action:
+            self.advance_state()
+        return self
     
     def run_until(self, phases: List[PokerPhase]) -> 'PokerStateMachine':
         """
-        Run until one of the specified phases or player action.
-        Returns a new PokerStateMachine instance.
+        Run until one of the specified phases or player action (mutable-style).
+        Mutates internal state and returns self for chaining.
         """
-        current = self
-        while current.phase not in phases:
-            current = current.advance()
-            if current.awaiting_action:
+        while self.phase not in phases:
+            self.advance_state()
+            if self.awaiting_action:
                 break
-        return current
+        return self
     
     # ========================================================================
     # Serialization support for persistence

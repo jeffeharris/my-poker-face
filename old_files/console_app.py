@@ -253,7 +253,7 @@ def reveal_cards(poker_hand, deck: Deck, num_cards: int, new_phase: PokerHandPha
 
     """
     deck.discard(1)
-    deck.card_deck.deal(poker_hand.community_cards, num_cards)
+    deck.cards.deal(poker_hand.community_cards, num_cards)
     poker_hand.set_current_round(new_phase)
 
     output_text = f"""

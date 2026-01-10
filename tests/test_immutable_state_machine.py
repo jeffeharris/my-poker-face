@@ -17,24 +17,19 @@ class TestImmutableStateMachine(unittest.TestCase):
         self.assertIsNot(sm1, sm2)
         self.assertNotEqual(sm1.phase, sm2.phase)
     
-    def test_no_setters(self):
-        """Test that we can't set properties anymore."""
+    def test_setters_for_compatibility(self):
+        """Test that setters work for Flask compatibility."""
         game_state = initialize_game_state(['Alice', 'Bob'])
         sm = PokerStateMachine(game_state)
-        
-        # Try to set phase - should fail
-        try:
-            sm.phase = PokerPhase.FLOP
-            self.fail("Should not be able to set phase")
-        except AttributeError:
-            pass  # Expected
-        
-        # Try to set game_state - should fail  
-        try:
-            sm.game_state = game_state
-            self.fail("Should not be able to set game_state")
-        except AttributeError:
-            pass  # Expected
+
+        # Setters now work for Flask compatibility
+        sm.phase = PokerPhase.FLOP
+        self.assertEqual(sm.phase, PokerPhase.FLOP)
+
+        # game_state setter also works
+        new_game_state = game_state.update(current_player_idx=1)
+        sm.game_state = new_game_state
+        self.assertEqual(sm.game_state.current_player_idx, 1)
     
     def test_with_methods(self):
         """Test the with_* methods."""
@@ -53,13 +48,14 @@ class TestImmutableStateMachine(unittest.TestCase):
         self.assertEqual(sm3.game_state.current_player_idx, 1)
     
     def test_run_until_player_action(self):
-        """Test run_until_player_action returns new instance."""
+        """Test run_until_player_action works (mutable-style for compatibility)."""
         game_state = initialize_game_state(['Alice', 'Bob'])
-        sm1 = PokerStateMachine(game_state)
-        
-        sm2 = sm1.run_until_player_action()
-        self.assertIsNot(sm1, sm2)
-        self.assertTrue(sm2.awaiting_action)
+        sm = PokerStateMachine(game_state)
+
+        # Now mutates and returns self for chaining
+        result = sm.run_until_player_action()
+        self.assertIs(result, sm)  # Returns same instance
+        self.assertTrue(sm.awaiting_action)
     
     def test_chaining_operations(self):
         """Test that we can chain operations."""

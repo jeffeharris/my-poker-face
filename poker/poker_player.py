@@ -44,7 +44,9 @@ class PokerPlayer:
             name = player_dict["name"],
             starting_money=player_dict["money"]
         )
-        player.cards = Card.list_from_dict_list(player_dict["cards"])
+        cards_list = Card.list_from_dict_list(player_dict["cards"])
+        player.cards = CardSet()
+        player.cards.add_cards(cards_list)
         player.options = player_dict["options"]
         player.folded = player_dict["folded"]
         return player
@@ -176,7 +178,8 @@ class AIPokerPlayer(PokerPlayer):
                 game_id=game_id,
                 owner_id=owner_id
             )
-            instance.cards = cards
+            instance.cards = CardSet()
+            instance.cards.add_cards(cards)
             instance.options = options
             instance.folded = folded
             instance.confidence = confidence
