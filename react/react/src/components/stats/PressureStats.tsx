@@ -19,9 +19,30 @@ interface PlayerSummary {
   signature_move: string;
 }
 
-interface LeaderboardEntry {
+interface BiggestWinnerEntry {
   name: string;
-  [key: string]: string | number;
+  wins: number;
+  biggest_pot: number;
+}
+
+interface BlufferEntry {
+  name: string;
+  bluffs: number;
+}
+
+interface TiltMasterEntry {
+  name: string;
+  tilt_score: number;
+}
+
+interface AggressiveEntry {
+  name: string;
+  aggression: number;
+}
+
+interface BadBeatEntry {
+  name: string;
+  bad_beats: number;
 }
 
 interface SessionSummary {
@@ -30,11 +51,11 @@ interface SessionSummary {
   biggest_pot: number;
   player_summaries: { [name: string]: PlayerSummary };
   leaderboards: {
-    biggest_winners: LeaderboardEntry[];
-    master_bluffers: LeaderboardEntry[];
-    most_aggressive: LeaderboardEntry[];
-    bad_beat_victims: LeaderboardEntry[];
-    tilt_masters: LeaderboardEntry[];
+    biggest_winners: BiggestWinnerEntry[];
+    master_bluffers: BlufferEntry[];
+    most_aggressive: AggressiveEntry[];
+    bad_beat_victims: BadBeatEntry[];
+    tilt_masters: TiltMasterEntry[];
   };
   fun_facts: string[];
 }
