@@ -11,9 +11,17 @@ interface PlayerShowdownInfo {
   kickers?: string[];
 }
 
+interface PotBreakdown {
+  pot_name: string;
+  total_amount: number;
+  winners: { name: string; amount: number }[];
+  hand_name?: string;
+}
+
 interface WinnerInfo {
   winners: string[];
-  winnings: { [key: string]: number };
+  winnings?: { [key: string]: number };  // Optional - may use pot_breakdown instead
+  pot_breakdown?: PotBreakdown[];  // New format from backend
   hand_name: string;
   winning_hand?: string[];
   showdown: boolean;
@@ -76,7 +84,14 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
     ? winnerInfo.winners.slice(0, -1).join(', ') + ' and ' + winnerInfo.winners[winnerInfo.winners.length - 1]
     : winnerInfo.winners[0];
 
-  const totalWinnings = Object.values(winnerInfo.winnings).reduce((sum, val) => sum + val, 0);
+  // Calculate total winnings - use winnings object if available, otherwise calculate from pot_breakdown
+  let totalWinnings = 0;
+  if (winnerInfo.winnings) {
+    totalWinnings = Object.values(winnerInfo.winnings).reduce((sum, val) => sum + val, 0);
+  } else if (winnerInfo.pot_breakdown) {
+    // Sum up all pot amounts
+    totalWinnings = winnerInfo.pot_breakdown.reduce((sum: number, pot: { total_amount: number }) => sum + pot.total_amount, 0);
+  }
   const isSplitPot = winnerInfo.winners.length > 1;
 
   return (

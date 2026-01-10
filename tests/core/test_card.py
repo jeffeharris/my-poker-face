@@ -14,7 +14,12 @@ class TestCard(unittest.TestCase):
 
     def test_card_to_dict(self):
         card_dict = self.test_card.to_dict()
-        self.assertDictEqual(card_dict, {'rank': 'A', 'suit': '♥', 'value': 14})
+        self.assertDictEqual(card_dict, {
+            'rank': 'A',
+            'suit': 'Hearts',
+            'suit_symbol': '♥',
+            'value': 14
+        })
 
     def test_card_from_dict(self):
         card_dict = {'rank': 'A', 'suit': 'Hearts'}

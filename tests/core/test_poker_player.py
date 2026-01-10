@@ -3,6 +3,7 @@ import unittest
 from core.llm import Assistant
 from poker.poker_player import PokerPlayer, AIPokerPlayer
 from core.card import Card
+from old_files.deck import CardSet
 
 
 class AIPokerPlayerTests(unittest.TestCase):
@@ -11,7 +12,8 @@ class AIPokerPlayerTests(unittest.TestCase):
         self.name = "AI Player"
         self.money = 20000
         self.obj = AIPokerPlayer(self.name, self.money)
-        self.obj.cards = [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')]
+        self.obj.cards = CardSet()
+        self.obj.cards.add_cards([Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
         self.obj.options = ['fold', 'check', 'call', 'raise']
         self.obj.folded = False
         self.obj.confidence = "High"
@@ -44,7 +46,7 @@ class AIPokerPlayerTests(unittest.TestCase):
         result = AIPokerPlayer.from_dict(data)
         self.assertEqual('TestName', result.name)
         self.assertEqual(30000, result.money)
-        self.assertEqual([Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')], result.cards)
+        self.assertEqual([Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')], list(result.cards))
         self.assertEqual(['fold', 'check', 'call', 'raise'], result.options)
         self.assertEqual(False, result.folded)
         self.assertEqual("High", result.confidence)
@@ -75,13 +77,14 @@ class AIPokerPlayerTests(unittest.TestCase):
 class TestPokerPlayer(unittest.TestCase):
     def setUp(self):
         self.player = PokerPlayer("Test", 5000)
-        self.player.cards = [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')]
+        self.player.cards = CardSet()
+        self.player.cards.add_cards([Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
         self.player.options = ['fold','call','raise','all-in']
 
     def test_init(self):
         self.assertEqual(self.player.name, "Test")
         self.assertEqual(self.player.money, 5000)
-        self.assertEqual(self.player.cards, [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
+        self.assertEqual(list(self.player.cards), [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
         self.assertEqual(self.player.options, ['fold','call','raise','all-in'])
         self.assertEqual(self.player.folded, False)
 
@@ -109,7 +112,7 @@ class TestPokerPlayer(unittest.TestCase):
         self.player.from_dict(player_dict)
         self.assertEqual(self.player.name, "Test")
         self.assertEqual(self.player.money, 5000)
-        self.assertEqual(self.player.cards, [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
+        self.assertEqual(list(self.player.cards), [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
         self.assertEqual(self.player.options, ['fold','call','raise','all-in'])
         self.assertEqual(self.player.folded, False)
 
@@ -126,10 +129,11 @@ class TestPokerPlayer(unittest.TestCase):
         self.assertEqual(self.player.money, 4000)
 
     def test_set_for_new_hand(self):
-        self.player.cards = [Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')]
+        self.player.cards = CardSet()
+        self.player.cards.add_cards([Card(rank='A', suit='Hearts'), Card(rank='K', suit='Spades')])
         self.player.folded = True
         self.player.set_for_new_hand()
-        self.assertEqual(self.player.cards, [])
+        self.assertEqual(len(self.player.cards), 0)  # CardSet should be empty
         self.assertEqual(self.player.folded, False)
 
 

@@ -49,17 +49,17 @@ class CardSet:
 
 
 class Deck:
-    card_deck: CardSet
+    cards: CardSet
     discard_pile: CardSet
 
     def __init__(self):
-        self.card_deck = self._init_deck()
+        self.cards = self._init_deck()
         self.discard_pile = CardSet()
 
     def to_dict(self) -> Dict[str, List[Dict[str, str]]]:
         """Convert the Deck to a dictionary representation."""
         deck_dict = {
-            'card_deck': self.card_deck.to_dict(),
+            'cards': self.cards.to_dict(),
             'discard_pile': self.discard_pile.to_dict()
         }
         return deck_dict
@@ -68,7 +68,7 @@ class Deck:
     def from_dict(cls, deck_dict: Dict[str, List[Dict[str, str]]]) -> 'Deck':
         """Create a Deck instance from a dictionary representation."""
         instance = cls()
-        instance.card_deck = CardSet.from_dict(deck_dict['card_deck'])
+        instance.cards = CardSet.from_dict(deck_dict['cards'])
         instance.discard_pile = CardSet.from_dict(deck_dict['discard_pile'])
         return instance
 
@@ -83,16 +83,40 @@ class Deck:
 
     def shuffle(self) -> None:
         """Shuffle the deck of cards."""
-        random.shuffle(self.card_deck.cards)
+        random.shuffle(self.cards.cards)
 
-    def discard(self, num=1) -> None:
-        """Discard a number of cards from the Deck."""
-        self.card_deck.deal(self.discard_pile, num)
-        return None
+    def deal(self, num: int = 1) -> CardSet:
+        """Deal cards from the deck (removes them entirely, not to discard pile).
+
+        Args:
+            num: Number of cards to deal
+
+        Returns:
+            CardSet containing the dealt cards
+        """
+        dealt = CardSet()
+        self.cards.deal(dealt, num)
+        return dealt
+
+    def discard(self, num=1) -> CardSet:
+        """Discard a number of cards from the Deck to the discard pile.
+
+        Args:
+            num: Number of cards to discard
+
+        Returns:
+            CardSet containing the discarded cards
+        """
+        discarded = CardSet()
+        self.cards.deal(discarded, num)
+        # Also add to discard pile
+        for card in discarded.cards:
+            self.discard_pile.cards.append(card)
+        return discarded
 
     def _return_cards_to_deck(self, cards: CardSet, shuffle: bool = True) -> None:
         """Return cards to the Deck and optionally shuffle."""
-        cards.deal(self.card_deck, len(cards))
+        cards.deal(self.cards, len(cards))
         if shuffle:
             self.shuffle()
 
@@ -109,7 +133,7 @@ class Deck:
             raise DeckError("Deck card count is wrong")
 
     def _validate_deck(self) -> bool:
-        return len(self.card_deck) + len(self.discard_pile) == 52
+        return len(self.cards) + len(self.discard_pile) == 52
 
 class DeckError(Exception):
     """Custom exception for Deck-related errors."""

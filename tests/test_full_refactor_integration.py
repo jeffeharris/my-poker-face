@@ -60,19 +60,22 @@ class TestFullRefactorIntegration(unittest.TestCase):
         self.assertEqual(new_state.players[0].stack, 5000)
     
     def test_run_until_patterns(self):
-        """Test run_until methods return new instances."""
+        """Test run_until methods work (mutable-style for compatibility)."""
         game_state = initialize_game_state(['Alice', 'Bob'])
-        sm1 = PokerStateMachine(game_state)
-        
-        # run_until_player_action returns new instance
-        sm2 = sm1.run_until_player_action()
-        self.assertIsNot(sm1, sm2)
-        self.assertTrue(sm2.awaiting_action)
-        
-        # run_until returns new instance
-        sm3 = sm1.run_until([PokerPhase.PRE_FLOP])
-        self.assertIsNot(sm1, sm3)
-        self.assertEqual(sm3.phase, PokerPhase.PRE_FLOP)
+        sm = PokerStateMachine(game_state)
+
+        # run_until_player_action mutates and returns self for chaining
+        result = sm.run_until_player_action()
+        self.assertIs(result, sm)  # Returns same instance
+        self.assertTrue(sm.awaiting_action)
+
+        # Create fresh state machine for next test
+        sm2 = PokerStateMachine(initialize_game_state(['Alice', 'Bob']))
+
+        # run_until also mutates and returns self
+        result2 = sm2.run_until([PokerPhase.PRE_FLOP])
+        self.assertIs(result2, sm2)
+        self.assertEqual(sm2.phase, PokerPhase.PRE_FLOP)
     
     def test_no_mutations_in_properties(self):
         """Verify all properties are free of mutations."""

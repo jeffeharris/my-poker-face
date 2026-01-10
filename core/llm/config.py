@@ -21,5 +21,5 @@ DEFAULT_MAX_TOKENS = 5000
 # Available models for UI selection
 AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
 
-# Image generation model
+# Image generation model (dall-e-3 follows prompts better but requires API access)
 DEFAULT_IMAGE_MODEL = "dall-e-2"

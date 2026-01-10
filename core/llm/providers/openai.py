@@ -46,6 +46,11 @@ class OpenAIProvider(LLMProvider):
             return self._reasoning_effort
         return None
 
+    @property
+    def image_model(self) -> str:
+        """Return the image generation model name."""
+        return DEFAULT_IMAGE_MODEL
+
     def complete(
         self,
         messages: List[Dict[str, str]],

@@ -302,7 +302,7 @@ class RoundManager:
 
     def deal_hole_cards(self):
         for player in self.players:
-            self.deck.card_deck.deal(player.cards,2)
+            self.deck.cards.deal(player.cards,2)
 
     def get_opponent_status(self, requesting_player=None) -> List[str]:
         opponent_positions = []

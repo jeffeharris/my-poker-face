@@ -129,6 +129,7 @@ export function MobilePokerTable({
 
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
+  const isShowdown = gameState?.phase?.toLowerCase() === 'showdown';
 
   // Create stable card identifiers (only changes when actual cards change)
   const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
@@ -161,16 +162,21 @@ export function MobilePokerTable({
     const containerEl = opponentsContainerRef.current;
 
     if (opponentEl && containerEl) {
-      // Calculate scroll position to center the element
-      const containerWidth = containerEl.offsetWidth;
-      const elementLeft = opponentEl.offsetLeft;
-      const elementWidth = opponentEl.offsetWidth;
-      const scrollTarget = elementLeft - (containerWidth / 2) + (elementWidth / 2);
+      // Wait for CSS width transition to complete (300ms) before centering
+      const timeoutId = setTimeout(() => {
+        // Calculate scroll position to center the element with its new width
+        const containerWidth = containerEl.offsetWidth;
+        const elementLeft = opponentEl.offsetLeft;
+        const elementWidth = opponentEl.offsetWidth;
+        const scrollTarget = elementLeft - (containerWidth / 2) + (elementWidth / 2);
 
-      containerEl.scrollTo({
-        left: scrollTarget,
-        behavior: 'smooth'
-      });
+        containerEl.scrollTo({
+          left: scrollTarget,
+          behavior: 'smooth'
+        });
+      }, 320); // Slightly longer than 300ms transition
+
+      return () => clearTimeout(timeoutId);
     }
   }, [gameState?.current_player_idx, currentPlayer?.name]);
 
@@ -378,9 +384,22 @@ export function MobilePokerTable({
               <div className="opponent-avatar">
                 {opponent.avatar_url ? (
                   <img
-                    src={`${config.API_URL}${opponent.avatar_url}`}
+                    src={`${config.API_URL}${opponent.avatar_url}/full`}
                     alt={`${opponent.name} - ${opponent.avatar_emotion || 'avatar'}`}
-                    className="avatar-image"
+                    className={`avatar-image ${
+                      opponent.avatar_emotion === 'thinking' ? 'avatar-image--thinking' : ''
+                    } ${isShowdown ? 'avatar-image--showdown' : ''}`}
+                    onError={(e) => {
+                      // Fallback to regular avatar if full image not available
+                      const img = e.currentTarget;
+                      if (img.dataset.fallbackTried === 'true') {
+                        // Both full and regular failed, hide broken image
+                        img.style.display = 'none';
+                        return;
+                      }
+                      img.dataset.fallbackTried = 'true';
+                      img.src = `${config.API_URL}${opponent.avatar_url}`;
+                    }}
                   />
                 ) : (
                   opponent.name.charAt(0).toUpperCase()
@@ -566,11 +585,14 @@ export function MobilePokerTable({
         onSendMessage={handleSendMessage}
       />
 
-      {/* Tournament Complete */}
-      <TournamentComplete
-        result={tournamentResult}
-        onComplete={handleTournamentComplete}
-      />
+      {/* Tournament Complete - only show when no final hand winner announcement is active */}
+      {/* This prevents the tournament screen from covering the hand results */}
+      {!(winnerInfo?.is_final_hand) && (
+        <TournamentComplete
+          result={tournamentResult}
+          onComplete={handleTournamentComplete}
+        />
+      )}
 
       {/* Chat Sheet (bottom drawer) */}
       {showChatSheet && (

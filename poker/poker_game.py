@@ -92,6 +92,7 @@ class PokerGameState:
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
+    run_it_out: bool = False  # True when all players are all-in, auto-advance with delays
 
     def to_dict(self) -> Dict:
         """
@@ -194,7 +195,7 @@ class PokerGameState:
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if self.can_big_blind_take_pre_flop_action:
             return ['check', 'raise', 'all_in']
-        
+
         # Build options based on game state using list comprehension
         option_conditions = [
             ('fold', player_cost_to_call > 0),
@@ -204,7 +205,7 @@ class PokerGameState:
             ('all_in', player.stack > 0),
             # ('chat', False),  # Not implemented yet
         ]
-        
+
         return [option for option, condition in option_conditions if condition]
 
     @property
@@ -671,6 +672,8 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     pot_index = 0
     # Track each player's remaining contributions independently
     remaining_contributions = {p.name: p.bet for p in game_state.players}
+    # Track chips returned to players who over-contributed (no opponents to contest)
+    returned_chips = {}
     # List to track evaluated hands for all eligible players
     evaluated_hands = []
 
@@ -680,6 +683,18 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         tier_contribution = remaining_contributions[active_players_sorted[0].name]
         # Players eligible for this tier (all with contribution >= tier_contribution)
         eligible_players = [p for p in active_players_sorted if remaining_contributions[p.name] >= tier_contribution]
+
+        # If only one player is eligible AND this is a side pot situation (not the main pot),
+        # silently return their excess chips (no opponents to contest this tier)
+        # Note: pot_index > 0 means we've already processed at least one pot
+        if len(eligible_players) == 1 and pot_index > 0:
+            single_player = eligible_players[0]
+            excess_amount = remaining_contributions[single_player.name]
+            returned_chips[single_player.name] = returned_chips.get(single_player.name, 0) + excess_amount
+            remaining_contributions[single_player.name] = 0
+            active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
+            continue  # Skip to next tier - no pot entry created
+
         # Calculate the pot for this tier by adding all the player's actual contributions up to the tier_contribution
         tier_pot = sum([min(remaining_contributions[p], tier_contribution) for p in remaining_contributions])
         # Evaluate hands for eligible players and find the winner(s)
@@ -758,6 +773,7 @@ def determine_winner(game_state: PokerGameState) -> Dict:
     display_hand = [rank_to_display(v) for v in raw_hand_values]
     winner_info = {
         'pot_breakdown': pot_breakdown,
+        'returned_chips': returned_chips,  # Chips returned to players who over-contributed
         'winning_hand': display_hand,
         'winning_hand_values': raw_hand_values,  # Keep numeric values for internal comparisons
         'hand_name': best_overall_hand['hand_name'],
@@ -775,6 +791,10 @@ def award_pot_winnings(game_state, winner_info):
     for pot in winner_info.get('pot_breakdown', []):
         for winner in pot['winners']:
             winnings[winner['name']] = winnings.get(winner['name'], 0) + winner['amount']
+
+    # Add returned chips (excess contributions with no opponents to contest)
+    for name, amount in winner_info.get('returned_chips', {}).items():
+        winnings[name] = winnings.get(name, 0) + amount
 
     # Reward winning players
     for name, amount in winnings.items():

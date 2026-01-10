@@ -188,7 +188,7 @@ class LLMClient:
 
             response = ImageResponse(
                 url=url,
-                model="dall-e-2",  # Currently hardcoded in provider
+                model=self._provider.image_model,  # Currently hardcoded in provider
                 provider=self._provider.provider_name,
                 size=size,
                 image_count=1,
@@ -200,16 +200,23 @@ class LLMClient:
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
-            logger.error(f"Image generation failed: {e}")
+            error_message = str(e)
+            logger.error(f"Image generation failed: {error_message}")
+
+            # Extract error code - check for content_policy_violation in the error message
+            error_code = type(e).__name__
+            if "content_policy_violation" in error_message:
+                error_code = "content_policy_violation"
 
             response = ImageResponse(
                 url="",
-                model="dall-e-2",
+                model=self._provider.image_model,
                 provider=self._provider.provider_name,
                 size=size,
                 latency_ms=latency_ms,
                 status="error",
-                error_code=type(e).__name__,
+                error_code=error_code,
+                error_message=error_message,
             )
 
         # Track usage

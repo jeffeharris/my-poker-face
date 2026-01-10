@@ -206,13 +206,23 @@ class AIPlayerController:
         # Effective cost is capped at player's stack (they can only risk what they have)
         cost_to_call = min(raw_cost_to_call, player_stack)
 
+        # Calculate max raise: capped at largest opponent stack (can only raise what they can match)
+        max_opponent_stack = max(
+            (p.stack for p in game_state.players
+             if not p.is_folded and not p.is_all_in and p.name != game_state.current_player.name),
+            default=0
+        )
+        max_raise = min(player_stack, max_opponent_stack, game_state.pot['total'] * 2)
+        # Collar min_raise to not exceed what's actually possible
+        min_raise = min(game_state.min_raise_amount, max_raise) if max_raise > 0 else 0
+
         # Use resilient AI call
         response_dict = self._get_ai_decision(
             message=message,
             valid_actions=player_options,
             call_amount=cost_to_call,
-            min_raise=game_state.min_raise_amount,
-            max_raise=min(player_stack, game_state.pot['total'] * 2),
+            min_raise=min_raise,
+            max_raise=max_raise,
             should_speak=should_speak
         )
         
