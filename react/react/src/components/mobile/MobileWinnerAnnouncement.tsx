@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { PartyPopper, Smile, Angry, Handshake, Trophy, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
 import { getOrdinal } from "../../types/tournament";
@@ -50,7 +51,7 @@ interface CommentaryItem {
 
 interface ToneOption {
     id: PostRoundTone;
-    emoji: string;
+    icon: LucideIcon;
     label: string;
 }
 
@@ -65,14 +66,14 @@ interface MobileWinnerAnnouncementProps {
 
 // Tone options for winners
 const WINNER_TONES: ToneOption[] = [
-    { id: 'gloat', emoji: '🎉', label: 'Gloat' },
-    { id: 'humble', emoji: '😇', label: 'Humble' },
+    { id: 'gloat', icon: PartyPopper, label: 'Gloat' },
+    { id: 'humble', icon: Smile, label: 'Humble' },
 ];
 
 // Tone options for losers
 const LOSER_TONES: ToneOption[] = [
-    { id: 'salty', emoji: '😤', label: 'Salty' },
-    { id: 'gracious', emoji: '🤝', label: 'Gracious' },
+    { id: 'salty', icon: Angry, label: 'Salty' },
+    { id: 'gracious', icon: Handshake, label: 'Gracious' },
 ];
 
 export function MobileWinnerAnnouncement({
@@ -278,7 +279,7 @@ export function MobileWinnerAnnouncement({
     return (
         <div className="mobile-winner-overlay">
             <div className="mobile-winner-content">
-                <div className="winner-trophy">🏆</div>
+                <div className="winner-trophy"><Trophy size={48} /></div>
 
                 {/* Tournament Outcome Banner - only shown on final hand */}
                 {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
@@ -400,7 +401,7 @@ export function MobileWinnerAnnouncement({
                                     className="post-round-back"
                                     onClick={handleBackToTones}
                                 >
-                                    ← Back
+                                    <ArrowLeft size={14} /> Back
                                 </button>
                             </div>
                         ) : (
@@ -411,7 +412,7 @@ export function MobileWinnerAnnouncement({
                                         className={`post-round-tone tone-${tone.id}`}
                                         onClick={() => handleToneSelect(tone.id)}
                                     >
-                                        <span className="tone-emoji">{tone.emoji}</span>
+                                        <tone.icon className="tone-icon" size={18} />
                                         <span className="tone-label">{tone.label}</span>
                                     </button>
                                 ))}
@@ -422,7 +423,7 @@ export function MobileWinnerAnnouncement({
 
                 {messageSent && (
                     <div className="post-round-sent">
-                        ✓ Sent
+                        <Check size={14} /> Sent
                     </div>
                 )}
 

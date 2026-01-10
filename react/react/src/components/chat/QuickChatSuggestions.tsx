@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { MessageCircle, Flame, Smile, HelpCircle, Zap, Theater, Handshake, Users, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
@@ -24,17 +25,17 @@ interface QuickChatSuggestionsProps {
 
 interface ToneOption {
   id: ChatTone;
-  emoji: string;
+  icon: LucideIcon;
   label: string;
 }
 
 const TONE_OPTIONS: ToneOption[] = [
-  { id: 'tilt', emoji: '🔥', label: 'Tilt' },
-  { id: 'false_confidence', emoji: '😇', label: 'False Confidence' },
-  { id: 'doubt', emoji: '🤨', label: 'Doubt' },
-  { id: 'goad', emoji: '😈', label: 'Goad' },
-  { id: 'mislead', emoji: '🎭', label: 'Mislead' },
-  { id: 'befriend', emoji: '🤝', label: 'Befriend' },
+  { id: 'tilt', icon: Flame, label: 'Tilt' },
+  { id: 'false_confidence', icon: Smile, label: 'False Confidence' },
+  { id: 'doubt', icon: HelpCircle, label: 'Doubt' },
+  { id: 'goad', icon: Zap, label: 'Goad' },
+  { id: 'mislead', icon: Theater, label: 'Mislead' },
+  { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 
 export function QuickChatSuggestions({
@@ -211,7 +212,7 @@ export function QuickChatSuggestions({
           onClick={() => setIsExpanded(true)}
           title="Quick chat suggestions"
         >
-          <span className="toggle-emoji">💬</span>
+          <MessageCircle className="toggle-emoji" size={18} />
           <span className="toggle-text">Quick Chat</span>
         </button>
       </div>
@@ -248,7 +249,7 @@ export function QuickChatSuggestions({
             onClick={() => handleTargetSelect('table')}
             title="Talk to the table"
           >
-            <span className="target-avatar">🎲</span>
+            <Users className="target-avatar" size={16} />
             <span className="target-name">Table</span>
           </button>
           {aiPlayers.map((player) => (
@@ -288,7 +289,7 @@ export function QuickChatSuggestions({
               onClick={() => handleToneSelect(tone.id)}
               title={tone.label}
             >
-              <span className="tone-emoji">{tone.emoji}</span>
+              <tone.icon className="tone-icon" size={16} />
               <span className="tone-label">{tone.label}</span>
             </button>
           ))}

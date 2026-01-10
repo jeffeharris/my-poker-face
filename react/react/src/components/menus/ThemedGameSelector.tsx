@@ -1,4 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import {
+  FlaskConical, Clapperboard, Medal, Crown, Music, Laugh, Skull, Sparkles, Dices,
+  type LucideIcon
+} from 'lucide-react';
 import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
 import './ThemedGameSelector.css';
@@ -7,7 +11,7 @@ interface Theme {
   id: string;
   name: string;
   description: string;
-  icon: string;
+  icon: LucideIcon;
   personalities?: string[];
 }
 
@@ -18,14 +22,14 @@ interface ThemedGameSelectorProps {
 
 // Predefined theme prompts that will be sent to OpenAI
 const THEME_PROMPTS: Theme[] = [
-  { id: 'science', name: 'Science Masters', icon: '🧪', description: 'Great minds think alike... or do they?' },
-  { id: 'hollywood', name: 'Hollywood Legends', icon: '🎬', description: 'Lights, camera, all-in!' },
-  { id: 'sports', name: 'Sports Champions', icon: '🏅', description: 'Bring your A-game to the table' },
-  { id: 'history', name: 'Historical Figures', icon: '👑', description: 'Making history one hand at a time' },
-  { id: 'music', name: 'Music Icons', icon: '🎵', description: 'Feel the rhythm of the cards' },
-  { id: 'comedy', name: 'Comedy Legends', icon: '😂', description: 'No joke - these players are serious!' },
-  { id: 'villains', name: 'Famous Villains', icon: '😈', description: 'Sometimes it pays to be bad' },
-  { id: 'surprise', name: 'Surprise Me!', icon: '✨', description: 'A mysterious mix of personalities' }
+  { id: 'science', name: 'Science Masters', icon: FlaskConical, description: 'Great minds think alike... or do they?' },
+  { id: 'hollywood', name: 'Hollywood Legends', icon: Clapperboard, description: 'Lights, camera, all-in!' },
+  { id: 'sports', name: 'Sports Champions', icon: Medal, description: 'Bring your A-game to the table' },
+  { id: 'history', name: 'Historical Figures', icon: Crown, description: 'Making history one hand at a time' },
+  { id: 'music', name: 'Music Icons', icon: Music, description: 'Feel the rhythm of the cards' },
+  { id: 'comedy', name: 'Comedy Legends', icon: Laugh, description: 'No joke - these players are serious!' },
+  { id: 'villains', name: 'Famous Villains', icon: Skull, description: 'Sometimes it pays to be bad' },
+  { id: 'surprise', name: 'Surprise Me!', icon: Sparkles, description: 'A mysterious mix of personalities' }
 ];
 
 export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelectorProps) {
@@ -109,11 +113,11 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
               onClick={() => handleGenerateTheme(theme)}
               disabled={generating}
             >
-              <div className="theme-icon">{theme.icon}</div>
+              <div className="theme-icon"><theme.icon size={32} /></div>
               <h3>{theme.name}</h3>
               <p>{theme.description}</p>
               {theme.id === 'surprise' && (
-                <div className="surprise-badge">🎲</div>
+                <div className="surprise-badge"><Dices size={16} /></div>
               )}
             </button>
           ))}

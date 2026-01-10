@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Search, Check } from 'lucide-react';
 import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
 import './CustomGameConfig.css';
@@ -263,7 +264,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
               onChange={(e) => setSearchTerm(e.target.value)}
               className="search-input"
             />
-            <span className="search-icon">🔍</span>
+            <Search className="search-icon" size={18} />
           </div>
 
           {loading ? (
@@ -282,7 +283,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                   <div className="personality-header">
                     <h4>{name}</h4>
                     {selectedPersonalities.includes(name) && (
-                      <span className="checkmark">✓</span>
+                      <Check className="checkmark" size={20} />
                     )}
                   </div>
                   

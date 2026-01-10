@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { Target, Flame, Square, Phone, Search, Frown, Angry, Meh, Smile, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import { config } from '../../config';
 import './HeadsUpOpponentPanel.css';
@@ -95,13 +96,13 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
 
   const psych = opponent.psychology;
 
-  const getPlayStyleLabel = (style: string) => {
-    const labels: Record<string, { label: string; emoji: string }> = {
-      'tight-aggressive': { label: 'Tight & Aggressive', emoji: '🎯' },
-      'loose-aggressive': { label: 'Loose & Aggressive', emoji: '🔥' },
-      'tight-passive': { label: 'Tight & Passive', emoji: '🪨' },
-      'loose-passive': { label: 'Calling Station', emoji: '📞' },
-      'unknown': { label: 'Still reading...', emoji: '🔍' },
+  const getPlayStyleLabel = (style: string): { label: string; icon: LucideIcon } => {
+    const labels: Record<string, { label: string; icon: LucideIcon }> = {
+      'tight-aggressive': { label: 'Tight & Aggressive', icon: Target },
+      'loose-aggressive': { label: 'Loose & Aggressive', icon: Flame },
+      'tight-passive': { label: 'Tight & Passive', icon: Square },
+      'loose-passive': { label: 'Calling Station', icon: Phone },
+      'unknown': { label: 'Still reading...', icon: Search },
     };
     return labels[style] || labels['unknown'];
   };
@@ -114,12 +115,13 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
     return 'Very passive';
   };
 
-  const getTiltEmoji = (category: string) => {
+  const getTiltIcon = (category: string): ReactNode => {
+    const iconProps = { size: 16, className: "tilt-icon" };
     switch (category) {
-      case 'severe': return '🤯';
-      case 'moderate': return '😤';
-      case 'mild': return '😠';
-      default: return '😊';
+      case 'severe': return <Frown {...iconProps} />;
+      case 'moderate': return <Angry {...iconProps} />;
+      case 'mild': return <Meh {...iconProps} />;
+      default: return <Smile {...iconProps} />;
     }
   };
 
@@ -150,7 +152,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
       {observation && observation.hands_observed >= 3 ? (
         <div className="psychology-section playstyle-section">
           <div className="playstyle-main">
-            <span className="playstyle-emoji">{playStyle?.emoji}</span>
+            {playStyle && <playStyle.icon className="playstyle-icon" size={18} />}
             <span className="playstyle-label">{playStyle?.label}</span>
           </div>
           <div className="playstyle-details">
@@ -169,7 +171,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
       ) : (
         <div className="psychology-section playstyle-section">
           <div className="playstyle-main">
-            <span className="playstyle-emoji">🔍</span>
+            <Search className="playstyle-icon" size={18} />
             <span className="playstyle-label">Still reading...</span>
           </div>
           <div className="hands-observed">
@@ -210,7 +212,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
       {psych && psych.tilt_category !== 'none' && (
         <div className={`psychology-section tilt-section ${psych.tilt_category}`}>
           <div className="tilt-header">
-            <span className="tilt-emoji">{getTiltEmoji(psych.tilt_category)}</span>
+            <span className="tilt-emoji">{getTiltIcon(psych.tilt_category)}</span>
             <span className="tilt-label">
               {getTiltDescription(psych.tilt_category, psych.tilt_source, psych.losing_streak)}
             </span>
@@ -227,7 +229,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
       {/* Calm state - only show if no other emotional content */}
       {(!psych?.narrative && !psych?.inner_voice && (!psych || psych.tilt_category === 'none')) && (
         <div className="psychology-section calm-section">
-          <span className="calm-emoji">😊</span>
+          <Smile className="calm-icon" size={16} />
           <span className="calm-text">Playing steady</span>
         </div>
       )}
