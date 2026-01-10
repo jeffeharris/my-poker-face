@@ -687,6 +687,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
+        # Save final state to persistence
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         return game_state, True
 
     # Check tournament completion
@@ -696,6 +699,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
+        # Save final state to persistence
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         return game_state, True
 
     # Wait for commentary to complete before starting new hand
@@ -722,6 +728,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     game_state_service.set_game(game_id, game_data)
     state_machine.advance_state()
     update_and_emit_game_state(game_id)
+
+    # Save state after hand evaluation completes (now in stable phase)
+    owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
     return game_state, False
 
@@ -771,8 +781,11 @@ def progress_game(game_id: str) -> None:
 
             update_and_emit_game_state(game_id)
 
-            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-            persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+            # Only save state when in a stable phase (not transitional phases like EVALUATING_HAND)
+            # This prevents getting stuck if the client disconnects during evaluation
+            if state_machine.current_phase != PokerPhase.EVALUATING_HAND:
+                owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+                persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
             handle_phase_cards_dealt(game_id, state_machine, game_state)
 
