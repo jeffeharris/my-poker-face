@@ -13,8 +13,108 @@ RED='\033[0;31m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Base ports for the project (matches main worktree .env)
+BASE_BACKEND_PORT=5000
+BASE_FRONTEND_PORT=5174
+BASE_REDIS_PORT=6379
+BASE_METABASE_PORT=3002
+
 echo -e "${BLUE}=== Claude Code Worktree Helper ===${NC}"
 echo
+
+# Function to detect the next available port offset by scanning running containers
+detect_next_port_offset() {
+    local max_offset=0
+
+    # Scan running containers for my-poker-face backend ports
+    if command -v docker &> /dev/null; then
+        while read -r port; do
+            if [[ -n "$port" && "$port" =~ ^[0-9]+$ ]]; then
+                local offset=$((port - BASE_BACKEND_PORT))
+                if [[ $offset -ge 0 && $offset -gt $max_offset ]]; then
+                    max_offset=$offset
+                fi
+            fi
+        done < <(docker ps --format '{{.Ports}}' 2>/dev/null | grep -oE "0\.0\.0\.0:50[0-9]{2}" | cut -d: -f2 | sort -u)
+    fi
+
+    # Also check for existing .env files in sibling worktree directories
+    for env_file in ../my-poker-face*/.env; do
+        if [[ -f "$env_file" ]]; then
+            local backend_port
+            backend_port=$(grep "^BACKEND_PORT=" "$env_file" 2>/dev/null | cut -d= -f2)
+            if [[ -n "$backend_port" && "$backend_port" =~ ^[0-9]+$ ]]; then
+                local offset=$((backend_port - BASE_BACKEND_PORT))
+                if [[ $offset -ge 0 && $offset -gt $max_offset ]]; then
+                    max_offset=$offset
+                fi
+            fi
+        fi
+    done
+
+    echo $((max_offset + 1))
+}
+
+# Function to setup .env file with auto-assigned ports
+setup_env_file() {
+    local worktree_dir="$1"
+    local port_offset="$2"
+
+    local source_env="$REPO_ROOT/.env.example"
+    local target_env="$worktree_dir/.env"
+
+    if [[ ! -f "$source_env" ]]; then
+        echo -e "${YELLOW}Warning: No .env.example found, skipping env setup${NC}"
+        return 1
+    fi
+
+    # Copy template
+    cp "$source_env" "$target_env"
+
+    # Calculate ports
+    local backend_port=$((BASE_BACKEND_PORT + port_offset))
+    local frontend_port=$((BASE_FRONTEND_PORT + port_offset))
+    local redis_port=$((BASE_REDIS_PORT + port_offset))
+    local metabase_port=$((BASE_METABASE_PORT + port_offset))
+
+    # Update ports in .env
+    sed -i "s/^BACKEND_PORT=.*/BACKEND_PORT=$backend_port/" "$target_env"
+    sed -i "s/^FRONTEND_PORT=.*/FRONTEND_PORT=$frontend_port/" "$target_env"
+    sed -i "s/^REDIS_PORT=.*/REDIS_PORT=$redis_port/" "$target_env"
+
+    # Add METABASE_PORT if not present
+    if grep -q "^METABASE_PORT=" "$target_env"; then
+        sed -i "s/^METABASE_PORT=.*/METABASE_PORT=$metabase_port/" "$target_env"
+    else
+        echo "METABASE_PORT=$metabase_port" >> "$target_env"
+    fi
+
+    # Copy API key from main .env if it exists
+    if [[ -f "$REPO_ROOT/.env" ]]; then
+        local api_key
+        api_key=$(grep "^OPENAI_API_KEY=" "$REPO_ROOT/.env" 2>/dev/null | cut -d= -f2)
+        if [[ -n "$api_key" && "$api_key" != "your_openai_api_key_here" ]]; then
+            sed -i "s/^OPENAI_API_KEY=.*/OPENAI_API_KEY=$api_key/" "$target_env"
+        fi
+    fi
+
+    # Generate secret keys
+    local secret_key
+    local jwt_secret
+    secret_key=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || openssl rand -hex 32)
+    jwt_secret=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || openssl rand -hex 32)
+
+    sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$secret_key/" "$target_env"
+    sed -i "s/^JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$jwt_secret/" "$target_env"
+
+    echo -e "${GREEN}Created .env with ports:${NC}"
+    echo -e "  Backend:  ${CYAN}$backend_port${NC}"
+    echo -e "  Frontend: ${CYAN}$frontend_port${NC}"
+    echo -e "  Redis:    ${CYAN}$redis_port${NC}"
+    echo -e "  Metabase: ${CYAN}$metabase_port${NC}"
+
+    return 0
+}
 
 # Check if we're in a git repository
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -77,7 +177,8 @@ echo "1) Create a worktree for an existing branch"
 echo "2) Create a worktree with a new branch"
 echo "3) Create a worktree for a TODO.md issue"
 echo "4) List current worktrees"
-read -p "Choose an option (1-4): " choice
+echo "5) Clean up a worktree (stop Docker + remove)"
+read -p "Choose an option (1-5): " choice
 
 case $choice in
     1)
@@ -220,12 +321,128 @@ case $choice in
         git worktree list
         exit 0
         ;;
-        
+
+    5)
+        # Clean up a worktree
+        echo -e "${GREEN}Current worktrees:${NC}"
+        echo
+
+        # Get worktrees (excluding the main one)
+        mapfile -t worktrees < <(git worktree list --porcelain | grep "^worktree " | cut -d' ' -f2- | grep -v "^$REPO_ROOT$")
+
+        if [[ ${#worktrees[@]} -eq 0 ]]; then
+            echo -e "${YELLOW}No additional worktrees to clean up${NC}"
+            exit 0
+        fi
+
+        # Display worktrees with numbers
+        for i in "${!worktrees[@]}"; do
+            wt_path="${worktrees[$i]}"
+            wt_name=$(basename "$wt_path")
+
+            # Check if Docker containers are running for this worktree
+            container_count=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -c "^${wt_name}" || echo "0")
+            if [[ "$container_count" -gt 0 ]]; then
+                docker_status="${CYAN}($container_count containers running)${NC}"
+            else
+                docker_status="${YELLOW}(no containers)${NC}"
+            fi
+
+            printf "%2d) %s %b\n" $((i+1)) "$wt_name" "$docker_status"
+        done
+
+        echo
+        read -p "Select worktree to remove (or 0 to cancel): " wt_num
+
+        if [[ "$wt_num" == "0" ]]; then
+            echo "Cancelled"
+            exit 0
+        fi
+
+        if [[ ! "$wt_num" =~ ^[0-9]+$ ]] || [[ "$wt_num" -lt 1 ]] || [[ "$wt_num" -gt ${#worktrees[@]} ]]; then
+            echo -e "${YELLOW}Invalid selection${NC}"
+            exit 1
+        fi
+
+        selected_wt="${worktrees[$((wt_num-1))]}"
+        selected_name=$(basename "$selected_wt")
+
+        echo
+        echo -e "${YELLOW}Selected: $selected_name${NC}"
+        echo -e "Path: $selected_wt"
+
+        # Check for running containers
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${selected_name}"; then
+            echo
+            echo -e "${CYAN}Stopping Docker containers...${NC}"
+            (cd "$selected_wt" && docker compose down 2>/dev/null) || true
+            echo -e "${GREEN}Containers stopped${NC}"
+        fi
+
+        # Confirm removal
+        echo
+        read -p "Remove worktree '$selected_name'? This cannot be undone. (y/n): " confirm
+
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            echo -e "${CYAN}Removing worktree...${NC}"
+            git worktree remove "$selected_wt" --force
+            echo -e "${GREEN}Worktree '$selected_name' removed successfully${NC}"
+
+            # Ask about branch deletion
+            branch_name=$(git branch --list | grep -F "$selected_name" | head -1 | sed 's/^[* ]*//')
+            if [[ -n "$branch_name" ]]; then
+                echo
+                read -p "Also delete the branch '$branch_name'? (y/n): " delete_branch
+                if [[ "$delete_branch" =~ ^[Yy]$ ]]; then
+                    git branch -D "$branch_name" 2>/dev/null && \
+                        echo -e "${GREEN}Branch '$branch_name' deleted${NC}" || \
+                        echo -e "${YELLOW}Could not delete branch (may not exist or is current)${NC}"
+                fi
+            fi
+        else
+            echo "Cancelled"
+        fi
+
+        exit 0
+        ;;
+
     *)
         echo -e "${YELLOW}Invalid option${NC}"
         exit 1
         ;;
 esac
+
+# Setup environment for the new worktree
+echo
+echo -e "${BLUE}Setting up environment...${NC}"
+
+# Detect next available port offset
+port_offset=$(detect_next_port_offset)
+echo -e "Detected next available port offset: ${CYAN}+$port_offset${NC}"
+
+# Setup .env file
+if setup_env_file "$dir_name" "$port_offset"; then
+    echo -e "${GREEN}Environment configured successfully!${NC}"
+else
+    echo -e "${YELLOW}Could not auto-configure environment. You may need to copy .env manually.${NC}"
+fi
+
+# Ask if user wants to start Docker
+echo
+read -p "Start Docker containers for this worktree? (y/n): " start_docker
+
+if [[ "$start_docker" =~ ^[Yy]$ ]]; then
+    echo -e "${GREEN}Starting Docker containers...${NC}"
+    cd "$dir_name"
+    docker compose up -d --build
+    echo
+    echo -e "${GREEN}Containers started! Access at:${NC}"
+    backend_port=$((BASE_BACKEND_PORT + port_offset))
+    frontend_port=$((BASE_FRONTEND_PORT + port_offset))
+    echo -e "  Frontend: ${CYAN}http://localhost:$frontend_port${NC}"
+    echo -e "  Backend:  ${CYAN}http://localhost:$backend_port${NC}"
+    cd - > /dev/null
+fi
 
 # Ask if user wants to launch Claude
 echo
@@ -237,5 +454,8 @@ if [[ "$launch_claude" =~ ^[Yy]$ ]]; then
     claude
 else
     echo -e "${BLUE}Worktree created successfully!${NC}"
-    echo -e "To use it: ${GREEN}cd $dir_name && claude${NC}"
+    echo -e "To use it: ${GREEN}cd $dir_name${NC}"
+    if [[ ! "$start_docker" =~ ^[Yy]$ ]]; then
+        echo -e "To start Docker: ${GREEN}cd $dir_name && docker compose up -d --build${NC}"
+    fi
 fi
