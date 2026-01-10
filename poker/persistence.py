@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 
 
 @dataclass
@@ -335,7 +335,8 @@ class GamePersistence:
             24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
             25: (self._migrate_v25_add_opponent_notes, "Add notes column to opponent_models for player observations"),
             26: (self._migrate_v26_add_debug_capture, "Add debug_capture_enabled column to games table"),
-            27: (self._migrate_v27_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
+            27: (self._migrate_v27_fix_opponent_models_constraint, "Fix opponent_models unique constraint to include game_id"),
+            28: (self._migrate_v28_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1274,8 +1275,66 @@ class GamePersistence:
 
         logger.info("Migration v26 complete: debug_capture_enabled added")
 
-    def _migrate_v27_add_full_image_column(self, conn: sqlite3.Connection) -> None:
-        """Migration v27: Add full_image_data column for storing uncropped avatar images.
+    def _migrate_v27_fix_opponent_models_constraint(self, conn: sqlite3.Connection) -> None:
+        """Migration v27: Fix opponent_models unique constraint to include game_id.
+
+        The original table had UNIQUE(observer_name, opponent_name) which prevented
+        the same observer from tracking the same opponent across different games.
+        This migration recreates the table with UNIQUE(game_id, observer_name, opponent_name).
+        """
+        # Create new table with correct constraint
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS opponent_models_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT,
+                observer_name TEXT NOT NULL,
+                opponent_name TEXT NOT NULL,
+                hands_observed INTEGER DEFAULT 0,
+                vpip REAL DEFAULT 0.5,
+                pfr REAL DEFAULT 0.5,
+                aggression_factor REAL DEFAULT 1.0,
+                fold_to_cbet REAL DEFAULT 0.5,
+                bluff_frequency REAL DEFAULT 0.3,
+                showdown_win_rate REAL DEFAULT 0.5,
+                recent_trend TEXT,
+                notes TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(game_id, observer_name, opponent_name)
+            )
+        """)
+
+        # Copy existing data (preserving all columns)
+        conn.execute("""
+            INSERT INTO opponent_models_new (
+                id, game_id, observer_name, opponent_name, hands_observed,
+                vpip, pfr, aggression_factor, fold_to_cbet,
+                bluff_frequency, showdown_win_rate, recent_trend, notes, last_updated
+            )
+            SELECT
+                id, game_id, observer_name, opponent_name, hands_observed,
+                vpip, pfr, aggression_factor, fold_to_cbet,
+                bluff_frequency, showdown_win_rate, recent_trend, notes, last_updated
+            FROM opponent_models
+        """)
+
+        # Drop old table and rename new one
+        conn.execute("DROP TABLE opponent_models")
+        conn.execute("ALTER TABLE opponent_models_new RENAME TO opponent_models")
+
+        # Recreate indexes (without the old broken unique constraint)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_opponent_models_observer
+            ON opponent_models(observer_name)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_opponent_models_game
+            ON opponent_models(game_id)
+        """)
+
+        logger.info("Migration v27 complete: opponent_models constraint fixed")
+
+    def _migrate_v28_add_full_image_column(self, conn: sqlite3.Connection) -> None:
+        """Migration v28: Add full_image_data column for storing uncropped avatar images.
 
         This allows storing the original full-size image alongside the circular icon.
         The full image is used for context-aware CSS cropping on mobile.
@@ -1290,7 +1349,7 @@ class GamePersistence:
             conn.execute("ALTER TABLE avatar_images ADD COLUMN full_file_size INTEGER")
             logger.info("Added full_image_data columns to avatar_images table")
 
-        logger.info("Migration v27 complete: full_image_data support added")
+        logger.info("Migration v28 complete: full_image_data support added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:

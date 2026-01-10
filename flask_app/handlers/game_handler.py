@@ -145,7 +145,7 @@ def update_and_emit_game_state(game_id: str) -> None:
                 'losing_streak': psych.tilt.losing_streak if psych.tilt else 0,
             }
             player_dict['psychology'] = psych_data
-            logger.info(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
+            logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
 
     # Include messages (transform to frontend format)
     messages = []
@@ -687,6 +687,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
+        # Save final state to persistence
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         return game_state, True
 
     # Check tournament completion
@@ -696,6 +699,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
         update_and_emit_game_state(game_id)
+        # Save final state to persistence
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         return game_state, True
 
     # Wait for commentary to complete before starting new hand
@@ -722,6 +728,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     game_state_service.set_game(game_id, game_data)
     state_machine.advance_state()
     update_and_emit_game_state(game_id)
+
+    # Save state after hand evaluation completes (now in stable phase)
+    owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
     return game_state, False
 
@@ -757,9 +767,13 @@ def progress_game(game_id: str) -> None:
         if not current_game_data:
             return
 
-        state_machine = current_game_data['state_machine']
-
         while True:
+            # Refresh game data (may have been updated by handle_ai_action)
+            current_game_data = game_state_service.get_game(game_id)
+            if not current_game_data:
+                return  # Game was deleted
+            state_machine = current_game_data['state_machine']
+
             state_machine.run_until([PokerPhase.EVALUATING_HAND])
             current_game_data['state_machine'] = state_machine
             game_state_service.set_game(game_id, current_game_data)
@@ -767,14 +781,38 @@ def progress_game(game_id: str) -> None:
 
             update_and_emit_game_state(game_id)
 
-            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-            persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+            # Only save state when in a stable phase (not transitional phases like EVALUATING_HAND)
+            # This prevents getting stuck if the client disconnects during evaluation
+            if state_machine.current_phase != PokerPhase.EVALUATING_HAND:
+                owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+                persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
             handle_phase_cards_dealt(game_id, state_machine, game_state)
+
+            # Handle "run it out" scenario - auto-advance with delays
+            if game_state.run_it_out:
+                # Delay 2 seconds to let player see the cards
+                socketio.sleep(2)
+                # Check if game was deleted during sleep
+                if not game_state_service.get_game(game_id):
+                    return
+                # Determine next phase (skip betting, go to dealing or showdown)
+                current_phase = state_machine.current_phase
+                if current_phase == PokerPhase.RIVER:
+                    next_phase = PokerPhase.SHOWDOWN
+                else:
+                    next_phase = PokerPhase.DEALING_CARDS
+                # Clear flags and set next phase directly (avoid re-running same transition)
+                new_game_state = game_state.update(awaiting_action=False, run_it_out=False)
+                state_machine._state_machine = state_machine._state_machine.with_game_state(new_game_state).with_phase(next_phase)
+                current_game_data['state_machine'] = state_machine
+                game_state_service.set_game(game_id, current_game_data)
+                continue  # Continue loop to deal next cards
 
             if not game_state.current_player.is_human and game_state.awaiting_action:
                 print(f"AI turn: {game_state.current_player.name}")
                 handle_ai_action(game_id)
+                continue  # Re-evaluate game state after AI action
 
             elif state_machine.current_phase == PokerPhase.EVALUATING_HAND:
                 game_state, should_return = handle_evaluating_hand_phase(
