@@ -421,7 +421,6 @@ interface AvatarImageManagerProps {
 }
 
 function AvatarImageManager({ personalityName, avatarDescription, onDescriptionChange, onDescriptionSave }: AvatarImageManagerProps) {
-  const [emotions, setEmotions] = useState<string[]>([]);
   const [images, setImages] = useState<EmotionImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState<string | null>(null);
@@ -438,7 +437,6 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
       const emotionsRes = await fetch(`${config.API_URL}/api/avatar/emotions`);
       const emotionsData = await emotionsRes.json();
       const emotionsList = emotionsData.emotions || ['confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked'];
-      setEmotions(emotionsList);
 
       // Check which images exist - use full/square images for the manager
       const imagePromises = emotionsList.map(async (emotion: string) => {

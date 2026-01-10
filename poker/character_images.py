@@ -46,14 +46,14 @@ Bold outlines, vibrant colors, exaggerated features. Chest-up view, centered."""
 PROMPT_TEMPLATE_DESCRIPTION = """Black background, cartoonish caricature of {emotion_detail} {description} playing poker.
 Bold outlines, vibrant colors, exaggerated features. Chest-up view, centered."""
 
-# Emotion descriptions for image generation (start with "a/an" to flow with prompt)
+# Emotion descriptions for image generation - grammatically complete phrases
 EMOTION_DETAILS = {
-    "confident": "a confident and assured, slight knowing smirk,",
-    "happy": "a genuinely happy, big warm smile, eyes crinkling with joy,",
-    "thinking": "a thoughtful, furrowed brow, hand on chin, focused,",
-    "nervous": "a nervous and sweating, wide anxious eyes, visibly stressed,",
-    "angry": "an angry and furious, red-faced, clenched jaw, intense glare,",
-    "shocked": "a completely surprised, jaw dropped, wide eyes,",
+    "confident": "confident and assured with a slight knowing smirk,",
+    "happy": "genuinely happy with a big warm smile, eyes crinkling with joy,",
+    "thinking": "thoughtful with a furrowed brow, hand on chin, focused,",
+    "nervous": "nervous and sweating with wide anxious eyes, visibly stressed,",
+    "angry": "angry and furious, red-faced with a clenched jaw, intense glare,",
+    "shocked": "completely surprised with jaw dropped and wide eyes,",
 }
 
 
@@ -412,7 +412,8 @@ class CharacterImageService:
                         prompt_template='avatar_generation_fallback',
                     )
                     if image_response.is_error:
-                        raise Exception(image_response.error_message or image_response.error_code or "Image generation failed")
+                        logger.error(f"Second attempt also failed for {personality_name}/{emotion}: {image_response.error_message}")
+                        raise Exception(f"Image generation failed for {personality_name} ({emotion}) after content policy fallback: {image_response.error_message or 'Unknown error'}")
                 else:
                     raise Exception(image_response.error_message or image_response.error_code or "Image generation failed")
             image_url = image_response.url

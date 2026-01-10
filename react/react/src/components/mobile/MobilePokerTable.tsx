@@ -392,7 +392,12 @@ export function MobilePokerTable({
                     onError={(e) => {
                       // Fallback to regular avatar if full image not available
                       const img = e.currentTarget;
-                      if (!img.src.endsWith('/full')) return;
+                      if (img.dataset.fallbackTried === 'true') {
+                        // Both full and regular failed, hide broken image
+                        img.style.display = 'none';
+                        return;
+                      }
+                      img.dataset.fallbackTried = 'true';
                       img.src = `${config.API_URL}${opponent.avatar_url}`;
                     }}
                   />

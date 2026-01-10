@@ -287,6 +287,14 @@ def regenerate_avatar(personality_name: str):
                 'error': f'Invalid emotions: {invalid}. Valid: {valid_emotions}'
             }), 400
 
+        # Validate personality exists before expensive API calls
+        from ..extensions import personality_generator
+        if personality_generator and not personality_generator.get_personality(personality_name):
+            return jsonify({
+                'success': False,
+                'error': f'Personality {personality_name} not found'
+            }), 404
+
         results = []
         success_count = 0
         error_count = 0
