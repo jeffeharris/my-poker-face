@@ -102,9 +102,9 @@ jobs:
         run: |
           docker compose -f docker-compose.prod.yml run --rm backend python -m poker.migrations.migrate_avatars_to_db
 
-      - name: Cleanup old Docker images
+      - name: Cleanup old Docker resources
         run: |
-          docker image prune -f
+          docker system prune -af --filter "until=24h"
 
       - name: Deployment summary
         run: |
