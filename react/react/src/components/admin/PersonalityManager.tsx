@@ -428,6 +428,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
 
   useEffect(() => {
     loadEmotionsAndImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personalityName]);
 
   const loadEmotionsAndImages = async () => {
@@ -653,6 +654,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
   // Load personalities on mount
   useEffect(() => {
     loadPersonalities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-dismiss alerts
@@ -673,7 +675,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
       } else {
         showAlert('error', 'Failed to load personalities: ' + data.error);
       }
-    } catch (error) {
+    } catch {
       showAlert('error', 'Error loading personalities');
     } finally {
       setLoading(false);
@@ -767,7 +769,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
       } else {
         showAlert('error', 'Failed to save: ' + data.error);
       }
-    } catch (error) {
+    } catch {
       showAlert('error', 'Error saving personality');
     } finally {
       setSaving(false);
@@ -797,7 +799,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
       } else {
         showAlert('error', 'Failed to delete: ' + data.error);
       }
-    } catch (error) {
+    } catch {
       showAlert('error', 'Error deleting personality');
     } finally {
       setSaving(false);
@@ -827,7 +829,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
       } else {
         showAlert('error', 'Regeneration failed: ' + (data.message || data.error));
       }
-    } catch (error) {
+    } catch {
       showAlert('error', 'Error regenerating personality');
     } finally {
       setSaving(false);
@@ -876,7 +878,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
         showAlert('error', 'Generation failed: ' + (data.message || data.error));
         handleCreateManual(name);
       }
-    } catch (error) {
+    } catch {
       showAlert('error', 'Error generating personality');
       handleCreateManual(name);
     } finally {
@@ -901,7 +903,7 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
       } else {
         showAlert('error', 'Failed to save description');
       }
-    } catch (error) {
+    } catch {
       showAlert('error', 'Error saving description');
     }
   };

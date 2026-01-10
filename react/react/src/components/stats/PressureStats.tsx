@@ -21,7 +21,7 @@ interface PlayerSummary {
 
 interface LeaderboardEntry {
   name: string;
-  [key: string]: any;
+  [key: string]: string | number;
 }
 
 interface SessionSummary {
@@ -86,6 +86,8 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
       mounted = false;
       clearInterval(interval);
     };
+    // isInitialLoad is intentionally excluded - we only want to show loading on first fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, isOpen]);
 
   if (!isOpen) return null;

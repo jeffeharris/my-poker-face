@@ -178,6 +178,8 @@ export function MobilePokerTable({
 
       return () => clearTimeout(timeoutId);
     }
+    // Only re-run when current player changes, not on every gameState update
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState?.current_player_idx, currentPlayer?.name]);
 
   // Random card transforms for natural "dealt" look
