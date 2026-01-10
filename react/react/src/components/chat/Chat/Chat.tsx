@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { Users, Settings, Bot, User, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../../types';
 import './Chat.css';
 
@@ -31,47 +32,38 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
   };
 
   const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
-  const getMessageIcon = (type: string, sender: string) => {
+  const getMessageIcon = (type: string, sender: string): ReactNode => {
+    const iconProps = { size: 14, className: "message-type-icon" };
     switch (type) {
       case 'table':
-        return '🎲';
+        return <Users {...iconProps} />;
       case 'system':
-        return '⚙️';
+        return <Settings {...iconProps} />;
       case 'ai':
-        return '🤖';
+        return <Bot {...iconProps} />;
       case 'player':
-        return sender === playerName ? '👤' : '💬';
+        return sender === playerName ? <User {...iconProps} /> : <MessageCircle {...iconProps} />;
       default:
-        return '💬';
+        return <MessageCircle {...iconProps} />;
     }
   };
 
   return (
     <>
-      {/* Chat Toggle Button - Always visible */}
-      <button 
-        className={`chat-toggle ${isVisible ? 'chat-open' : 'chat-closed'}`} 
-        onClick={onToggleVisibility}
-      >
-        💬 {isVisible ? 'Hide Chat' : `Chat (${messages.length})`}
-      </button>
-
       {/* Chat Container */}
       <div className={`chat-container ${isVisible ? 'visible' : 'hidden'}`}>
         {isVisible && (
           <div className="chat-panel">
             {/* Chat Header */}
-            <div className="chat-header">
-              <h3>Game Chat</h3>
-              <div className="chat-stats">
-                {messages.length} messages
-              </div>
+            <div className="chat-sheet-header">
+              <h3>Table Chat</h3>
+              <button onClick={onToggleVisibility}>×</button>
             </div>
 
           {/* Messages */}
@@ -79,7 +71,7 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
             {messages.length === 0 ? (
               <div className="no-messages">
                 <p>No messages yet...</p>
-                <p>💬 Say hello to start the conversation!</p>
+                <p>Say hello to start the conversation!</p>
               </div>
             ) : (
               messages.map((msg) => (

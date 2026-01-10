@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -84,7 +85,6 @@ export function MobilePokerTable({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
-    debugTriggerTournamentEnd,
     debugTriggerSplitPot,
     debugTriggerSidePot,
   } = usePokerGame({
@@ -313,32 +313,6 @@ export function MobilePokerTable({
                 ✕ Close
               </button>
               <button
-                onClick={() => debugTriggerTournamentEnd(false)}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: '#e74c3c',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Test: Lost
-              </button>
-              <button
-                onClick={() => debugTriggerTournamentEnd(true)}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: '#f1c40f',
-                  color: '#000',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Test: Won
-              </button>
-              <button
                 onClick={togglePromptCapture}
                 style={{
                   padding: '8px 12px',
@@ -540,7 +514,7 @@ export function MobilePokerTable({
                 className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
                 onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
               >
-                <span className="btn-icon">{queuedAction === 'check_fold' ? '✓' : '✓✕'}</span>
+                <span className="btn-icon">{queuedAction === 'check_fold' ? <Check size={16} /> : <><Check size={14} /><X size={14} /></>}</span>
                 <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}</span>
               </button>
             )}
@@ -551,7 +525,7 @@ export function MobilePokerTable({
               className="action-btn chat-btn"
               onClick={() => setShowQuickChat(true)}
             >
-              <span className="btn-icon">💬</span>
+              <MessageCircle className="btn-icon" size={18} />
               <span className="btn-label">Chat</span>
             </button>
           </div>
@@ -604,7 +578,7 @@ export function MobilePokerTable({
           <div className="chat-sheet" onClick={e => e.stopPropagation()}>
             <div className="chat-sheet-header">
               <h3>Table Chat</h3>
-              <button onClick={() => setShowChatSheet(false)}>×</button>
+              <button onClick={() => setShowChatSheet(false)}><X size={20} /></button>
             </div>
             <div className="chat-sheet-messages" ref={chatMessagesRef}>
               {messages.slice(-50).map((msg, i) => (

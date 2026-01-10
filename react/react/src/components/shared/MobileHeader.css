@@ -83,23 +83,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  padding: 0;
+  background: transparent;
   border: none;
-  border-radius: var(--radius-full);
   cursor: pointer;
-  transition: var(--transition-all-base);
+  transition: opacity 0.2s ease;
 }
 
 .mobile-chat-toggle:hover {
-  background: rgba(0, 0, 0, 0.7);
+  opacity: 0.7;
 }
 
 .mobile-chat-toggle:active {
-  transform: scale(0.95);
+  opacity: 0.5;
 }
 
 .mobile-chat-toggle__icon {
-  font-size: var(--font-size-xl);
+  width: 28px;
+  height: 28px;
+  color: var(--color-text-primary);
 }
 
 .mobile-chat-toggle__badge {

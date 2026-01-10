@@ -34,8 +34,6 @@ interface UsePokerGameResult {
   clearTournamentResult: () => void;
   refreshGameState: (gId: string) => Promise<boolean>;
   // Debug functions
-  debugTriggerTournamentEnd: (humanWon?: boolean) => void;
-  debugShowTournamentComplete: (humanWon?: boolean) => void;
   debugTriggerSplitPot: () => void;
   debugTriggerSidePot: () => void;
 }
@@ -437,50 +435,6 @@ export function usePokerGame({
     }
   }, [gameId, playerName]);
 
-  // Debug function to trigger tournament end flow for testing
-  const debugTriggerTournamentEnd = useCallback((humanWon: boolean = false) => {
-    const winnerName = humanWon ? (playerName || 'You') : 'Batman';
-    const mockWinnerData = {
-      winners: [winnerName],
-      pot_breakdown: [{
-        pot_name: 'Main Pot',
-        total_amount: 5000,
-        winners: [{ name: winnerName, amount: 5000 }],
-        hand_name: 'Full House'
-      }],
-      hand_name: 'Full House',
-      showdown: true,
-      is_final_hand: true,
-      tournament_outcome: {
-        human_won: humanWon,
-        human_position: humanWon ? 1 : 3
-      },
-      community_cards: [
-        { rank: 'A', suit: 'hearts' },
-        { rank: 'K', suit: 'hearts' },
-        { rank: 'Q', suit: 'spades' },
-        { rank: 'J', suit: 'diamonds' },
-        { rank: '10', suit: 'clubs' }
-      ],
-      players_showdown: {
-        [playerName || 'You']: {
-          cards: [{ rank: 'A', suit: 'spades' }, { rank: 'A', suit: 'diamonds' }],
-          hand_name: humanWon ? 'Full House' : 'Two Pair',
-          hand_rank: humanWon ? 3 : 7,
-          kickers: ['K']
-        },
-        'Batman': {
-          cards: [{ rank: 'K', suit: 'spades' }, { rank: 'K', suit: 'diamonds' }],
-          hand_name: humanWon ? 'Two Pair' : 'Full House',
-          hand_rank: humanWon ? 7 : 3,
-          kickers: ['A']
-        }
-      }
-    };
-    console.log('[DEBUG] Triggering tournament end with mock data:', mockWinnerData);
-    setWinnerInfo(mockWinnerData);
-  }, [playerName]);
-
   // Debug function to trigger split pot scenario (two winners with equal hands)
   const debugTriggerSplitPot = useCallback(() => {
     const humanName = playerName || 'You';
@@ -591,52 +545,6 @@ export function usePokerGame({
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
 
-  // Debug function to show tournament complete screen directly
-  const debugShowTournamentComplete = useCallback((humanWon: boolean = false) => {
-    const mockTournamentResult: TournamentResult = {
-      winner: humanWon ? (playerName || 'You') : 'Batman',
-      standings: [
-        { player_name: humanWon ? (playerName || 'You') : 'Batman', is_human: humanWon, finishing_position: 1, eliminated_by: null, eliminated_at_hand: null },
-        { player_name: 'Joker', is_human: false, finishing_position: 2, eliminated_by: humanWon ? (playerName || 'You') : 'Batman', eliminated_at_hand: 15 },
-        { player_name: humanWon ? 'Batman' : (playerName || 'You'), is_human: !humanWon, finishing_position: 3, eliminated_by: humanWon ? (playerName || 'You') : 'Batman', eliminated_at_hand: 12 },
-      ],
-      total_hands: 18,
-      biggest_pot: 5000,
-      human_position: humanWon ? 1 : 3,
-      game_id: gameId || 'debug-game',
-      human_eliminated: !humanWon,
-      final_hand_data: {
-        winners: [humanWon ? (playerName || 'You') : 'Batman'],
-        winnings: { [humanWon ? (playerName || 'You') : 'Batman']: 5000 },
-        hand_name: 'Full House',
-        showdown: true,
-        community_cards: [
-          { rank: 'A', suit: 'hearts' },
-          { rank: 'K', suit: 'hearts' },
-          { rank: 'Q', suit: 'spades' },
-          { rank: 'J', suit: 'diamonds' },
-          { rank: '10', suit: 'clubs' }
-        ],
-        players_showdown: {
-          [playerName || 'You']: {
-            cards: [{ rank: 'A', suit: 'spades' }, { rank: 'A', suit: 'diamonds' }],
-            hand_name: humanWon ? 'Full House' : 'Two Pair',
-            hand_rank: humanWon ? 3 : 7,
-            kickers: ['K']
-          },
-          'Batman': {
-            cards: [{ rank: 'K', suit: 'spades' }, { rank: 'K', suit: 'diamonds' }],
-            hand_name: humanWon ? 'Two Pair' : 'Full House',
-            hand_rank: humanWon ? 7 : 3,
-            kickers: ['A']
-          }
-        }
-      }
-    };
-    console.log('[DEBUG] Showing tournament complete with mock data:', mockTournamentResult);
-    setTournamentResult(mockTournamentResult);
-  }, [playerName, gameId]);
-
   return {
     gameState,
     loading,
@@ -657,8 +565,6 @@ export function usePokerGame({
     clearTournamentResult,
     refreshGameState,
     // Debug functions
-    debugTriggerTournamentEnd,
-    debugShowTournamentComplete,
     debugTriggerSplitPot,
     debugTriggerSidePot,
   };
