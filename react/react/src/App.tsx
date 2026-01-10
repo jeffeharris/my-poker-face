@@ -4,7 +4,7 @@ import { PokerTable } from './components/game/PokerTable'
 import { MobilePokerTable } from './components/mobile'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
-import { PersonalityManagerHTML } from './components/admin/PersonalityManagerHTML'
+import { PersonalityManager } from './components/admin/PersonalityManager'
 import { GameMenu } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
@@ -367,7 +367,7 @@ function App() {
         )
       )}
       {currentView === 'personalities' && (
-        <PersonalityManagerHTML onBack={() => setCurrentView('game-menu')} />
+        <PersonalityManager onBack={() => setCurrentView('game-menu')} />
       )}
       {currentView === 'elasticity-demo' && <ElasticityDemo />}
       {currentView === 'stats' && (

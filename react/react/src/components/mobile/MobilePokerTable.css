@@ -167,8 +167,8 @@
 .mobile-opponent.thinking {
     border-color: rgba(76, 175, 80, 0.4);
     background: rgba(0, 0, 0, 0.5);
-    width: 40vw;
-    min-width: 40vw;
+    width: 50vw;
+    min-width: 50vw;
 }
 
 /* Animated ring around the active player's avatar */
@@ -245,8 +245,18 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center top; /* Show face, crop bottom */
+    object-position: center 20%; /* Default: focus on face, tighter crop */
     border-radius: 14px; /* Match parent to clip image */
+    transition: object-position 0.4s ease;
+}
+
+/* Context-aware cropping - wider views for dramatic moments */
+.opponent-avatar .avatar-image--thinking {
+    object-position: center 30%; /* Slightly wider for thinking */
+}
+
+.opponent-avatar .avatar-image--showdown {
+    object-position: center 40%; /* Even wider for dramatic showdown */
 }
 
 .dealer-badge {

@@ -12,6 +12,9 @@ from poker.character_images import (
     has_character_images,
     generate_character_images,
     load_avatar_image,
+    load_full_avatar_image,
+    regenerate_avatar_emotion,
+    get_available_emotions,
     get_character_image_service,
     EMOTIONS,
 )
@@ -201,6 +204,124 @@ def serve_avatar(personality_name: str, emotion: str):
     except Exception as e:
         logger.error(f"Error serving avatar for {personality_name}/{emotion}: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@image_bp.route('/api/avatar/<personality_name>/<emotion>/full')
+def serve_full_avatar(personality_name: str, emotion: str):
+    """Serve full uncropped avatar image from database.
+
+    This endpoint serves the full-size image for CSS-based cropping on the frontend.
+
+    Args:
+        personality_name: Name of the personality (URL encoded)
+        emotion: Emotion name (confident, happy, thinking, nervous, angry, shocked)
+
+    Returns:
+        Full PNG image or 404 if not found
+    """
+    try:
+        # Normalize emotion
+        emotion = emotion.lower()
+        if emotion not in EMOTIONS:
+            emotion = 'confident'
+
+        # Load full image from database
+        image_data = load_full_avatar_image(personality_name, emotion)
+
+        if image_data:
+            return Response(
+                image_data,
+                mimetype='image/png',
+                headers={'Cache-Control': 'public, max-age=86400'}
+            )
+
+        # Fall back to regular avatar if full not available
+        image_data = load_avatar_image(personality_name, emotion)
+        if image_data:
+            return Response(
+                image_data,
+                mimetype='image/png',
+                headers={'Cache-Control': 'public, max-age=86400'}
+            )
+
+        return jsonify({'error': f'Full avatar not found for {personality_name} - {emotion}'}), 404
+
+    except Exception as e:
+        logger.error(f"Error serving full avatar for {personality_name}/{emotion}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@image_bp.route('/api/avatar/emotions')
+def list_emotions():
+    """List all available emotions for avatars.
+
+    Returns the list of emotions dynamically from the EMOTIONS constant.
+    """
+    return jsonify({
+        'emotions': get_available_emotions()
+    })
+
+
+@image_bp.route('/api/avatar/<personality_name>/regenerate', methods=['POST'])
+def regenerate_avatar(personality_name: str):
+    """Regenerate avatar images for specific emotions.
+
+    Request body:
+        {
+            "emotions": ["confident", "happy"]  // Optional, defaults to all emotions
+        }
+
+    Returns:
+        Results for each emotion regeneration
+    """
+    try:
+        data = request.get_json() or {}
+        emotions = data.get('emotions', get_available_emotions())
+
+        # Validate emotions
+        valid_emotions = get_available_emotions()
+        invalid = [e for e in emotions if e not in valid_emotions]
+        if invalid:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid emotions: {invalid}. Valid: {valid_emotions}'
+            }), 400
+
+        results = []
+        success_count = 0
+        error_count = 0
+
+        for emotion in emotions:
+            result = regenerate_avatar_emotion(personality_name, emotion)
+            results.append({
+                'emotion': emotion,
+                'success': result.get('success', False),
+                'message': result.get('message') or result.get('error')
+            })
+            if result.get('success'):
+                success_count += 1
+            else:
+                error_count += 1
+
+        # Get the current avatar_description (may have been auto-generated during regeneration)
+        from ..extensions import personality_generator
+        avatar_description = personality_generator.get_avatar_description(personality_name) if personality_generator else None
+
+        return jsonify({
+            'success': error_count == 0,
+            'personality': personality_name,
+            'generated': success_count,
+            'failed': error_count,
+            'results': results,
+            'avatar_description': avatar_description
+        })
+
+    except Exception as e:
+        logger.error(f"Error regenerating avatars for {personality_name}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 @image_bp.route('/api/avatar-stats')

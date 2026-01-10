@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 
 @dataclass
@@ -335,6 +335,7 @@ class GamePersistence:
             24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
             25: (self._migrate_v25_add_opponent_notes, "Add notes column to opponent_models for player observations"),
             26: (self._migrate_v26_add_debug_capture, "Add debug_capture_enabled column to games table"),
+            27: (self._migrate_v27_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1272,6 +1273,24 @@ class GamePersistence:
             logger.info("Added debug_capture_enabled column to games table")
 
         logger.info("Migration v26 complete: debug_capture_enabled added")
+
+    def _migrate_v27_add_full_image_column(self, conn: sqlite3.Connection) -> None:
+        """Migration v27: Add full_image_data column for storing uncropped avatar images.
+
+        This allows storing the original full-size image alongside the circular icon.
+        The full image is used for context-aware CSS cropping on mobile.
+        """
+        cursor = conn.execute("PRAGMA table_info(avatar_images)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'full_image_data' not in columns:
+            conn.execute("ALTER TABLE avatar_images ADD COLUMN full_image_data BLOB")
+            conn.execute("ALTER TABLE avatar_images ADD COLUMN full_width INTEGER")
+            conn.execute("ALTER TABLE avatar_images ADD COLUMN full_height INTEGER")
+            conn.execute("ALTER TABLE avatar_images ADD COLUMN full_file_size INTEGER")
+            logger.info("Added full_image_data columns to avatar_images table")
+
+        logger.info("Migration v27 complete: full_image_data support added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -2577,22 +2596,29 @@ class GamePersistence:
     # Avatar Image Persistence Methods
     def save_avatar_image(self, personality_name: str, emotion: str,
                           image_data: bytes, width: int = 256, height: int = 256,
-                          content_type: str = 'image/png') -> None:
+                          content_type: str = 'image/png',
+                          full_image_data: Optional[bytes] = None,
+                          full_width: Optional[int] = None,
+                          full_height: Optional[int] = None) -> None:
         """Save an avatar image to the database.
 
         Args:
             personality_name: The personality name (e.g., "Bob Ross")
             emotion: The emotion (confident, happy, thinking, nervous, angry, shocked)
-            image_data: The PNG image bytes
-            width: Image width (default 256)
-            height: Image height (default 256)
+            image_data: The circular icon PNG bytes (256x256)
+            width: Icon width (default 256)
+            height: Icon height (default 256)
             content_type: MIME type (default image/png)
+            full_image_data: Optional full uncropped image bytes for CSS cropping
+            full_width: Width of full image
+            full_height: Height of full image
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO avatar_images
-                (personality_name, emotion, image_data, content_type, width, height, file_size, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (personality_name, emotion, image_data, content_type, width, height, file_size,
+                 full_image_data, full_width, full_height, full_file_size, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 personality_name,
                 emotion,
@@ -2600,7 +2626,11 @@ class GamePersistence:
                 content_type,
                 width,
                 height,
-                len(image_data)
+                len(image_data),
+                full_image_data,
+                full_width,
+                full_height,
+                len(full_image_data) if full_image_data else None
             ))
 
     def load_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
@@ -2647,6 +2677,60 @@ class GamePersistence:
                 'height': row['height'],
                 'file_size': row['file_size']
             }
+
+    def load_full_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
+        """Load full uncropped avatar image from database.
+
+        Args:
+            personality_name: The personality name
+            emotion: The emotion
+
+        Returns:
+            Full image bytes if found, None otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT full_image_data FROM avatar_images
+                WHERE personality_name = ? AND emotion = ?
+            """, (personality_name, emotion))
+
+            row = cursor.fetchone()
+            return row[0] if row and row[0] else None
+
+    def load_full_avatar_image_with_metadata(self, personality_name: str, emotion: str) -> Optional[Dict[str, Any]]:
+        """Load full avatar image with metadata from database.
+
+        Returns:
+            Dict with full_image_data, content_type, full_width, full_height, full_file_size or None
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT full_image_data, content_type, full_width, full_height, full_file_size
+                FROM avatar_images
+                WHERE personality_name = ? AND emotion = ?
+            """, (personality_name, emotion))
+
+            row = cursor.fetchone()
+            if not row or not row['full_image_data']:
+                return None
+
+            return {
+                'image_data': row['full_image_data'],
+                'content_type': row['content_type'],
+                'width': row['full_width'],
+                'height': row['full_height'],
+                'file_size': row['full_file_size']
+            }
+
+    def has_full_avatar_image(self, personality_name: str, emotion: str) -> bool:
+        """Check if a full avatar image exists for the given personality and emotion."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT 1 FROM avatar_images
+                WHERE personality_name = ? AND emotion = ? AND full_image_data IS NOT NULL
+            """, (personality_name, emotion))
+            return cursor.fetchone() is not None
 
     def has_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if an avatar image exists for the given personality and emotion."""

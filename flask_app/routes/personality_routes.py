@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request, redirect
 from poker.utils import get_celebrities
 from core.llm import LLMClient, CallType
 
-from ..extensions import persistence, limiter, auth_manager
+from ..extensions import persistence, limiter, auth_manager, personality_generator
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,49 @@ def update_personality(name):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@personality_bp.route('/api/personality/<name>/avatar-description', methods=['PUT'])
+def update_avatar_description(name):
+    """Update the avatar description for a personality.
+
+    The avatar description is used for image generation when the character name
+    might be blocked by content policies (e.g., real celebrities).
+
+    Request body:
+        {
+            "avatar_description": "A stern-faced man with graying hair..."
+        }
+    """
+    try:
+        data = request.json
+        avatar_description = data.get('avatar_description', '').strip()
+
+        if not avatar_description:
+            return jsonify({
+                'success': False,
+                'error': 'avatar_description is required'
+            }), 400
+
+        # Check if personality exists
+        personality_config = personality_generator.get_personality(name)
+        if not personality_config:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found'
+            }), 404
+
+        # Update avatar_description via personality_generator (handles both cache and persistence)
+        personality_generator.set_avatar_description(name, avatar_description)
+
+        return jsonify({
+            'success': True,
+            'message': f'Avatar description updated for {name}',
+            'avatar_description': avatar_description
+        })
+    except Exception as e:
+        logger.error(f"Error updating avatar description for {name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @personality_bp.route('/api/personality/<name>', methods=['DELETE'])

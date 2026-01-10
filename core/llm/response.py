@@ -49,6 +49,7 @@ class ImageResponse:
     latency_ms: float = 0
     status: str = "ok"
     error_code: Optional[str] = None
+    error_message: Optional[str] = None  # Full error message for debugging
     request_id: Optional[str] = None  # Vendor request ID for correlation
     raw_response: Any = field(default=None, repr=False)
 

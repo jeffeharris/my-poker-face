@@ -25,6 +25,11 @@ class LLMProvider(ABC):
         """Return the reasoning effort (if applicable)."""
         return None
 
+    @property
+    def image_model(self) -> str:
+        """Return the image generation model name."""
+        return "unknown"
+
     @abstractmethod
     def complete(
         self,
