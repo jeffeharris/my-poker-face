@@ -1875,7 +1875,7 @@ class GamePersistence:
                     tendencies = model_data.get('tendencies', {})
 
                     conn.execute("""
-                        INSERT INTO opponent_models
+                        INSERT OR REPLACE INTO opponent_models
                         (game_id, observer_name, opponent_name, hands_observed,
                          vpip, pfr, aggression_factor, fold_to_cbet,
                          bluff_frequency, showdown_win_rate, recent_trend, notes, last_updated)
