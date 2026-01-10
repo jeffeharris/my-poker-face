@@ -145,7 +145,7 @@ def update_and_emit_game_state(game_id: str) -> None:
                 'losing_streak': psych.tilt.losing_streak if psych.tilt else 0,
             }
             player_dict['psychology'] = psych_data
-            logger.info(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
+            logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
 
     # Include messages (transform to frontend format)
     messages = []
