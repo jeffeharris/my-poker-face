@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
+import { config } from '../../config';
 import './GameMenu.css';
 
 interface GameMenuProps {
@@ -97,19 +98,21 @@ export function GameMenu({
             {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
-          <button
-            className="menu-option manage-personalities"
-            onClick={onManagePersonalities}
-            onMouseEnter={() => setHoveredOption('personalities')}
-            onMouseLeave={() => setHoveredOption(null)}
-          >
-            <Theater className="option-icon" size={24} />
-            <div className="option-content">
-              <h3>Manage Personalities</h3>
-              <p>Create and edit AI opponents</p>
-            </div>
-            <ChevronRight className="option-arrow" size={20} />
-          </button>
+          {playerName.toLowerCase() === 'jeff' && (
+            <button
+              className="menu-option manage-personalities"
+              onClick={onManagePersonalities}
+              onMouseEnter={() => setHoveredOption('personalities')}
+              onMouseLeave={() => setHoveredOption(null)}
+            >
+              <Theater className="option-icon" size={24} />
+              <div className="option-content">
+                <h3>Manage Personalities</h3>
+                <p>Create and edit AI opponents</p>
+              </div>
+              <ChevronRight className="option-arrow" size={20} />
+            </button>
+          )}
 
           {onViewStats && (
             <button
@@ -127,7 +130,7 @@ export function GameMenu({
             </button>
           )}
 
-          {onPromptDebugger && (
+          {config.ENABLE_DEBUG && onPromptDebugger && (
             <button
               className="menu-option prompt-debugger"
               onClick={onPromptDebugger}
