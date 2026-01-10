@@ -760,6 +760,12 @@ def progress_game(game_id: str) -> None:
         state_machine = current_game_data['state_machine']
 
         while True:
+            # Refresh game data (may have been updated by handle_ai_action)
+            current_game_data = game_state_service.get_game(game_id)
+            if not current_game_data:
+                return  # Game was deleted
+            state_machine = current_game_data['state_machine']
+
             state_machine.run_until([PokerPhase.EVALUATING_HAND])
             current_game_data['state_machine'] = state_machine
             game_state_service.set_game(game_id, current_game_data)
@@ -772,9 +778,30 @@ def progress_game(game_id: str) -> None:
 
             handle_phase_cards_dealt(game_id, state_machine, game_state)
 
+            # Handle "run it out" scenario - auto-advance with delays
+            if game_state.run_it_out:
+                # Delay 2 seconds to let player see the cards
+                socketio.sleep(2)
+                # Check if game was deleted during sleep
+                if not game_state_service.get_game(game_id):
+                    return
+                # Determine next phase (skip betting, go to dealing or showdown)
+                current_phase = state_machine.current_phase
+                if current_phase == PokerPhase.RIVER:
+                    next_phase = PokerPhase.SHOWDOWN
+                else:
+                    next_phase = PokerPhase.DEALING_CARDS
+                # Clear flags and set next phase directly (avoid re-running same transition)
+                new_game_state = game_state.update(awaiting_action=False, run_it_out=False)
+                state_machine._state_machine = state_machine._state_machine.with_game_state(new_game_state).with_phase(next_phase)
+                current_game_data['state_machine'] = state_machine
+                game_state_service.set_game(game_id, current_game_data)
+                continue  # Continue loop to deal next cards
+
             if not game_state.current_player.is_human and game_state.awaiting_action:
                 print(f"AI turn: {game_state.current_player.name}")
                 handle_ai_action(game_id)
+                continue  # Re-evaluate game state after AI action
 
             elif state_machine.current_phase == PokerPhase.EVALUATING_HAND:
                 game_state, should_return = handle_evaluating_hand_phase(

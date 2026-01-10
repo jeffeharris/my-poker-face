@@ -166,35 +166,59 @@ def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 
 def initialize_betting_round_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for INITIALIZING_BET_ROUND phase transition."""
-    num_active_players = len([p.name for p in state.game_state.players if not p.is_folded])
+    # Count players who haven't folded
+    num_not_folded = len([p for p in state.game_state.players if not p.is_folded])
 
-    if num_active_players == 1:
-        next_phase = PokerPhase.SHOWDOWN
-    else:
-        new_game_state = reset_player_action_flags(state.game_state)
-        new_game_state = set_betting_round_start_player(new_game_state)
-        # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
-        new_game_state = new_game_state.update(last_raise_amount=new_game_state.current_ante)
-        return (state
-                .with_game_state(new_game_state)
-                .with_phase(get_next_phase(state)))
+    # Only skip to showdown when everyone else folded (1 player left)
+    # Do NOT skip when players are all-in - we need to deal remaining cards with delays
+    if num_not_folded == 1:
+        return state.with_phase(PokerPhase.SHOWDOWN)
 
-    return state.with_phase(next_phase)
+    # Continue normal flow - betting rounds auto-advance when pot_is_settled
+    new_game_state = reset_player_action_flags(state.game_state)
+    new_game_state = set_betting_round_start_player(new_game_state)
+    # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
+    # Also clear run_it_out flag to ensure fresh state
+    new_game_state = new_game_state.update(last_raise_amount=new_game_state.current_ante, run_it_out=False)
+    return (state
+            .with_game_state(new_game_state)
+            .with_phase(get_next_phase(state)))
 
 
 def run_betting_round_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for betting round phases (PRE_FLOP, FLOP, TURN, RIVER)."""
-    pot_is_settled = not (not are_pot_contributions_valid(state.game_state)
-                          and len([p.name for p in state.game_state.players if not p.is_folded or not p.is_all_in]) > 1)
-    
+    # Check if everyone else folded - go straight to showdown
+    num_not_folded = len([p for p in state.game_state.players if not p.is_folded])
+    if num_not_folded == 1:
+        return state.with_phase(PokerPhase.SHOWDOWN)
+
+    # Check if at most 1 player can act (run-it-out scenario)
+    # This must be checked FIRST because has_acted gets reset each round,
+    # making are_pot_contributions_valid return False even when no one owes money
+    num_can_act = len([p for p in state.game_state.players if not p.is_folded and not p.is_all_in])
+    if num_can_act <= 1:
+        # Check if there's an outstanding bet that needs to be called
+        # (e.g., someone just went all-in and others need to respond)
+        highest_bet = state.game_state.highest_bet
+        needs_to_call = any(
+            p.bet < highest_bet and not p.is_folded and not p.is_all_in
+            for p in state.game_state.players
+        )
+        if needs_to_call:
+            # Someone still needs to call/fold
+            new_game_state = state.game_state.update(awaiting_action=True)
+            return state.with_game_state(new_game_state)
+        else:
+            # No one owes money, run it out
+            new_game_state = state.game_state.update(awaiting_action=True, run_it_out=True)
+            return state.with_game_state(new_game_state)
+
+    # Normal flow: check if contributions are valid (all players have acted)
     if not are_pot_contributions_valid(state.game_state):
-        # Set awaiting action flag
         new_game_state = state.game_state.update(awaiting_action=True)
         return state.with_game_state(new_game_state)
-    elif pot_is_settled and state.phase != PokerPhase.EVALUATING_HAND:
-        return state.with_phase(get_next_phase(state))
-    
-    return state
+
+    return state.with_phase(get_next_phase(state))
 
 
 def deal_cards_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:

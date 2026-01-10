@@ -371,10 +371,10 @@ class TestSidePots(unittest.TestCase):
         self.assertEqual(side_pot['winners'][0]['amount'], 300)
 
     def test_multiple_side_pots_three_all_ins(self):
-        """Three players all-in with different amounts create multiple side pots."""
+        """Three players all-in with different amounts - excess chips returned silently."""
         # Tiny: $30 all-in (weakest)
         # Small: $60 all-in (middle strength)
-        # Medium: $100 all-in (best hand)
+        # Medium: $100 all-in (best hand) - $40 excess returned
         tiny = Player(
             name='Tiny',
             stack=0,
@@ -418,7 +418,8 @@ class TestSidePots(unittest.TestCase):
 
         result = determine_winner(game_state)
 
-        self.assertEqual(len(result['pot_breakdown']), 3)
+        # Only 2 pots now - excess chips returned silently instead of creating a 3rd pot
+        self.assertEqual(len(result['pot_breakdown']), 2)
 
         # Main pot: $90 (30 * 3) - Medium wins with AA
         main_pot = result['pot_breakdown'][0]
@@ -432,11 +433,8 @@ class TestSidePots(unittest.TestCase):
         self.assertEqual(side_pot_1['total_amount'], 60)
         self.assertEqual(side_pot_1['winners'][0]['name'], 'Medium')
 
-        # Side pot 2: $40 (remaining 40 from Medium alone) - Medium wins by default
-        side_pot_2 = result['pot_breakdown'][2]
-        self.assertEqual(side_pot_2['pot_name'], 'Side Pot 2')
-        self.assertEqual(side_pot_2['total_amount'], 40)
-        self.assertEqual(side_pot_2['winners'][0]['name'], 'Medium')
+        # Medium's excess $40 is returned silently (no pot for single player)
+        self.assertEqual(result['returned_chips'], {'Medium': 40})
 
     def test_side_pot_with_split(self):
         """Side pot is split between two players with identical hands."""
@@ -675,7 +673,7 @@ class TestChipConservation(unittest.TestCase):
         self.assertEqual(total_distributed, 200)
 
     def test_conservation_with_side_pots(self):
-        """Total distributed equals total pot with side pots."""
+        """Total distributed equals total pot with side pots (including returned chips)."""
         tiny = Player(
             name='Tiny',
             stack=0,
@@ -718,12 +716,15 @@ class TestChipConservation(unittest.TestCase):
 
         result = determine_winner(game_state)
 
-        total_distributed = sum(
+        total_from_pots = sum(
             w['amount']
             for pot in result['pot_breakdown']
             for w in pot['winners']
         )
-        total_pot = sum(pot['total_amount'] for pot in result['pot_breakdown'])
+        total_returned = sum(result.get('returned_chips', {}).values())
+        total_distributed = total_from_pots + total_returned
+
+        total_pot = sum(pot['total_amount'] for pot in result['pot_breakdown']) + total_returned
 
         self.assertEqual(total_distributed, total_pot)
         self.assertEqual(total_distributed, 190)
