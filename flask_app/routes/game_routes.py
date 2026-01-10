@@ -288,6 +288,9 @@ def api_game_state(game_id):
                         controller = ai_controllers[player.name]
                         controller.session_memory = memory_manager.get_session_memory(player.name)
                         controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+                    elif player.is_human:
+                        # Initialize human player for opponent observation tracking
+                        memory_manager.initialize_human_observer(player.name)
 
                 # Restore debug capture state from database
                 debug_capture_enabled = persistence.get_debug_capture_enabled(game_id)
@@ -497,6 +500,9 @@ def api_new_game():
             controller = ai_controllers[player.name]
             controller.session_memory = memory_manager.get_session_memory(player.name)
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+        else:
+            # Initialize human player for opponent observation tracking
+            memory_manager.initialize_human_observer(player.name)
 
     memory_manager.on_hand_start(state_machine.game_state, hand_number=1)
 

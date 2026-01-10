@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { type LucideIcon } from 'lucide-react'
 import { PokerTable } from './components/game/PokerTable'
 import { MobilePokerTable } from './components/mobile'
 import { GameSelector } from './components/menus/GameSelector'
@@ -28,7 +29,7 @@ interface Theme {
   id: string;
   name: string;
   description: string;
-  icon: string;
+  icon: LucideIcon;
   personalities?: string[];
 }
 

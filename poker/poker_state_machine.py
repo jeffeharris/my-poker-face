@@ -23,6 +23,7 @@ class PokerPhase(Enum):
     SHOWDOWN = auto()
     EVALUATING_HAND = auto()
     HAND_OVER = auto()
+    GAME_OVER = auto()  # Terminal state for completed tournaments
 
     @classmethod
     def _to_string(cls, phase):
@@ -38,6 +39,7 @@ class PokerPhase(Enum):
             cls.SHOWDOWN: "Showdown",
             cls.EVALUATING_HAND: "Determining Winners",
             cls.HAND_OVER: "Hand Over",
+            cls.GAME_OVER: "Game Over",
         }
         return phase_to_strings.get(phase, "Unknown Phase")
 
@@ -212,7 +214,7 @@ def showdown_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
 def evaluating_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for EVALUATING_HAND phase transition."""
     winner_info = determine_winner(state.game_state)
-    new_game_state = award_pot_winnings(state.game_state, winner_info['winnings'])
+    new_game_state = award_pot_winnings(state.game_state, winner_info)
     
     if winner_info:
         return (state

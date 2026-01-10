@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { MessageCircle } from 'lucide-react';
 import { BackButton } from './BackButton';
 import './MobileHeader.css';
 
@@ -79,7 +80,7 @@ export interface ChatToggleProps {
 export function ChatToggle({ onClick, badgeCount }: ChatToggleProps) {
   return (
     <button className="mobile-chat-toggle" onClick={onClick}>
-      <span className="mobile-chat-toggle__icon">💬</span>
+      <MessageCircle className="mobile-chat-toggle__icon" size={24} />
       {badgeCount !== undefined && badgeCount > 0 && (
         <span className="mobile-chat-toggle__badge">{badgeCount}</span>
       )}

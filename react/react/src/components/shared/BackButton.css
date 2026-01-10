@@ -1,33 +1,30 @@
 /**
  * BackButton - Unified back navigation button
  *
- * Uses design tokens for consistent styling
+ * Simple arrow icon, no background or border
  */
 
 .back-button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-default);
+  background: transparent;
+  border: none;
   color: var(--color-text-primary);
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
+  padding: var(--space-2);
   cursor: pointer;
   font-size: var(--font-size-base);
   font-family: inherit;
-  transition: var(--transition-all-slow);
+  transition: opacity 0.2s ease;
   z-index: var(--z-nav);
 }
 
 .back-button:hover {
-  background: var(--color-bg-surface-hover);
-  border-color: var(--color-border-hover);
-  transform: translateX(-4px);
+  opacity: 0.7;
 }
 
 .back-button:active {
-  transform: translateX(-2px) scale(0.98);
+  opacity: 0.5;
 }
 
 /* Position variants */
@@ -53,42 +50,25 @@
 }
 
 /* ===========================================
-   VARIANT: Light
+   VARIANT: Light (same as default, just for API)
    =========================================== */
 .back-button--light {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-.back-button--light:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.35);
+  /* No additional styles needed */
 }
 
 /* ===========================================
-   VARIANT: Mobile (circular)
+   VARIANT: Mobile
    =========================================== */
 .back-button--mobile {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
   justify-content: center;
 }
 
-.back-button--mobile:hover {
-  background: rgba(0, 0, 0, 0.7);
-  transform: scale(1.05);
-}
-
-.back-button--mobile:active {
-  transform: scale(0.95);
-}
-
 .back-button--mobile .back-button__icon {
-  font-size: var(--font-size-lg);
+  width: 24px;
+  height: 24px;
 }
 
 /* ===========================================
@@ -96,11 +76,6 @@
    =========================================== */
 @media (max-width: 640px) {
   .back-button {
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--font-size-sm);
-  }
-
-  .back-button__icon {
-    font-size: var(--font-size-base);
+    padding: var(--space-2);
   }
 }

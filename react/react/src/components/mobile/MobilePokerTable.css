@@ -596,13 +596,10 @@
 }
 
 .chat-sheet-header button {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
+    padding: 8px;
+    background: transparent;
     border: none;
     color: white;
-    font-size: 20px;
     cursor: pointer;
 }
 
@@ -726,5 +723,30 @@
     opacity: 1;
     transform: rotate(var(--deal-rotation)) translateY(var(--deal-offset)) scale(1);
   }
+}
+
+/* =================================
+   HEADS-UP MODE
+   When only 1 AI opponent remains
+   ================================= */
+
+.mobile-opponents.heads-up-mode {
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px;
+  overflow-x: hidden; /* No scrolling needed in heads-up */
+}
+
+/* Wider avatar in heads-up mode */
+.mobile-opponent.heads-up-avatar {
+  width: 55vw;
+  min-width: 55vw;
+  transition: width 0.4s ease-out, min-width 0.4s ease-out;
+}
+
+/* When thinking in heads-up, don't expand further */
+.mobile-opponents.heads-up-mode .mobile-opponent.heads-up-avatar.thinking {
+  width: 55vw;
+  min-width: 55vw;
 }
 

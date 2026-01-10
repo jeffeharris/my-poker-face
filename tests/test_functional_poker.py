@@ -42,8 +42,13 @@ class PokerTestCase(unittest.TestCase):
         # John has A-K with community J-Q-10-7-6, making a straight (A-K-Q-J-10)
         # Jane has 2-3 with same community, no made hand
         # John should win
-        self.assertIn('winnings', result)
-        self.assertIn('john', result['winnings'])
+        self.assertIn('pot_breakdown', result)
+        self.assertEqual(len(result['pot_breakdown']), 1)
+        pot = result['pot_breakdown'][0]
+        self.assertEqual(pot['pot_name'], 'Main Pot')
+        self.assertEqual(len(pot['winners']), 1)
+        self.assertEqual(pot['winners'][0]['name'], 'john')
+        self.assertEqual(pot['winners'][0]['amount'], 200)
 
     def test_determine_winner_folded(self):
         # Mark player1 as folded
@@ -55,7 +60,9 @@ class PokerTestCase(unittest.TestCase):
         )
         result = determine_winner(game_state)
         # Jane should win since John folded
-        self.assertIn('winnings', result)
+        self.assertIn('pot_breakdown', result)
+        self.assertEqual(len(result['pot_breakdown']), 1)
+        self.assertEqual(result['pot_breakdown'][0]['winners'][0]['name'], 'jane')
 
     def test_determine_winner_no_players(self):
         # Empty players tuple
@@ -65,9 +72,9 @@ class PokerTestCase(unittest.TestCase):
             pot={'total': 0},
         )
         result = determine_winner(game_state)
-        # Should handle gracefully with empty winnings
-        self.assertIn('winnings', result)
-        self.assertEqual(result['winnings'], {})
+        # Should handle gracefully with empty pot_breakdown
+        self.assertIn('pot_breakdown', result)
+        self.assertEqual(result['pot_breakdown'], [])
 
     def test_determine_winner_no_community_cards(self):
         # Empty community cards - players use only their hole cards
@@ -78,7 +85,8 @@ class PokerTestCase(unittest.TestCase):
         )
         result = determine_winner(game_state)
         # Should still determine winner based on hole cards alone
-        self.assertIn('winnings', result)
+        self.assertIn('pot_breakdown', result)
+        self.assertEqual(len(result['pot_breakdown']), 1)
 
 
 if __name__ == '__main__':

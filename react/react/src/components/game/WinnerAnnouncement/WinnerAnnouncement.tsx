@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Trophy, HeartCrack } from 'lucide-react';
 import { Card } from '../../cards';
 import { getOrdinal, type BackendCard } from '../../../types/tournament';
 import './WinnerAnnouncement.css';
@@ -84,7 +85,7 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
 
       <div className="winner-content">
         <div className="winner-header">
-          <h1 className="winner-title">{isSplitPot ? '🏆 Split Pot! 🏆' : '🏆 Winner! 🏆'}</h1>
+          <h1 className="winner-title"><Trophy size={28} /> {isSplitPot ? 'Split Pot!' : 'Winner!'} <Trophy size={28} /></h1>
           <div className="winner-name">{winnersString}</div>
         </div>
 
@@ -92,8 +93,8 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
         {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
           <div className={`tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}>
             {winnerInfo.tournament_outcome.human_won
-              ? '🏆 YOU WON THE TOURNAMENT! 🏆'
-              : `💔 YOU'RE OUT! Finished ${getOrdinal(winnerInfo.tournament_outcome.human_position)}`}
+              ? <><Trophy size={20} /> YOU WON THE TOURNAMENT! <Trophy size={20} /></>
+              : <><HeartCrack size={20} /> YOU'RE OUT! Finished {getOrdinal(winnerInfo.tournament_outcome.human_position)}</>}
           </div>
         )}
 

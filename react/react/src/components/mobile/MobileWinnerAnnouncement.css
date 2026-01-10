@@ -77,6 +77,89 @@
     display: inline-block;
 }
 
+/* Side Pots Summary - compact display for multiple pots */
+.side-pots-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0 12px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    width: 100%;
+}
+
+.side-pot-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.side-pot-name {
+    color: #94a3b8;
+    min-width: 70px;
+}
+
+.side-pot-winners {
+    flex: 1;
+    color: #fff;
+    font-weight: 500;
+}
+
+.side-pot-amount {
+    font-weight: 600;
+}
+
+/* Pot rank colors - gold, silver, bronze */
+.side-pot-line.pot-rank-0 .side-pot-name,
+.side-pot-line.pot-rank-0 .side-pot-amount {
+    color: #ffd700;
+}
+
+.side-pot-line.pot-rank-1 .side-pot-name,
+.side-pot-line.pot-rank-1 .side-pot-amount {
+    color: #c0c0c0;
+}
+
+.side-pot-line.pot-rank-2 .side-pot-name,
+.side-pot-line.pot-rank-2 .side-pot-amount {
+    color: #cd7f32;
+}
+
+/* Player header with name and winnings */
+.showdown-player-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.showdown-player-winnings {
+    color: #4ade80;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+/* No showdown winner display */
+.no-showdown-winner {
+    text-align: center;
+    margin: 12px 0;
+}
+
+.no-showdown-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffd700;
+    margin-bottom: 4px;
+}
+
+.no-showdown-amount {
+    font-size: 18px;
+    font-weight: 600;
+    color: #4ade80;
+    margin-bottom: 8px;
+}
+
 .no-showdown-text {
     font-size: 14px;
     color: rgba(255, 255, 255, 0.6);

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import './GameMenu.css';
 
@@ -42,12 +43,12 @@ export function GameMenu({
             onMouseEnter={() => setHoveredOption('quick')}
             onMouseLeave={() => setHoveredOption(null)}
           >
-            <div className="option-icon">🎲</div>
+            <Dices className="option-icon" size={24} />
             <div className="option-content">
               <h3>Quick Play</h3>
               <p>Jump into a random game with 3 AI opponents</p>
             </div>
-            <div className="option-arrow">→</div>
+            <ChevronRight className="option-arrow" size={20} />
           </button>
 
           <button 
@@ -56,12 +57,12 @@ export function GameMenu({
             onMouseEnter={() => setHoveredOption('custom')}
             onMouseLeave={() => setHoveredOption(null)}
           >
-            <div className="option-icon">⚙️</div>
+            <Settings className="option-icon" size={24} />
             <div className="option-content">
               <h3>Custom Game</h3>
               <p>Choose your opponents and game settings</p>
             </div>
-            <div className="option-arrow">→</div>
+            <ChevronRight className="option-arrow" size={20} />
           </button>
 
           <button 
@@ -70,12 +71,12 @@ export function GameMenu({
             onMouseEnter={() => setHoveredOption('themed')}
             onMouseLeave={() => setHoveredOption(null)}
           >
-            <div className="option-icon">✨</div>
+            <Sparkles className="option-icon" size={24} />
             <div className="option-content">
               <h3>Themed Game</h3>
               <p>Play with a surprise cast of personalities!</p>
             </div>
-            <div className="option-arrow">→</div>
+            <ChevronRight className="option-arrow" size={20} />
           </button>
 
           <button
@@ -85,7 +86,7 @@ export function GameMenu({
             onMouseLeave={() => setHoveredOption(null)}
             disabled={savedGamesCount === 0}
           >
-            <div className="option-icon">📂</div>
+            <FolderOpen className="option-icon" size={24} />
             <div className="option-content">
               <h3>Continue Game</h3>
               <p>{savedGamesCount > 0
@@ -93,7 +94,7 @@ export function GameMenu({
                 : 'No saved games yet'
               }</p>
             </div>
-            {savedGamesCount > 0 && <div className="option-arrow">→</div>}
+            {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
           <button
@@ -102,12 +103,12 @@ export function GameMenu({
             onMouseEnter={() => setHoveredOption('personalities')}
             onMouseLeave={() => setHoveredOption(null)}
           >
-            <div className="option-icon">🎭</div>
+            <Theater className="option-icon" size={24} />
             <div className="option-content">
               <h3>Manage Personalities</h3>
               <p>Create and edit AI opponents</p>
             </div>
-            <div className="option-arrow">→</div>
+            <ChevronRight className="option-arrow" size={20} />
           </button>
 
           {onViewStats && (
@@ -117,12 +118,12 @@ export function GameMenu({
               onMouseEnter={() => setHoveredOption('stats')}
               onMouseLeave={() => setHoveredOption(null)}
             >
-              <div className="option-icon">📊</div>
+              <BarChart3 className="option-icon" size={24} />
               <div className="option-content">
                 <h3>My Stats</h3>
                 <p>View your career statistics and history</p>
               </div>
-              <div className="option-arrow">→</div>
+              <ChevronRight className="option-arrow" size={20} />
             </button>
           )}
 
@@ -133,12 +134,12 @@ export function GameMenu({
               onMouseEnter={() => setHoveredOption('debugger')}
               onMouseLeave={() => setHoveredOption(null)}
             >
-              <div className="option-icon">🔬</div>
+              <Microscope className="option-icon" size={24} />
               <div className="option-content">
                 <h3>Prompt Debugger</h3>
                 <p>Analyze and replay AI decision prompts</p>
               </div>
-              <div className="option-arrow">→</div>
+              <ChevronRight className="option-arrow" size={20} />
             </button>
           )}
         </div>

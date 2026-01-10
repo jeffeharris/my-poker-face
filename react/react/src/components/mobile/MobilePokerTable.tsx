@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -6,6 +7,7 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
@@ -83,7 +85,8 @@ export function MobilePokerTable({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
-    debugTriggerTournamentEnd,
+    debugTriggerSplitPot,
+    debugTriggerSidePot,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -211,6 +214,10 @@ export function MobilePokerTable({
       });
   })();
 
+  // Heads-up mode: only 1 AI opponent remains
+  const isHeadsUp = opponents.length === 1;
+  const headsUpOpponent = isHeadsUp ? opponents[0] : null;
+
   const showActionButtons = currentPlayer?.is_human &&
                            !currentPlayer.is_folded &&
                            gameState?.player_options &&
@@ -306,32 +313,6 @@ export function MobilePokerTable({
                 ✕ Close
               </button>
               <button
-                onClick={() => debugTriggerTournamentEnd(false)}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: '#e74c3c',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Test: Lost
-              </button>
-              <button
-                onClick={() => debugTriggerTournamentEnd(true)}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: '#f1c40f',
-                  color: '#000',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Test: Won
-              </button>
-              <button
                 onClick={togglePromptCapture}
                 style={{
                   padding: '8px 12px',
@@ -344,13 +325,39 @@ export function MobilePokerTable({
               >
                 {promptCaptureEnabled ? '🔴 Stop Capture' : '⏺️ Capture AI'}
               </button>
+              <button
+                onClick={() => debugTriggerSplitPot()}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: '#9b59b6',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Test: Split Pot
+              </button>
+              <button
+                onClick={() => debugTriggerSidePot()}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  backgroundColor: '#3498db',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                }}
+              >
+                Test: Side Pots
+              </button>
             </>
           )}
         </div>
       )}
 
       {/* Opponents Strip */}
-      <div className="mobile-opponents" ref={opponentsContainerRef}>
+      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -366,7 +373,7 @@ export function MobilePokerTable({
                   opponentRefs.current.delete(opponent.name);
                 }
               }}
-              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''}`}
+              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''}`}
             >
               <div className="opponent-avatar">
                 {opponent.avatar_url ? (
@@ -392,6 +399,15 @@ export function MobilePokerTable({
             </div>
           );
         })}
+
+        {/* Heads-up psychology panel */}
+        {isHeadsUp && headsUpOpponent && providedGameId && (
+          <HeadsUpOpponentPanel
+            opponent={headsUpOpponent}
+            gameId={providedGameId}
+            humanPlayerName={humanPlayer?.name}
+          />
+        )}
       </div>
 
       {/* Community Cards - Always show 5 slots */}
@@ -498,7 +514,7 @@ export function MobilePokerTable({
                 className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
                 onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
               >
-                <span className="btn-icon">{queuedAction === 'check_fold' ? '✓' : '✓✕'}</span>
+                <span className="btn-icon">{queuedAction === 'check_fold' ? <Check size={16} /> : <><Check size={14} /><X size={14} /></>}</span>
                 <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}</span>
               </button>
             )}
@@ -509,7 +525,7 @@ export function MobilePokerTable({
               className="action-btn chat-btn"
               onClick={() => setShowQuickChat(true)}
             >
-              <span className="btn-icon">💬</span>
+              <MessageCircle className="btn-icon" size={18} />
               <span className="btn-label">Chat</span>
             </button>
           </div>
@@ -562,7 +578,7 @@ export function MobilePokerTable({
           <div className="chat-sheet" onClick={e => e.stopPropagation()}>
             <div className="chat-sheet-header">
               <h3>Table Chat</h3>
-              <button onClick={() => setShowChatSheet(false)}>×</button>
+              <button onClick={() => setShowChatSheet(false)}><X size={20} /></button>
             </div>
             <div className="chat-sheet-messages" ref={chatMessagesRef}>
               {messages.slice(-50).map((msg, i) => (

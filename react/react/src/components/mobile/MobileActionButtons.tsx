@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check, MessageCircle } from 'lucide-react';
 import './MobileActionButtons.css';
 
 interface MobileActionButtonsProps {
@@ -147,7 +148,7 @@ export function MobileActionButtons({
           className="action-btn check-btn"
           onClick={() => onAction('check')}
         >
-          <span className="btn-icon">✓</span>
+          <Check className="btn-icon" size={18} />
           <span className="btn-label">Check</span>
         </button>
       )}
@@ -189,7 +190,7 @@ export function MobileActionButtons({
           className="action-btn chat-btn"
           onClick={onQuickChat}
         >
-          <span className="btn-icon">💬</span>
+          <MessageCircle className="btn-icon" size={18} />
           <span className="btn-label">Chat</span>
         </button>
       )}

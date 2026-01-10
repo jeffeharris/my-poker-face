@@ -1,3 +1,4 @@
+import { ArrowLeft } from 'lucide-react';
 import './BackButton.css';
 
 export interface BackButtonProps {
@@ -37,10 +38,10 @@ export function BackButton({
       aria-label="Go back"
     >
       {variant === 'mobile' ? (
-        <span className="back-button__icon">←</span>
+        <ArrowLeft className="back-button__icon" size={20} />
       ) : (
         <>
-          <span className="back-button__icon">←</span>
+          <ArrowLeft className="back-button__icon" size={18} />
           {label && <span className="back-button__label">{label}</span>}
         </>
       )}

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { PartyPopper, Smile, Angry, Handshake, Trophy, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
 import { getOrdinal } from "../../types/tournament";
@@ -12,9 +13,21 @@ interface PlayerShowdownInfo {
     kickers?: string[];
 }
 
+interface PotWinner {
+    name: string;
+    amount: number;
+}
+
+interface PotBreakdown {
+    pot_name: string;
+    total_amount: number;
+    winners: PotWinner[];
+    hand_name: string;
+}
+
 interface WinnerInfo {
     winners: string[];
-    winnings: { [key: string]: number };
+    pot_breakdown?: PotBreakdown[];
     hand_name?: string;
     winning_hand?: string[];
     showdown: boolean;
@@ -38,7 +51,7 @@ interface CommentaryItem {
 
 interface ToneOption {
     id: PostRoundTone;
-    emoji: string;
+    icon: LucideIcon;
     label: string;
 }
 
@@ -53,14 +66,14 @@ interface MobileWinnerAnnouncementProps {
 
 // Tone options for winners
 const WINNER_TONES: ToneOption[] = [
-    { id: 'gloat', emoji: '🎉', label: 'Gloat' },
-    { id: 'humble', emoji: '😇', label: 'Humble' },
+    { id: 'gloat', icon: PartyPopper, label: 'Gloat' },
+    { id: 'humble', icon: Smile, label: 'Humble' },
 ];
 
 // Tone options for losers
 const LOSER_TONES: ToneOption[] = [
-    { id: 'salty', emoji: '😤', label: 'Salty' },
-    { id: 'gracious', emoji: '🤝', label: 'Gracious' },
+    { id: 'salty', icon: Angry, label: 'Salty' },
+    { id: 'gracious', icon: Handshake, label: 'Gracious' },
 ];
 
 export function MobileWinnerAnnouncement({
@@ -250,27 +263,23 @@ export function MobileWinnerAnnouncement({
 
     if (!winnerInfo) return null;
 
-    const winnersString = winnerInfo.winners.length > 1
-        ? winnerInfo.winners.slice(0, -1).join(', ') + ' & ' + winnerInfo.winners[winnerInfo.winners.length - 1]
-        : winnerInfo.winners[0];
+    // Compute per-player total winnings from pot_breakdown
+    const playerWinnings: { [name: string]: number } = {};
+    if (winnerInfo.pot_breakdown) {
+        for (const pot of winnerInfo.pot_breakdown) {
+            for (const winner of pot.winners) {
+                playerWinnings[winner.name] = (playerWinnings[winner.name] || 0) + winner.amount;
+            }
+        }
+    }
 
-    const totalWinnings = Object.values(winnerInfo.winnings).reduce((sum, val) => sum + val, 0);
-    const isSplitPot = winnerInfo.winners.length > 1;
+    const totalWinnings = Object.values(playerWinnings).reduce((sum, val) => sum + val, 0);
+    const hasSidePots = winnerInfo.pot_breakdown && winnerInfo.pot_breakdown.length > 1;
 
     return (
         <div className="mobile-winner-overlay">
             <div className="mobile-winner-content">
-                <div className="winner-trophy">🏆</div>
-                <div className="winner-name">{winnersString}</div>
-                <div className="winner-amount">
-                    {isSplitPot ? `Split Pot - $${totalWinnings}` : `Wins $${totalWinnings}`}
-                </div>
-
-                {winnerInfo.hand_name && (
-                    <div className="winner-hand-name">
-                        with {winnerInfo.hand_name}
-                    </div>
-                )}
+                <div className="winner-trophy"><Trophy size={48} /></div>
 
                 {/* Tournament Outcome Banner - only shown on final hand */}
                 {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
@@ -278,6 +287,21 @@ export function MobileWinnerAnnouncement({
                         {winnerInfo.tournament_outcome.human_won
                             ? 'CHAMPION!'
                             : `Finished ${getOrdinal(winnerInfo.tournament_outcome.human_position)}`}
+                    </div>
+                )}
+
+                {/* Side pots summary - only shown when multiple pots */}
+                {hasSidePots && winnerInfo.pot_breakdown && (
+                    <div className="side-pots-summary">
+                        {winnerInfo.pot_breakdown.map((pot, index) => (
+                            <div key={index} className={`side-pot-line pot-rank-${index}`}>
+                                <span className="side-pot-name">{pot.pot_name}:</span>
+                                <span className="side-pot-winners">
+                                    {pot.winners.map(w => w.name).join(' & ')}
+                                </span>
+                                <span className="side-pot-amount">${pot.total_amount}</span>
+                            </div>
+                        ))}
                     </div>
                 )}
 
@@ -308,22 +332,24 @@ export function MobileWinnerAnnouncement({
                                     .sort(([, infoA], [, infoB]) => infoA.hand_rank - infoB.hand_rank)
                                     .map(([showdownPlayerName, playerInfo]) => {
                                         const isWinner = winnerInfo.winners.includes(showdownPlayerName);
-                                        const hasKickers = playerInfo.kickers && playerInfo.kickers.length > 0;
+                                        const winAmount = playerWinnings[showdownPlayerName];
                                         return (
                                             <div
                                                 key={showdownPlayerName}
                                                 className={`player-showdown ${isWinner ? 'winner' : ''}`}
                                             >
                                                 <div className="showdown-player-info">
-                                                    <div className="showdown-player-name">
-                                                        {showdownPlayerName}
+                                                    <div className="showdown-player-header">
+                                                        <span className="showdown-player-name">
+                                                            {showdownPlayerName}
+                                                        </span>
+                                                        {winAmount > 0 && (
+                                                            <span className="showdown-player-winnings">+${winAmount}</span>
+                                                        )}
                                                     </div>
                                                     {playerInfo.hand_name && (
                                                         <div className="showdown-hand-name">
                                                             {playerInfo.hand_name}
-                                                            {hasKickers && (
-                                                                <span className="showdown-kickers"> ({playerInfo.kickers!.join(', ')})</span>
-                                                            )}
                                                         </div>
                                                     )}
                                                 </div>
@@ -346,7 +372,11 @@ export function MobileWinnerAnnouncement({
                 )}
 
                 {!winnerInfo.showdown && (
-                    <div className="no-showdown-text">All opponents folded</div>
+                    <div className="no-showdown-winner">
+                        <div className="no-showdown-name">{winnerInfo.winners[0]}</div>
+                        <div className="no-showdown-amount">Wins ${totalWinnings}</div>
+                        <div className="no-showdown-text">All opponents folded</div>
+                    </div>
                 )}
 
                 {/* Post-round quick chat section */}
@@ -371,7 +401,7 @@ export function MobileWinnerAnnouncement({
                                     className="post-round-back"
                                     onClick={handleBackToTones}
                                 >
-                                    ← Back
+                                    <ArrowLeft size={14} /> Back
                                 </button>
                             </div>
                         ) : (
@@ -382,7 +412,7 @@ export function MobileWinnerAnnouncement({
                                         className={`post-round-tone tone-${tone.id}`}
                                         onClick={() => handleToneSelect(tone.id)}
                                     >
-                                        <span className="tone-emoji">{tone.emoji}</span>
+                                        <tone.icon className="tone-icon" size={18} />
                                         <span className="tone-label">{tone.label}</span>
                                     </button>
                                 ))}
@@ -393,7 +423,7 @@ export function MobileWinnerAnnouncement({
 
                 {messageSent && (
                     <div className="post-round-sent">
-                        ✓ Sent
+                        <Check size={14} /> Sent
                     </div>
                 )}
 

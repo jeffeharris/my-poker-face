@@ -127,9 +127,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       }
 
       const data = await response.json();
-      setCaptures(data.captures);
+      setCaptures(data.captures || []);
       setStats(data.stats);
-      setTotal(data.total);
+      setTotal(data.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {

@@ -28,9 +28,19 @@ class PressureEventDetector:
         """
         events = []
         
-        # Extract winner details
-        winnings = winner_info.get('winnings', {})
-        winner_names = list(winnings.keys()) if winnings else []
+        # Extract winner details from pot_breakdown (split-pot support)
+        winner_names = []
+        pot_breakdown = winner_info.get('pot_breakdown', [])
+        for pot in pot_breakdown:
+            for winner in pot.get('winners', []):
+                if winner['name'] not in winner_names:
+                    winner_names.append(winner['name'])
+
+        # Fallback to old 'winnings' format if pot_breakdown not available
+        if not winner_names:
+            winnings = winner_info.get('winnings', {})
+            winner_names = list(winnings.keys()) if winnings else []
+
         winner_name = winner_names[0] if winner_names else None
         
         # Get hand rank from hand evaluation if available

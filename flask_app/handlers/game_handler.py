@@ -123,7 +123,7 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state = current_game_data['state_machine'].game_state
     game_state_dict = game_state.to_dict()
 
-    # Add avatar data to AI players
+    # Add avatar data and psychology to AI players
     ai_controllers = current_game_data.get('ai_controllers', {})
     for player_dict in game_state_dict.get('players', []):
         player_name = player_dict.get('name', '')
@@ -133,6 +133,19 @@ def update_and_emit_game_state(game_id: str) -> None:
             avatar_url = get_avatar_url(player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
+
+            # Add psychology data for heads-up mode display
+            psych = controller.psychology
+            psych_data = {
+                'narrative': psych.emotional.narrative if psych.emotional else None,
+                'inner_voice': psych.emotional.inner_voice if psych.emotional else None,
+                'tilt_level': psych.tilt_level,
+                'tilt_category': psych.tilt_category,
+                'tilt_source': psych.tilt.tilt_source if psych.tilt else None,
+                'losing_streak': psych.tilt.losing_streak if psych.tilt else 0,
+            }
+            player_dict['psychology'] = psych_data
+            logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
 
     # Include messages (transform to frontend format)
     messages = []
@@ -226,6 +239,12 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
 
     ai_controllers = game_data['ai_controllers']
 
+    # Calculate winnings per player from pot_breakdown (split-pot support)
+    winnings_by_player = {}
+    for pot in winner_info.get('pot_breakdown', []):
+        for winner in pot['winners']:
+            winnings_by_player[winner['name']] = winnings_by_player.get(winner['name'], 0) + winner['amount']
+
     for player in game_state.players:
         if player.name not in ai_controllers:
             continue
@@ -233,7 +252,7 @@ def update_tilt_states(game_id: str, game_data: dict, game_state,
         controller = ai_controllers[player.name]
 
         player_won = player.name in winning_player_names
-        amount = winner_info['winnings'].get(player.name, 0) if player_won else -pot_size
+        amount = winnings_by_player.get(player.name, 0) if player_won else -pot_size
 
         was_bad_beat = False
         was_bluff_called = False
@@ -376,7 +395,7 @@ def prepare_showdown_data(game_state, winner_info: dict, winning_player_names: l
 
     winner_data = {
         'winners': winning_player_names,
-        'winnings': winner_info['winnings'],
+        'pot_breakdown': winner_info.get('pot_breakdown', []),
         'showdown': is_showdown,
         'community_cards': [],
     }
@@ -572,11 +591,16 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         tuple: (updated_game_state, should_return) - should_return is True if game should end
     """
     winner_info = determine_winner(game_state)
-    winning_player_names = list(winner_info['winnings'].keys())
+    # Compute winning player names from pot_breakdown
+    all_winners = set()
+    for pot in winner_info.get('pot_breakdown', []):
+        for winner in pot['winners']:
+            all_winners.add(winner['name'])
+    winning_player_names = list(all_winners)
     pot_size_before_award = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
 
     # Award winnings FIRST so chip counts are updated
-    game_state = award_pot_winnings(game_state, winner_info['winnings'])
+    game_state = award_pot_winnings(game_state, winner_info)
 
     # Prepare winner announcement data
     winning_players_string = (', '.join(winning_player_names[:-1]) +
@@ -609,13 +633,16 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     winner_data = prepare_showdown_data(game_state, winner_info, winning_player_names,
                                         is_final_hand, tournament_outcome)
 
+    # Calculate total pot from pot_breakdown (split-pot support)
+    total_pot = sum(pot['total_amount'] for pot in winner_info.get('pot_breakdown', []))
+
     if is_showdown:
         message_content = (
-            f"{winning_players_string} won the pot of ${winner_info['winnings']} with {winner_info['hand_name']}. "
+            f"{winning_players_string} won the pot of ${total_pot} with {winner_info['hand_name']}. "
             f"Winning hand: {winner_info['winning_hand']}"
         )
     else:
-        message_content = f"{winning_players_string} won the pot of ${winner_info['winnings']}."
+        message_content = f"{winning_players_string} won the pot of ${total_pot}."
 
     # EMIT WINNER ANNOUNCEMENT IMMEDIATELY
     send_message(game_id, "Table", message_content, "table", 1)
@@ -655,10 +682,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     human_eliminated = handle_eliminations(game_id, game_data, game_state, winning_player_names,
                                            pot_size_before_award, final_hand_data=winner_data)
     if human_eliminated:
+        # Set phase to GAME_OVER and save before returning
+        state_machine.current_phase = PokerPhase.GAME_OVER
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+        update_and_emit_game_state(game_id)
         return game_state, True
 
     # Check tournament completion
     if check_tournament_complete(game_id, game_data, final_hand_data=winner_data):
+        # Set phase to GAME_OVER and save before returning
+        state_machine.current_phase = PokerPhase.GAME_OVER
+        game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, game_data)
+        update_and_emit_game_state(game_id)
         return game_state, True
 
     # Wait for commentary to complete before starting new hand

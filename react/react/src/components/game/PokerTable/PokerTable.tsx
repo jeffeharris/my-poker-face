@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { BarChart3 } from 'lucide-react';
 import { Card, CommunityCard, HoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import { ChatSidebar } from '../../chat/ChatSidebar';
@@ -37,7 +38,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
-    debugTriggerTournamentEnd,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
@@ -69,6 +69,54 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const [showStats, setShowStats] = useState<boolean>(true);
   const [showElasticityPanel, setShowElasticityPanel] = useState<boolean>(false);
   const [pollIntervalRef, setPollIntervalRef] = useState<ReturnType<typeof setInterval> | null>(null);
+
+  // Calculate seat position around the table based on player count
+  // Position 0 is always at bottom center (human player)
+  // Other positions are distributed clockwise around the table
+  const getSeatStyle = (seatIndex: number, totalPlayers: number) => {
+    // Start from bottom (90 degrees) and go clockwise
+    // Angle 0 = right, 90 = bottom, 180 = left, 270 = top
+    const startAngle = 90; // Bottom center (in degrees)
+    const angleStep = 360 / totalPlayers;
+    const angle = (startAngle + seatIndex * angleStep) * (Math.PI / 180);
+
+    // Ellipse radii - seats positioned outside the table
+    // Table is roughly 80% of container, so position seats at ~55% from center
+    const radiusX = 55; // Horizontal radius as percentage
+    const radiusY = 48; // Vertical radius as percentage (slightly less due to aspect ratio)
+
+    // Calculate position on ellipse
+    const left = 50 + radiusX * Math.cos(angle);
+    const top = 50 + radiusY * Math.sin(angle);
+
+    return {
+      position: 'absolute' as const,
+      left: `${left}%`,
+      top: `${top}%`,
+      transform: 'translate(-50%, -50%)',
+    };
+  };
+
+  // Calculate bet chip position (inside the table, closer to center)
+  const getBetChipStyle = (seatIndex: number, totalPlayers: number) => {
+    const startAngle = 90;
+    const angleStep = 360 / totalPlayers;
+    const angle = (startAngle + seatIndex * angleStep) * (Math.PI / 180);
+
+    // Smaller radius - chips appear between player and center
+    const radiusX = 28;
+    const radiusY = 22;
+
+    const left = 50 + radiusX * Math.cos(angle);
+    const top = 50 + radiusY * Math.sin(angle);
+
+    return {
+      position: 'absolute' as const,
+      left: `${left}%`,
+      top: `${top}%`,
+      transform: 'translate(-50%, -50%)',
+    };
+  };
 
   // Initialize player positions when game state loads
   useEffect(() => {
@@ -228,7 +276,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             transition: 'all 0.3s ease'
           }}
         >
-          {showStats ? '📊 Hide Stats' : '📊 Show Stats'}
+          <BarChart3 size={16} style={{ marginRight: 6 }} />{showStats ? 'Hide Stats' : 'Show Stats'}
         </button>
 
         {/* Show Debug button (original elasticity panel) */}
@@ -270,41 +318,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           </button>
         )}
 
-        {/* Tournament End Debug Buttons */}
-        {config.ENABLE_DEBUG && debugMode && (
-          <>
-            <button
-              onClick={() => debugTriggerTournamentEnd(false)}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#e74c3c',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-              }}
-            >
-              Test: You Lost
-            </button>
-            <button
-              onClick={() => debugTriggerTournamentEnd(true)}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#f1c40f',
-                color: '#000',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-              }}
-            >
-              Test: You Won
-            </button>
-          </>
-        )}
       </div>
 
 
@@ -387,14 +400,17 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
               const isBigBlind = currentIndex === gameState.big_blind_idx;
               const isCurrentPlayer = currentIndex === gameState.current_player_idx;
 
+              const totalPlayers = gameState.players.length;
+
               return (
                 <div
                   key={player.name}
-                  className={`player-seat seat-${visualPosition} ${
+                  className={`player-seat ${
                     isCurrentPlayer ? 'current-player' : ''
                   } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
                     isCurrentPlayer && !player.is_human && aiThinking ? 'thinking' : ''
                   }`}
+                  style={getSeatStyle(visualPosition, totalPlayers)}
                 >
                 {/* Position indicators */}
                 <div className="position-indicators">
@@ -465,8 +481,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         <div className="betting-area">
           {gameState.players.map((player) => {
             const visualPosition = playerPositions.get(player.name) ?? 0;
+            const totalPlayers = gameState.players.length;
             return player.bet > 0 ? (
-              <div key={player.name} className={`bet-chips bet-position-${visualPosition}`}>
+              <div key={player.name} className="bet-chips" style={getBetChipStyle(visualPosition, totalPlayers)}>
                 <div className="chip-stack">
                   {(() => {
                     // Determine chip denomination and color based on bet amount
