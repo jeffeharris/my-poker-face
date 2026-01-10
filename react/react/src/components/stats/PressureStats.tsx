@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { Flame, Zap, Minus } from 'lucide-react';
 import { Socket } from 'socket.io-client';
 import { config } from '../../config';
 import './PressureStats.css';
@@ -93,7 +94,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
   if (loading && isInitialLoad) {
     return (
       <div className="pressure-stats-panel">
-        <h3>🎰 Pressure Stats & Highlights</h3>
+        <h3> Pressure Stats & Highlights</h3>
         <div className="loading">Loading stats...</div>
       </div>
     );
@@ -110,17 +111,16 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
     return '😊';
   };
 
-  const getAggressionEmoji = (score: number) => {
-    if (score > 0.8) return '🔥';
-    if (score > 0.6) return '⚡';
-    if (score > 0.4) return '💪';
-    if (score > 0.2) return '👊';
-    return '🤝';
+  const getAggressionIcon = (score: number): ReactNode => {
+    const iconProps = { size: 14, className: "aggression-icon" };
+    if (score > 0.8) return <Flame {...iconProps} />;
+    if (score > 0.6) return <Zap {...iconProps} />;
+    return <Minus {...iconProps} />;
   };
 
   return (
     <div className="pressure-stats-panel">
-      <h3>🎰 Pressure Stats & Highlights</h3>
+      <h3> Pressure Stats & Highlights</h3>
       
       {/* Session Overview */}
       <div className="session-overview">
@@ -155,7 +155,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
 
         {stats.leaderboards.master_bluffers.length > 0 && (
           <div className="leaderboard">
-            <h4>🎭 Master Bluffers</h4>
+            <h4>Master Bluffers</h4>
             {stats.leaderboards.master_bluffers.map((entry, i) => (
               <div key={i} className="leaderboard-entry">
                 <span className="rank">#{i + 1}</span>
@@ -230,7 +230,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
                     style={{ width: `${playerStats.aggression_score * 100}%` }}
                   />
                 </div>
-                <span className="meter-emoji">{getAggressionEmoji(playerStats.aggression_score)}</span>
+                <span className="meter-emoji">{getAggressionIcon(playerStats.aggression_score)}</span>
               </div>
             </div>
           </div>
@@ -240,7 +240,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
       {/* Fun Facts */}
       {stats.fun_facts.length > 0 && (
         <div className="fun-facts">
-          <h4>📊 Game Highlights</h4>
+          <h4>Game Highlights</h4>
           {stats.fun_facts.map((fact, i) => (
             <div key={i} className="fun-fact">{fact}</div>
           ))}

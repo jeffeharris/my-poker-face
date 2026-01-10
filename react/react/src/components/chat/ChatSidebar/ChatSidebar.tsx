@@ -1,6 +1,9 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react';
+import {
+  Target, MessageCircle, Gamepad2, Bell, Users, Settings, Bot, User,
+  Flag, CheckCircle, Phone, TrendingUp, Rocket
+} from 'lucide-react';
 import type { ChatMessage, Player } from '../../../types';
-import { useFeatureFlags } from '../../debug/FeatureFlags';
 import { QuickChatSuggestions } from '../QuickChatSuggestions';
 import { config } from '../../../config';
 import './ChatSidebar.css';
@@ -23,10 +26,6 @@ interface LastAction {
 interface ProcessedChatMessage extends ChatMessage {
   displayType: 'action' | 'separator' | ChatMessage['type'];
   parsedAction?: ParsedAction;
-  eventType?: 'win' | 'all-in' | 'fold' | 'elimination' | null;
-  isFirstInGroup?: boolean;
-  isLastInGroup?: boolean;
-  showHeader?: boolean;
 }
 
 interface ChatSidebarProps {
@@ -54,25 +53,10 @@ type MessageFilter = 'all' | 'chat' | 'actions' | 'system';
 export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', gameId, players = [] }: ChatSidebarProps) {
   const [inputValue, setInputValue] = useState('');
   const [filter, setFilter] = useState<MessageFilter>('all');
-  const [selectedPlayer, setSelectedPlayer] = useState<string>('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerColorsRef = useRef<Record<string, string>>({});
   const [, setColorUpdateTrigger] = useState(0);
   const [lastAction, setLastAction] = useState<LastAction | undefined>(undefined);
-  const featureFlags = useFeatureFlags();
-
-  // Get all unique players from messages
-  const allPlayers = useMemo(() => {
-    const players = new Set<string>();
-    messages.forEach(msg => {
-      if (msg.sender && 
-          msg.sender.toLowerCase() !== 'table' && 
-          msg.sender.toLowerCase() !== 'system') {
-        players.add(msg.sender);
-      }
-    });
-    return Array.from(players).sort();
-  }, [messages]);
 
   // Parse action messages to extract player and action
   const parseActionMessage = (message: string) => {
@@ -88,60 +72,13 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     return null;
   };
 
-  // Detect special event messages
-  const detectEventType = (msg: ChatMessage) => {
-    if (!msg.message) return null;
-    
-    const message = msg.message.toLowerCase();
-    
-    // Win detection
-    if (message.includes('won') && message.includes('$')) {
-      return 'win';
-    }
-    
-    // All-in detection
-    if (message.includes('all-in') || message.includes('all in')) {
-      return 'all-in';
-    }
-    
-    // Big pot detection (over $500)
-    const potMatch = msg.message.match(/\$(\d+)/);
-    if (potMatch && parseInt(potMatch[1]) >= 500) {
-      return 'big-pot';
-    }
-    
-    // Showdown/reveal detection
-    if (message.includes('shows') || message.includes('revealed')) {
-      return 'showdown';
-    }
-    
-    // Elimination detection
-    if (message.includes('eliminated') || message.includes('busted out')) {
-      return 'elimination';
-    }
-    
-    return null;
-  };
-
   // Transform and filter messages
   const processedMessages = useMemo((): ProcessedChatMessage[] => {
-    const filtered = messages
+    return messages
       .filter(msg => {
         // Filter out empty messages
         if (!msg.message || msg.message.trim() === '') return false;
-        
-        // Apply player filter if feature is enabled
-        if (featureFlags.playerFilter && selectedPlayer !== 'all') {
-          // For action messages, check if the player is mentioned
-          if (msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
-            const parsed = parseActionMessage(msg.message);
-            if (!parsed || parsed.player !== selectedPlayer) return false;
-          } else {
-            // For regular messages, check sender
-            if (msg.sender !== selectedPlayer) return false;
-          }
-        }
-        
+
         // Apply type filter
         switch (filter) {
           case 'chat':
@@ -158,7 +95,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         // Check if this message is a hand separator
         const isHandSeparator = msg.message && (msg.message.toLowerCase().includes('new hand dealt') ||
                                msg.message.toLowerCase().includes('new game started'));
-        
+
         // Transform action messages
         if (msg.sender && msg.message && msg.sender.toLowerCase() === 'table' && msg.message.includes('chose to')) {
           const parsed = parseActionMessage(msg.message);
@@ -170,7 +107,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
             };
           }
         }
-        
+
         // Mark hand separator messages
         if (isHandSeparator) {
           return {
@@ -178,60 +115,13 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
             displayType: 'separator'
           };
         }
-        
-        // Check for special events if feature is enabled
-        const eventType = featureFlags.eventIndicators ? detectEventType(msg) : null;
-        
-        return { 
-          ...msg, 
-          displayType: msg.type,
-          eventType
-        };
-      });
-    
-    // Apply message grouping if feature is enabled
-    if (featureFlags.messageGrouping) {
-      const grouped = (filtered as ProcessedChatMessage[]).map((msg, index) => {
-        const prevMsg: ProcessedChatMessage | null = index > 0 ? filtered[index - 1] as ProcessedChatMessage : null;
-        const nextMsg: ProcessedChatMessage | null = index < filtered.length - 1 ? filtered[index + 1] as ProcessedChatMessage : null;
 
-        // For action messages, check the parsed player name
-        const currentSender = msg.displayType === 'action' && msg.parsedAction
-          ? msg.parsedAction.player
-          : msg.sender;
-
-        const prevSender = prevMsg && prevMsg.displayType === 'action' && prevMsg.parsedAction
-          ? prevMsg.parsedAction.player
-          : prevMsg?.sender;
-
-        const nextSender = nextMsg && nextMsg.displayType === 'action' && nextMsg.parsedAction
-          ? nextMsg.parsedAction.player
-          : nextMsg?.sender;
-        
-        // Check if this message is part of a group
-        const isFirstInGroup = !prevMsg || 
-          prevSender !== currentSender || 
-          prevMsg.displayType === 'separator' ||
-          msg.displayType === 'separator';
-          
-        const isLastInGroup = !nextMsg || 
-          nextSender !== currentSender || 
-          nextMsg.displayType === 'separator' ||
-          msg.displayType === 'separator';
-        
         return {
           ...msg,
-          isFirstInGroup,
-          isLastInGroup,
-          showHeader: isFirstInGroup
+          displayType: msg.type
         };
       });
-      
-      return grouped;
-    }
-    
-    return filtered as ProcessedChatMessage[];
-  }, [messages, filter, selectedPlayer, featureFlags.playerFilter, featureFlags.messageGrouping, featureFlags.eventIndicators]);
+  }, [messages, filter]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -267,20 +157,21 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     }
   };
 
-  const getMessageIcon = (type: string, sender?: string) => {
+  const getMessageIcon = (type: string, sender?: string): ReactNode => {
+    const iconProps = { size: 14, className: "message-type-icon" };
     switch (type) {
       case 'action':
-        return '🎮';
+        return <Gamepad2 {...iconProps} />;
       case 'table':
-        return '🎲';
+        return <Users {...iconProps} />;
       case 'system':
-        return '⚙️';
+        return <Settings {...iconProps} />;
       case 'ai':
-        return '🤖';
+        return <Bot {...iconProps} />;
       case 'player':
-        return sender === playerName ? '👤' : '💬';
+        return sender === playerName ? <User {...iconProps} /> : <MessageCircle {...iconProps} />;
       default:
-        return '💬';
+        return <MessageCircle {...iconProps} />;
     }
   };
 
@@ -317,19 +208,24 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     }
   };
 
+  const getActionIcon = (actionKey: string): ReactNode => {
+    const iconProps = { size: 14, className: "action-icon" };
+    switch (actionKey) {
+      case 'fold': return <Flag {...iconProps} />;
+      case 'check': return <CheckCircle {...iconProps} />;
+      case 'call': return <Phone {...iconProps} />;
+      case 'raise': return <TrendingUp {...iconProps} />;
+      case 'all-in':
+      case 'all_in': return <Rocket {...iconProps} />;
+      default: return <Gamepad2 {...iconProps} />;
+    }
+  };
+
   const renderActionMessage = (msg: ProcessedChatMessage, index: number) => {
     if (!msg.parsedAction) return null;
     const { player, action, amount } = msg.parsedAction;
-    const actionKey = action.toLowerCase() as keyof typeof actionEmojiMap;
-    const actionEmojiMap = {
-      'fold': '🏳️',
-      'check': '✅',
-      'call': '📞',
-      'raise': '📈',
-      'all-in': '🚀',
-      'all_in': '🚀'
-    } as const;
-    const actionEmoji = actionEmojiMap[actionKey] || '🎮';
+    const actionKey = action.toLowerCase();
+    const actionIcon = getActionIcon(actionKey);
 
     const actionTextMap = {
       'fold': 'folded',
@@ -341,12 +237,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
     } as Record<string, string>;
     const actionText = actionTextMap[actionKey] || action;
 
-    const actionClasses = [
-      'chat-message',
-      'action-message',
-      featureFlags.messageGrouping && !msg.isFirstInGroup ? 'grouped' : '',
-      featureFlags.messageGrouping && !msg.isLastInGroup ? 'grouped-with-next' : ''
-    ].filter(Boolean).join(' ');
+    const actionClasses = 'chat-message action-message';
 
     return (
       <div 
@@ -355,7 +246,7 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         style={{ borderLeftColor: getPlayerColor(player) }}
       >
         <div className="action-content">
-          <span className="action-emoji">{actionEmoji}</span>
+          <span className="action-emoji">{actionIcon}</span>
           <span className="action-player" style={{ color: getPlayerColor(player) }}>
             {player}
           </span>
@@ -372,53 +263,35 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
         <h3>Table Chat</h3>
         <div className="chat-filters-container">
           <div className="chat-filters">
-          <button 
+          <button
             className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
             onClick={() => setFilter('all')}
             title="All messages"
           >
-            🎯
+            <Target size={14} />
           </button>
-          <button 
+          <button
             className={`filter-btn ${filter === 'chat' ? 'active' : ''}`}
             onClick={() => setFilter(filter === 'chat' ? 'all' : 'chat')}
             title="Chat only"
           >
-            💬
+            <MessageCircle size={14} />
           </button>
-          <button 
+          <button
             className={`filter-btn ${filter === 'actions' ? 'active' : ''}`}
             onClick={() => setFilter(filter === 'actions' ? 'all' : 'actions')}
             title="Actions only"
           >
-            🎮
+            <Gamepad2 size={14} />
           </button>
-          <button 
+          <button
             className={`filter-btn ${filter === 'system' ? 'active' : ''}`}
             onClick={() => setFilter(filter === 'system' ? 'all' : 'system')}
             title="System messages"
           >
-            🔔
+            <Bell size={14} />
           </button>
           </div>
-          {featureFlags.playerFilter && allPlayers.length > 0 && (
-            <>
-              <div className="filter-divider">|</div>
-              <select 
-                className="player-filter-dropdown"
-                value={selectedPlayer}
-                onChange={(e) => setSelectedPlayer(e.target.value)}
-                title="Filter by player"
-              >
-                <option value="all">👥 All Players</option>
-                {allPlayers.map(player => (
-                  <option key={player} value={player}>
-                    {player}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
         </div>
       </div>
       
@@ -453,57 +326,42 @@ export function ChatSidebar({ messages, onSendMessage, playerName = 'Player', ga
             const messageClasses = [
               'chat-message',
               msg.type,
-              isOwnMessage ? 'own-message' : '',
-              featureFlags.messageGrouping && !msg.isFirstInGroup ? 'grouped' : '',
-              featureFlags.messageGrouping && !msg.isLastInGroup ? 'grouped-with-next' : '',
-              msg.eventType ? `event-${msg.eventType}` : ''
+              isOwnMessage ? 'own-message' : ''
             ].filter(Boolean).join(' ');
-            
-            const eventEmojiMap: Record<string, string> = {
-              'win': '🏆',
-              'all-in': '📢',
-              'big-pot': '💰',
-              'showdown': '🎭',
-              'elimination': '💀'
-            };
-            const eventEmoji = msg.eventType ? eventEmojiMap[msg.eventType as string] : null;
 
             return (
-              <div 
-                key={`msg-${index}-${msg.id}`} 
+              <div
+                key={`msg-${index}-${msg.id}`}
                 className={messageClasses}
-                style={{ 
-                  borderLeftColor: msg.type === 'player' || msg.type === 'ai' 
-                    ? playerColor 
-                    : undefined 
+                style={{
+                  borderLeftColor: msg.type === 'player' || msg.type === 'ai'
+                    ? playerColor
+                    : undefined
                 }}
               >
-                {(!featureFlags.messageGrouping || msg.showHeader) && (
-                  <div className="message-header">
-                    {msg.type === 'ai' && getPlayerAvatar(msg.sender) ? (
-                      <img
-                        src={getPlayerAvatar(msg.sender)!}
-                        alt={msg.sender}
-                        className="chat-avatar"
-                      />
-                    ) : (
-                      <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
-                    )}
-                    <span
-                      className="message-sender"
-                      style={{
-                        color: msg.type === 'player' || msg.type === 'ai'
-                          ? playerColor
-                          : undefined
-                      }}
-                    >
-                      {msg.sender}
-                    </span>
-                    <span className="message-time">{formatTime(msg.timestamp)}</span>
-                  </div>
-                )}
+                <div className="message-header">
+                  {msg.type === 'ai' && getPlayerAvatar(msg.sender) ? (
+                    <img
+                      src={getPlayerAvatar(msg.sender)!}
+                      alt={msg.sender}
+                      className="chat-avatar"
+                    />
+                  ) : (
+                    <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                  )}
+                  <span
+                    className="message-sender"
+                    style={{
+                      color: msg.type === 'player' || msg.type === 'ai'
+                        ? playerColor
+                        : undefined
+                    }}
+                  >
+                    {msg.sender}
+                  </span>
+                  <span className="message-time">{formatTime(msg.timestamp)}</span>
+                </div>
                 <div className="message-content">
-                  {eventEmoji && <span className="event-emoji">{eventEmoji}</span>}
                   {msg.message}
                 </div>
               </div>

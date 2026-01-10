@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 import { Card } from '../cards';
 import { CSSDebugger } from './CSSDebugger';
-import { FeatureFlags } from './FeatureFlags';
 import { config } from '../../config';
 import './DebugPanel.css';
 
@@ -32,7 +31,7 @@ interface ElasticityData {
 }
 
 export function DebugPanel({ gameId, socket }: DebugPanelProps) {
-  const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css' | 'features' | 'prompts'>('elasticity');
+  const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css' | 'prompts'>('elasticity');
   const [elasticityData, setElasticityData] = useState<ElasticityData>({});
   const [loading, setLoading] = useState(false);
   const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
@@ -178,17 +177,11 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
           >
             Card Demo
           </button>
-          <button 
+          <button
             className={`debug-tab ${activeTab === 'css' ? 'active' : ''}`}
             onClick={() => setActiveTab('css')}
           >
             CSS Debug
-          </button>
-          <button
-            className={`debug-tab ${activeTab === 'features' ? 'active' : ''}`}
-            onClick={() => setActiveTab('features')}
-          >
-            Feature Flags
           </button>
           <button
             className={`debug-tab ${activeTab === 'prompts' ? 'active' : ''} ${promptCaptureEnabled ? 'recording' : ''}`}
@@ -327,12 +320,6 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
         {activeTab === 'css' && (
           <div className="css-debug-content">
             <CSSDebugger standalone={false} />
-          </div>
-        )}
-
-        {activeTab === 'features' && (
-          <div className="features-content">
-            <FeatureFlags />
           </div>
         )}
 

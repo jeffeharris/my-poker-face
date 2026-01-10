@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useFeatureFlags } from '../../debug/FeatureFlags';
 import './ActionButtons.css';
 
 interface ActionButtonsProps {
@@ -26,9 +25,6 @@ export function ActionButtons({
   const [showBetInterface, setShowBetInterface] = useState(false);
   const [betAmount, setBetAmount] = useState(minRaise || 0);
   const [selectedQuickBet, setSelectedQuickBet] = useState<string | null>(null);
-  const [recentBets, setRecentBets] = useState<number[]>([]);
-  const [showSmartBets, setShowSmartBets] = useState(true);
-  const featureFlags = useFeatureFlags();
 
   // Ensure all values are valid numbers
   // minRaise from backend is the minimum RAISE BY amount (typically big blind)
@@ -48,38 +44,6 @@ export function ActionButtons({
   const twoThirdsPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.67));
   const fullPot = Math.max(safeMinRaise, safePotSize);
   const defaultRaise = safeHighestBet + Math.max(safeMinRaise, bigBlind * 2);
-
-  // Smart bet suggestions based on context
-  const getSmartBetSuggestions = () => {
-    const suggestions = [];
-    
-    // Standard continuation bet (60-70% pot)
-    const cBetSize = roundToSnap(Math.floor(safePotSize * 0.65));
-    if (cBetSize >= safeMinRaise && cBetSize <= safeStack) {
-      suggestions.push({ label: 'C-Bet', amount: cBetSize, type: 'strategic' });
-    }
-    
-    // Value bet (30-40% pot for thin value)
-    const valueBet = roundToSnap(Math.floor(safePotSize * 0.35));
-    if (valueBet >= safeMinRaise && valueBet <= safeStack) {
-      suggestions.push({ label: 'Value', amount: valueBet, type: 'value' });
-    }
-    
-    // Overbet (1.2x pot for polarized range)
-    const overbet = roundToSnap(Math.floor(safePotSize * 1.2));
-    if (overbet <= safeStack && safePotSize > 0) {
-      suggestions.push({ label: 'Overbet', amount: overbet, type: 'aggressive' });
-    }
-    
-    // Recent bets (if any) - already snapped when stored
-    recentBets.slice(0, 2).forEach((amount, index) => {
-      if (amount >= safeMinRaise && amount <= safeStack) {
-        suggestions.push({ label: `Recent ${index + 1}`, amount, type: 'history' });
-      }
-    });
-    
-    return suggestions.slice(0, 3); // Return top 3 suggestions
-  };
 
   // Calculate snap increment based on big blind
   const getSnapIncrement = () => {
@@ -111,8 +75,6 @@ export function ActionButtons({
       // Backend's player_raise adds cost_to_call internally, so we send the raise increment
       const raiseByAmount = betAmount - safeHighestBet;
       onAction('raise', raiseByAmount);
-      // Track recent bets (keep last 5)
-      setRecentBets(prev => [betAmount, ...prev.filter(b => b !== betAmount)].slice(0, 5));
       setShowBetInterface(false);
       setSelectedQuickBet(null);
     }
@@ -132,8 +94,6 @@ export function ActionButtons({
   };
 
   if (showBetInterface) {
-    const smartSuggestions = getSmartBetSuggestions();
-    
     return (
       <div className="action-panel betting-interface">
         <div className="bet-header">
@@ -167,35 +127,7 @@ export function ActionButtons({
             Increments: ${snapIncrement}
           </div>
         </div>
-        
-        {/* Smart Bet Suggestions */}
-        {featureFlags.smartBetSuggestions && smartSuggestions.length > 0 && (
-          <div className="smart-suggestions">
-            <div 
-              className="suggestions-header"
-              onClick={() => setShowSmartBets(!showSmartBets)}
-            >
-              <span className="header-text">Smart Bets</span>
-              <span className="toggle-icon">{showSmartBets ? '−' : '+'}</span>
-            </div>
-            {showSmartBets && (
-              <div className="suggestion-buttons">
-                {smartSuggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    className={`suggestion-button ${suggestion.type} ${betAmount === suggestion.amount ? 'selected' : ''}`}
-                    onClick={() => selectBetAmount(suggestion.amount, `smart-${index}`)}
-                    disabled={suggestion.amount > safeStack}
-                  >
-                    <span className="suggestion-label">{suggestion.label}</span>
-                    <span className="suggestion-amount">${suggestion.amount}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        
+
         <div className="bet-options">
           {/* Quick bet buttons */}
           <div className="quick-bets">
