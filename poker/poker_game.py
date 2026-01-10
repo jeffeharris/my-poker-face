@@ -700,13 +700,42 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         # Determine winners for this tier
         best_hand = hands[0][1]
         tier_winners = [hand[0] for hand in hands if hand[1] == best_hand]
-        split_amount = tier_pot // len(tier_winners)
+
+        # Calculate split amount and remainder (odd chips)
+        base_split_amount = tier_pot // len(tier_winners)
+        remainder = tier_pot % len(tier_winners)
+
+        # Standard poker rule: odd chips go to players closest to dealer's left
+        # Sort winners by seat position relative to dealer
+        player_positions = {p.name: idx for idx, p in enumerate(game_state.players)}
+        num_players = len(game_state.players)
+        dealer_idx = game_state.current_dealer_idx
+
+        def distance_from_dealer(player_name):
+            """Calculate seats to the left of dealer (1 = immediately left, etc.)
+
+            The dealer (distance 0) receives odd chips last, so we return
+            num_players instead of 0 to place dealer at the end of the order.
+            """
+            pos = player_positions.get(player_name, 0)
+            dist = (pos - dealer_idx) % num_players
+            return dist if dist > 0 else num_players
+
+        # Sort winners by distance from dealer (closest to left gets odd chip first)
+        sorted_winners = sorted(tier_winners, key=distance_from_dealer)
+
+        # Build winner payouts with odd chips distributed
+        winner_payouts = []
+        for i, name in enumerate(sorted_winners):
+            extra_chip = 1 if i < remainder else 0
+            winner_payouts.append({'name': name, 'amount': base_split_amount + extra_chip})
+
         # Add pot info to breakdown
         pot_name = 'Main Pot' if pot_index == 0 else f'Side Pot {pot_index}'
         pot_breakdown.append({
             'pot_name': pot_name,
             'total_amount': tier_pot,
-            'winners': [{'name': name, 'amount': split_amount} for name in tier_winners],
+            'winners': winner_payouts,
             'hand_name': best_hand['hand_name']
         })
         pot_index += 1
