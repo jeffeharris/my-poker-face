@@ -213,13 +213,15 @@ class AIPlayerController:
             default=0
         )
         max_raise = min(player_stack, max_opponent_stack, game_state.pot['total'] * 2)
+        # Collar min_raise to not exceed what's actually possible
+        min_raise = min(game_state.min_raise_amount, max_raise) if max_raise > 0 else 0
 
         # Use resilient AI call
         response_dict = self._get_ai_decision(
             message=message,
             valid_actions=player_options,
             call_amount=cost_to_call,
-            min_raise=game_state.min_raise_amount,
+            min_raise=min_raise,
             max_raise=max_raise,
             should_speak=should_speak
         )

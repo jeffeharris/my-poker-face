@@ -757,8 +757,6 @@ def progress_game(game_id: str) -> None:
         if not current_game_data:
             return
 
-        state_machine = current_game_data['state_machine']
-
         while True:
             # Refresh game data (may have been updated by handle_ai_action)
             current_game_data = game_state_service.get_game(game_id)
