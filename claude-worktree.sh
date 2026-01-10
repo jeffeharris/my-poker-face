@@ -26,16 +26,37 @@ echo
 detect_next_port_offset() {
     local max_offset=0
 
-    # Scan running containers for my-poker-face backend ports
+    # Helper to update max_offset
+    update_max() {
+        local offset=$1
+        if [[ $offset -ge 0 && $offset -gt $max_offset ]]; then
+            max_offset=$offset
+        fi
+    }
+
     if command -v docker &> /dev/null; then
+        local all_ports
+        all_ports=$(docker ps --format '{{.Ports}}' 2>/dev/null)
+
+        # Scan backend ports (5000-5099)
         while read -r port; do
-            if [[ -n "$port" && "$port" =~ ^[0-9]+$ ]]; then
-                local offset=$((port - BASE_BACKEND_PORT))
-                if [[ $offset -ge 0 && $offset -gt $max_offset ]]; then
-                    max_offset=$offset
-                fi
-            fi
-        done < <(docker ps --format '{{.Ports}}' 2>/dev/null | grep -oE "0\.0\.0\.0:50[0-9]{2}" | cut -d: -f2 | sort -u)
+            [[ -n "$port" && "$port" =~ ^[0-9]+$ ]] && update_max $((port - BASE_BACKEND_PORT))
+        done < <(echo "$all_ports" | grep -oE "[0-9.]*:50[0-9]{2}" | grep -oE "50[0-9]{2}" | sort -u)
+
+        # Scan frontend ports (5173-5199)
+        while read -r port; do
+            [[ -n "$port" && "$port" =~ ^[0-9]+$ ]] && update_max $((port - BASE_FRONTEND_PORT))
+        done < <(echo "$all_ports" | grep -oE "[0-9.]*:51[0-9]{2}" | grep -oE "51[0-9]{2}" | sort -u)
+
+        # Scan redis ports (6379-6399)
+        while read -r port; do
+            [[ -n "$port" && "$port" =~ ^[0-9]+$ ]] && update_max $((port - BASE_REDIS_PORT))
+        done < <(echo "$all_ports" | grep -oE "[0-9.]*:63[0-9]{2}" | grep -oE "63[0-9]{2}" | sort -u)
+
+        # Scan metabase ports (3002-3099)
+        while read -r port; do
+            [[ -n "$port" && "$port" =~ ^[0-9]+$ ]] && update_max $((port - BASE_METABASE_PORT))
+        done < <(echo "$all_ports" | grep -oE "[0-9.]*:30[0-9]{2}" | grep -oE "30[0-9]{2}" | sort -u)
     fi
 
     # Also check for existing .env files in sibling worktree directories
@@ -44,10 +65,7 @@ detect_next_port_offset() {
             local backend_port
             backend_port=$(grep "^BACKEND_PORT=" "$env_file" 2>/dev/null | cut -d= -f2)
             if [[ -n "$backend_port" && "$backend_port" =~ ^[0-9]+$ ]]; then
-                local offset=$((backend_port - BASE_BACKEND_PORT))
-                if [[ $offset -ge 0 && $offset -gt $max_offset ]]; then
-                    max_offset=$offset
-                fi
+                update_max $((backend_port - BASE_BACKEND_PORT))
             fi
         fi
     done
@@ -116,6 +134,63 @@ setup_env_file() {
     return 0
 }
 
+# Function to create tmux session with standard windows
+create_tmux_session() {
+    local worktree_dir="$1"
+    local session_name="$2"
+
+    # Check if tmux is available
+    if ! command -v tmux &> /dev/null; then
+        echo -e "${YELLOW}tmux not found, skipping session creation${NC}"
+        return 1
+    fi
+
+    # Check if session already exists
+    if tmux has-session -t "$session_name" 2>/dev/null; then
+        echo -e "${YELLOW}tmux session '$session_name' already exists${NC}"
+        read -p "Attach to existing session? (y/n): " attach_existing
+        if [[ "$attach_existing" =~ ^[Yy]$ ]]; then
+            tmux attach -t "$session_name"
+        fi
+        return 0
+    fi
+
+    local abs_worktree_dir
+    abs_worktree_dir=$(cd "$worktree_dir" && pwd)
+
+    echo -e "${CYAN}Creating tmux session '$session_name'...${NC}"
+
+    # Create new session with first window (claude)
+    tmux new-session -d -s "$session_name" -n "claude" -c "$abs_worktree_dir"
+
+    # Window 1: Claude - start claude code
+    tmux send-keys -t "$session_name:claude" "claude" Enter
+
+    # Window 2: Docker logs
+    tmux new-window -t "$session_name" -n "docker" -c "$abs_worktree_dir"
+    tmux send-keys -t "$session_name:docker" "docker compose logs -f" Enter
+
+    # Window 3: Shell
+    tmux new-window -t "$session_name" -n "shell" -c "$abs_worktree_dir"
+
+    # Select the claude window
+    tmux select-window -t "$session_name:claude"
+
+    echo -e "${GREEN}tmux session created with windows:${NC}"
+    echo -e "  1) ${CYAN}claude${NC} - Claude Code (running)"
+    echo -e "  2) ${CYAN}docker${NC} - Docker compose logs"
+    echo -e "  3) ${CYAN}shell${NC}  - General shell"
+
+    return 0
+}
+
+# Function to get session name from worktree directory
+get_session_name() {
+    local dir_name="$1"
+    # Convert to short session name (e.g., "poker-feature-x")
+    echo "$dir_name" | sed 's/my-poker-face-/poker-/' | sed 's/my-poker-face/poker-main/'
+}
+
 # Check if we're in a git repository
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
     echo -e "${YELLOW}Error: Not in a git repository${NC}"
@@ -177,8 +252,9 @@ echo "1) Create a worktree for an existing branch"
 echo "2) Create a worktree with a new branch"
 echo "3) Create a worktree for a TODO.md issue"
 echo "4) List current worktrees"
-echo "5) Clean up a worktree (stop Docker + remove)"
-read -p "Choose an option (1-5): " choice
+echo "5) Clean up a worktree (stop Docker + tmux + remove)"
+echo "6) Attach to a worktree tmux session"
+read -p "Choose an option (1-6): " choice
 
 case $choice in
     1)
@@ -379,6 +455,15 @@ case $choice in
             echo -e "${GREEN}Containers stopped${NC}"
         fi
 
+        # Check for tmux session
+        session_name=$(get_session_name "$selected_name")
+        if tmux has-session -t "$session_name" 2>/dev/null; then
+            echo
+            echo -e "${CYAN}Killing tmux session '$session_name'...${NC}"
+            tmux kill-session -t "$session_name" 2>/dev/null || true
+            echo -e "${GREEN}tmux session killed${NC}"
+        fi
+
         # Confirm removal
         echo
         read -p "Remove worktree '$selected_name'? This cannot be undone. (y/n): " confirm
@@ -403,6 +488,52 @@ case $choice in
             echo "Cancelled"
         fi
 
+        exit 0
+        ;;
+
+    6)
+        # Attach to a worktree tmux session
+        echo -e "${GREEN}Available tmux sessions:${NC}"
+        echo
+
+        # Get poker-related tmux sessions
+        mapfile -t sessions < <(tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^poker-" || true)
+
+        if [[ ${#sessions[@]} -eq 0 ]]; then
+            echo -e "${YELLOW}No poker worktree sessions found${NC}"
+            echo -e "Create a worktree first with options 1-3"
+            exit 0
+        fi
+
+        # Display sessions with status
+        for i in "${!sessions[@]}"; do
+            sess="${sessions[$i]}"
+            # Get window count and attached status
+            window_count=$(tmux list-windows -t "$sess" 2>/dev/null | wc -l)
+            if tmux list-clients -t "$sess" 2>/dev/null | grep -q .; then
+                attached="${CYAN}(attached)${NC}"
+            else
+                attached="${YELLOW}(detached)${NC}"
+            fi
+            printf "%2d) %s - %d windows %b\n" $((i+1)) "$sess" "$window_count" "$attached"
+        done
+
+        echo
+        read -p "Select session to attach (or 0 to cancel): " sess_num
+
+        if [[ "$sess_num" == "0" ]]; then
+            echo "Cancelled"
+            exit 0
+        fi
+
+        if [[ ! "$sess_num" =~ ^[0-9]+$ ]] || [[ "$sess_num" -lt 1 ]] || [[ "$sess_num" -gt ${#sessions[@]} ]]; then
+            echo -e "${YELLOW}Invalid selection${NC}"
+            exit 1
+        fi
+
+        selected_session="${sessions[$((sess_num-1))]}"
+        echo -e "${GREEN}Attaching to '$selected_session'...${NC}"
+        tmux attach -t "$selected_session"
         exit 0
         ;;
 
@@ -444,14 +575,25 @@ if [[ "$start_docker" =~ ^[Yy]$ ]]; then
     cd - > /dev/null
 fi
 
-# Ask if user wants to launch Claude
+# Ask if user wants to launch tmux session
 echo
-read -p "Launch Claude Code in the new worktree? (y/n): " launch_claude
+read -p "Create tmux session with Claude Code? (y/n): " launch_tmux
 
-if [[ "$launch_claude" =~ ^[Yy]$ ]]; then
-    echo -e "${GREEN}Launching Claude Code...${NC}"
-    cd "$dir_name"
-    claude
+if [[ "$launch_tmux" =~ ^[Yy]$ ]]; then
+    worktree_name=$(basename "$dir_name")
+    session_name=$(get_session_name "$worktree_name")
+
+    if create_tmux_session "$dir_name" "$session_name"; then
+        echo
+        read -p "Attach to session now? (y/n): " attach_now
+        if [[ "$attach_now" =~ ^[Yy]$ ]]; then
+            tmux attach -t "$session_name"
+        else
+            echo -e "${BLUE}Session created! Attach later with:${NC}"
+            echo -e "  ${GREEN}tmux attach -t $session_name${NC}"
+            echo -e "  ${GREEN}# Or use: ./claude-worktree.sh → option 6${NC}"
+        fi
+    fi
 else
     echo -e "${BLUE}Worktree created successfully!${NC}"
     echo -e "To use it: ${GREEN}cd $dir_name${NC}"
