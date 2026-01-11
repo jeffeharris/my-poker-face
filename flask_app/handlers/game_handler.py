@@ -176,8 +176,8 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
     if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
         if game_state.no_action_taken:
             num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
-            cards_str = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
-            message_content = f"{state_machine.current_phase} cards dealt: {cards_str}"
+            cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+            message_content = f"{state_machine.current_phase} cards dealt: {cards}"
             send_message(game_id, "Table", message_content, "table")
 
             # Record community cards to hand history
@@ -185,7 +185,7 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
                 memory_manager = game_data.get('memory_manager')
                 if memory_manager:
                     phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
-                    memory_manager.hand_recorder.record_community_cards(phase_name, cards_str)
+                    memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
