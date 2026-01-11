@@ -490,11 +490,42 @@ case $choice in
             branch_name=$(git branch --list | grep -F "$selected_name" | head -1 | sed 's/^[* ]*//')
             if [[ -n "$branch_name" ]]; then
                 echo
-                read -p "Also delete the branch '$branch_name'? (y/n): " delete_branch
+
+                # Check if branch is merged to main
+                if git branch --merged main 2>/dev/null | grep -qF "$branch_name"; then
+                    merge_status="${GREEN}(merged to main)${NC}"
+                    delete_flag="-d"
+                else
+                    merge_status="${RED}(NOT merged to main)${NC}"
+                    delete_flag="-D"
+                fi
+
+                echo -e "Branch '$branch_name' $merge_status"
+                read -p "Delete local branch? (y/n): " delete_branch
                 if [[ "$delete_branch" =~ ^[Yy]$ ]]; then
-                    git branch -D "$branch_name" 2>/dev/null && \
-                        echo -e "${GREEN}Branch '$branch_name' deleted${NC}" || \
-                        echo -e "${YELLOW}Could not delete branch (may not exist or is current)${NC}"
+                    if [[ "$delete_flag" == "-D" ]]; then
+                        read -p "Branch is NOT merged. Are you sure? (y/n): " confirm_unmerged
+                        if [[ ! "$confirm_unmerged" =~ ^[Yy]$ ]]; then
+                            echo -e "${YELLOW}Skipping local branch deletion${NC}"
+                            delete_branch="n"
+                        fi
+                    fi
+                    if [[ "$delete_branch" =~ ^[Yy]$ ]]; then
+                        git branch $delete_flag "$branch_name" 2>/dev/null && \
+                            echo -e "${GREEN}Local branch '$branch_name' deleted${NC}" || \
+                            echo -e "${YELLOW}Could not delete branch (may not exist or is current)${NC}"
+                    fi
+                fi
+
+                # Check for remote branch
+                if git branch -r | grep -qF "origin/$branch_name"; then
+                    echo
+                    read -p "Also delete remote branch 'origin/$branch_name'? (y/n): " delete_remote
+                    if [[ "$delete_remote" =~ ^[Yy]$ ]]; then
+                        git push origin --delete "$branch_name" 2>/dev/null && \
+                            echo -e "${GREEN}Remote branch 'origin/$branch_name' deleted${NC}" || \
+                            echo -e "${YELLOW}Could not delete remote branch${NC}"
+                    fi
                 fi
             fi
         else
