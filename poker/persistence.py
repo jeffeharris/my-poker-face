@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 
 @dataclass
@@ -338,6 +338,7 @@ class GamePersistence:
             27: (self._migrate_v27_fix_opponent_models_constraint, "Fix opponent_models unique constraint to include game_id"),
             28: (self._migrate_v28_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
             29: (self._migrate_v29_add_tournament_tracker, "Add tournament_tracker table for persisting elimination history"),
+            30: (self._migrate_v30_add_prompt_capture_columns, "Add raw_request and reasoning columns to prompt_captures"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1373,6 +1374,31 @@ class GamePersistence:
         """)
 
         logger.info("Migration v29 complete: tournament_tracker table added")
+
+    def _migrate_v30_add_prompt_capture_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v30: Add raw_request and reasoning columns to prompt_captures.
+
+        These columns were added to the INSERT statement but missing from schema:
+        - raw_request: Full messages array sent to LLM (for debugging message history)
+        - reasoning_effort: LLM reasoning effort setting used
+        - original_request_id: Vendor request ID for correlation
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'raw_request' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN raw_request TEXT")
+            logger.info("Added raw_request column to prompt_captures")
+
+        if 'reasoning_effort' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN reasoning_effort TEXT")
+            logger.info("Added reasoning_effort column to prompt_captures")
+
+        if 'original_request_id' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN original_request_id TEXT")
+            logger.info("Added original_request_id column to prompt_captures")
+
+        logger.info("Migration v30 complete: prompt_captures columns added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:

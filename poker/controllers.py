@@ -151,6 +151,12 @@ class AIPlayerController:
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
 
+        # Clear conversation memory before each decision to avoid context overload
+        # Table chatter is preserved via game_messages -> Recent Actions
+        # Mental state is preserved via PlayerPsychology (separate system)
+        if hasattr(self, 'assistant') and self.assistant and self.assistant.memory:
+            self.assistant.memory.clear()
+
         # Save original messages before summarizing (for address detection)
         original_messages = game_messages
 

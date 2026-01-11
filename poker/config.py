@@ -32,7 +32,7 @@ MEMORY_CONTEXT_TOKENS = 150       # Max tokens for session context in prompts
 OPPONENT_SUMMARY_TOKENS = 200     # Max tokens for opponent summaries in prompts
 COMMENTARY_ENABLED = True         # Enable end-of-hand AI commentary
 MEMORABLE_HAND_THRESHOLD = 0.7    # Impact score threshold for memorable hands (0-1)
-MEMORY_TRIM_KEEP_EXCHANGES = 4    # Number of message exchanges to keep when trimming memory
+MEMORY_TRIM_KEEP_EXCHANGES = 0    # Clear conversation memory each turn (was 4) - table chatter preserved via game_messages
 
 # Opponent modeling thresholds
 MIN_HANDS_FOR_STYLE_LABEL = 5     # Minimum hands observed before labeling play style
