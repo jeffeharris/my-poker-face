@@ -13,7 +13,7 @@ from core.llm import LLMClient, CallType
 from ..extensions import persistence, auth_manager, limiter, personality_generator
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
-from typing import Optional, Dict, Any, Tuple
+from typing import Dict, Any
 from collections import defaultdict
 
 # Module-level prompt manager instance
@@ -94,7 +94,6 @@ def build_hand_context_from_recorded_hand(
         - timeline: formatted string of actions by street
         - community_cards: the board
         - pot_size: final pot
-        - drama_note: optional note about bad beats, river hits, etc.
     """
     result = {
         'outcome': None,
@@ -106,7 +105,6 @@ def build_hand_context_from_recorded_hand(
         'timeline': '',
         'community_cards': list(hand.community_cards) if hand.community_cards else [],
         'pot_size': hand.pot_size,
-        'drama_note': None,
     }
 
     # Determine player outcome
@@ -130,8 +128,6 @@ def build_hand_context_from_recorded_hand(
         logger.warning(f"[PostRound] Player '{player_name}' not found in hole_cards!")
 
     # Get opponent info based on outcome
-    winner_names = [w.name for w in hand.winners]
-
     if player_outcome == 'won':
         if hand.was_showdown:
             # WON_SHOWDOWN: Find opponent who was in showdown (didn't fold) but lost
@@ -215,17 +211,6 @@ def build_hand_context_from_recorded_hand(
         timeline_parts.append(f"{phase_header}: {', '.join(action_strs)}")
 
     result['timeline'] = '\n'.join(timeline_parts)
-
-    # Add drama note for notable situations
-    if hand.was_showdown and result['opponent_hand_name']:
-        # Check if opponent hit on river
-        river_actions = actions_by_phase.get('RIVER', [])
-        if river_actions and len(community) == 5:
-            river_card = community[4]
-            # Simple heuristic: if opponent won with trips/pair and river card matches
-            hand_name = result['opponent_hand_name'].lower()
-            if 'three' in hand_name or 'trips' in hand_name:
-                result['drama_note'] = f"{result['opponent_name']} hit on the river!"
 
     return result
 
