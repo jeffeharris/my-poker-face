@@ -100,16 +100,15 @@ class CommentaryGenerator:
         for player_info in hand.players:
             if player_info.starting_stack > 0:
                 pressure_ratio = hand.pot_size / player_info.starting_stack
-                if pressure_ratio > 0.3:
-                    # Use chattiness to modulate: high chattiness = guaranteed comment
-                    # Low chattiness = only comment on very high pressure
-                    pressure_threshold = 0.3 + (0.3 * (1.0 - chattiness))
-                    if pressure_ratio > pressure_threshold:
-                        logger.debug(
-                            f"Hand interesting: pressure situation "
-                            f"(pot/stack={pressure_ratio:.2f} for {player_info.name})"
-                        )
-                        return True
+                # Use chattiness to modulate: high chattiness = lower threshold (0.3)
+                # Low chattiness = higher threshold (0.6)
+                pressure_threshold = 0.3 + (0.3 * (1.0 - chattiness))
+                if pressure_ratio > pressure_threshold:
+                    logger.debug(
+                        f"Hand interesting: pressure situation "
+                        f"(pot/stack={pressure_ratio:.2f} for {player_info.name})"
+                    )
+                    return True
 
         # === STANDARD FILTERS (only if no priority override) ===
 

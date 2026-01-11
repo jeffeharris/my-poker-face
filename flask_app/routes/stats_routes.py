@@ -681,7 +681,6 @@ def get_post_round_chat_suggestions(game_id):
             template_name,
             player_name=player_name,
             hand_context=hand_context_str,
-            outcome=outcome or "UNKNOWN",
         )
 
         if not os.environ.get("OPENAI_API_KEY"):
