@@ -772,19 +772,19 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
-    # Advance to next hand - this deals new cards
-    state_machine.update_phase()
+    # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
+
+    # Advance to next hand - run until player action needed (deals cards, posts blinds)
+    state_machine.run_until_player_action()
     game_data['state_machine'] = state_machine
     game_state_service.set_game(game_id, game_data)
-    state_machine.advance_state()
     update_and_emit_game_state(game_id)
 
     # Start recording new hand AFTER cards are dealt
     if 'memory_manager' in game_data:
         memory_manager = game_data['memory_manager']
         new_hand_number = memory_manager.hand_count + 1
-        # Use the updated game state which now has the new cards
         memory_manager.on_hand_start(state_machine.game_state, hand_number=new_hand_number)
 
     # Save state after hand evaluation completes (now in stable phase)
