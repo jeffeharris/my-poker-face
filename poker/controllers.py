@@ -606,22 +606,6 @@ class AIPlayerController:
         if speaking_context['table_silent_turns'] > 2:
             guidance += "(The table has been quiet for a while)\n"
 
-        # Add response format based on context
-        guidance += "\nRequired response fields:\n"
-        guidance += "- action (from your available options)\n"
-        guidance += "- inner_monologue (your private thoughts)\n"
-
-        if 'raise' in valid_actions:
-            guidance += "- adding_to_pot (REQUIRED if you choose 'raise' - the dollar amount to raise BY)\n"
-
-        if self.ai_player.hand_action_count == 0:
-            guidance += "- hand_strategy (your approach for this entire hand)\n"
-
-        if should_speak:
-            guidance += "\nIMPORTANT - You MUST include these fields since you want to speak:\n"
-            guidance += "- persona_response (what you say out loud - REQUIRED this turn)\n"
-            guidance += "- physical (your gestures or actions - REQUIRED this turn)\n"
-
         return guidance
 
 
