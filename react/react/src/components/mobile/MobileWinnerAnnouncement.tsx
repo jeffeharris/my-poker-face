@@ -302,6 +302,9 @@ export function MobileWinnerAnnouncement({
                                                     {playerInfo.hand_name && (
                                                         <div className="showdown-hand-name">
                                                             {playerInfo.hand_name}
+                                                            {playerInfo.kickers && playerInfo.kickers.length > 0 && (
+                                                                <span className="showdown-kickers"> (kicker: {playerInfo.kickers.join(', ')})</span>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

@@ -195,6 +195,8 @@ export function QuickChatSuggestions({
     setSelectedTone(null);
     setSuggestions([]);
     setIsExpanded(false);
+    // Clear cache so next suggestions reflect updated game context
+    suggestionsCache.current = {};
   };
 
   const handleRefresh = () => {
