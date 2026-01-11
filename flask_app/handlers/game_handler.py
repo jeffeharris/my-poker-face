@@ -690,6 +690,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # Save final state to persistence
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        if 'tournament_tracker' in game_data:
+            persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
         return game_state, True
 
     # Check tournament completion
@@ -702,6 +704,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # Save final state to persistence
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        if 'tournament_tracker' in game_data:
+            persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
         return game_state, True
 
     # Wait for commentary to complete before starting new hand
@@ -732,6 +736,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Save state after hand evaluation completes (now in stable phase)
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    if 'tournament_tracker' in game_data:
+        persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
 
     return game_state, False
 

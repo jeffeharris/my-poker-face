@@ -303,15 +303,22 @@ def api_game_state(game_id):
 
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
-                starting_players = [
-                    {'name': p.name, 'is_human': p.is_human}
-                    for p in state_machine.game_state.players
-                ]
-                tournament_tracker = TournamentTracker(
-                    game_id=game_id,
-                    starting_players=starting_players
-                )
-                tournament_tracker.hand_count = memory_manager.hand_count
+                # Try to load tournament tracker from database, or create new one
+                tracker_data = persistence.load_tournament_tracker(game_id)
+                if tracker_data:
+                    tournament_tracker = TournamentTracker.from_dict(tracker_data)
+                    logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
+                else:
+                    # Fallback: create new tracker with current players
+                    starting_players = [
+                        {'name': p.name, 'is_human': p.is_human}
+                        for p in state_machine.game_state.players
+                    ]
+                    tournament_tracker = TournamentTracker(
+                        game_id=game_id,
+                        starting_players=starting_players
+                    )
+                    tournament_tracker.hand_count = memory_manager.hand_count
 
                 current_game_data = {
                     'state_machine': state_machine,
@@ -537,6 +544,7 @@ def api_new_game():
     game_state_service.set_game(game_id, game_data)
 
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    persistence.save_tournament_tracker(game_id, tournament_tracker)
     persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
 

@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 
 
 @dataclass
@@ -337,6 +337,7 @@ class GamePersistence:
             26: (self._migrate_v26_add_debug_capture, "Add debug_capture_enabled column to games table"),
             27: (self._migrate_v27_fix_opponent_models_constraint, "Fix opponent_models unique constraint to include game_id"),
             28: (self._migrate_v28_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
+            29: (self._migrate_v29_add_tournament_tracker, "Add tournament_tracker table for persisting elimination history"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1351,6 +1352,28 @@ class GamePersistence:
 
         logger.info("Migration v28 complete: full_image_data support added")
 
+    def _migrate_v29_add_tournament_tracker(self, conn: sqlite3.Connection) -> None:
+        """Migration v29: Add tournament_tracker table for persisting elimination history.
+
+        This fixes the bug where elimination history was lost on game reload,
+        causing incorrect tournament standings display.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tournament_tracker (
+                game_id TEXT PRIMARY KEY,
+                tracker_json TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (game_id) REFERENCES games(game_id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game
+            ON tournament_tracker(game_id)
+        """)
+
+        logger.info("Migration v29 complete: tournament_tracker table added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
         """Save a game state to the database."""
@@ -1417,7 +1440,52 @@ class GamePersistence:
 
             # Create state machine with the loaded state and phase
             return PokerStateMachine.from_saved_state(game_state, phase)
-    
+
+    def save_tournament_tracker(self, game_id: str, tracker) -> None:
+        """Save tournament tracker state to the database.
+
+        Args:
+            game_id: The game identifier
+            tracker: TournamentTracker instance or dict from to_dict()
+        """
+        # Convert to dict if it's a TournamentTracker object
+        if hasattr(tracker, 'to_dict'):
+            tracker_dict = tracker.to_dict()
+        else:
+            tracker_dict = tracker
+
+        tracker_json = json.dumps(tracker_dict)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO tournament_tracker (game_id, tracker_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(game_id) DO UPDATE SET
+                    tracker_json = excluded.tracker_json,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (game_id, tracker_json))
+
+    def load_tournament_tracker(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Load tournament tracker state from the database.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            Dict that can be passed to TournamentTracker.from_dict(), or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT tracker_json FROM tournament_tracker WHERE game_id = ?",
+                (game_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return json.loads(row[0])
+
     def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
         """List saved games, most recently updated first. Filter by owner_id if provided."""
         with sqlite3.connect(self.db_path) as conn:
