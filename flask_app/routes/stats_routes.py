@@ -124,7 +124,6 @@ def build_hand_context_from_recorded_hand(
         result['outcome'] = 'LOST_SHOWDOWN'
 
     # Get player's cards
-    logger.info(f"[PostRound] DEBUG hole_cards keys: {list(hand.hole_cards.keys())}, looking for: '{player_name}'")
     if player_name in hand.hole_cards:
         result['player_cards'] = hand.hole_cards[player_name]
     else:
