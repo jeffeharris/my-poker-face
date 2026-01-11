@@ -623,8 +623,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             if human_player:
                 winner = players_with_chips[0]
                 human_won = winner.name == human_player['name']
-                # Position: 1st if won, otherwise # of finished players + 1 (they're about to be eliminated)
-                human_position = 1 if human_won else len(tracker.finished_players) + 1
+                # Position: 1st if won, otherwise # of eliminations + 1 (they're about to be eliminated)
+                human_position = 1 if human_won else len(tracker.eliminations) + 1
                 tournament_outcome = {
                     'human_won': human_won,
                     'human_position': human_position
