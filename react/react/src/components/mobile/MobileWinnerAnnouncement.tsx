@@ -97,24 +97,6 @@ export function MobileWinnerAnnouncement({
     const playerWon = winnerInfo?.winners.includes(playerName) ?? false;
     const toneOptions = playerWon ? WINNER_TONES : LOSER_TONES;
 
-    // Get opponent info for context
-    const getOpponent = useCallback(() => {
-        if (!winnerInfo) return undefined;
-        if (playerWon) {
-            // If we won, opponent is whoever lost (first non-winner in showdown)
-            if (winnerInfo.players_showdown) {
-                const losers = Object.keys(winnerInfo.players_showdown).filter(
-                    name => !winnerInfo.winners.includes(name)
-                );
-                return losers[0];
-            }
-            return undefined;
-        } else {
-            // If we lost, opponent is the winner
-            return winnerInfo.winners[0];
-        }
-    }, [winnerInfo, playerWon]);
-
     const fetchSuggestions = useCallback(async (tone: PostRoundTone) => {
         if (!winnerInfo) return;
 
@@ -133,41 +115,11 @@ export function MobileWinnerAnnouncement({
 
         setLoading(true);
         try {
-            const opponent = getOpponent();
-
-            // Build showdown context for accurate commentary
-            let showdownContext: {
-                communityCards?: string[];
-                winnerHand?: { cards: string[]; handName: string };
-                loserHand?: { cards: string[]; handName: string };
-            } | undefined;
-
-            if (winnerInfo.showdown && winnerInfo.players_showdown) {
-                const winnerName = winnerInfo.winners[0];
-                const winnerShowdown = winnerInfo.players_showdown[winnerName];
-                const loserShowdown = opponent ? winnerInfo.players_showdown[opponent] : undefined;
-
-                showdownContext = {
-                    communityCards: winnerInfo.community_cards,
-                    winnerHand: winnerShowdown ? {
-                        cards: winnerShowdown.cards,
-                        handName: winnerShowdown.hand_name,
-                    } : undefined,
-                    loserHand: loserShowdown ? {
-                        cards: loserShowdown.cards,
-                        handName: loserShowdown.hand_name,
-                    } : undefined,
-                };
-            }
-
+            // Backend now derives all context from RecordedHand - just send playerName and tone
             const response = await gameAPI.getPostRoundChatSuggestions(
                 gameId,
                 playerName,
-                tone,
-                playerWon,
-                winnerInfo.hand_name,
-                opponent,
-                showdownContext
+                tone
             );
             setSuggestions(response.suggestions || []);
         } catch (error) {
@@ -183,7 +135,7 @@ export function MobileWinnerAnnouncement({
         } finally {
             setLoading(false);
         }
-    }, [gameId, playerName, playerWon, winnerInfo, getOpponent]);
+    }, [gameId, playerName, winnerInfo]);
 
     const handleToneSelect = (tone: PostRoundTone) => {
         setIsInteracting(true); // Pause auto-dismiss

@@ -171,14 +171,21 @@ def update_and_emit_game_state(game_id: str) -> None:
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
-def handle_phase_cards_dealt(game_id: str, state_machine, game_state) -> None:
-    """Send message about newly dealt community cards."""
+def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data: dict = None) -> None:
+    """Send message about newly dealt community cards and record to hand history."""
     if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
         if game_state.no_action_taken:
             num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
-            cards_str = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
-            message_content = f"{state_machine.current_phase} cards dealt: {cards_str}"
+            cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+            message_content = f"{state_machine.current_phase} cards dealt: {cards}"
             send_message(game_id, "Table", message_content, "table")
+
+            # Record community cards to hand history
+            if game_data:
+                memory_manager = game_data.get('memory_manager')
+                if memory_manager:
+                    phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
+                    memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
@@ -483,10 +490,46 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
 
     memory_manager = game_data['memory_manager']
     ai_controllers = game_data.get('ai_controllers', {})
-    ai_players = {
-        name: controller.ai_player
-        for name, controller in ai_controllers.items()
-    }
+    state_machine = game_data.get('state_machine')
+    tournament_tracker = game_data.get('tournament_tracker')
+
+    # Get big blind for dynamic thresholds
+    big_blind = None
+    if state_machine and hasattr(state_machine, 'game_state'):
+        big_blind = getattr(state_machine.game_state, 'current_ante', None)
+
+    # Get active players from tournament tracker
+    active_players = None
+    if tournament_tracker:
+        active_players = tournament_tracker._active_players
+
+    # Build elimination lookup for spectator context
+    elimination_lookup = {}
+    if tournament_tracker:
+        for event in tournament_tracker.eliminations:
+            elimination_lookup[event.eliminated_player] = event
+
+    # Build ai_players dict with context for each player
+    ai_players_with_context = {}
+    for name, controller in ai_controllers.items():
+        is_eliminated = (active_players is not None and name not in active_players)
+
+        # Build spectator context for eliminated players
+        spectator_context = None
+        if is_eliminated and name in elimination_lookup:
+            event = elimination_lookup[name]
+            spectator_context = (
+                f"\n\n** SPECTATOR MODE **\n"
+                f"You were eliminated in {_ordinal(event.finishing_position)} place "
+                f"by {event.eliminator}. You're watching from the rail. "
+                f"Heckle your rivals! Mock your eliminator! Root for underdogs!"
+            )
+
+        ai_players_with_context[name] = {
+            'ai_player': controller.ai_player,
+            'is_eliminated': is_eliminated,
+            'spectator_context': spectator_context,
+        }
 
     def emit_commentary_immediately(player_name: str, commentary) -> None:
         """Callback to emit commentary as soon as it's ready."""
@@ -495,11 +538,12 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             send_message(game_id, player_name, commentary.table_comment, "ai")
 
     try:
-        logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
+        logger.info(f"[Commentary] Starting generation for {len(ai_players_with_context)} AI players")
         # Pass callback to emit each commentary immediately as it completes
         commentaries = memory_manager.generate_commentary_for_hand(
-            ai_players,
-            on_commentary_ready=emit_commentary_immediately
+            ai_players_with_context,
+            on_commentary_ready=emit_commentary_immediately,
+            big_blind=big_blind
         )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
 
@@ -510,6 +554,15 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             )
     except Exception as e:
         logger.warning(f"Commentary generation failed: {e}")
+
+
+def _ordinal(n: int) -> str:
+    """Convert number to ordinal string (1st, 2nd, 3rd, etc.)."""
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f"{n}{suffix}"
 
 
 def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: dict = None) -> bool:
@@ -719,19 +772,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
-    # Start recording new hand
+    # Sync chip updates to state machine before advancing
+    state_machine.game_state = game_state
+
+    # Advance to next hand - run until player action needed (deals cards, posts blinds)
+    state_machine.run_until_player_action()
+    game_data['state_machine'] = state_machine
+    game_state_service.set_game(game_id, game_data)
+    update_and_emit_game_state(game_id)
+
+    # Start recording new hand AFTER cards are dealt
     if 'memory_manager' in game_data:
         memory_manager = game_data['memory_manager']
         new_hand_number = memory_manager.hand_count + 1
-        memory_manager.on_hand_start(game_state, hand_number=new_hand_number)
-
-    # Advance to next hand
-    state_machine.update_phase()
-    state_machine.game_state = game_state
-    game_data['state_machine'] = state_machine
-    game_state_service.set_game(game_id, game_data)
-    state_machine.advance_state()
-    update_and_emit_game_state(game_id)
+        memory_manager.on_hand_start(state_machine.game_state, hand_number=new_hand_number)
 
     # Save state after hand evaluation completes (now in stable phase)
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
@@ -793,7 +847,7 @@ def progress_game(game_id: str) -> None:
                 owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
                 persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-            handle_phase_cards_dealt(game_id, state_machine, game_state)
+            handle_phase_cards_dealt(game_id, state_machine, game_state, current_game_data)
 
             # Handle "run it out" scenario - auto-advance with delays
             if game_state.run_it_out:
