@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Check, X, MessageCircle } from 'lucide-react';
+import { Check, X, MessageCircle, Circle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -47,7 +47,6 @@ export function MobilePokerTable({
   }, []);
 
   // Debug mode state
-  const [showDebugButtons, setShowDebugButtons] = useState(false);
   const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
 
   // Toggle prompt capture for debugging AI decisions
@@ -85,14 +84,33 @@ export function MobilePokerTable({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
-    debugTriggerSplitPot,
-    debugTriggerSidePot,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
   });
+
+  // Fetch debug capture state on mount and when gameId changes
+  useEffect(() => {
+    if (!gameId) return;
+
+    const fetchDebugModeState = async () => {
+      try {
+        const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPromptCaptureEnabled(data.debug_capture || false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch debug mode state:', error);
+      }
+    };
+
+    fetchDebugModeState();
+  }, [gameId]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -273,96 +291,32 @@ export function MobilePokerTable({
         onBack={onBack}
         centerContent={<PotDisplay total={gameState.pot.total} />}
         rightContent={
-          <ChatToggle
-            onClick={() => setShowChatSheet(true)}
-            badgeCount={messages.length}
-          />
-        }
-      />
-
-      {/* Debug buttons for testing tournament end */}
-      {config.ENABLE_DEBUG && (
-        <div style={{
-          position: 'absolute',
-          top: '50px',
-          right: '10px',
-          zIndex: 100,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-        }}>
-          {!showDebugButtons ? (
-            <button
-              onClick={() => setShowDebugButtons(true)}
-              style={{
-                padding: '6px 10px',
-                fontSize: '12px',
-                backgroundColor: '#666',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-              }}
-            >
-              🐛
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={() => setShowDebugButtons(false)}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: '12px',
-                  backgroundColor: '#666',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                ✕ Close
-              </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {config.ENABLE_DEBUG && (
               <button
                 onClick={togglePromptCapture}
                 style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: promptCaptureEnabled ? '#e74c3c' : '#3498db',
-                  color: '#fff',
+                  padding: '4px',
+                  backgroundColor: 'transparent',
                   border: 'none',
-                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
                 }}
               >
-                {promptCaptureEnabled ? '🔴 Stop Capture' : '⏺️ Capture AI'}
+                <Circle
+                  size={20}
+                  fill={promptCaptureEnabled ? '#e74c3c' : 'none'}
+                  color={promptCaptureEnabled ? '#e74c3c' : 'rgba(255,255,255,0.5)'}
+                />
               </button>
-              <button
-                onClick={() => debugTriggerSplitPot()}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: '#9b59b6',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Test: Split Pot
-              </button>
-              <button
-                onClick={() => debugTriggerSidePot()}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  backgroundColor: '#3498db',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                }}
-              >
-                Test: Side Pots
-              </button>
-            </>
-          )}
-        </div>
-      )}
+            )}
+            <ChatToggle
+              onClick={() => setShowChatSheet(true)}
+              badgeCount={messages.length}
+            />
+          </div>
+        }
+      />
 
       {/* Opponents Strip */}
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
