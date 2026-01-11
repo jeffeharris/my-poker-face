@@ -350,8 +350,8 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
                 chat_context=chat_context,
                 tone=tone,
                 tone_description=tone_descriptions.get(tone, tone_descriptions['goad']),
-                length_guidance=length_guidance.get(length, length_guidance['short']),
-                intensity_guidance=intensity_guidance.get(intensity, intensity_guidance['chill']),
+                length_guidance=LENGTH_GUIDANCE.get(length, LENGTH_GUIDANCE['short']),
+                intensity_guidance=INTENSITY_GUIDANCE.get(intensity, INTENSITY_GUIDANCE['chill']),
             )
 
         if not os.environ.get("OPENAI_API_KEY"):
