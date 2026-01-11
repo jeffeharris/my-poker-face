@@ -1642,7 +1642,8 @@ class GamePersistence:
             community_cards=community_cards,
             current_ante=state_dict['current_ante'],
             pre_flop_action_taken=state_dict['pre_flop_action_taken'],
-            awaiting_action=state_dict['awaiting_action']
+            awaiting_action=state_dict['awaiting_action'],
+            run_it_out=state_dict.get('run_it_out', False)
         )
     
     # AI State Persistence Methods
