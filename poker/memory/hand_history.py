@@ -195,9 +195,11 @@ class HandInProgress:
         self.hole_cards[player_name] = cards
 
     def add_community_cards(self, phase: str, cards: List[str]):
-        """Add community cards for a phase."""
-        self._phase_community[phase] = cards
-        self.community_cards.extend(cards)
+        """Add community cards for a phase (idempotent - won't duplicate)."""
+        # Only add if not already recorded for this phase
+        if phase not in self._phase_community or not self._phase_community[phase]:
+            self._phase_community[phase] = cards
+            self.community_cards.extend(cards)
 
     def record_action(self, player_name: str, action: str, amount: int,
                       phase: str, pot_after: int):
@@ -297,16 +299,21 @@ class HandHistoryRecorder:
         if not self.current_hand:
             raise ValueError("No hand in progress to complete")
 
-        # Build winner list
+        # Build winner list from pot_breakdown structure
         winners = []
-        winnings = winner_info.get('winnings', {})
-        for name, amount in winnings.items():
-            winners.append(WinnerInfo(
-                name=name,
-                amount_won=amount,
-                hand_name=winner_info.get('hand_name'),
-                hand_rank=winner_info.get('hand_rank')
-            ))
+        pot_breakdown = winner_info.get('pot_breakdown', [])
+        seen_winners = set()  # Avoid duplicates across pots
+        for pot in pot_breakdown:
+            pot_hand_name = pot.get('hand_name') or winner_info.get('hand_name')
+            for w in pot.get('winners', []):
+                if w['name'] not in seen_winners:
+                    seen_winners.add(w['name'])
+                    winners.append(WinnerInfo(
+                        name=w['name'],
+                        amount_won=w.get('amount', 0),
+                        hand_name=pot_hand_name,
+                        hand_rank=winner_info.get('hand_rank')
+                    ))
 
         # Calculate pot size
         pot = game_state.pot if hasattr(game_state, 'pot') else {}

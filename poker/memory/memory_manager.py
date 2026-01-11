@@ -17,6 +17,7 @@ from .hand_history import HandHistoryRecorder, RecordedHand
 from .session_memory import SessionMemory
 from .opponent_model import OpponentModelManager
 from .commentary_generator import CommentaryGenerator, HandCommentary
+from .commentary_filter import should_player_comment
 from ..config import COMMENTARY_ENABLED
 
 logger = logging.getLogger(__name__)
@@ -269,8 +270,12 @@ class AIMemoryManager:
         # Generate commentary synchronously (legacy flow)
         return self.generate_commentary_for_hand(ai_players)
 
-    def generate_commentary_for_hand(self, ai_players: Dict[str, Any],
-                                      on_commentary_ready: Optional[Callable] = None) -> Dict[str, HandCommentary]:
+    def generate_commentary_for_hand(
+        self,
+        ai_players: Dict[str, Any],
+        on_commentary_ready: Optional[Callable] = None,
+        big_blind: Optional[int] = None
+    ) -> Dict[str, HandCommentary]:
         """Generate commentary for the last completed hand.
 
         This can be called asynchronously after on_hand_complete(skip_commentary=True).
@@ -282,9 +287,12 @@ class AIMemoryManager:
             - Each thread only reads from its own snapshot
 
         Args:
-            ai_players: Dict mapping player names to their AIPokerPlayer objects
+            ai_players: Dict mapping player names to context dicts:
+                        {'ai_player': AIPokerPlayer, 'is_eliminated': bool,
+                         'spectator_context': Optional[str]}
             on_commentary_ready: Optional callback called immediately when each commentary
                                  is ready. Signature: (player_name, commentary) -> None
+            big_blind: Current big blind for dynamic interest thresholds
 
         Returns:
             Dict mapping player names to their HandCommentary
@@ -305,10 +313,24 @@ class AIMemoryManager:
             return commentaries
 
         # Build list of players to generate commentary for
-        players_to_process = [
-            player_name for player_name in ai_players
-            if player_name in self.session_memories
-        ]
+        # Apply filtering rules (preflop folds, eliminated players, etc.)
+        players_to_process = []
+        for player_name, context in ai_players.items():
+            # Skip if no session memory
+            if player_name not in self.session_memories:
+                continue
+
+            # Extract context (support both old format and new dict format)
+            if isinstance(context, dict):
+                is_eliminated = context.get('is_eliminated', False)
+            else:
+                is_eliminated = False
+
+            # Apply commentary filter rules
+            if should_player_comment(player_name, recorded_hand, is_eliminated):
+                players_to_process.append(player_name)
+            else:
+                logger.debug(f"Filtering out {player_name} from commentary")
 
         if not players_to_process:
             return commentaries
@@ -318,7 +340,18 @@ class AIMemoryManager:
         # are modified by another thread (e.g., new hand starting)
         player_snapshots: Dict[str, Dict[str, Any]] = {}
         for player_name in players_to_process:
-            ai_player = ai_players[player_name]
+            context = ai_players[player_name]
+
+            # Extract context (support both old format and new dict format)
+            if isinstance(context, dict):
+                ai_player = context.get('ai_player')
+                is_eliminated = context.get('is_eliminated', False)
+                spectator_context = context.get('spectator_context')
+            else:
+                ai_player = context
+                is_eliminated = False
+                spectator_context = None
+
             session_memory = self.session_memories[player_name]
 
             # Capture all data needed for commentary generation
@@ -335,6 +368,8 @@ class AIMemoryManager:
                 'attitude': getattr(ai_player, 'attitude', 'neutral'),
                 'chattiness': self._get_chattiness(ai_player),
                 'assistant': getattr(ai_player, 'assistant', None),
+                'is_eliminated': is_eliminated,
+                'spectator_context': spectator_context,
             }
 
         def generate_single_commentary(player_name: str) -> Tuple[str, Optional[HandCommentary]]:
@@ -356,9 +391,13 @@ class AIMemoryManager:
                     attitude=snapshot['attitude'],
                     chattiness=snapshot['chattiness'],
                     assistant=snapshot['assistant'],
-                    # New optional params for pre-computed context
+                    # Pre-computed context for thread safety
                     session_context_override=snapshot['session_context'],
                     opponent_context_override=snapshot['opponent_summaries'],
+                    # New params for filtering and spectator mode
+                    big_blind=big_blind,
+                    is_eliminated=snapshot['is_eliminated'],
+                    spectator_context=snapshot['spectator_context'],
                 )
                 return (player_name, commentary)
             except Exception as e:

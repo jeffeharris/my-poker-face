@@ -120,24 +120,30 @@ class PromptManager:
                     "Your cards: {player_cards}\n"
                     "Winner: {winner_info}\n\n"
                     "Your session so far: {session_context}"
+                    "{spectator_context}"
                 ),
                 'instruction': (
-                    "As {player_name}, reflect on this hand in character.\n"
+                    "As {player_name}, react to this hand in character.\n"
                     "Your personality: {confidence}, {attitude}\n"
                     "Your chattiness level: {chattiness}/1.0\n\n"
-                    "Consider:\n"
-                    "1. How do you FEEL about the outcome? (Stay in character)\n"
-                    "2. Did you play it well? Any regrets?\n"
-                    "3. What did you notice about your opponents?\n\n"
+                    "If you're spectating (eliminated), focus on:\n"
+                    "- Heckling players who knocked you out or rivals\n"
+                    "- Cheering for allies still in the game\n"
+                    "- Commenting on the action from the sidelines\n\n"
+                    "If you played this hand, consider:\n"
+                    "- How do you FEEL about the outcome?\n"
+                    "- Did you play it well? Any regrets?\n"
+                    "- What did you notice about opponents?\n\n"
                     "Respond in JSON format:\n"
                     "{{\n"
                     "  \"emotional_reaction\": \"How you feel right now (1-2 sentences, in character)\",\n"
-                    "  \"strategic_reflection\": \"Your thoughts on your play (1-2 sentences)\",\n"
+                    "  \"strategic_reflection\": \"Your thoughts on the hand (1-2 sentences)\",\n"
                     "  \"opponent_observations\": [\"What you noticed about specific players\"],\n"
-                    "  \"would_say_aloud\": \"Trash talk, celebration, or dig at opponents (or null if quiet)\"\n"
+                    "  \"would_say_aloud\": \"Trash talk, heckling, celebration, or dig at opponents (or null if quiet)\"\n"
                     "}}\n\n"
                     "For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. "
-                    "Be an exaggerated caricature of yourself - use signature phrases. Never reveal what cards you had. "
+                    "If you're spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! "
+                    "Be an exaggerated caricature of yourself - use signature phrases. "
                     "Only speak if chattiness ({chattiness}) > 0.4.\n\n"
                     "IMPORTANT: Vary your phrasing. Don't repeat phrases you've used before in this game."
                 )
@@ -296,28 +302,24 @@ class PromptManager:
         )
 
     def _load_post_round_templates(self):
-        """Load post-round chat templates for winner screen reactions."""
+        """Load post-round chat templates for winner screen reactions.
+
+        These templates generate chat suggestions FOR THE HUMAN PLAYER to send.
+        The {hand_context} contains structured info about the hand including:
+        - OUTCOME: WON_SHOWDOWN, WON_BY_FOLD, LOST_SHOWDOWN, or FOLDED
+        - YOUR CARDS and OPPONENT info
+        - HAND TIMELINE with betting actions by street (PRE_FLOP, FLOP, TURN, RIVER)
+        """
 
         # GLOAT: Trash talk after winning
         self.templates['post_round_gloat'] = PromptTemplate(
             name='post_round_gloat',
             sections={
                 'instruction': (
-                    "Write 2 SHORT first-person messages that {player_name} will say after winning{hand_context}.\n\n"
-                    "GOAL: TRASH TALK! Rub it in. Celebrate loudly. Be playful but cutting.\n"
-                    "Write as if YOU just won and are gloating about it.\n\n"
-                    "{opponent_context}"
-                    "{showdown_details}"
-                    "{hand_flow}"
-                    "Use the SHOWDOWN info to be ACCURATE - reference the actual cards/hands. Don't make up details!\n\n"
-                    "Keep it SHORT (under 10 words). First person. Be confident and a little mean.\n\n"
-                    "GOOD EXAMPLES:\n"
-                    "- \"Too easy.\"\n"
-                    "- \"Did you even try?\"\n"
-                    "- \"Thanks for the chips!\"\n"
-                    "- \"Told you I had it.\"\n"
-                    "- \"Should've folded when you had the chance.\"\n"
-                    "- \"Kings full. Read 'em and weep.\"\n\n"
+                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
+                    "HAND INFO:\n{hand_context}\n\n"
+                    "GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference the actual hand/cards from the HAND INFO above.\n\n"
+                    "Keep it SHORT (10-15 words max). First person. Confident.\n\n"
                     "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"gloat\"}}, {{\"text\": \"...\", \"tone\": \"gloat\"}}]}}"
                 )
             }
@@ -328,72 +330,38 @@ class PromptManager:
             name='post_round_humble',
             sections={
                 'instruction': (
-                    "Write 2 SHORT first-person messages that {player_name} will say after winning{hand_context}.\n\n"
-                    "GOAL: Be HUMBLE and GRACIOUS. Downplay YOUR skill. Credit luck. Be a good sport.\n"
-                    "Write as if YOU just won and are being modest about it.\n\n"
-                    "{opponent_context}"
-                    "{showdown_details}"
-                    "{hand_flow}"
-                    "Use the SHOWDOWN info to be ACCURATE - if you mention specific cards or how the hand played out, get it right!\n\n"
-                    "Keep it SHORT (under 10 words). First person only.\n\n"
-                    "GOOD EXAMPLES:\n"
-                    "- \"Got lucky there.\"\n"
-                    "- \"Good game.\"\n"
-                    "- \"Cards fell my way.\"\n"
-                    "- \"You had me sweating.\"\n"
-                    "- \"That was a tough call to make.\"\n"
-                    "- \"Needed that queen on the river.\"\n\n"
-                    "BAD (don't do this): \"Jeff played well\" or \"Nice win Jeff\"\n\n"
+                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
+                    "HAND INFO:\n{hand_context}\n\n"
+                    "GOAL: Be HUMBLE. Downplay your skill. Credit luck. Be a good sport. Reference the actual hand/cards from the HAND INFO above.\n\n"
+                    "Keep it SHORT (10-15 words max). First person.\n\n"
                     "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"humble\"}}, {{\"text\": \"...\", \"tone\": \"humble\"}}]}}"
                 )
             }
         )
 
-        # SALTY: Frustrated after losing
+        # SALTY: Frustrated after losing or folding
         self.templates['post_round_salty'] = PromptTemplate(
             name='post_round_salty',
             sections={
                 'instruction': (
-                    "Write 2 SHORT first-person messages that {player_name} will say after losing{hand_context}.\n\n"
-                    "GOAL: Express FRUSTRATION. Question their play. Blame luck. Vent a little.\n"
-                    "Write as if YOU just lost and are salty about it.\n\n"
-                    "{opponent_context}"
-                    "{showdown_details}"
-                    "{hand_flow}"
-                    "Use the SHOWDOWN info to be ACCURATE! If they hit trips on the flop, don't say 'river'. Reference the actual cards/hands!\n\n"
-                    "Keep it SHORT (under 10 words). First person. Be salty but not toxic.\n\n"
-                    "GOOD EXAMPLES:\n"
-                    "- \"Unreal.\"\n"
-                    "- \"You would hit that.\"\n"
-                    "- \"Trips on the flop. Great.\"\n"
-                    "- \"Called with THAT?\"\n"
-                    "- \"That's poker I guess.\"\n"
-                    "- \"Queen on the flop. Of course.\"\n\n"
+                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
+                    "HAND INFO:\n{hand_context}\n\n"
+                    "GOAL: Express FRUSTRATION. Vent about the hand. Be salty but not toxic. Reference the actual hand/cards from the HAND INFO above - note which street (FLOP/TURN/RIVER) the key card hit.\n\n"
+                    "Keep it SHORT (10-15 words max). First person.\n\n"
                     "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"salty\"}}, {{\"text\": \"...\", \"tone\": \"salty\"}}]}}"
                 )
             }
         )
 
-        # GRACIOUS: Good sport after losing
+        # GRACIOUS: Good sport after losing or folding
         self.templates['post_round_gracious'] = PromptTemplate(
             name='post_round_gracious',
             sections={
                 'instruction': (
-                    "Write 2 SHORT first-person messages that {player_name} will say after losing{hand_context}.\n\n"
-                    "GOAL: Be a GOOD SPORT. Acknowledge good play. No bitterness.\n"
-                    "Write as if YOU just lost and are being gracious about it.\n\n"
-                    "{opponent_context}"
-                    "{showdown_details}"
-                    "{hand_flow}"
-                    "Use the SHOWDOWN info to be ACCURATE - if you compliment their hand, reference what they actually had!\n\n"
-                    "Keep it SHORT (under 10 words). First person. Be genuine and respectful.\n\n"
-                    "GOOD EXAMPLES:\n"
-                    "- \"Nice hand.\"\n"
-                    "- \"Well played.\"\n"
-                    "- \"You got me.\"\n"
-                    "- \"Good read on that one.\"\n"
-                    "- \"Can't argue with trips.\"\n"
-                    "- \"Flopped queens. Nothing I could do.\"\n\n"
+                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
+                    "HAND INFO:\n{hand_context}\n\n"
+                    "GOAL: Be a GOOD SPORT. No bitterness. Acknowledge their good hand. Reference the actual hand/cards from the HAND INFO above.\n\n"
+                    "Keep it SHORT (10-15 words max). First person.\n\n"
                     "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"gracious\"}}, {{\"text\": \"...\", \"tone\": \"gracious\"}}]}}"
                 )
             }
