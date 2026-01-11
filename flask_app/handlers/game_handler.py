@@ -483,10 +483,46 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
 
     memory_manager = game_data['memory_manager']
     ai_controllers = game_data.get('ai_controllers', {})
-    ai_players = {
-        name: controller.ai_player
-        for name, controller in ai_controllers.items()
-    }
+    state_machine = game_data.get('state_machine')
+    tournament_tracker = game_data.get('tournament_tracker')
+
+    # Get big blind for dynamic thresholds
+    big_blind = None
+    if state_machine and hasattr(state_machine, 'game_state'):
+        big_blind = getattr(state_machine.game_state, 'current_ante', None)
+
+    # Get active players from tournament tracker
+    active_players = None
+    if tournament_tracker:
+        active_players = tournament_tracker._active_players
+
+    # Build elimination lookup for spectator context
+    elimination_lookup = {}
+    if tournament_tracker:
+        for event in tournament_tracker.eliminations:
+            elimination_lookup[event.eliminated_player] = event
+
+    # Build ai_players dict with context for each player
+    ai_players_with_context = {}
+    for name, controller in ai_controllers.items():
+        is_eliminated = (active_players is not None and name not in active_players)
+
+        # Build spectator context for eliminated players
+        spectator_context = None
+        if is_eliminated and name in elimination_lookup:
+            event = elimination_lookup[name]
+            spectator_context = (
+                f"\n\n** SPECTATOR MODE **\n"
+                f"You were eliminated in {_ordinal(event.finishing_position)} place "
+                f"by {event.eliminator}. You're watching from the rail. "
+                f"Heckle your rivals! Mock your eliminator! Root for underdogs!"
+            )
+
+        ai_players_with_context[name] = {
+            'ai_player': controller.ai_player,
+            'is_eliminated': is_eliminated,
+            'spectator_context': spectator_context,
+        }
 
     def emit_commentary_immediately(player_name: str, commentary) -> None:
         """Callback to emit commentary as soon as it's ready."""
@@ -495,11 +531,12 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             send_message(game_id, player_name, commentary.table_comment, "ai")
 
     try:
-        logger.info(f"[Commentary] Starting generation for {len(ai_players)} AI players")
+        logger.info(f"[Commentary] Starting generation for {len(ai_players_with_context)} AI players")
         # Pass callback to emit each commentary immediately as it completes
         commentaries = memory_manager.generate_commentary_for_hand(
-            ai_players,
-            on_commentary_ready=emit_commentary_immediately
+            ai_players_with_context,
+            on_commentary_ready=emit_commentary_immediately,
+            big_blind=big_blind
         )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
 
@@ -510,6 +547,15 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             )
     except Exception as e:
         logger.warning(f"Commentary generation failed: {e}")
+
+
+def _ordinal(n: int) -> str:
+    """Convert number to ordinal string (1st, 2nd, 3rd, etc.)."""
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f"{n}{suffix}"
 
 
 def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: dict = None) -> bool:
