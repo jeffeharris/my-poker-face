@@ -470,7 +470,20 @@ case $choice in
 
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
             echo -e "${CYAN}Removing worktree...${NC}"
-            git worktree remove "$selected_wt" --force
+
+            # Clean up Docker-owned files (containers create files as root)
+            if [[ -d "$selected_wt" ]]; then
+                echo -e "${CYAN}Cleaning up Docker-owned files...${NC}"
+                # Use Docker to fix ownership of all files (safer than rm -rf)
+                docker run --rm -v "$selected_wt:/cleanup" alpine chown -R "$(id -u):$(id -g)" /cleanup 2>/dev/null || true
+            fi
+
+            # Try normal removal first, fall back to force if needed
+            if ! git worktree remove "$selected_wt" --force 2>/dev/null; then
+                echo -e "${YELLOW}Standard removal failed, trying with sudo...${NC}"
+                sudo rm -rf "$selected_wt"
+                git worktree prune
+            fi
             echo -e "${GREEN}Worktree '$selected_name' removed successfully${NC}"
 
             # Ask about branch deletion
