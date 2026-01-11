@@ -774,6 +774,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
+    state_machine.current_phase = PokerPhase.HAND_OVER
 
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     state_machine.run_until_player_action()
