@@ -109,6 +109,7 @@ class PokerGameState:
             'current_ante': self.current_ante,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
+            'run_it_out': self.run_it_out,
             'small_blind_idx': self.small_blind_idx,
             'big_blind_idx': self.big_blind_idx,
             'current_player_options': self.current_player_options,
