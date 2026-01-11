@@ -128,24 +128,16 @@ def build_hand_context_from_recorded_hand(
         logger.warning(f"[PostRound] Player '{player_name}' not found in hole_cards!")
 
     # Get opponent info based on outcome
+    # Build pot contributions for opponent selection
+    pot_contributions = defaultdict(int)
+    for action in hand.actions:
+        if action.player_name != player_name:
+            pot_contributions[action.player_name] += action.amount
+
     if player_outcome == 'won':
-        if hand.was_showdown:
-            # WON_SHOWDOWN: Find opponent who was in showdown (didn't fold) but lost
-            for p in hand.players:
-                if p.name != player_name:
-                    p_outcome = hand.get_player_outcome(p.name)
-                    if p_outcome == 'lost':  # Was in showdown but lost
-                        result['opponent_name'] = p.name
-                        break
-        else:
-            # WON_BY_FOLD: Find opponent who put the most in the pot
-            pot_contributions = defaultdict(int)
-            for action in hand.actions:
-                if action.player_name != player_name:
-                    pot_contributions[action.player_name] += action.amount
-            if pot_contributions:
-                # Get player with highest contribution
-                result['opponent_name'] = max(pot_contributions, key=pot_contributions.get)
+        # Pick opponent who contributed most to pot (showdown or fold win)
+        if pot_contributions:
+            result['opponent_name'] = max(pot_contributions, key=pot_contributions.get)
     else:
         # Player lost or folded - opponent is the winner
         for w in hand.winners:
