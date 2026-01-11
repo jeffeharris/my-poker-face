@@ -119,16 +119,9 @@ export const gameAPI = {
   getPostRoundChatSuggestions: async (
     gameId: string,
     playerName: string,
-    tone: PostRoundTone,
-    didWin: boolean,
-    handResult?: string,
-    opponent?: string,
-    showdownContext?: {
-      communityCards?: string[];
-      winnerHand?: { cards: string[]; handName: string };
-      loserHand?: { cards: string[]; handName: string };
-    }
+    tone: PostRoundTone
   ): Promise<PostRoundSuggestionsResponse> => {
+    // Backend now derives all context from RecordedHand - only need playerName and tone
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/post-round-chat-suggestions`, {
       ...fetchOptions,
       method: 'POST',
@@ -138,10 +131,6 @@ export const gameAPI = {
       body: JSON.stringify({
         playerName,
         tone,
-        didWin,
-        handResult,
-        opponent,
-        showdownContext,
       }),
     });
 

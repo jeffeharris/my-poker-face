@@ -171,14 +171,21 @@ def update_and_emit_game_state(game_id: str) -> None:
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
-def handle_phase_cards_dealt(game_id: str, state_machine, game_state) -> None:
-    """Send message about newly dealt community cards."""
+def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data: dict = None) -> None:
+    """Send message about newly dealt community cards and record to hand history."""
     if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
         if game_state.no_action_taken:
             num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
             cards_str = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
             message_content = f"{state_machine.current_phase} cards dealt: {cards_str}"
             send_message(game_id, "Table", message_content, "table")
+
+            # Record community cards to hand history
+            if game_data:
+                memory_manager = game_data.get('memory_manager')
+                if memory_manager:
+                    phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
+                    memory_manager.hand_recorder.record_community_cards(phase_name, cards_str)
 
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
@@ -765,19 +772,20 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
-    # Start recording new hand
-    if 'memory_manager' in game_data:
-        memory_manager = game_data['memory_manager']
-        new_hand_number = memory_manager.hand_count + 1
-        memory_manager.on_hand_start(game_state, hand_number=new_hand_number)
-
-    # Advance to next hand
+    # Advance to next hand - this deals new cards
     state_machine.update_phase()
     state_machine.game_state = game_state
     game_data['state_machine'] = state_machine
     game_state_service.set_game(game_id, game_data)
     state_machine.advance_state()
     update_and_emit_game_state(game_id)
+
+    # Start recording new hand AFTER cards are dealt
+    if 'memory_manager' in game_data:
+        memory_manager = game_data['memory_manager']
+        new_hand_number = memory_manager.hand_count + 1
+        # Use the updated game state which now has the new cards
+        memory_manager.on_hand_start(state_machine.game_state, hand_number=new_hand_number)
 
     # Save state after hand evaluation completes (now in stable phase)
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
@@ -839,7 +847,7 @@ def progress_game(game_id: str) -> None:
                 owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
                 persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-            handle_phase_cards_dealt(game_id, state_machine, game_state)
+            handle_phase_cards_dealt(game_id, state_machine, game_state, current_game_data)
 
             # Handle "run it out" scenario - auto-advance with delays
             if game_state.run_it_out:
