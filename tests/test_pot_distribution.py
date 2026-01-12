@@ -1043,5 +1043,114 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(result['pot_breakdown'][0]['winners'][0]['name'], 'Alice')
 
 
+class TestGameHandlerIntegration(unittest.TestCase):
+    """Integration tests for chip conservation through game handler flow."""
+
+    def test_no_double_award_through_state_machine(self):
+        """Verify chips aren't doubled when game_handler syncs state to state machine.
+
+        Regression test for chip leak bug where:
+        1. handle_evaluating_hand_phase calls award_pot_winnings
+        2. State synced to state machine with pot/bets NOT cleared
+        3. run_until_player_action() executes evaluating_hand_transition
+        4. evaluating_hand_transition calls award_pot_winnings AGAIN
+        """
+        from poker.poker_state_machine import PokerStateMachine, PokerPhase
+
+        player1 = Player(
+            name='Alice',
+            stack=970,
+            is_human=True,
+            bet=30,
+            hand=(Card('A', 'spades'), Card('K', 'hearts')),
+            is_folded=False,
+        )
+        player2 = Player(
+            name='Bob',
+            stack=970,
+            is_human=False,
+            bet=30,
+            hand=(Card('2', 'clubs'), Card('3', 'diamonds')),
+            is_folded=False,
+        )
+        community_cards = (
+            Card('7', 'diamonds'),
+            Card('8', 'clubs'),
+            Card('9', 'spades'),
+            Card('Q', 'hearts'),
+            Card('2', 'spades'),
+        )
+        game_state = PokerGameState(
+            players=(player1, player2),
+            community_cards=community_cards,
+            pot={'total': 60, 'Alice': 30, 'Bob': 30},
+            current_ante=10,
+        )
+
+        initial_chips = sum(p.stack + p.bet for p in game_state.players)
+        self.assertEqual(initial_chips, 2000)
+
+        winner_info = determine_winner(game_state)
+        game_state = award_pot_winnings(game_state, winner_info)
+
+        state_machine = PokerStateMachine(game_state)
+        state_machine.phase = PokerPhase.HAND_OVER
+        state_machine.run_until_player_action()
+
+        final_stacks = sum(p.stack for p in state_machine.game_state.players)
+        final_pot = state_machine.game_state.pot.get('total', 0)
+        final_chips = final_stacks + final_pot
+        self.assertEqual(final_chips, 2000, f"Chip leak detected: {final_chips - 2000} chips")
+
+    def test_double_award_without_phase_skip(self):
+        """Demonstrate the bug: NOT skipping EVALUATING_HAND causes double-award."""
+        from poker.poker_state_machine import PokerStateMachine, PokerPhase
+
+        player1 = Player(
+            name='Alice',
+            stack=970,
+            is_human=True,
+            bet=30,
+            hand=(Card('A', 'spades'), Card('K', 'hearts')),
+            is_folded=False,
+        )
+        player2 = Player(
+            name='Bob',
+            stack=970,
+            is_human=False,
+            bet=30,
+            hand=(Card('2', 'clubs'), Card('3', 'diamonds')),
+            is_folded=False,
+        )
+        community_cards = (
+            Card('7', 'diamonds'),
+            Card('8', 'clubs'),
+            Card('9', 'spades'),
+            Card('Q', 'hearts'),
+            Card('2', 'spades'),
+        )
+        game_state = PokerGameState(
+            players=(player1, player2),
+            community_cards=community_cards,
+            pot={'total': 60, 'Alice': 30, 'Bob': 30},
+            current_ante=10,
+        )
+
+        winner_info = determine_winner(game_state)
+        game_state = award_pot_winnings(game_state, winner_info)
+
+        state_machine = PokerStateMachine(game_state)
+        state_machine.phase = PokerPhase.EVALUATING_HAND  # BUG: not skipping to HAND_OVER
+        state_machine.run_until_player_action()
+
+        final_stacks = sum(p.stack for p in state_machine.game_state.players)
+        final_pot = state_machine.game_state.pot.get('total', 0)
+        final_chips = final_stacks + final_pot
+
+        self.assertNotEqual(final_chips, 2000,
+            "This test should show chip leak when EVALUATING_HAND is not skipped")
+        self.assertGreater(final_chips, 2000, f"Expected chip leak, got {final_chips}")
+
+
 if __name__ == '__main__':
     unittest.main()
