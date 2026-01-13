@@ -50,9 +50,9 @@ ANTHROPIC_DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-202
 # Available Anthropic models for UI selection
 # See: https://docs.anthropic.com/en/docs/about-claude/models
 ANTHROPIC_AVAILABLE_MODELS = [
-    "claude-sonnet-4-20250514",     # Best balance of speed/quality/cost
-    "claude-opus-4-20250514",       # Most capable, highest cost
-    "claude-haiku-3-5-20241022",    # Fastest, lowest cost
+    "claude-sonnet-4-20250514",     # Best balance of speed/quality/cost ($3/$15 per M tokens)
+    "claude-opus-4-20250514",       # Most capable, highest cost ($15/$75 per M tokens)
+    "claude-haiku-4-5-20251015",    # Fastest, lowest cost ($1/$5 per M tokens)
 ]
 
 # =============================================================================
