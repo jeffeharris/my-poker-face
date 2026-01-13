@@ -28,16 +28,16 @@ DEFAULT_IMAGE_MODEL = "dall-e-2"
 # Groq Configuration
 # =============================================================================
 
-# Default Groq model - Llama 3.3 70B is their most capable model
-GROQ_DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+# Default Groq model - Llama 3.1 8B is fast and comparable to OpenAI nano tier
+GROQ_DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 
 # Available Groq models for UI selection
 # See: https://console.groq.com/docs/models
 GROQ_AVAILABLE_MODELS = [
-    "llama-3.3-70b-versatile",  # Best overall, 128k context
-    "llama-3.1-8b-instant",     # Fast, good for simple tasks
-    "mixtral-8x7b-32768",       # Good balance of speed/quality
-    "gemma2-9b-it",             # Google's Gemma 2
+    "llama-3.3-70b-versatile",                       # Best overall, 128k context, 280 tok/s
+    "llama-3.1-8b-instant",                          # Fast, good for simple tasks, 560 tok/s
+    "meta-llama/llama-4-scout-17b-16e-instruct",    # Llama 4 Scout, 750 tok/s (preview)
+    "qwen/qwen3-32b",                                # Qwen 3 32B, 400 tok/s (preview)
 ]
 
 # =============================================================================
