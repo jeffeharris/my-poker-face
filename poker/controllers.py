@@ -417,6 +417,7 @@ class AIPlayerController:
                 'action_taken': response_dict.get('action'),
                 'raise_amount': response_dict.get('adding_to_pot') if response_dict.get('action') == 'raise' else None,
                 'model': llm_response.model if llm_response else None,
+                'provider': self.assistant.provider if self.assistant else 'openai',
                 'reasoning_effort': reasoning_effort,
                 'latency_ms': int(llm_response.latency_ms) if llm_response else None,
                 'input_tokens': llm_response.input_tokens if llm_response else None,

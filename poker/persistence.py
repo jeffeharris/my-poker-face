@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 
 
 @dataclass
@@ -341,6 +341,7 @@ class GamePersistence:
             30: (self._migrate_v30_add_prompt_capture_columns, "Add raw_request and reasoning columns to prompt_captures"),
             31: (self._migrate_v31_add_provider_pricing, "Add Groq and Claude 4.5 pricing to model_pricing"),
             32: (self._migrate_v32_add_more_providers, "Add DeepSeek, Mistral, and Google Gemini pricing"),
+            33: (self._migrate_v33_add_provider_to_captures, "Add provider column to prompt_captures"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1504,6 +1505,20 @@ class GamePersistence:
             """, (provider, model, unit, cost))
 
         logger.info("Migration v32 complete: Added DeepSeek, Mistral, and Google pricing")
+
+    def _migrate_v33_add_provider_to_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v33: Add provider column to prompt_captures.
+
+        Enables tracking which LLM provider was used for each captured decision.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'provider' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN provider TEXT DEFAULT 'openai'")
+            logger.info("Added provider column to prompt_captures")
+
+        logger.info("Migration v33 complete: Added provider to prompt_captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
@@ -3161,7 +3176,7 @@ class GamePersistence:
                     -- Response (OUTPUT)
                     ai_response, raw_api_response,
                     -- LLM Config
-                    model, reasoning_effort,
+                    provider, model, reasoning_effort,
                     -- Metrics
                     latency_ms, input_tokens, output_tokens,
                     -- Tracking
@@ -3170,7 +3185,7 @@ class GamePersistence:
                     prompt_template, prompt_version, prompt_hash,
                     -- User Annotations
                     tags, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -3197,6 +3212,7 @@ class GamePersistence:
                 capture.get('ai_response'),
                 capture.get('raw_api_response'),
                 # LLM Config
+                capture.get('provider', 'openai'),
                 capture.get('model'),
                 capture.get('reasoning_effort'),
                 # Metrics

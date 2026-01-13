@@ -83,6 +83,11 @@ class Assistant:
         """Update the system message."""
         self._memory.system_prompt = value
 
+    @property
+    def provider(self) -> str:
+        """LLM provider being used (openai, groq, anthropic, etc.)."""
+        return self._provider
+
     def chat(
         self,
         message: str,
