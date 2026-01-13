@@ -41,22 +41,39 @@ GROQ_AVAILABLE_MODELS = [
 ]
 
 # =============================================================================
+# Anthropic Configuration
+# =============================================================================
+
+# Default Anthropic model - Claude Sonnet 4 is the best balance of speed/quality
+ANTHROPIC_DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+
+# Available Anthropic models for UI selection
+# See: https://docs.anthropic.com/en/docs/about-claude/models
+ANTHROPIC_AVAILABLE_MODELS = [
+    "claude-sonnet-4-20250514",     # Best balance of speed/quality/cost
+    "claude-opus-4-20250514",       # Most capable, highest cost
+    "claude-haiku-3-5-20241022",    # Fastest, lowest cost
+]
+
+# =============================================================================
 # Provider Registry
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq"]
+AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic"]
 
 # Models by provider for UI selection
 PROVIDER_MODELS = {
     "openai": OPENAI_AVAILABLE_MODELS,
     "groq": GROQ_AVAILABLE_MODELS,
+    "anthropic": ANTHROPIC_AVAILABLE_MODELS,
 }
 
 # Default model per provider
 PROVIDER_DEFAULT_MODELS = {
     "openai": DEFAULT_MODEL,
     "groq": GROQ_DEFAULT_MODEL,
+    "anthropic": ANTHROPIC_DEFAULT_MODEL,
 }
 
 # Provider capabilities
@@ -68,6 +85,11 @@ PROVIDER_CAPABILITIES = {
     },
     "groq": {
         "supports_reasoning": False,
+        "supports_json_mode": True,
+        "supports_image_generation": False,
+    },
+    "anthropic": {
+        "supports_reasoning": True,  # Extended thinking
         "supports_json_mode": True,
         "supports_image_generation": False,
     },

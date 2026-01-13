@@ -40,6 +40,8 @@ from .config import (
     PROVIDER_CAPABILITIES,
     GROQ_DEFAULT_MODEL,
     GROQ_AVAILABLE_MODELS,
+    ANTHROPIC_DEFAULT_MODEL,
+    ANTHROPIC_AVAILABLE_MODELS,
 )
 from .response import LLMResponse, ImageResponse
 from .tracking import CallType, UsageTracker
@@ -62,6 +64,8 @@ __all__ = [
     "PROVIDER_CAPABILITIES",
     "GROQ_DEFAULT_MODEL",
     "GROQ_AVAILABLE_MODELS",
+    "ANTHROPIC_DEFAULT_MODEL",
+    "ANTHROPIC_AVAILABLE_MODELS",
     # Classes
     "LLMResponse",
     "ImageResponse",

@@ -9,6 +9,7 @@ from .tracking import UsageTracker, CallType
 from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
 from .providers.groq import GroqProvider
+from .providers.anthropic import AnthropicProvider
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class LLMClient:
         provider_registry = {
             "openai": lambda: OpenAIProvider(model=model, reasoning_effort=reasoning_effort),
             "groq": lambda: GroqProvider(model=model, reasoning_effort=reasoning_effort),
+            "anthropic": lambda: AnthropicProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
         if provider not in provider_registry:
