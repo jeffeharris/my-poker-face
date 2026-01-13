@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude API provider implementation.
 
-    Supports Claude 3.5 Sonnet, Claude 3.5 Haiku, and other Claude models.
+    Supports Claude 4.5 models (Opus, Sonnet, Haiku) with extended thinking.
     Handles Anthropic's different message format (system prompt separate from messages).
     """
 

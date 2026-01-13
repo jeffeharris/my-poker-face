@@ -44,15 +44,15 @@ GROQ_AVAILABLE_MODELS = [
 # Anthropic Configuration
 # =============================================================================
 
-# Default Anthropic model - Claude Sonnet 4 is the best balance of speed/quality
-ANTHROPIC_DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+# Default Anthropic model - Claude Sonnet 4.5 is the best balance of speed/quality
+ANTHROPIC_DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 
 # Available Anthropic models for UI selection
 # See: https://docs.anthropic.com/en/docs/about-claude/models
 ANTHROPIC_AVAILABLE_MODELS = [
-    "claude-sonnet-4-20250514",     # Best balance of speed/quality/cost ($3/$15 per M tokens)
-    "claude-opus-4-20250514",       # Most capable, highest cost ($15/$75 per M tokens)
-    "claude-haiku-4-5-20251015",    # Fastest, lowest cost ($1/$5 per M tokens)
+    "claude-sonnet-4-5-20250929",   # Best balance, complex agents/coding ($3/$15 per M tokens)
+    "claude-opus-4-5-20251101",     # Most capable, highest cost ($15/$75 per M tokens)
+    "claude-haiku-4-5-20251001",    # Fastest, lowest cost ($1/$5 per M tokens)
 ]
 
 # =============================================================================
