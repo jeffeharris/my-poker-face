@@ -3,11 +3,12 @@ import time
 import logging
 from typing import List, Dict, Optional, Any
 
-from .config import DEFAULT_MAX_TOKENS
+from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
 from .response import LLMResponse, ImageResponse
 from .tracking import UsageTracker, CallType
 from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
+from .providers.groq import GroqProvider
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,17 @@ class LLMClient:
         reasoning_effort: str,
     ) -> LLMProvider:
         """Create the appropriate provider instance."""
-        if provider == "openai":
-            return OpenAIProvider(model=model, reasoning_effort=reasoning_effort)
-        else:
-            raise ValueError(f"Unknown provider: {provider}. Supported: openai")
+        # Provider registry - add new providers here
+        provider_registry = {
+            "openai": lambda: OpenAIProvider(model=model, reasoning_effort=reasoning_effort),
+            "groq": lambda: GroqProvider(model=model, reasoning_effort=reasoning_effort),
+        }
+
+        if provider not in provider_registry:
+            supported = ", ".join(AVAILABLE_PROVIDERS)
+            raise ValueError(f"Unknown provider: {provider}. Supported: {supported}")
+
+        return provider_registry[provider]()
 
     @property
     def model(self) -> str:

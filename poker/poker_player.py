@@ -116,8 +116,9 @@ class AIPokerPlayer(PokerPlayer):
 
         # Store and extract LLM configuration
         self.llm_config = llm_config or {}
-        from core.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
-        model = self.llm_config.get("model", DEFAULT_MODEL)
+        from core.llm.config import DEFAULT_REASONING_EFFORT
+        provider = self.llm_config.get("provider", "openai")
+        model = self.llm_config.get("model")  # Let provider use its default if None
         reasoning_effort = self.llm_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
 
         # Store tracking context
@@ -125,6 +126,7 @@ class AIPokerPlayer(PokerPlayer):
         self.owner_id = owner_id
 
         self.assistant = Assistant(
+            provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
             system_prompt=self.persona_prompt(),

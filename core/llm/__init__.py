@@ -33,6 +33,13 @@ from .config import (
     DEFAULT_REASONING_EFFORT,
     AVAILABLE_MODELS,
     DEFAULT_IMAGE_MODEL,
+    # Provider config
+    AVAILABLE_PROVIDERS,
+    PROVIDER_MODELS,
+    PROVIDER_DEFAULT_MODELS,
+    PROVIDER_CAPABILITIES,
+    GROQ_DEFAULT_MODEL,
+    GROQ_AVAILABLE_MODELS,
 )
 from .response import LLMResponse, ImageResponse
 from .tracking import CallType, UsageTracker
@@ -48,6 +55,13 @@ __all__ = [
     "DEFAULT_REASONING_EFFORT",
     "AVAILABLE_MODELS",
     "DEFAULT_IMAGE_MODEL",
+    # Provider config
+    "AVAILABLE_PROVIDERS",
+    "PROVIDER_MODELS",
+    "PROVIDER_DEFAULT_MODELS",
+    "PROVIDER_CAPABILITIES",
+    "GROQ_DEFAULT_MODEL",
+    "GROQ_AVAILABLE_MODELS",
     # Classes
     "LLMResponse",
     "ImageResponse",

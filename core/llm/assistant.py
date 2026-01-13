@@ -27,6 +27,7 @@ class Assistant:
     def __init__(
         self,
         system_prompt: str = "",
+        provider: str = "openai",
         model: Optional[str] = None,
         reasoning_effort: str = "low",
         max_memory: int = 15,
@@ -41,6 +42,7 @@ class Assistant:
 
         Args:
             system_prompt: System prompt for the conversation
+            provider: LLM provider ('openai', 'groq', etc.)
             model: Model to use (provider default if None)
             reasoning_effort: Reasoning effort for models that support it
             max_memory: Maximum messages to keep in memory
@@ -51,10 +53,12 @@ class Assistant:
             player_name: Default AI player name for tracking
         """
         self._client = LLMClient(
+            provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
             tracker=tracker,
         )
+        self._provider = provider
         self._memory = ConversationMemory(
             system_prompt=system_prompt,
             max_messages=max_memory,
@@ -187,6 +191,7 @@ class Assistant:
         """Serialize assistant state for persistence."""
         return {
             "system_prompt": self._memory.system_prompt,
+            "provider": self._provider,
             "model": self._client.model,
             "memory": self._memory.to_dict(),
             "default_context": self._default_context,
@@ -216,6 +221,7 @@ class Assistant:
 
         assistant = cls(
             system_prompt=data.get("system_prompt", ""),
+            provider=data.get("provider", "openai"),
             model=data.get("model"),
             tracker=tracker,
             **context,

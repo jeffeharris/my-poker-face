@@ -4,6 +4,10 @@ Single source of truth for model settings.
 """
 import os
 
+# =============================================================================
+# OpenAI Configuration
+# =============================================================================
+
 # Default model for all LLM operations
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
 
@@ -14,12 +18,68 @@ FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL)
 # Options: 'minimal', 'low', 'medium', 'high'
 DEFAULT_REASONING_EFFORT = "minimal"
 
+# Available OpenAI models for UI selection
+OPENAI_AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
+
+# Image generation model (dall-e-3 follows prompts better but requires API access)
+DEFAULT_IMAGE_MODEL = "dall-e-2"
+
+# =============================================================================
+# Groq Configuration
+# =============================================================================
+
+# Default Groq model - Llama 3.3 70B is their most capable model
+GROQ_DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+# Available Groq models for UI selection
+# See: https://console.groq.com/docs/models
+GROQ_AVAILABLE_MODELS = [
+    "llama-3.3-70b-versatile",  # Best overall, 128k context
+    "llama-3.1-8b-instant",     # Fast, good for simple tasks
+    "mixtral-8x7b-32768",       # Good balance of speed/quality
+    "gemma2-9b-it",             # Google's Gemma 2
+]
+
+# =============================================================================
+# Provider Registry
+# =============================================================================
+
+# All available providers
+AVAILABLE_PROVIDERS = ["openai", "groq"]
+
+# Models by provider for UI selection
+PROVIDER_MODELS = {
+    "openai": OPENAI_AVAILABLE_MODELS,
+    "groq": GROQ_AVAILABLE_MODELS,
+}
+
+# Default model per provider
+PROVIDER_DEFAULT_MODELS = {
+    "openai": DEFAULT_MODEL,
+    "groq": GROQ_DEFAULT_MODEL,
+}
+
+# Provider capabilities
+PROVIDER_CAPABILITIES = {
+    "openai": {
+        "supports_reasoning": True,
+        "supports_json_mode": True,
+        "supports_image_generation": True,
+    },
+    "groq": {
+        "supports_reasoning": False,
+        "supports_json_mode": True,
+        "supports_image_generation": False,
+    },
+}
+
+# =============================================================================
+# Common Settings
+# =============================================================================
+
 # Default max completion tokens (includes both reasoning + output tokens)
 # Must be high enough to allow reasoning AND produce output
 DEFAULT_MAX_TOKENS = 5000
 
-# Available models for UI selection
-AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
-
-# Image generation model (dall-e-3 follows prompts better but requires API access)
-DEFAULT_IMAGE_MODEL = "dall-e-2"
+# Legacy alias for backwards compatibility
+AVAILABLE_MODELS = OPENAI_AVAILABLE_MODELS

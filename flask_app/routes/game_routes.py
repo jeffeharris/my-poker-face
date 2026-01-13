@@ -416,6 +416,32 @@ def api_game_state(game_id):
     return jsonify(response)
 
 
+@game_bp.route('/api/llm-providers', methods=['GET'])
+def api_llm_providers():
+    """Get available LLM providers and their models for game configuration."""
+    from core.llm import (
+        AVAILABLE_PROVIDERS,
+        PROVIDER_MODELS,
+        PROVIDER_DEFAULT_MODELS,
+        PROVIDER_CAPABILITIES,
+    )
+
+    providers = []
+    for provider in AVAILABLE_PROVIDERS:
+        providers.append({
+            'id': provider,
+            'name': provider.title(),
+            'models': PROVIDER_MODELS.get(provider, []),
+            'default_model': PROVIDER_DEFAULT_MODELS.get(provider),
+            'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+        })
+
+    return jsonify({
+        'providers': providers,
+        'default_provider': 'openai',
+    })
+
+
 @game_bp.route('/api/new-game', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_NEW_GAME)
 def api_new_game():
@@ -441,7 +467,7 @@ def api_new_game():
         owner_name = None
 
     requested_personalities = data.get('personalities', [])
-    llm_config = data.get('llm_config', {})
+    default_llm_config = data.get('llm_config', {})
     starting_stack = data.get('starting_stack', 10000)
     big_blind = data.get('big_blind', 50)
     blind_growth = data.get('blind_growth', 1.5)
@@ -452,8 +478,24 @@ def api_new_game():
     if starting_stack < big_blind * 10:
         starting_stack = big_blind * 10
 
+    # Parse personalities - supports both string names and objects with llm_config
+    # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}}]
+    ai_player_names = []
+    player_llm_configs = {}  # Map of player_name -> llm_config
+
     if requested_personalities:
-        ai_player_names = requested_personalities
+        for p in requested_personalities:
+            if isinstance(p, str):
+                # Simple string name - uses default llm_config
+                ai_player_names.append(p)
+            elif isinstance(p, dict):
+                # Object with name and optional llm_config
+                name = p.get('name')
+                if name:
+                    ai_player_names.append(name)
+                    if 'llm_config' in p:
+                        # Merge with default config (per-player overrides default)
+                        player_llm_configs[name] = {**default_llm_config, **p['llm_config']}
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
@@ -481,10 +523,12 @@ def api_new_game():
 
     for player in state_machine.game_state.players:
         if not player.is_human:
+            # Use per-player config if set, otherwise use default
+            player_config = player_llm_configs.get(player.name, default_llm_config)
             new_controller = AIPlayerController(
                 player.name,
                 state_machine,
-                llm_config=llm_config,
+                llm_config=player_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 persistence=persistence
@@ -532,7 +576,8 @@ def api_new_game():
         'tournament_tracker': tournament_tracker,
         'owner_id': owner_id,
         'owner_name': owner_name,
-        'llm_config': llm_config,
+        'llm_config': default_llm_config,  # Default config for new players
+        'player_llm_configs': player_llm_configs,  # Per-player overrides
         'messages': [{
             'id': '1',
             'sender': 'System',
