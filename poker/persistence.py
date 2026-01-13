@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 
 
 @dataclass
@@ -340,6 +340,7 @@ class GamePersistence:
             29: (self._migrate_v29_add_tournament_tracker, "Add tournament_tracker table for persisting elimination history"),
             30: (self._migrate_v30_add_prompt_capture_columns, "Add raw_request and reasoning columns to prompt_captures"),
             31: (self._migrate_v31_add_provider_pricing, "Add Groq and Claude 4.5 pricing to model_pricing"),
+            32: (self._migrate_v32_add_more_providers, "Add DeepSeek, Mistral, and Google Gemini pricing"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1451,6 +1452,58 @@ class GamePersistence:
             """, (provider, model, unit, cost))
 
         logger.info("Migration v31 complete: Added Groq and Claude 4.5 pricing")
+
+    def _migrate_v32_add_more_providers(self, conn: sqlite3.Connection) -> None:
+        """Migration v32: Add DeepSeek, Mistral, and Google Gemini pricing.
+
+        Adds pricing for:
+        - DeepSeek models (Chat, Reasoner)
+        - Mistral models (Small, Medium, Large)
+        - Google Gemini models (Flash, Pro)
+        """
+        skus = [
+            # DeepSeek - V3 Chat (extremely cheap!)
+            ('deepseek', 'deepseek-chat', 'input_tokens_1m', 0.28),
+            ('deepseek', 'deepseek-chat', 'output_tokens_1m', 0.42),
+            ('deepseek', 'deepseek-chat', 'cached_input_tokens_1m', 0.028),
+
+            # DeepSeek - R1 Reasoner
+            ('deepseek', 'deepseek-reasoner', 'input_tokens_1m', 0.55),
+            ('deepseek', 'deepseek-reasoner', 'output_tokens_1m', 2.19),
+
+            # Mistral - Small
+            ('mistral', 'mistral-small-latest', 'input_tokens_1m', 0.20),
+            ('mistral', 'mistral-small-latest', 'output_tokens_1m', 0.60),
+
+            # Mistral - Medium (estimated)
+            ('mistral', 'mistral-medium-latest', 'input_tokens_1m', 0.80),
+            ('mistral', 'mistral-medium-latest', 'output_tokens_1m', 2.40),
+
+            # Mistral - Large
+            ('mistral', 'mistral-large-latest', 'input_tokens_1m', 2.00),
+            ('mistral', 'mistral-large-latest', 'output_tokens_1m', 6.00),
+
+            # Google Gemini 2.0 Flash
+            ('google', 'gemini-2.0-flash', 'input_tokens_1m', 0.10),
+            ('google', 'gemini-2.0-flash', 'output_tokens_1m', 0.40),
+
+            # Google Gemini 2.5 Flash
+            ('google', 'gemini-2.5-flash', 'input_tokens_1m', 0.30),
+            ('google', 'gemini-2.5-flash', 'output_tokens_1m', 2.50),
+
+            # Google Gemini 2.5 Pro
+            ('google', 'gemini-2.5-pro', 'input_tokens_1m', 1.25),
+            ('google', 'gemini-2.5-pro', 'output_tokens_1m', 10.00),
+            ('google', 'gemini-2.5-pro', 'cached_input_tokens_1m', 0.125),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v32 complete: Added DeepSeek, Mistral, and Google pricing")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:

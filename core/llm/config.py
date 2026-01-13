@@ -56,17 +56,64 @@ ANTHROPIC_AVAILABLE_MODELS = [
 ]
 
 # =============================================================================
+# DeepSeek Configuration
+# =============================================================================
+
+# Default DeepSeek model - V3 is extremely cheap with quality near GPT-4
+DEEPSEEK_DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+# Available DeepSeek models for UI selection
+# See: https://platform.deepseek.com/api-docs/
+DEEPSEEK_AVAILABLE_MODELS = [
+    "deepseek-chat",        # V3 - Best value, $0.28/$0.42 per M tokens
+    "deepseek-reasoner",    # R1 - Reasoning model, $0.55/$2.19 per M tokens
+]
+
+# =============================================================================
+# Mistral Configuration
+# =============================================================================
+
+# Default Mistral model - Small is fast and cheap
+MISTRAL_DEFAULT_MODEL = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+
+# Available Mistral models for UI selection
+# See: https://docs.mistral.ai/getting-started/models/
+MISTRAL_AVAILABLE_MODELS = [
+    "mistral-small-latest",     # Fast, cheap ($0.20/$0.60 per M tokens)
+    "mistral-medium-latest",    # Balanced
+    "mistral-large-latest",     # Most capable ($2/$6 per M tokens)
+]
+
+# =============================================================================
+# Google Gemini Configuration
+# =============================================================================
+
+# Default Google model - Flash is very cheap with good quality
+GOOGLE_DEFAULT_MODEL = os.environ.get("GOOGLE_MODEL", "gemini-2.0-flash")
+
+# Available Google models for UI selection
+# See: https://ai.google.dev/gemini-api/docs/models
+GOOGLE_AVAILABLE_MODELS = [
+    "gemini-2.0-flash",         # Very cheap ($0.10/$0.40 per M tokens)
+    "gemini-2.5-flash",         # Better quality ($0.30/$2.50 per M tokens)
+    "gemini-2.5-pro",           # GPT-4o competitor ($1.25/$10 per M tokens)
+]
+
+# =============================================================================
 # Provider Registry
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic"]
+AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google"]
 
 # Models by provider for UI selection
 PROVIDER_MODELS = {
     "openai": OPENAI_AVAILABLE_MODELS,
     "groq": GROQ_AVAILABLE_MODELS,
     "anthropic": ANTHROPIC_AVAILABLE_MODELS,
+    "deepseek": DEEPSEEK_AVAILABLE_MODELS,
+    "mistral": MISTRAL_AVAILABLE_MODELS,
+    "google": GOOGLE_AVAILABLE_MODELS,
 }
 
 # Default model per provider
@@ -74,6 +121,9 @@ PROVIDER_DEFAULT_MODELS = {
     "openai": DEFAULT_MODEL,
     "groq": GROQ_DEFAULT_MODEL,
     "anthropic": ANTHROPIC_DEFAULT_MODEL,
+    "deepseek": DEEPSEEK_DEFAULT_MODEL,
+    "mistral": MISTRAL_DEFAULT_MODEL,
+    "google": GOOGLE_DEFAULT_MODEL,
 }
 
 # Provider capabilities
@@ -92,6 +142,21 @@ PROVIDER_CAPABILITIES = {
         "supports_reasoning": True,  # Extended thinking
         "supports_json_mode": True,
         "supports_image_generation": False,
+    },
+    "deepseek": {
+        "supports_reasoning": True,  # R1 model
+        "supports_json_mode": True,
+        "supports_image_generation": False,
+    },
+    "mistral": {
+        "supports_reasoning": False,
+        "supports_json_mode": True,
+        "supports_image_generation": False,
+    },
+    "google": {
+        "supports_reasoning": True,  # Thinking mode
+        "supports_json_mode": True,
+        "supports_image_generation": True,  # Imagen
     },
 }
 

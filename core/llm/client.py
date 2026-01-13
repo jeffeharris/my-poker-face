@@ -10,6 +10,9 @@ from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
 from .providers.groq import GroqProvider
 from .providers.anthropic import AnthropicProvider
+from .providers.deepseek import DeepSeekProvider
+from .providers.mistral import MistralProvider
+from .providers.google import GoogleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ class LLMClient:
         """Initialize LLM client.
 
         Args:
-            provider: Provider name ('openai', future: 'anthropic', 'groq')
+            provider: Provider name ('openai', 'groq', 'anthropic', 'deepseek', 'mistral', 'google')
             model: Model to use (provider-specific default if None)
             reasoning_effort: Reasoning effort for models that support it
             tracker: Usage tracker (uses default singleton if None)
@@ -51,6 +54,9 @@ class LLMClient:
             "openai": lambda: OpenAIProvider(model=model, reasoning_effort=reasoning_effort),
             "groq": lambda: GroqProvider(model=model, reasoning_effort=reasoning_effort),
             "anthropic": lambda: AnthropicProvider(model=model, reasoning_effort=reasoning_effort),
+            "deepseek": lambda: DeepSeekProvider(model=model, reasoning_effort=reasoning_effort),
+            "mistral": lambda: MistralProvider(model=model, reasoning_effort=reasoning_effort),
+            "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
         if provider not in provider_registry:
