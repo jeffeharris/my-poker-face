@@ -201,6 +201,10 @@ fi
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 REPO_ROOT=$(git rev-parse --show-toplevel)
 
+# Fetch latest from remote
+echo -e "${CYAN}Fetching latest from remote...${NC}"
+git fetch --prune --quiet 2>/dev/null || echo -e "${YELLOW}Warning: Could not fetch from remote${NC}"
+
 # Function to list existing branches
 list_branches() {
     echo -e "${GREEN}Existing branches:${NC}"
