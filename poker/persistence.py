@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 
 @dataclass
@@ -339,6 +339,7 @@ class GamePersistence:
             28: (self._migrate_v28_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
             29: (self._migrate_v29_add_tournament_tracker, "Add tournament_tracker table for persisting elimination history"),
             30: (self._migrate_v30_add_prompt_capture_columns, "Add raw_request and reasoning columns to prompt_captures"),
+            31: (self._migrate_v31_add_provider_pricing, "Add Groq and Claude 4.5 pricing to model_pricing"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1399,6 +1400,57 @@ class GamePersistence:
             logger.info("Added original_request_id column to prompt_captures")
 
         logger.info("Migration v30 complete: prompt_captures columns added")
+
+    def _migrate_v31_add_provider_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v31: Add Groq and Claude 4.5 model pricing.
+
+        Adds pricing for:
+        - Groq models (Llama 3.3, Llama 3.1, Llama 4 Scout, Qwen 3)
+        - Anthropic Claude 4.5 models (Sonnet, Opus, Haiku)
+        """
+        # Pricing data as of Jan 2025
+        # Groq: https://console.groq.com/pricing
+        # Anthropic: https://www.anthropic.com/pricing
+        skus = [
+            # Groq - Llama 3.3 70B
+            ('groq', 'llama-3.3-70b-versatile', 'input_tokens_1m', 0.59),
+            ('groq', 'llama-3.3-70b-versatile', 'output_tokens_1m', 0.79),
+
+            # Groq - Llama 3.1 8B
+            ('groq', 'llama-3.1-8b-instant', 'input_tokens_1m', 0.05),
+            ('groq', 'llama-3.1-8b-instant', 'output_tokens_1m', 0.08),
+
+            # Groq - Llama 4 Scout (preview)
+            ('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 'input_tokens_1m', 0.11),
+            ('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 'output_tokens_1m', 0.34),
+
+            # Groq - Qwen 3 32B (preview)
+            ('groq', 'qwen/qwen3-32b', 'input_tokens_1m', 0.29),
+            ('groq', 'qwen/qwen3-32b', 'output_tokens_1m', 0.39),
+
+            # Anthropic Claude 4.5 Sonnet
+            ('anthropic', 'claude-sonnet-4-5-20250929', 'input_tokens_1m', 3.00),
+            ('anthropic', 'claude-sonnet-4-5-20250929', 'output_tokens_1m', 15.00),
+            ('anthropic', 'claude-sonnet-4-5-20250929', 'cached_input_tokens_1m', 0.30),
+
+            # Anthropic Claude 4.5 Opus
+            ('anthropic', 'claude-opus-4-5-20251101', 'input_tokens_1m', 15.00),
+            ('anthropic', 'claude-opus-4-5-20251101', 'output_tokens_1m', 75.00),
+            ('anthropic', 'claude-opus-4-5-20251101', 'cached_input_tokens_1m', 1.50),
+
+            # Anthropic Claude 4.5 Haiku
+            ('anthropic', 'claude-haiku-4-5-20251001', 'input_tokens_1m', 1.00),
+            ('anthropic', 'claude-haiku-4-5-20251001', 'output_tokens_1m', 5.00),
+            ('anthropic', 'claude-haiku-4-5-20251001', 'cached_input_tokens_1m', 0.10),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v31 complete: Added Groq and Claude 4.5 pricing")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine, 
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
