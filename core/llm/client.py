@@ -13,6 +13,7 @@ from .providers.anthropic import AnthropicProvider
 from .providers.deepseek import DeepSeekProvider
 from .providers.mistral import MistralProvider
 from .providers.google import GoogleProvider
+from .providers.xai import XAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class LLMClient:
             "deepseek": lambda: DeepSeekProvider(model=model, reasoning_effort=reasoning_effort),
             "mistral": lambda: MistralProvider(model=model, reasoning_effort=reasoning_effort),
             "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
+            "xai": lambda: XAIProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
         if provider not in provider_registry:

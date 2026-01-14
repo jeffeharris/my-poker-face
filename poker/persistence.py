@@ -344,6 +344,7 @@ class GamePersistence:
             33: (self._migrate_v33_add_provider_to_captures, "Add provider column to prompt_captures"),
             34: (self._migrate_v34_add_llm_configs, "Add llm_configs_json column to games table"),
             35: (self._migrate_v35_add_provider_index, "Add index on provider column in prompt_captures"),
+            36: (self._migrate_v36_add_xai_pricing, "Add xAI Grok pricing to model_pricing"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1547,6 +1548,52 @@ class GamePersistence:
             ON prompt_captures(provider)
         """)
         logger.info("Migration v35 complete: Added index on prompt_captures.provider")
+
+    def _migrate_v36_add_xai_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v36: Add xAI Grok pricing to model_pricing.
+
+        xAI pricing from https://docs.x.ai/docs/models (per 1M tokens):
+        - grok-3: $3.00 input, $15.00 output
+        - grok-3-mini: $0.30 input, $0.50 output
+        - grok-4-fast-reasoning: $0.20 input, $0.50 output
+        - grok-4-0709: $3.00 input, $15.00 output
+        - grok-2-vision-1212: $2.00 input, $10.00 output
+        - grok-2-image-1212: $0.07 per image
+        """
+        skus = [
+            # grok-3 - main production model
+            ('xai', 'grok-3', 'input_tokens_1m', 3.00),
+            ('xai', 'grok-3', 'output_tokens_1m', 15.00),
+
+            # grok-3-mini - budget model with reasoning
+            ('xai', 'grok-3-mini', 'input_tokens_1m', 0.30),
+            ('xai', 'grok-3-mini', 'output_tokens_1m', 0.50),
+            ('xai', 'grok-3-mini', 'reasoning_tokens_1m', 0.50),
+
+            # grok-4 - latest flagship (grok-4-0709)
+            ('xai', 'grok-4', 'input_tokens_1m', 3.00),
+            ('xai', 'grok-4', 'output_tokens_1m', 15.00),
+
+            # grok-4-fast-reasoning - fast reasoning variant
+            ('xai', 'grok-4-fast-reasoning', 'input_tokens_1m', 0.20),
+            ('xai', 'grok-4-fast-reasoning', 'output_tokens_1m', 0.50),
+            ('xai', 'grok-4-fast-reasoning', 'reasoning_tokens_1m', 0.50),
+
+            # grok-2-vision-1212 - vision model
+            ('xai', 'grok-2-vision-1212', 'input_tokens_1m', 2.00),
+            ('xai', 'grok-2-vision-1212', 'output_tokens_1m', 10.00),
+
+            # grok-2-image-1212 - image generation
+            ('xai', 'grok-2-image-1212', 'image_1024x1024', 0.07),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v36 complete: Added xAI Grok pricing")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,

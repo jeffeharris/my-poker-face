@@ -6,6 +6,7 @@ from .anthropic import AnthropicProvider
 from .deepseek import DeepSeekProvider
 from .mistral import MistralProvider
 from .google import GoogleProvider
+from .xai import XAIProvider
 
 __all__ = [
     "LLMProvider",
@@ -15,4 +16,5 @@ __all__ = [
     "DeepSeekProvider",
     "MistralProvider",
     "GoogleProvider",
+    "XAIProvider",
 ]

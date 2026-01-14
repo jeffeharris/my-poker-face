@@ -100,11 +100,28 @@ GOOGLE_AVAILABLE_MODELS = [
 ]
 
 # =============================================================================
+# xAI Configuration
+# =============================================================================
+
+# Default xAI model - Grok 3 is the current production model
+XAI_DEFAULT_MODEL = os.environ.get("XAI_MODEL", "grok-3")
+
+# Available xAI models for UI selection
+# See: https://docs.x.ai/docs/models
+# Note: Only grok-3-mini supports reasoning_effort parameter (low/high)
+XAI_AVAILABLE_MODELS = [
+    "grok-3",                   # Default, current production model
+    "grok-3-mini",              # Fast, supports reasoning_effort (low/high)
+    "grok-4",                   # Latest flagship model
+    "grok-4-fast-reasoning",    # Fast with reasoning enabled
+]
+
+# =============================================================================
 # Provider Registry
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google"]
+AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai"]
 
 # Models by provider for UI selection
 PROVIDER_MODELS = {
@@ -114,6 +131,7 @@ PROVIDER_MODELS = {
     "deepseek": DEEPSEEK_AVAILABLE_MODELS,
     "mistral": MISTRAL_AVAILABLE_MODELS,
     "google": GOOGLE_AVAILABLE_MODELS,
+    "xai": XAI_AVAILABLE_MODELS,
 }
 
 # Default model per provider
@@ -124,6 +142,7 @@ PROVIDER_DEFAULT_MODELS = {
     "deepseek": DEEPSEEK_DEFAULT_MODEL,
     "mistral": MISTRAL_DEFAULT_MODEL,
     "google": GOOGLE_DEFAULT_MODEL,
+    "xai": XAI_DEFAULT_MODEL,
 }
 
 # Provider capabilities
@@ -157,6 +176,11 @@ PROVIDER_CAPABILITIES = {
         "supports_reasoning": True,  # Thinking mode
         "supports_json_mode": True,
         "supports_image_generation": True,  # Imagen
+    },
+    "xai": {
+        "supports_reasoning": True,  # grok-3-mini only (low/high)
+        "supports_json_mode": True,
+        "supports_image_generation": False,
     },
 }
 
