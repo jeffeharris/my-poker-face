@@ -182,8 +182,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   }, [fetchCaptures, fetchAnalysisStats, fetchProviders, fetchModels]);
 
   // Get models for a specific provider
-  const getModelsForProvider = useCallback((providerName: string): string[] => {
-    const provider = providers.find(p => p.name === providerName);
+  const getModelsForProvider = useCallback((providerId: string): string[] => {
+    const provider = providers.find(p => p.id === providerId);
     return provider?.models || availableModels;
   }, [providers, availableModels]);
 
@@ -795,10 +795,10 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         >
                           {providers.length > 0 ? (
                             providers.map(p => (
-                              <option key={p.name} value={p.name}>{p.name}</option>
+                              <option key={p.id} value={p.id}>{p.name}</option>
                             ))
                           ) : (
-                            <option value="openai">openai</option>
+                            <option value="openai">OpenAI</option>
                           )}
                         </select>
                       </div>

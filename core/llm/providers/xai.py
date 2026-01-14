@@ -157,7 +157,7 @@ class XAIProvider(LLMProvider):
 
         return {
             "input_tokens": usage.prompt_tokens,
-            "output_tokens": usage.completion_tokens,
+            "output_tokens": usage.completion_tokens - reasoning_tokens,
             "cached_tokens": 0,  # xAI doesn't report cached tokens
             "reasoning_tokens": reasoning_tokens,
         }

@@ -59,6 +59,7 @@ class Assistant:
             tracker=tracker,
         )
         self._provider = provider
+        self._reasoning_effort = reasoning_effort
         self._memory = ConversationMemory(
             system_prompt=system_prompt,
             max_messages=max_memory,
@@ -198,6 +199,7 @@ class Assistant:
             "system_prompt": self._memory.system_prompt,
             "provider": self._provider,
             "model": self._client.model,
+            "reasoning_effort": self._reasoning_effort,
             "memory": self._memory.to_dict(),
             "default_context": self._default_context,
         }
@@ -228,6 +230,7 @@ class Assistant:
             system_prompt=data.get("system_prompt", ""),
             provider=data.get("provider", "openai"),
             model=data.get("model"),
+            reasoning_effort=data.get("reasoning_effort", "low"),
             tracker=tracker,
             **context,
         )

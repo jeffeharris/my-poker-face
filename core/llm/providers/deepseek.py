@@ -108,7 +108,7 @@ class DeepSeekProvider(LLMProvider):
 
         return {
             "input_tokens": usage.prompt_tokens,
-            "output_tokens": usage.completion_tokens,
+            "output_tokens": usage.completion_tokens - reasoning_tokens,
             "cached_tokens": getattr(usage, 'prompt_cache_hit_tokens', 0) or 0,
             "reasoning_tokens": reasoning_tokens,
         }

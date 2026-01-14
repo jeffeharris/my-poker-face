@@ -236,10 +236,10 @@ export function InterrogationChat({
           >
             {providers.length > 0 ? (
               providers.map(p => (
-                <option key={p.name} value={p.name}>{p.name}</option>
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))
             ) : (
-              <option value="openai">openai</option>
+              <option value="openai">OpenAI</option>
             )}
           </select>
         </div>
