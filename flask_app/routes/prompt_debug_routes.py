@@ -156,9 +156,13 @@ def replay_capture(capture_id):
             'success': True,
             'original_response': capture['ai_response'],
             'new_response': response.content,
-            'provider_used': provider,
-            'model_used': model,
+            'provider_used': response.provider,
+            'model_used': response.model,  # Actual model used (e.g., grok-4-fast-non-reasoning)
+            'model_requested': model,       # Original request (e.g., grok-4-fast)
             'reasoning_effort_used': reasoning_effort,
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'reasoning_tokens': response.reasoning_tokens,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
             'messages_count': len(messages),
             'used_history': use_history and bool(conversation_history)
@@ -290,9 +294,13 @@ Now help the administrator understand why this AI made the decision it did."""
             'response': response.content,
             'session_id': session_id,
             'messages_count': len(assistant.memory),
-            'provider_used': provider,
-            'model_used': model,
+            'provider_used': response.provider,
+            'model_used': response.model,  # Actual model used (e.g., grok-4-fast-non-reasoning)
+            'model_requested': model,       # Original request (e.g., grok-4-fast)
             'reasoning_effort_used': reasoning_effort,
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'reasoning_tokens': response.reasoning_tokens,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
         })
 
