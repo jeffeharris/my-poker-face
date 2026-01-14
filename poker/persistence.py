@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 
 
 @dataclass
@@ -342,6 +342,7 @@ class GamePersistence:
             31: (self._migrate_v31_add_provider_pricing, "Add Groq and Claude 4.5 pricing to model_pricing"),
             32: (self._migrate_v32_add_more_providers, "Add DeepSeek, Mistral, and Google Gemini pricing"),
             33: (self._migrate_v33_add_provider_to_captures, "Add provider column to prompt_captures"),
+            34: (self._migrate_v34_add_llm_configs, "Add llm_configs_json column to games table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1520,25 +1521,50 @@ class GamePersistence:
 
         logger.info("Migration v33 complete: Added provider to prompt_captures")
 
-    def save_game(self, game_id: str, state_machine: PokerStateMachine, 
-                  owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
-        """Save a game state to the database."""
+    def _migrate_v34_add_llm_configs(self, conn: sqlite3.Connection) -> None:
+        """Migration v34: Add llm_configs_json column to games table.
+
+        Stores per-player LLM provider configurations so they persist across
+        game reloads and page refreshes.
+        """
+        cursor = conn.execute("PRAGMA table_info(games)")
+        columns = {row[1] for row in cursor}
+
+        if 'llm_configs_json' not in columns:
+            conn.execute("ALTER TABLE games ADD COLUMN llm_configs_json TEXT")
+            logger.info("Added llm_configs_json column to games table")
+
+        logger.info("Migration v34 complete: Added llm_configs_json to games")
+
+    def save_game(self, game_id: str, state_machine: PokerStateMachine,
+                  owner_id: Optional[str] = None, owner_name: Optional[str] = None,
+                  llm_configs: Optional[Dict] = None) -> None:
+        """Save a game state to the database.
+
+        Args:
+            game_id: The game identifier
+            state_machine: The game's state machine
+            owner_id: The owner/user ID
+            owner_name: The owner's display name
+            llm_configs: Dict with 'player_llm_configs' and 'default_llm_config'
+        """
         game_state = state_machine.game_state
-        
+
         # Convert game state to dict and then to JSON
         state_dict = self._prepare_state_for_save(game_state)
         state_dict['current_phase'] = state_machine.current_phase.value
-        
+
         game_json = json.dumps(state_dict)
-        
+        llm_configs_json = json.dumps(llm_configs) if llm_configs else None
+
         with sqlite3.connect(self.db_path) as conn:
             # Use ON CONFLICT DO UPDATE to preserve columns not being updated
             # (like debug_capture_enabled) instead of INSERT OR REPLACE which
             # deletes and re-inserts, resetting unspecified columns to defaults
             conn.execute("""
                 INSERT INTO games
-                (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name)
-                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+                (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name, llm_configs_json)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(game_id) DO UPDATE SET
                     updated_at = CURRENT_TIMESTAMP,
                     phase = excluded.phase,
@@ -1546,7 +1572,8 @@ class GamePersistence:
                     pot_size = excluded.pot_size,
                     game_state_json = excluded.game_state_json,
                     owner_id = excluded.owner_id,
-                    owner_name = excluded.owner_name
+                    owner_name = excluded.owner_name,
+                    llm_configs_json = COALESCE(excluded.llm_configs_json, llm_configs_json)
             """, (
                 game_id,
                 state_machine.current_phase.value,
@@ -1554,7 +1581,8 @@ class GamePersistence:
                 game_state.pot['total'],
                 game_json,
                 owner_id,
-                owner_name
+                owner_name,
+                llm_configs_json
             ))
     
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
@@ -1586,6 +1614,28 @@ class GamePersistence:
 
             # Create state machine with the loaded state and phase
             return PokerStateMachine.from_saved_state(game_state, phase)
+
+    def load_llm_configs(self, game_id: str) -> Optional[Dict]:
+        """Load LLM configs for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            Dict with 'player_llm_configs' and 'default_llm_config', or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT llm_configs_json FROM games WHERE game_id = ?",
+                (game_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row or not row['llm_configs_json']:
+                return None
+
+            return json.loads(row['llm_configs_json'])
 
     def save_tournament_tracker(self, game_id: str, tracker) -> None:
         """Save tournament tracker state to the database.

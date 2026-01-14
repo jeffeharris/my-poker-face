@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 
 
 def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
-                           owner_id: str = None) -> Dict[str, AIPlayerController]:
+                           owner_id: str = None,
+                           player_llm_configs: Dict[str, Dict] = None,
+                           default_llm_config: Dict = None) -> Dict[str, AIPlayerController]:
     """Restore AI controllers with their saved state.
 
     Args:
@@ -38,12 +40,16 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
         state_machine: The game's state machine
         persistence_layer: The persistence layer instance
         owner_id: The owner/user ID for tracking
+        player_llm_configs: Per-player LLM configs (provider, model, etc.)
+        default_llm_config: Default LLM config for players without specific config
 
     Returns:
         Dictionary mapping player names to their AI controllers
     """
     ai_controllers = {}
     ai_states = persistence_layer.load_ai_player_states(game_id)
+    player_llm_configs = player_llm_configs or {}
+    default_llm_config = default_llm_config or {}
 
     controller_states = {}
     emotional_states = {}
@@ -55,9 +61,12 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
 
     for player in state_machine.game_state.players:
         if not player.is_human:
+            # Get player-specific llm_config or fall back to default
+            llm_config = player_llm_configs.get(player.name, default_llm_config)
             controller = AIPlayerController(
                 player.name,
                 state_machine,
+                llm_config=llm_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 persistence=persistence_layer

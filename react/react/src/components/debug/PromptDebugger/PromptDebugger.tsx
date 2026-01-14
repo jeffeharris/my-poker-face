@@ -55,12 +55,10 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
     try {
       const response = await fetch(`${config.API_URL}/api/llm-providers`, { credentials: 'include' });
       const data = await response.json();
-      if (data.success && data.providers) {
+      if (data.providers && data.providers.length > 0) {
         setProviders(data.providers);
         // Set default models from first provider
-        if (data.providers.length > 0) {
-          setAvailableModels(data.providers[0].models);
-        }
+        setAvailableModels(data.providers[0].models);
       }
     } catch (err) {
       console.debug('Failed to fetch providers, using defaults:', err);

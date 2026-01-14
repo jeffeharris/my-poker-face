@@ -139,6 +139,7 @@ export interface InterrogationResponse {
 }
 
 export interface ProviderInfo {
+  id: string;
   name: string;
   models: string[];
   default_model: string;

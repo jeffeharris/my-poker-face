@@ -252,7 +252,14 @@ def api_game_state(game_id):
             base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
-                ai_controllers = restore_ai_controllers(game_id, state_machine, persistence, owner_id=owner_id)
+                # Load per-player LLM configs for proper provider restoration
+                llm_configs = persistence.load_llm_configs(game_id) or {}
+                ai_controllers = restore_ai_controllers(
+                    game_id, state_machine, persistence,
+                    owner_id=owner_id,
+                    player_llm_configs=llm_configs.get('player_llm_configs'),
+                    default_llm_config=llm_configs.get('default_llm_config')
+                )
                 db_messages = persistence.load_messages(game_id)
 
                 elasticity_manager = ElasticityManager()
@@ -588,7 +595,10 @@ def api_new_game():
     }
     game_state_service.set_game(game_id, game_data)
 
-    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    persistence.save_game(
+        game_id, state_machine._state_machine, owner_id, owner_name,
+        llm_configs={'player_llm_configs': player_llm_configs, 'default_llm_config': default_llm_config}
+    )
     persistence.save_tournament_tracker(game_id, tournament_tracker)
     persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
