@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 
 
 @dataclass
@@ -345,6 +345,7 @@ class GamePersistence:
             34: (self._migrate_v34_add_llm_configs, "Add llm_configs_json column to games table"),
             35: (self._migrate_v35_add_provider_index, "Add index on provider column in prompt_captures"),
             36: (self._migrate_v36_add_xai_pricing, "Add xAI Grok pricing to model_pricing"),
+            37: (self._migrate_v37_add_gpt5_pricing, "Add OpenAI GPT-5 pricing"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1598,6 +1599,37 @@ class GamePersistence:
             """, (provider, model, unit, cost))
 
         logger.info("Migration v36 complete: Added xAI Grok pricing")
+
+    def _migrate_v37_add_gpt5_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v37: Add/update OpenAI GPT-5 family pricing.
+
+        GPT-5 pricing per 1M tokens:
+        - gpt-5-nano: $0.05 input, $0.005 cached, $0.40 output
+        - gpt-5-mini: $0.25 input, $0.025 cached, $2.00 output
+        - gpt-5:      $1.25 input, $0.125 cached, $10.00 output
+        """
+        skus = [
+            # gpt-5-nano - cheapest tier
+            ('openai', 'gpt-5-nano', 'input_tokens_1m', 0.05),
+            ('openai', 'gpt-5-nano', 'cached_input_tokens_1m', 0.005),
+            ('openai', 'gpt-5-nano', 'output_tokens_1m', 0.40),
+            # gpt-5-mini - mid tier
+            ('openai', 'gpt-5-mini', 'input_tokens_1m', 0.25),
+            ('openai', 'gpt-5-mini', 'cached_input_tokens_1m', 0.025),
+            ('openai', 'gpt-5-mini', 'output_tokens_1m', 2.00),
+            # gpt-5 - flagship
+            ('openai', 'gpt-5', 'input_tokens_1m', 1.25),
+            ('openai', 'gpt-5', 'cached_input_tokens_1m', 0.125),
+            ('openai', 'gpt-5', 'output_tokens_1m', 10.00),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v37 complete: Added GPT-5 family pricing")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,

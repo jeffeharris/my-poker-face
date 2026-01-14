@@ -12,6 +12,7 @@ interface ProviderInfo {
     supports_json_mode: boolean;
     supports_image_generation: boolean;
   };
+  model_tiers?: Record<string, string>;
 }
 
 interface OpponentLLMConfig {
@@ -47,6 +48,12 @@ export function OpponentConfigScreen({
   const providerSupportsReasoning = (providerId: string): boolean => {
     const provider = providers.find(p => p.id === providerId);
     return provider?.capabilities?.supports_reasoning ?? false;
+  };
+
+  const formatModelLabel = (providerId: string, model: string): string => {
+    const provider = providers.find(p => p.id === providerId);
+    const tier = provider?.model_tiers?.[model] || '';
+    return tier ? `${model} (${tier})` : model;
   };
 
   const getEffectiveConfig = (opponentName: string): OpponentLLMConfig => {
@@ -155,7 +162,7 @@ export function OpponentConfigScreen({
                     onChange={(e) => handleModelChange(opponentName, e.target.value)}
                   >
                     {getModelsForProvider(config.provider).map(model => (
-                      <option key={model} value={model}>{model}</option>
+                      <option key={model} value={model}>{formatModelLabel(config.provider, model)}</option>
                     ))}
                   </select>
 

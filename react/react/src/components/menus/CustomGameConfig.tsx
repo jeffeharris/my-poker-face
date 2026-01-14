@@ -26,6 +26,7 @@ interface ProviderInfo {
     supports_json_mode: boolean;
     supports_image_generation: boolean;
   };
+  model_tiers?: Record<string, string>;
 }
 
 interface OpponentLLMConfig {
@@ -139,6 +140,16 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const providerSupportsReasoning = (providerId: string): boolean => {
     const provider = providers.find(p => p.id === providerId);
     return provider?.capabilities?.supports_reasoning ?? false;
+  };
+
+  const getModelTier = (providerId: string, model: string): string => {
+    const provider = providers.find(p => p.id === providerId);
+    return provider?.model_tiers?.[model] || '';
+  };
+
+  const formatModelLabel = (providerId: string, model: string): string => {
+    const tier = getModelTier(providerId, model);
+    return tier ? `${model} (${tier})` : model;
   };
 
   const handleDefaultProviderChange = (newProvider: string) => {
@@ -337,7 +348,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
               disabled={providersLoading}
             >
               {getModelsForProvider(defaultProvider).map(model => (
-                <option key={model} value={model}>{model}</option>
+                <option key={model} value={model}>{formatModelLabel(defaultProvider, model)}</option>
               ))}
             </select>
 

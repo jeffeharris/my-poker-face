@@ -3,8 +3,10 @@
 import time
 import json
 import logging
+import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
 from flask_socketio import join_room
@@ -424,6 +426,76 @@ def api_game_state(game_id):
     return jsonify(response)
 
 
+def _get_db_path() -> str:
+    """Get the database path based on environment."""
+    if Path('/app/data').exists():
+        return '/app/data/poker_games.db'
+    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+
+def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
+    """Calculate cost tiers for all models from pricing database.
+
+    Tiers are based on output_tokens_1m cost:
+    - free: <= $0.10
+    - $: < $1.00
+    - $$: $1.00 - $5.00
+    - $$$: $5.00 - $20.00
+    - $$$$: > $20.00
+
+    Returns:
+        Dict mapping provider -> model -> tier string
+    """
+    tiers: Dict[str, Dict[str, str]] = {}
+
+    # Model aliases: UI name -> pricing table name(s)
+    # Used when UI model names differ from actual API model names
+    model_aliases = {
+        'xai': {
+            'grok-4-fast': 'grok-4-fast-reasoning',  # Maps to same price as non-reasoning
+        }
+    }
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.execute("""
+                SELECT provider, model, cost FROM model_pricing
+                WHERE unit = 'output_tokens_1m'
+                  AND (valid_from IS NULL OR valid_from <= datetime('now'))
+                  AND (valid_until IS NULL OR valid_until > datetime('now'))
+            """)
+
+            for provider, model, cost in cursor:
+                if provider not in tiers:
+                    tiers[provider] = {}
+
+                # Calculate tier based on output cost thresholds
+                if cost <= 0.10:
+                    tier = "free"
+                elif cost < 1.00:
+                    tier = "$"
+                elif cost <= 5.00:
+                    tier = "$$"
+                elif cost <= 20.00:
+                    tier = "$$$"
+                else:
+                    tier = "$$$$"
+
+                tiers[provider][model] = tier
+
+            # Apply model aliases: copy tier from pricing model to UI model name
+            for provider, aliases in model_aliases.items():
+                if provider in tiers:
+                    for ui_model, pricing_model in aliases.items():
+                        if pricing_model in tiers[provider]:
+                            tiers[provider][ui_model] = tiers[provider][pricing_model]
+
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        logger.warning(f"Failed to load model pricing for tiers: {e}")
+
+    return tiers
+
+
 @game_bp.route('/api/llm-providers', methods=['GET'])
 def api_llm_providers():
     """Get available LLM providers and their models for game configuration."""
@@ -434,6 +506,9 @@ def api_llm_providers():
         PROVIDER_CAPABILITIES,
     )
 
+    # Get cost tiers from pricing database
+    model_tiers = get_model_cost_tiers()
+
     providers = []
     for provider in AVAILABLE_PROVIDERS:
         providers.append({
@@ -442,6 +517,7 @@ def api_llm_providers():
             'models': PROVIDER_MODELS.get(provider, []),
             'default_model': PROVIDER_DEFAULT_MODELS.get(provider),
             'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+            'model_tiers': model_tiers.get(provider, {}),
         })
 
     return jsonify({
@@ -512,15 +588,15 @@ def api_new_game():
                     ai_player_names.append(name)
                     if 'llm_config' in p:
                         # Validate per-player LLM config before merging
-                        config = p['llm_config']
-                        provider = config.get('provider', 'openai').lower()
+                        p_llm_config = p['llm_config']
+                        provider = p_llm_config.get('provider', 'openai').lower()
                         if provider not in AVAILABLE_PROVIDERS:
                             return jsonify({'error': f'Invalid provider: {provider}'}), 400
-                        model = config.get('model')
+                        model = p_llm_config.get('model')
                         if model and model not in PROVIDER_MODELS.get(provider, []):
                             return jsonify({'error': f'Invalid model {model} for provider {provider}'}), 400
                         # Merge with default config (per-player overrides default)
-                        player_llm_configs[name] = {**default_llm_config, **config}
+                        player_llm_configs[name] = {**default_llm_config, **p_llm_config}
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
