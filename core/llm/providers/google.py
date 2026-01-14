@@ -118,7 +118,14 @@ class GoogleProvider(LLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> Any:
         """Make a chat completion request."""
+        if not messages:
+            raise ValueError("No messages provided to complete()")
+
         system_instruction, contents = self._convert_messages(messages)
+
+        # Validate that we have user/assistant content (not just system messages)
+        if not contents:
+            raise ValueError("No user or assistant messages to send (only system prompt found)")
 
         # Build config kwargs
         config_kwargs = {
@@ -202,8 +209,8 @@ class GoogleProvider(LLMProvider):
                 finish_reason = getattr(candidate, 'finish_reason', None)
                 if finish_reason:
                     return str(finish_reason.name) if hasattr(finish_reason, 'name') else str(finish_reason)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to extract finish reason from Gemini response: %s", e)
         return ""
 
     def extract_image_url(self, raw_response: Any) -> str:

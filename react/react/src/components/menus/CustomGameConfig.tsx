@@ -116,7 +116,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         setDefaultModel(defaultProv.default_model);
       }
     } catch (err) {
-      console.debug('Provider fetch failed, using OpenAI fallback:', err);
+      console.warn('Provider fetch failed, using OpenAI fallback:', err);
       // Fallback to OpenAI only
       setProviders([{
         id: 'openai',

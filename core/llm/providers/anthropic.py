@@ -111,17 +111,15 @@ class AnthropicProvider(LLMProvider):
                 "budget_tokens": self._thinking_budget,
             }
 
-        # Request JSON output via prefill technique
-        # Anthropic doesn't have a native JSON mode like OpenAI,
-        # but we can encourage JSON by prefilling the response
+        # JSON output handling:
+        # Anthropic does not have a native JSON mode like OpenAI's response_format.
+        # When json_format=True, we rely on prompt instructions to request JSON.
+        # The upstream prompt templates already include explicit JSON format requests.
         if json_format:
-            # Add a prefill to encourage JSON output
-            if filtered_messages and filtered_messages[-1].get("role") == "user":
-                # Append hint to last user message
-                pass  # The prompt should already request JSON
-
-            # We could also add assistant prefill, but it can cause issues
-            # with some models. The prompts already request JSON format.
+            logger.debug(
+                "json_format=True for Anthropic model %s; relying on prompt for JSON output (no native JSON mode)",
+                self._model,
+            )
 
         return self._client.messages.create(**kwargs)
 

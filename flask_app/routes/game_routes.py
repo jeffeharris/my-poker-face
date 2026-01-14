@@ -35,6 +35,7 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
+from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -481,6 +482,15 @@ def api_new_game():
     blinds_increase = data.get('blinds_increase', 6)
     max_blind = data.get('max_blind', 0)  # 0 = no limit
 
+    # Validate default LLM config if provided
+    if default_llm_config:
+        default_provider = default_llm_config.get('provider', 'openai').lower()
+        if default_provider not in AVAILABLE_PROVIDERS:
+            return jsonify({'error': f'Invalid default provider: {default_provider}'}), 400
+        default_model = default_llm_config.get('model')
+        if default_model and default_model not in PROVIDER_MODELS.get(default_provider, []):
+            return jsonify({'error': f'Invalid default model {default_model} for provider {default_provider}'}), 400
+
     # Validate: ensure starting stack is at least 10x big blind
     if starting_stack < big_blind * 10:
         starting_stack = big_blind * 10
@@ -501,8 +511,16 @@ def api_new_game():
                 if name:
                     ai_player_names.append(name)
                     if 'llm_config' in p:
+                        # Validate per-player LLM config before merging
+                        config = p['llm_config']
+                        provider = config.get('provider', 'openai').lower()
+                        if provider not in AVAILABLE_PROVIDERS:
+                            return jsonify({'error': f'Invalid provider: {provider}'}), 400
+                        model = config.get('model')
+                        if model and model not in PROVIDER_MODELS.get(provider, []):
+                            return jsonify({'error': f'Invalid model {model} for provider {provider}'}), 400
                         # Merge with default config (per-player overrides default)
-                        player_llm_configs[name] = {**default_llm_config, **p['llm_config']}
+                        player_llm_configs[name] = {**default_llm_config, **config}
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 

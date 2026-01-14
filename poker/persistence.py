@@ -1636,7 +1636,7 @@ class GamePersistence:
                     game_state_json = excluded.game_state_json,
                     owner_id = excluded.owner_id,
                     owner_name = excluded.owner_name,
-                    llm_configs_json = COALESCE(excluded.llm_configs_json, llm_configs_json)
+                    llm_configs_json = COALESCE(excluded.llm_configs_json, games.llm_configs_json)
             """, (
                 game_id,
                 state_machine.current_phase.value,
