@@ -1574,10 +1574,14 @@ class GamePersistence:
             ('xai', 'grok-4', 'input_tokens_1m', 3.00),
             ('xai', 'grok-4', 'output_tokens_1m', 15.00),
 
-            # grok-4-fast-reasoning - fast reasoning variant
+            # grok-4-fast-reasoning - fast with reasoning
             ('xai', 'grok-4-fast-reasoning', 'input_tokens_1m', 0.20),
             ('xai', 'grok-4-fast-reasoning', 'output_tokens_1m', 0.50),
             ('xai', 'grok-4-fast-reasoning', 'reasoning_tokens_1m', 0.50),
+
+            # grok-4-fast-non-reasoning - fast without reasoning
+            ('xai', 'grok-4-fast-non-reasoning', 'input_tokens_1m', 0.20),
+            ('xai', 'grok-4-fast-non-reasoning', 'output_tokens_1m', 0.50),
 
             # grok-2-vision-1212 - vision model
             ('xai', 'grok-2-vision-1212', 'input_tokens_1m', 2.00),

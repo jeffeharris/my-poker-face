@@ -103,17 +103,22 @@ GOOGLE_AVAILABLE_MODELS = [
 # xAI Configuration
 # =============================================================================
 
-# Default xAI model - Grok 3 is the current production model
-XAI_DEFAULT_MODEL = os.environ.get("XAI_MODEL", "grok-3")
+# Default xAI model - grok-4-fast is fast and cheap with optional reasoning
+XAI_DEFAULT_MODEL = os.environ.get("XAI_MODEL", "grok-4-fast")
 
 # Available xAI models for UI selection
 # See: https://docs.x.ai/docs/models
-# Note: Only grok-3-mini supports reasoning_effort parameter (low/high)
+#
+# Reasoning behavior (controlled by reasoning_effort setting):
+# - grok-4-fast: Maps to -reasoning or -non-reasoning variant based on effort
+# - grok-3-mini: Native reasoning_effort support (low/high)
+# - grok-3: No reasoning capability
+# - grok-4: Always reasons (flagship model)
 XAI_AVAILABLE_MODELS = [
-    "grok-3",                   # Default, current production model
-    "grok-3-mini",              # Fast, supports reasoning_effort (low/high)
-    "grok-4",                   # Latest flagship model
-    "grok-4-fast-reasoning",    # Fast with reasoning enabled
+    "grok-4-fast",                  # Fast, toggles reasoning via effort ($0.20/$0.50)
+    "grok-3-mini",                  # Controllable reasoning (low/high, $0.30/$0.50)
+    "grok-3",                       # No reasoning ($3/$15)
+    "grok-4",                       # Flagship, always reasons ($3/$15)
 ]
 
 # =============================================================================
