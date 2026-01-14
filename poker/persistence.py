@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 
 
 @dataclass
@@ -346,6 +346,7 @@ class GamePersistence:
             35: (self._migrate_v35_add_provider_index, "Add index on provider column in prompt_captures"),
             36: (self._migrate_v36_add_xai_pricing, "Add xAI Grok pricing to model_pricing"),
             37: (self._migrate_v37_add_gpt5_pricing, "Add OpenAI GPT-5 pricing"),
+            38: (self._migrate_v38_add_enabled_models, "Add enabled_models table for model management"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1631,6 +1632,56 @@ class GamePersistence:
 
         logger.info("Migration v37 complete: Added GPT-5 family pricing")
 
+    def _migrate_v38_add_enabled_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v38: Add enabled_models table for model management.
+
+        This table allows admins to enable/disable models in the game UI
+        without code changes. Models are seeded from PROVIDER_MODELS config.
+        """
+        # Create enabled_models table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS enabled_models (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1,
+                display_name TEXT,
+                notes TEXT,
+                supports_reasoning INTEGER DEFAULT 0,
+                supports_json_mode INTEGER DEFAULT 1,
+                supports_image_gen INTEGER DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, model)
+            )
+        """)
+
+        # Create index for fast lookups
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_enabled_models_provider
+            ON enabled_models(provider, enabled)
+        """)
+
+        # Seed from PROVIDER_MODELS config
+        # Import here to avoid circular imports
+        from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES
+
+        for provider, models in PROVIDER_MODELS.items():
+            capabilities = PROVIDER_CAPABILITIES.get(provider, {})
+            supports_reasoning = 1 if capabilities.get('supports_reasoning', False) else 0
+            supports_json = 1 if capabilities.get('supports_json_mode', True) else 0
+            supports_image = 1 if capabilities.get('supports_image_generation', False) else 0
+
+            for sort_order, model in enumerate(models):
+                conn.execute("""
+                    INSERT OR IGNORE INTO enabled_models
+                    (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order)
+                    VALUES (?, ?, 1, ?, ?, ?, ?)
+                """, (provider, model, supports_reasoning, supports_json, supports_image, sort_order))
+
+        logger.info("Migration v38 complete: Added enabled_models table with seeded data")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -1819,7 +1870,77 @@ class GamePersistence:
                 SELECT COUNT(*) FROM games WHERE owner_id = ?
             """, (owner_id,))
             return cursor.fetchone()[0]
-    
+
+    def get_enabled_models(self) -> Dict[str, List[str]]:
+        """Get all enabled models grouped by provider.
+
+        Returns:
+            Dict mapping provider name to list of enabled model names.
+            Example: {'openai': ['gpt-4o', 'gpt-5-nano'], 'groq': ['llama-3.1-8b-instant']}
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT provider, model
+                FROM enabled_models
+                WHERE enabled = 1
+                ORDER BY provider, sort_order
+            """)
+            result: Dict[str, List[str]] = {}
+            for row in cursor.fetchall():
+                provider = row['provider']
+                if provider not in result:
+                    result[provider] = []
+                result[provider].append(row['model'])
+            return result
+
+    def get_all_enabled_models(self) -> List[Dict[str, Any]]:
+        """Get all models with their enabled status.
+
+        Returns:
+            List of dicts with provider, model, enabled, display_name, etc.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, provider, model, enabled, display_name, notes,
+                       supports_reasoning, supports_json_mode, supports_image_gen,
+                       sort_order, created_at, updated_at
+                FROM enabled_models
+                ORDER BY provider, sort_order
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_model_enabled(self, model_id: int, enabled: bool) -> bool:
+        """Update the enabled status of a model.
+
+        Returns:
+            True if model was found and updated, False otherwise.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE enabled_models
+                SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (1 if enabled else 0, model_id))
+            return cursor.rowcount > 0
+
+    def update_model_details(self, model_id: int, display_name: str = None, notes: str = None) -> bool:
+        """Update display name and notes for a model.
+
+        Returns:
+            True if model was found and updated, False otherwise.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE enabled_models
+                SET display_name = COALESCE(?, display_name),
+                    notes = COALESCE(?, notes),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (display_name, notes, model_id))
+            return cursor.rowcount > 0
+
     def delete_game(self, game_id: str) -> None:
         """Delete a game and all associated data."""
         with sqlite3.connect(self.db_path) as conn:

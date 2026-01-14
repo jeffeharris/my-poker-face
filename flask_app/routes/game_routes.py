@@ -509,13 +509,33 @@ def api_llm_providers():
     # Get cost tiers from pricing database
     model_tiers = get_model_cost_tiers()
 
+    # Get enabled models from database (if table exists)
+    enabled_models = _get_enabled_models_map()
+
     providers = []
     for provider in AVAILABLE_PROVIDERS:
+        all_models = PROVIDER_MODELS.get(provider, [])
+
+        # Filter by enabled models if we have the table
+        if enabled_models:
+            models = [m for m in all_models if enabled_models.get((provider, m), True)]
+        else:
+            models = all_models
+
+        # Skip providers with no enabled models
+        if not models:
+            continue
+
+        # Adjust default model if it's been disabled
+        default_model = PROVIDER_DEFAULT_MODELS.get(provider)
+        if default_model not in models and models:
+            default_model = models[0]
+
         providers.append({
             'id': provider,
             'name': provider.title(),
-            'models': PROVIDER_MODELS.get(provider, []),
-            'default_model': PROVIDER_DEFAULT_MODELS.get(provider),
+            'models': models,
+            'default_model': default_model,
             'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
             'model_tiers': model_tiers.get(provider, {}),
         })
@@ -524,6 +544,34 @@ def api_llm_providers():
         'providers': providers,
         'default_provider': 'openai',
     })
+
+
+def _get_enabled_models_map():
+    """Get a map of (provider, model) -> enabled status.
+
+    Returns empty dict if enabled_models table doesn't exist yet.
+    """
+    import sqlite3
+    from pathlib import Path
+
+    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            # Check if table exists
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='enabled_models'
+            """)
+            if not cursor.fetchone():
+                return {}
+
+            cursor = conn.execute("""
+                SELECT provider, model, enabled FROM enabled_models
+            """)
+            return {(row[0], row[1]): bool(row[2]) for row in cursor.fetchall()}
+    except Exception:
+        return {}
 
 
 @game_bp.route('/api/new-game', methods=['POST'])
