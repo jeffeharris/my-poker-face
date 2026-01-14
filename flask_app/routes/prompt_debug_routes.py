@@ -114,7 +114,7 @@ def replay_capture(capture_id):
     # Use modified prompts or originals
     system_prompt = data.get('system_prompt', capture['system_prompt'])
     user_message = data.get('user_message', capture['user_message'])
-    provider = data.get('provider', capture.get('provider', 'openai'))
+    provider = data.get('provider', capture.get('provider', 'openai')).lower()  # Normalize case
     model = data.get('model', capture.get('model', 'gpt-5-nano'))
     reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
 
@@ -215,7 +215,7 @@ def interrogate_capture(capture_id):
 
     session_id = data.get('session_id')
     reset = data.get('reset', False)
-    provider = data.get('provider', capture.get('provider', 'openai'))
+    provider = data.get('provider', capture.get('provider', 'openai')).lower()  # Normalize case
     model = data.get('model', capture.get('model', 'gpt-5-nano'))
     reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
 
