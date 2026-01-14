@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Search, Check } from 'lucide-react';
+import { Search, Check, Settings } from 'lucide-react';
 import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
+import { OpponentConfigScreen } from './OpponentConfigScreen';
 import './CustomGameConfig.css';
 
 interface Personality {
@@ -15,7 +16,26 @@ interface Personality {
   };
 }
 
+interface ProviderInfo {
+  id: string;
+  name: string;
+  models: string[];
+  default_model: string;
+  capabilities: {
+    supports_reasoning: boolean;
+    supports_json_mode: boolean;
+    supports_image_generation: boolean;
+  };
+}
+
+interface OpponentLLMConfig {
+  provider: string;
+  model: string;
+  reasoning_effort?: string;
+}
+
 interface LLMConfig {
+  provider: string;
   model: string;
   reasoning_effort: string;
   starting_stack?: number;
@@ -26,7 +46,10 @@ interface LLMConfig {
 }
 
 interface CustomGameConfigProps {
-  onStartGame: (selectedPersonalities: string[], llmConfig: LLMConfig) => void;
+  onStartGame: (
+    selectedPersonalities: Array<string | { name: string; llm_config: OpponentLLMConfig }>,
+    llmConfig: LLMConfig
+  ) => void;
   onBack: () => void;
 }
 
@@ -36,12 +59,17 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Model configuration state
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState('gpt-5-nano');
+  // Provider and model configuration state
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [defaultProvider, setDefaultProvider] = useState('openai');
+  const [defaultModel, setDefaultModel] = useState('gpt-5-nano');
   const [reasoningLevels] = useState(['minimal', 'low']);
-  const [selectedReasoning, setSelectedReasoning] = useState('minimal');
-  const [modelsLoading, setModelsLoading] = useState(true);
+  const [defaultReasoning, setDefaultReasoning] = useState('minimal');
+
+  // Per-opponent LLM configuration
+  const [opponentConfigs, setOpponentConfigs] = useState<Record<string, OpponentLLMConfig>>({});
+  const [showConfigScreen, setShowConfigScreen] = useState(false);
 
   // Game configuration state
   const [stackOptions] = useState([1000, 2500, 5000, 10000, 20000]);
@@ -59,7 +87,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   useEffect(() => {
     fetchPersonalities();
-    fetchModels();
+    fetchProviders();
   }, []);
 
   const fetchPersonalities = async () => {
@@ -76,27 +104,78 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
     }
   };
 
-  const fetchModels = async () => {
+  const fetchProviders = async () => {
+    setProvidersLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/models`, { credentials: 'include' });
+      const response = await fetch(`${config.API_URL}/api/llm-providers`, { credentials: 'include' });
       const data = await response.json();
-      if (data.success) {
-        setAvailableModels(data.models);
-        setSelectedModel(data.default_model || 'gpt-5-nano');
-        // Only use API default if it's in our allowed list (minimal, low)
-        const apiReasoning = data.default_reasoning;
-        if (apiReasoning === 'minimal' || apiReasoning === 'low') {
-          setSelectedReasoning(apiReasoning);
-        }
+      if (data.providers?.length > 0) {
+        setProviders(data.providers);
+        const defaultProv = data.providers.find((p: ProviderInfo) => p.id === 'openai') || data.providers[0];
+        setDefaultProvider(defaultProv.id);
+        setDefaultModel(defaultProv.default_model);
       }
-    } catch (error) {
-      console.error('Failed to fetch models:', error);
-      // Use defaults on error
-      setAvailableModels(['gpt-5-nano', 'gpt-5-mini', 'gpt-5']);
+    } catch (err) {
+      console.debug('Provider fetch failed, using OpenAI fallback:', err);
+      // Fallback to OpenAI only
+      setProviders([{
+        id: 'openai',
+        name: 'OpenAI',
+        models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
+        default_model: 'gpt-5-nano',
+        capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: true }
+      }]);
     } finally {
-      setModelsLoading(false);
+      setProvidersLoading(false);
     }
   };
+
+  // Helper functions for provider management
+  const getModelsForProvider = (providerId: string): string[] => {
+    const provider = providers.find(p => p.id === providerId);
+    return provider?.models || [];
+  };
+
+  const providerSupportsReasoning = (providerId: string): boolean => {
+    const provider = providers.find(p => p.id === providerId);
+    return provider?.capabilities?.supports_reasoning ?? false;
+  };
+
+  const handleDefaultProviderChange = (newProvider: string) => {
+    setDefaultProvider(newProvider);
+    const provider = providers.find(p => p.id === newProvider);
+    if (provider) {
+      // Cascade: reset model if current not available in new provider
+      if (!provider.models.includes(defaultModel)) {
+        setDefaultModel(provider.default_model);
+      }
+      // Reset reasoning if provider doesn't support it
+      if (!provider.capabilities?.supports_reasoning) {
+        setDefaultReasoning('minimal');
+      }
+    }
+  };
+
+  const handleOpponentConfigChange = (name: string, newConfig: OpponentLLMConfig | null) => {
+    setOpponentConfigs(prev => {
+      const next = { ...prev };
+      if (newConfig === null) {
+        delete next[name];
+      } else {
+        // Validate model is available for provider
+        const provider = providers.find(p => p.id === newConfig.provider);
+        if (provider && !provider.models.includes(newConfig.model)) {
+          newConfig.model = provider.default_model;
+        }
+        next[name] = newConfig;
+      }
+      return next;
+    });
+  };
+
+  const customConfigCount = Object.keys(opponentConfigs).filter(
+    name => selectedPersonalities.includes(name)
+  ).length;
 
   const togglePersonality = (name: string) => {
     if (selectedPersonalities.includes(name)) {
@@ -112,16 +191,26 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   const handleStartGame = () => {
     if (selectedPersonalities.length > 0) {
+      // Build personalities array with optional llm_config overrides
+      const personalities = selectedPersonalities.map(name => {
+        const customConfig = opponentConfigs[name];
+        if (customConfig) {
+          return { name, llm_config: customConfig };
+        }
+        return name;
+      });
+
       const llmConfig: LLMConfig = {
-        model: selectedModel,
-        reasoning_effort: selectedReasoning,
+        provider: defaultProvider,
+        model: defaultModel,
+        reasoning_effort: defaultReasoning,
         starting_stack: startingStack,
         big_blind: bigBlind,
         blind_growth: blindGrowth,
         blinds_increase: blindsIncrease,
         max_blind: maxBlind
       };
-      onStartGame(selectedPersonalities, llmConfig);
+      onStartGame(personalities, llmConfig);
     }
   };
 
@@ -137,6 +226,25 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
     );
   };
 
+  // Show opponent config screen if toggled
+  if (showConfigScreen) {
+    return (
+      <OpponentConfigScreen
+        selectedOpponents={selectedPersonalities}
+        providers={providers}
+        providersLoading={providersLoading}
+        defaultConfig={{
+          provider: defaultProvider,
+          model: defaultModel,
+          reasoning_effort: defaultReasoning,
+        }}
+        opponentConfigs={opponentConfigs}
+        onConfigChange={handleOpponentConfigChange}
+        onBack={() => setShowConfigScreen(false)}
+      />
+    );
+  }
+
   return (
     <PageLayout variant="top" glowColor="sapphire" maxWidth="xl">
       <PageHeader
@@ -148,33 +256,98 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
         <div className="config-section">
           <h3>Game Settings</h3>
-          <div className="settings-grid">
-            <div className="setting">
-              <label>Number of Opponents</label>
-              <div className="selected-count">
-                {selectedPersonalities.length} / 5
-              </div>
-            </div>
+          <div className="settings-table">
+            <span className="setting-label">Starting Stack</span>
+            <select
+              className="setting-select"
+              value={startingStack}
+              onChange={(e) => setStartingStack(parseInt(e.target.value))}
+            >
+              {stackOptions.map(stack => (
+                <option key={stack} value={stack}>{stack.toLocaleString()}</option>
+              ))}
+            </select>
 
-            <div className="setting-row">
-              <div className="setting">
-                <label>AI Model</label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  disabled={modelsLoading}
-                >
-                  {availableModels.map(model => (
-                    <option key={model} value={model}>{model}</option>
-                  ))}
-                </select>
-              </div>
+            <span className="setting-label">Big Blind</span>
+            <select
+              className="setting-select"
+              value={bigBlind}
+              onChange={(e) => setBigBlind(parseInt(e.target.value))}
+            >
+              {blindOptions.map(blind => (
+                <option key={blind} value={blind}>{blind}</option>
+              ))}
+            </select>
 
-              <div className="setting">
-                <label>Reasoning</label>
+            <span className="setting-label">Blinds Increase</span>
+            <select
+              className="setting-select"
+              value={blindsIncrease}
+              onChange={(e) => setBlindsIncrease(parseInt(e.target.value))}
+            >
+              {blindsIncreaseOptions.map(hands => (
+                <option key={hands} value={hands}>Every {hands} hands</option>
+              ))}
+            </select>
+
+            <span className="setting-label">Blind Growth</span>
+            <select
+              className="setting-select"
+              value={blindGrowth}
+              onChange={(e) => setBlindGrowth(parseFloat(e.target.value))}
+            >
+              {blindGrowthOptions.map(rate => (
+                <option key={rate} value={rate}>{rate}x</option>
+              ))}
+            </select>
+
+            <span className="setting-label">Blind Cap</span>
+            <select
+              className="setting-select"
+              value={maxBlind}
+              onChange={(e) => setMaxBlind(parseInt(e.target.value))}
+            >
+              {maxBlindOptions.map(cap => (
+                <option key={cap} value={cap}>{cap === 0 ? 'No cap' : cap.toLocaleString()}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="config-section">
+          <h3>Model Settings</h3>
+          <div className="settings-table">
+            <span className="setting-label">Provider</span>
+            <select
+              className="setting-select"
+              value={defaultProvider}
+              onChange={(e) => handleDefaultProviderChange(e.target.value)}
+              disabled={providersLoading}
+            >
+              {providers.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+
+            <span className="setting-label">Model</span>
+            <select
+              className="setting-select"
+              value={defaultModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              disabled={providersLoading}
+            >
+              {getModelsForProvider(defaultProvider).map(model => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+
+            {providerSupportsReasoning(defaultProvider) && (
+              <>
+                <span className="setting-label">Reasoning</span>
                 <select
-                  value={selectedReasoning}
-                  onChange={(e) => setSelectedReasoning(e.target.value)}
+                  className="setting-select"
+                  value={defaultReasoning}
+                  onChange={(e) => setDefaultReasoning(e.target.value)}
                 >
                   {reasoningLevels.map(level => (
                     <option key={level} value={level}>
@@ -182,74 +355,8 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                     </option>
                   ))}
                 </select>
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div className="setting">
-                <label>Starting Stack</label>
-                <select
-                  value={startingStack}
-                  onChange={(e) => setStartingStack(parseInt(e.target.value))}
-                >
-                  {stackOptions.map(stack => (
-                    <option key={stack} value={stack}>{stack.toLocaleString()}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="setting">
-                <label>Big Blind</label>
-                <select
-                  value={bigBlind}
-                  onChange={(e) => setBigBlind(parseInt(e.target.value))}
-                >
-                  {blindOptions.map(blind => (
-                    <option key={blind} value={blind}>{blind}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div className="setting">
-                <label>Blinds Increase</label>
-                <select
-                  value={blindsIncrease}
-                  onChange={(e) => setBlindsIncrease(parseInt(e.target.value))}
-                >
-                  {blindsIncreaseOptions.map(hands => (
-                    <option key={hands} value={hands}>Every {hands} hands</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="setting">
-                <label>Blind Growth</label>
-                <select
-                  value={blindGrowth}
-                  onChange={(e) => setBlindGrowth(parseFloat(e.target.value))}
-                >
-                  {blindGrowthOptions.map(rate => (
-                    <option key={rate} value={rate}>{rate}x</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="setting-row">
-              <div className="setting">
-                <label>Blind Cap</label>
-                <select
-                  value={maxBlind}
-                  onChange={(e) => setMaxBlind(parseInt(e.target.value))}
-                >
-                  {maxBlindOptions.map(cap => (
-                    <option key={cap} value={cap}>{cap === 0 ? 'No cap' : cap.toLocaleString()}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -282,13 +389,20 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
                 >
                   <div className="personality-header">
                     <h4>{name}</h4>
-                    {selectedPersonalities.includes(name) && (
-                      <Check className="checkmark" size={20} />
-                    )}
+                    <div className="personality-badges">
+                      {opponentConfigs[name] && (
+                        <span className="custom-config-badge" title="Custom LLM config">
+                          <Settings size={14} />
+                        </span>
+                      )}
+                      {selectedPersonalities.includes(name) && (
+                        <Check className="checkmark" size={20} />
+                      )}
+                    </div>
                   </div>
-                  
+
                   <p className="play-style">{personality.play_style}</p>
-                  
+
                   <div className="traits">
                     <div className="cgc-personality-trait">
                       <span>Bluff</span>
@@ -306,6 +420,18 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         </div>
 
       <div className="custom-config__footer">
+        <button
+          className="configure-opponents-button"
+          onClick={() => setShowConfigScreen(true)}
+          disabled={selectedPersonalities.length === 0}
+          title={selectedPersonalities.length === 0 ? 'Select opponents first' : undefined}
+        >
+          <Settings size={18} />
+          Opponent AI
+          {customConfigCount > 0 && (
+            <span className="config-count">({customConfigCount} custom)</span>
+          )}
+        </button>
         <button
           className="start-button"
           onClick={handleStartGame}
