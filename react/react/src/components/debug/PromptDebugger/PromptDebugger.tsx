@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, ProviderInfo } from './types';
 import { InterrogationChat } from './InterrogationChat';
 import './PromptDebugger.css';
 
@@ -35,18 +35,37 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const [replayProvider, setReplayProvider] = useState('openai');
   const [replayModel, setReplayModel] = useState('gpt-5-nano');
   const [replayReasoningEffort, setReplayReasoningEffort] = useState('minimal');
 
   // Interrogation state
   const [interrogationMessages, setInterrogationMessages] = useState<InterrogationMessage[]>([]);
   const [interrogationSessionId, setInterrogationSessionId] = useState<string | null>(null);
+  const [interrogateProvider, setInterrogateProvider] = useState('openai');
   const [interrogateModel, setInterrogateModel] = useState('gpt-5-nano');
   const [interrogateReasoningEffort, setInterrogateReasoningEffort] = useState('minimal');
 
-  // Model configuration (fetched from API)
+  // Provider and model configuration (fetched from API)
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>(['gpt-5-nano', 'gpt-5-mini', 'gpt-5']);
   const reasoningLevels = ['minimal', 'low', 'medium', 'high'];
+
+  const fetchProviders = useCallback(async () => {
+    try {
+      const response = await fetch(`${config.API_URL}/api/llm-providers`, { credentials: 'include' });
+      const data = await response.json();
+      if (data.success && data.providers) {
+        setProviders(data.providers);
+        // Set default models from first provider
+        if (data.providers.length > 0) {
+          setAvailableModels(data.providers[0].models);
+        }
+      }
+    } catch (err) {
+      console.debug('Failed to fetch providers, using defaults:', err);
+    }
+  }, []);
 
   const fetchModels = useCallback(async () => {
     try {
@@ -160,8 +179,33 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   useEffect(() => {
     fetchCaptures();
     fetchAnalysisStats();
+    fetchProviders();
     fetchModels();
-  }, [fetchCaptures, fetchAnalysisStats, fetchModels]);
+  }, [fetchCaptures, fetchAnalysisStats, fetchProviders, fetchModels]);
+
+  // Get models for a specific provider
+  const getModelsForProvider = useCallback((providerName: string): string[] => {
+    const provider = providers.find(p => p.name === providerName);
+    return provider?.models || availableModels;
+  }, [providers, availableModels]);
+
+  // Handle provider change for replay
+  const handleReplayProviderChange = useCallback((newProvider: string) => {
+    setReplayProvider(newProvider);
+    const models = getModelsForProvider(newProvider);
+    if (models.length > 0 && !models.includes(replayModel)) {
+      setReplayModel(models[0]);
+    }
+  }, [getModelsForProvider, replayModel]);
+
+  // Handle provider change for interrogate
+  const handleInterrogateProviderChange = useCallback((newProvider: string) => {
+    setInterrogateProvider(newProvider);
+    const models = getModelsForProvider(newProvider);
+    if (models.length > 0 && !models.includes(interrogateModel)) {
+      setInterrogateModel(models[0]);
+    }
+  }, [getModelsForProvider, interrogateModel]);
 
   const fetchCaptureDetail = async (captureId: number) => {
     try {
@@ -183,12 +227,14 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       setUseHistory(true);
       setMode('view');
       setReplayResult(null);
-      // Set initial model/reasoning from capture (use original values)
+      // Set initial provider/model/reasoning from capture (use original values)
+      setReplayProvider(data.capture.provider || 'openai');
       setReplayModel(data.capture.model || 'gpt-5-nano');
       setReplayReasoningEffort(data.capture.reasoning_effort || 'minimal');
       // Reset interrogation state for new capture
       setInterrogationMessages([]);
       setInterrogationSessionId(null);
+      setInterrogateProvider(data.capture.provider || 'openai');
       setInterrogateModel(data.capture.model || 'gpt-5-nano');
       setInterrogateReasoningEffort(data.capture.reasoning_effort || 'minimal');
     } catch (err) {
@@ -214,6 +260,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
             user_message: modifiedUserMessage,
             conversation_history: modifiedConversationHistory,
             use_history: useHistory,
+            provider: replayProvider,
             model: replayModel,
             reasoning_effort: replayReasoningEffort,
           }),
@@ -571,9 +618,11 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                 {(selectedCapture.input_tokens || selectedCapture.latency_ms) && (
                   <div className="token-info">
                     <div className="token-info-row">
-                      {selectedCapture.model && (
+                      {(selectedCapture.provider || selectedCapture.model) && (
                         <span>
-                          Model: {selectedCapture.model}
+                          {selectedCapture.provider && <strong>{selectedCapture.provider}</strong>}
+                          {selectedCapture.provider && selectedCapture.model && ' / '}
+                          {selectedCapture.model}
                           {selectedCapture.reasoning_effort && ` (${selectedCapture.reasoning_effort})`}
                         </span>
                       )}
@@ -738,15 +787,30 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                       />
                     </div>
 
-                    {/* Model and Reasoning Settings */}
+                    {/* Provider, Model, and Reasoning Settings */}
                     <div className="replay-settings">
+                      <div className="setting-group">
+                        <label>Provider:</label>
+                        <select
+                          value={replayProvider}
+                          onChange={(e) => handleReplayProviderChange(e.target.value)}
+                        >
+                          {providers.length > 0 ? (
+                            providers.map(p => (
+                              <option key={p.name} value={p.name}>{p.name}</option>
+                            ))
+                          ) : (
+                            <option value="openai">openai</option>
+                          )}
+                        </select>
+                      </div>
                       <div className="setting-group">
                         <label>Model:</label>
                         <select
                           value={replayModel}
                           onChange={(e) => setReplayModel(e.target.value)}
                         >
-                          {availableModels.map(model => (
+                          {getModelsForProvider(replayProvider).map(model => (
                             <option key={model} value={model}>{model}</option>
                           ))}
                         </select>
@@ -785,7 +849,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                           </div>
                         </div>
                         <div className="replay-meta">
-                          Model: {replayResult.model_used}
+                          <strong>{replayResult.provider_used}</strong> / {replayResult.model_used}
                           {replayResult.reasoning_effort_used && ` (${replayResult.reasoning_effort_used})`}
                           {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
                           {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
@@ -807,11 +871,14 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                     onMessagesUpdate={setInterrogationMessages}
                     sessionId={interrogationSessionId}
                     onSessionIdUpdate={setInterrogationSessionId}
+                    provider={interrogateProvider}
+                    onProviderChange={handleInterrogateProviderChange}
                     model={interrogateModel}
                     onModelChange={setInterrogateModel}
                     reasoningEffort={interrogateReasoningEffort}
                     onReasoningEffortChange={setInterrogateReasoningEffort}
-                    availableModels={availableModels}
+                    providers={providers}
+                    getModelsForProvider={getModelsForProvider}
                     reasoningLevels={reasoningLevels}
                   />
                 )}
