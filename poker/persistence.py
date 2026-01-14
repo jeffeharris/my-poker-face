@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 
 
 @dataclass
@@ -343,6 +343,7 @@ class GamePersistence:
             32: (self._migrate_v32_add_more_providers, "Add DeepSeek, Mistral, and Google Gemini pricing"),
             33: (self._migrate_v33_add_provider_to_captures, "Add provider column to prompt_captures"),
             34: (self._migrate_v34_add_llm_configs, "Add llm_configs_json column to games table"),
+            35: (self._migrate_v35_add_provider_index, "Add index on provider column in prompt_captures"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1535,6 +1536,17 @@ class GamePersistence:
             logger.info("Added llm_configs_json column to games table")
 
         logger.info("Migration v34 complete: Added llm_configs_json to games")
+
+    def _migrate_v35_add_provider_index(self, conn: sqlite3.Connection) -> None:
+        """Migration v35: Add index on provider column in prompt_captures.
+
+        Improves query performance when filtering captures by provider.
+        """
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider
+            ON prompt_captures(provider)
+        """)
+        logger.info("Migration v35 complete: Added index on prompt_captures.provider")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -3376,7 +3388,7 @@ class GamePersistence:
             query = f"""
                 SELECT id, created_at, game_id, player_name, hand_number, phase,
                        action_taken, pot_total, cost_to_call, pot_odds, player_stack,
-                       community_cards, player_hand, model, latency_ms, tags, notes
+                       community_cards, player_hand, model, provider, latency_ms, tags, notes
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC

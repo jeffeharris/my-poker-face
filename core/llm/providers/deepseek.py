@@ -99,11 +99,18 @@ class DeepSeekProvider(LLMProvider):
                 "reasoning_tokens": 0,
             }
 
+        # Extract reasoning tokens for DeepSeek R1 model
+        # DeepSeek R1 returns reasoning_tokens in completion_tokens_details
+        reasoning_tokens = 0
+        completion_details = getattr(usage, 'completion_tokens_details', None)
+        if completion_details:
+            reasoning_tokens = getattr(completion_details, 'reasoning_tokens', 0) or 0
+
         return {
             "input_tokens": usage.prompt_tokens,
             "output_tokens": usage.completion_tokens,
             "cached_tokens": getattr(usage, 'prompt_cache_hit_tokens', 0) or 0,
-            "reasoning_tokens": 0,
+            "reasoning_tokens": reasoning_tokens,
         }
 
     def extract_content(self, raw_response: Any) -> str:

@@ -145,11 +145,24 @@ class AnthropicProvider(LLMProvider):
                 "reasoning_tokens": 0,
             }
 
+        # Extract thinking tokens from content blocks if present
+        # Anthropic returns thinking as content blocks with type="thinking"
+        thinking_tokens = 0
+        content_blocks = getattr(raw_response, 'content', [])
+        for block in content_blocks:
+            if getattr(block, 'type', None) == 'thinking':
+                # Each thinking block has its own token count
+                thinking_tokens += len(getattr(block, 'thinking', '')) // 4  # Approximate
+
+        # Also check if usage has explicit thinking token count (newer API versions)
+        if hasattr(usage, 'thinking_tokens'):
+            thinking_tokens = usage.thinking_tokens or 0
+
         return {
             "input_tokens": usage.input_tokens,
             "output_tokens": usage.output_tokens,
             "cached_tokens": getattr(usage, 'cache_read_input_tokens', 0) or 0,
-            "reasoning_tokens": 0,  # Anthropic thinking tokens counted differently
+            "reasoning_tokens": thinking_tokens,
         }
 
     def extract_content(self, raw_response: Any) -> str:

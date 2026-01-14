@@ -1,15 +1,14 @@
 """Google Gemini provider implementation.
 
 Google Gemini offers competitive models with a generous free tier.
-Uses the google-generativeai SDK.
+Uses the google-genai SDK (the new unified Google GenAI SDK).
 """
 import os
-import json
 import logging
 from typing import List, Dict, Any, Optional
 
-import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
+from google import genai
+from google.genai import types
 
 from .base import LLMProvider
 from ..config import DEFAULT_MAX_TOKENS, GOOGLE_DEFAULT_MODEL
@@ -44,9 +43,10 @@ class GoogleProvider(LLMProvider):
         self._model_name = model or GOOGLE_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
 
-        # Configure the SDK
-        genai.configure(api_key=api_key or os.environ.get("GOOGLE_API_KEY"))
-        self._model = genai.GenerativeModel(self._model_name)
+        # Initialize the client
+        self._client = genai.Client(
+            api_key=api_key or os.environ.get("GOOGLE_API_KEY")
+        )
 
         # Map reasoning effort to thinking budget
         self._thinking_budget = self._get_thinking_budget(reasoning_effort)
@@ -95,9 +95,19 @@ class GoogleProvider(LLMProvider):
             if role == "system":
                 system_instruction = content
             elif role == "assistant":
-                contents.append({"role": "model", "parts": [content]})
+                contents.append(
+                    types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text=content)]
+                    )
+                )
             else:  # user
-                contents.append({"role": "user", "parts": [content]})
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(text=content)]
+                    )
+                )
 
         return system_instruction, contents
 
@@ -110,32 +120,33 @@ class GoogleProvider(LLMProvider):
         """Make a chat completion request."""
         system_instruction, contents = self._convert_messages(messages)
 
-        # Create generation config
-        gen_config = GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=1.0,
-        )
+        # Build config kwargs
+        config_kwargs = {
+            "max_output_tokens": max_tokens,
+            "temperature": 1.0,
+        }
 
-        if json_format:
-            gen_config.response_mime_type = "application/json"
-
-        # Create model with system instruction if provided
-        model = self._model
+        # Add system instruction if present
         if system_instruction:
-            model = genai.GenerativeModel(
-                self._model_name,
-                system_instruction=system_instruction
+            config_kwargs["system_instruction"] = system_instruction
+
+        # Add thinking config if budget is set
+        if self._thinking_budget:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget
             )
 
-        # Start chat and send message
-        chat = model.start_chat(history=contents[:-1] if len(contents) > 1 else [])
+        # Add JSON response format if requested
+        if json_format:
+            config_kwargs["response_mime_type"] = "application/json"
 
-        # Get the last user message
-        last_message = contents[-1]["parts"][0] if contents else ""
+        config = types.GenerateContentConfig(**config_kwargs)
 
-        response = chat.send_message(
-            last_message,
-            generation_config=gen_config,
+        # Make the API call
+        response = self._client.models.generate_content(
+            model=self._model_name,
+            contents=contents,
+            config=config,
         )
 
         return response
@@ -161,11 +172,14 @@ class GoogleProvider(LLMProvider):
                 "reasoning_tokens": 0,
             }
 
+        # Extract thinking/reasoning tokens if available
+        thinking_tokens = getattr(usage, 'thoughts_token_count', 0) or 0
+
         return {
             "input_tokens": getattr(usage, 'prompt_token_count', 0) or 0,
             "output_tokens": getattr(usage, 'candidates_token_count', 0) or 0,
             "cached_tokens": getattr(usage, 'cached_content_token_count', 0) or 0,
-            "reasoning_tokens": 0,
+            "reasoning_tokens": thinking_tokens,
         }
 
     def extract_content(self, raw_response: Any) -> str:
