@@ -71,6 +71,10 @@ jobs:
         with:
           clean: true
 
+      - name: Fix production directory permissions
+        run: |
+          sudo chown -R $(whoami):$(whoami) /opt/poker/ 2>/dev/null || true
+
       - name: Sync to production directory
         run: |
           rsync -av --delete \
