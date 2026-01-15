@@ -1,1 +1,0 @@
-"""Menu components for Rich CLI"""

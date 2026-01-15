@@ -1,1 +1,0 @@
-"""Display components for Rich CLI"""
