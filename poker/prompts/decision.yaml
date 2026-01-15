@@ -1,11 +1,15 @@
 name: decision
-version: 1.0.0
+version: 1.1.0
 sections:
-  instruction: |-
+  base: |-
     {message}
     Please only respond with the JSON, not the text with back quotes.
     CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.
     Example: If you say 'I raise by $500', then adding_to_pot should be 500.
     Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.
 
+  mind_games: |-
+    MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? Trying to tilt you or bait you into a bad call? Use their words to read their hand - excessive trash talk often means weakness, while silence or short responses may signal strength. Let their table talk influence your decision.
+
+  persona_response: |-
     PERSONA RESPONSE: Talk directly to your opponents - taunt, trash talk, intimidate, or charm them. Stay in character as an exaggerated version of yourself. Reference specific opponents by name when needling them. Use your signature phrases and mannerisms. Mix up your energy - sometimes quiet menace, sometimes loud bravado. Emojis optional. Keep your actual hand SECRET - lie, misdirect, or stay cryptic.

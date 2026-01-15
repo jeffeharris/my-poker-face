@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 40
 
 
 @dataclass
@@ -348,6 +348,7 @@ class GamePersistence:
             37: (self._migrate_v37_add_gpt5_pricing, "Add OpenAI GPT-5 pricing"),
             38: (self._migrate_v38_add_enabled_models, "Add enabled_models table for model management"),
             39: (self._migrate_v39_playground_capture_support, "Make game_id nullable and add call_type to prompt_captures for playground"),
+            40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1789,6 +1790,20 @@ class GamePersistence:
 
         logger.info("Migration v39 complete: prompt_captures now supports playground captures")
 
+    def _migrate_v40_add_prompt_config(self, conn: sqlite3.Connection) -> None:
+        """Migration v40: Add prompt_config_json column to controller_state.
+
+        This column stores the PromptConfig for toggling prompt components on/off.
+        """
+        cursor = conn.execute("PRAGMA table_info(controller_state)")
+        columns = {row[1] for row in cursor}
+
+        if 'prompt_config_json' not in columns:
+            conn.execute("ALTER TABLE controller_state ADD COLUMN prompt_config_json TEXT")
+            logger.info("Added prompt_config_json column to controller_state")
+
+        logger.info("Migration v40 complete: prompt_config support added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2431,15 +2446,17 @@ class GamePersistence:
 
             return states
 
-    # Controller State Persistence Methods (Tilt + ElasticPersonality)
+    # Controller State Persistence Methods (Tilt + ElasticPersonality + PromptConfig)
     def save_controller_state(self, game_id: str, player_name: str,
-                              psychology: Dict[str, Any]) -> None:
-        """Save unified psychology state for a player.
+                              psychology: Dict[str, Any],
+                              prompt_config: Optional[Dict[str, Any]] = None) -> None:
+        """Save unified psychology state and prompt config for a player.
 
         Args:
             game_id: The game identifier
             player_name: The player's name
             psychology: Dict from PlayerPsychology.to_dict()
+            prompt_config: Dict from PromptConfig.to_dict() (optional)
         """
         # Extract components from unified psychology
         tilt_state = psychology.get('tilt')
@@ -2448,25 +2465,26 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO controller_state
-                (game_id, player_name, tilt_state_json, elastic_personality_json, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (game_id, player_name, tilt_state_json, elastic_personality_json, prompt_config_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 game_id,
                 player_name,
                 json.dumps(tilt_state) if tilt_state else None,
-                json.dumps(elastic_personality) if elastic_personality else None
+                json.dumps(elastic_personality) if elastic_personality else None,
+                json.dumps(prompt_config) if prompt_config else None
             ))
 
     def load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a player.
 
         Returns:
-            Dict with 'tilt_state' and 'elastic_personality' keys, or None if not found
+            Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT tilt_state_json, elastic_personality_json
+                SELECT tilt_state_json, elastic_personality_json, prompt_config_json
                 FROM controller_state
                 WHERE game_id = ? AND player_name = ?
             """, (game_id, player_name))
@@ -2475,9 +2493,19 @@ class GamePersistence:
             if not row:
                 return None
 
+            # Handle prompt_config_json which may not exist in older databases
+            prompt_config = None
+            try:
+                if row['prompt_config_json']:
+                    prompt_config = json.loads(row['prompt_config_json'])
+            except (KeyError, IndexError):
+                # Column doesn't exist in older schema
+                logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
+
             return {
                 'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-                'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None
+                'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
+                'prompt_config': prompt_config
             }
 
     def load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
@@ -2489,16 +2517,25 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT player_name, tilt_state_json, elastic_personality_json
+                SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
                 FROM controller_state
                 WHERE game_id = ?
             """, (game_id,))
 
             states = {}
             for row in cursor.fetchall():
+                # Handle prompt_config_json which may not exist in older databases
+                prompt_config = None
+                try:
+                    if row['prompt_config_json']:
+                        prompt_config = json.loads(row['prompt_config_json'])
+                except (KeyError, IndexError):
+                    pass  # Column doesn't exist in older schema
+
                 states[row['player_name']] = {
                     'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-                    'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None
+                    'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
+                    'prompt_config': prompt_config
                 }
 
             return states

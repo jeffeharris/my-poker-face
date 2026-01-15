@@ -11,6 +11,7 @@ from .prompt_manager import PromptManager
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
 from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS, is_development_mode
+from .prompt_config import PromptConfig
 from .ai_resilience import (
     with_ai_fallback,
     expects_json,
@@ -292,7 +293,8 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, llm_config=None,
                  session_memory=None, opponent_model_manager=None,
-                 game_id=None, owner_id=None, debug_capture=False, persistence=None):
+                 game_id=None, owner_id=None, debug_capture=False, persistence=None,
+                 prompt_config=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
@@ -310,6 +312,9 @@ class AIPlayerController:
         self.prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
         self.chattiness_manager = ChattinessManager()
         self.response_validator = ResponseValidator()
+
+        # Prompt configuration (controls which components are included)
+        self.prompt_config = prompt_config or PromptConfig()
 
         # Unified psychological state
         self.psychology = PlayerPsychology.from_personality_config(
@@ -334,6 +339,20 @@ class AIPlayerController:
     def personality_traits(self):
         """Compatibility property for ai_resilience fallback."""
         return self.psychology.traits
+
+    def set_prompt_component(self, component: str, enabled: bool) -> None:
+        """
+        Toggle a specific prompt component on/off.
+
+        Args:
+            component: Name of the component (e.g., 'mind_games', 'pot_odds')
+            enabled: Whether the component should be enabled
+        """
+        if not hasattr(self.prompt_config, component):
+            logger.error(f"Unknown prompt component: {component}")
+            return
+        setattr(self.prompt_config, component, enabled)
+        logger.info(f"Prompt component '{component}' set to {enabled} for {self.player_name}")
 
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
@@ -362,34 +381,43 @@ class AIPlayerController:
         )
         speaking_context = self.chattiness_manager.get_speaking_context(self.player_name)
         
-        # Build message with chattiness context
+        # Build message with game state (respecting prompt_config toggles)
         message = convert_game_to_hand_state(
             game_state,
             game_state.current_player,
             self.state_machine.phase,
-            game_messages)
+            game_messages,
+            include_pot_odds=self.prompt_config.pot_odds,
+            include_hand_strength=self.prompt_config.hand_strength)
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
 
-        # Inject memory context if available
-        memory_context = self._build_memory_context(game_state)
+        # Inject memory context if available (respecting prompt_config toggles)
+        memory_context = self._build_memory_context(
+            game_state,
+            include_session=self.prompt_config.session_memory,
+            include_opponents=self.prompt_config.opponent_intel
+        )
         if memory_context:
             message = memory_context + "\n\n" + message
 
-        # Add chattiness guidance to message
-        chattiness_guidance = self._build_chattiness_guidance(
-            chattiness, should_speak, speaking_context, player_options
-        )
-        message = message + "\n\n" + chattiness_guidance
+        # Add chattiness guidance to message (if enabled)
+        if self.prompt_config.chattiness:
+            chattiness_guidance = self._build_chattiness_guidance(
+                chattiness, should_speak, speaking_context, player_options
+            )
+            message = message + "\n\n" + chattiness_guidance
 
-        # Inject emotional state context (before tilt effects)
-        emotional_section = self.psychology.get_prompt_section()
-        if emotional_section:
-            message = emotional_section + "\n\n" + message
+        # Inject emotional state context (before tilt effects, if enabled)
+        if self.prompt_config.emotional_state:
+            emotional_section = self.psychology.get_prompt_section()
+            if emotional_section:
+                message = emotional_section + "\n\n" + message
 
-        # Apply tilt effects if player is tilted (after emotional state)
-        message = self.psychology.apply_tilt_effects(message)
+        # Apply tilt effects if player is tilted (after emotional state, if enabled)
+        if self.prompt_config.tilt_effects:
+            message = self.psychology.apply_tilt_effects(message)
 
         print(message)
 
@@ -435,10 +463,11 @@ class AIPlayerController:
         # Store context for fallback
         self._fallback_context = context
 
-        # Use the prompt manager for the decision prompt
-        decision_prompt = self.prompt_manager.render_prompt(
-            'decision',
-            message=message
+        # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
+        decision_prompt = self.prompt_manager.render_decision_prompt(
+            message=message,
+            include_mind_games=self.prompt_config.mind_games,
+            include_persona_response=self.prompt_config.persona_response
         )
 
         # Store capture_id via callback (keeps LLM layer decoupled from capture)
@@ -679,18 +708,26 @@ class AIPlayerController:
 
         return context
 
-    def _build_memory_context(self, game_state) -> str:
-        """Build context from session memory and opponent models for injection into prompts."""
+    def _build_memory_context(self, game_state, include_session: bool = True,
+                               include_opponents: bool = True) -> str:
+        """
+        Build context from session memory and opponent models for injection into prompts.
+
+        Args:
+            game_state: Current game state
+            include_session: Whether to include session memory context
+            include_opponents: Whether to include opponent intel
+        """
         parts = []
 
         # Session context (recent outcomes, streak, observations)
-        if self.session_memory:
+        if include_session and self.session_memory:
             session_ctx = self.session_memory.get_context_for_prompt(MEMORY_CONTEXT_TOKENS)
             if session_ctx:
                 parts.append(f"=== Your Session ===\n{session_ctx}")
 
         # Opponent summaries
-        if self.opponent_model_manager:
+        if include_opponents and self.opponent_model_manager:
             # Get active opponents
             opponents = [
                 p.name for p in game_state.players
@@ -798,7 +835,20 @@ def _ensure_card(c):
     return c if isinstance(c, Card) else Card(c['rank'], c['suit'])
 
 
-def convert_game_to_hand_state(game_state, player: Player, phase, messages):
+def convert_game_to_hand_state(game_state, player: Player, phase, messages,
+                               include_pot_odds: bool = True,
+                               include_hand_strength: bool = True):
+    """
+    Convert game state to a human-readable prompt message.
+
+    Args:
+        game_state: Current game state
+        player: Current player
+        phase: Current betting phase
+        messages: Recent actions/chat
+        include_pot_odds: Whether to include pot odds guidance
+        include_hand_strength: Whether to include hand strength evaluation
+    """
     # Currently used values
     persona = player.name
     # attitude = player.attitude
@@ -829,11 +879,13 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     action_summary = messages
 
     # Evaluate hand strength - preflop uses classification, post-flop uses eval7
-    if community_cards:
-        hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-    else:
-        hand_strength = classify_preflop_hand(hole_cards)
-    hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
+    hand_strength_line = ""
+    if include_hand_strength:
+        if community_cards:
+            hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+        else:
+            hand_strength = classify_preflop_hand(hole_cards)
+        hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
     persona_state = (
         f"Persona: {persona}\n"
@@ -866,20 +918,22 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
         f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
     )
 
-    # Calculate pot odds for clearer decision making
-    if cost_to_call > 0:
-        pot_odds = current_pot / cost_to_call
-        equity_needed = 100 / (pot_odds + 1)
-        pot_odds_guidance = (
-            f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
-            f"You only need {equity_needed:.0f}% equity to break even on a call. "
-        )
-        if pot_odds >= 10:
-            pot_odds_guidance += f"With {pot_odds:.0f}:1 odds, you should rarely fold - you only need to win 1 in {pot_odds+1:.0f} times."
-        elif pot_odds >= 4:
-            pot_odds_guidance += "These are favorable odds for calling with reasonable hands."
-    else:
-        pot_odds_guidance = "You can check for free - no cost to see more cards."
+    # Calculate pot odds for clearer decision making (if enabled)
+    pot_odds_guidance = ""
+    if include_pot_odds:
+        if cost_to_call > 0:
+            pot_odds = current_pot / cost_to_call
+            equity_needed = 100 / (pot_odds + 1)
+            pot_odds_guidance = (
+                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
+                f"You only need {equity_needed:.0f}% equity to break even on a call. "
+            )
+            if pot_odds >= 10:
+                pot_odds_guidance += f"With {pot_odds:.0f}:1 odds, you should rarely fold - you only need to win 1 in {pot_odds+1:.0f} times."
+            elif pot_odds >= 4:
+                pot_odds_guidance += "These are favorable odds for calling with reasonable hands."
+        else:
+            pot_odds_guidance = "You can check for free - no cost to see more cards."
 
     hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
         f"You cannot bet more than you have, ${player_money}.\n"
