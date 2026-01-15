@@ -43,11 +43,6 @@ interface PlayerLLMConfig {
   has_custom_config?: boolean;
 }
 
-interface LLMConfigData {
-  default_llm_config: LLMConfig;
-  player_configs: PlayerLLMConfig[];
-}
-
 export function DebugPanel({ gameId, socket }: DebugPanelProps) {
   const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css' | 'prompts'>('elasticity');
   const [elasticityData, setElasticityData] = useState<ElasticityData>({});
