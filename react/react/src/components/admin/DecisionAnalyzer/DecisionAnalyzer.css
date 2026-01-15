@@ -99,6 +99,26 @@
   background: rgba(78, 204, 163, 0.3);
 }
 
+.debugger-filters .refresh-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.debugger-filters .refresh-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.debugger-filters .refresh-button .spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Error */
 .debugger-error {
   padding: 1rem;

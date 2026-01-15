@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, ProviderInfo } from './types';
@@ -408,6 +409,11 @@ export function DecisionAnalyzer({ onBack, embedded = false }: DecisionAnalyzerP
 
         <button onClick={() => setFilters({ limit: 50, offset: 0 })}>
           Clear Filters
+        </button>
+
+        <button onClick={fetchCaptures} disabled={loading} className="refresh-button">
+          <RefreshCw size={16} className={loading ? 'spinning' : ''} />
+          {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
