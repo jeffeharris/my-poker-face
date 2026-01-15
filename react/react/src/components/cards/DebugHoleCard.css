@@ -1,0 +1,403 @@
+/* DebugHoleCard - CRT Phosphor Terminal Aesthetic */
+
+/* CSS Custom Properties */
+.debug-hole-card {
+  --phosphor-green: #39ff14;
+  --phosphor-dim: #1a8f0a;
+  --phosphor-glow: rgba(57, 255, 20, 0.6);
+  --crt-black: #0a0a0a;
+  --crt-dark: #111;
+  --scanline: rgba(0, 0, 0, 0.15);
+  --amber-accent: #ffb000;
+
+  /* Card dimensions - match existing card-back.large */
+  --card-width: 88px;
+  --card-height: 127px;
+}
+
+/* Container with 3D perspective */
+.debug-hole-card {
+  perspective: 1000px;
+  display: inline-block;
+  position: relative;
+}
+
+.debug-hole-card.has-debug {
+  cursor: pointer;
+}
+
+.debug-hole-card.has-debug:hover .debug-card-inner:not(.flipped) {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+
+/* Inner wrapper for flip */
+.debug-card-inner {
+  position: relative;
+  width: var(--card-width);
+  height: var(--card-height);
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1.4);
+}
+
+.debug-card-inner.flipped {
+  transform: rotateY(180deg);
+}
+
+/* Both faces */
+.debug-card-front,
+.debug-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Front face: Normal card back */
+.debug-card-front {
+  background: linear-gradient(45deg, #1976d2, #1565c0);
+  border: 2px solid #0d47a1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.debug-card-front .card-back-pattern::before {
+  content: '\1F0A0';
+  font-size: 5em;
+  color: white;
+  opacity: 0.8;
+  line-height: 0.8;
+}
+
+/* Back face: Debug panel */
+.debug-card-back {
+  transform: rotateY(180deg);
+  background: var(--crt-black);
+  border: 1px solid var(--phosphor-dim);
+  overflow: hidden;
+}
+
+/* CRT screen effect */
+.crt-screen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  box-sizing: border-box;
+  font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  position: relative;
+
+  /* Subtle CRT curvature */
+  border-radius: 2px;
+
+  /* Screen glow effect */
+  box-shadow: inset 0 0 20px rgba(57, 255, 20, 0.1);
+}
+
+/* Scanline overlay */
+.scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    var(--scanline) 0px,
+    var(--scanline) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0.7;
+}
+
+/* Header */
+.debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 2px 0 3px;
+  border-bottom: 1px solid var(--phosphor-dim);
+  margin-bottom: 3px;
+}
+
+.block-char {
+  color: var(--phosphor-green);
+  font-size: 8px;
+  text-shadow:
+    0 0 2px var(--phosphor-glow),
+    0 0 4px var(--phosphor-glow);
+}
+
+.block-char::before {
+  content: '\2593';
+}
+
+.header-text {
+  color: var(--phosphor-green);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-shadow:
+    0 0 2px var(--phosphor-glow),
+    0 0 4px var(--phosphor-glow),
+    0 0 8px rgba(57, 255, 20, 0.3);
+}
+
+/* Stats section */
+.debug-stats {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1px 2px;
+  animation: stat-reveal 0.3s ease-out both;
+}
+
+@keyframes stat-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.stat-label {
+  color: var(--phosphor-dim);
+  font-size: 6px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+  width: 28px;
+}
+
+.stat-value {
+  color: var(--phosphor-green);
+  font-size: 7px;
+  font-weight: 400;
+  text-shadow:
+    0 0 2px var(--phosphor-glow),
+    0 0 4px var(--phosphor-glow);
+  flex: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-latency {
+  color: #00ffff;
+  text-shadow:
+    0 0 2px rgba(0, 255, 255, 0.6),
+    0 0 4px rgba(0, 255, 255, 0.4);
+}
+
+.stat-cost {
+  color: var(--phosphor-green);
+}
+
+.stat-cost.high-cost {
+  color: var(--amber-accent);
+  text-shadow:
+    0 0 2px rgba(255, 176, 0, 0.6),
+    0 0 4px rgba(255, 176, 0, 0.4);
+}
+
+.stat-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--phosphor-dim) 20%,
+    var(--phosphor-dim) 80%,
+    transparent 100%
+  );
+  margin: 2px 0;
+}
+
+/* Footer with progress bar */
+.stat-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-top: 2px;
+  animation: stat-reveal 0.3s ease-out both;
+}
+
+.progress-bar {
+  display: flex;
+  gap: 1px;
+  height: 6px;
+}
+
+.progress-block {
+  width: 4px;
+  height: 100%;
+  background: var(--phosphor-green);
+  opacity: 0.7;
+  box-shadow: 0 0 2px var(--phosphor-glow);
+}
+
+.progress-block:nth-child(odd) {
+  opacity: 0.9;
+}
+
+.call-count {
+  color: var(--phosphor-dim);
+  font-size: 7px;
+  letter-spacing: 0.2px;
+}
+
+/* No data state */
+.debug-stats.no-data {
+  justify-content: center;
+  align-items: center;
+}
+
+.no-data-text {
+  color: var(--phosphor-dim);
+  font-size: 9px;
+  opacity: 0.6;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.3; }
+}
+
+/* Mobile backdrop */
+.debug-backdrop {
+  display: none;
+}
+
+/* Boot flicker animation on flip */
+.debug-card-inner.flipped .crt-screen {
+  animation: boot-flicker 0.4s ease-out;
+}
+
+@keyframes boot-flicker {
+  0%, 10% { opacity: 0; }
+  15%, 20% { opacity: 1; }
+  25% { opacity: 0.3; }
+  30%, 100% { opacity: 1; }
+}
+
+/* ========================================
+   MOBILE RESPONSIVE - Card expands on flip
+   ======================================== */
+@media (max-width: 768px) {
+  .debug-hole-card {
+    --card-width: min(17vw, 80px);
+    --card-height: auto;
+  }
+
+  .debug-card-inner {
+    width: var(--card-width);
+    height: auto;
+    aspect-ratio: 500 / 726;
+  }
+
+  /* Mobile backdrop */
+  .debug-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(3px);
+    z-index: 999;
+    animation: fade-in 0.2s ease-out;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Expanded card on mobile */
+  .debug-hole-card.active {
+    z-index: 1000;
+  }
+
+  .debug-hole-card.active .debug-card-inner {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 140px;
+    height: 200px;
+    aspect-ratio: unset;
+    transform: translate(-50%, -50%) rotateY(180deg);
+    transition: all 0.4s cubic-bezier(0.4, 0.0, 0.2, 1.4);
+  }
+
+  /* Larger text on mobile expanded view */
+  .debug-hole-card.active .header-text {
+    font-size: 10px;
+  }
+
+  .debug-hole-card.active .block-char {
+    font-size: 10px;
+  }
+
+  .debug-hole-card.active .stat-label {
+    font-size: 8px;
+    width: 36px;
+  }
+
+  .debug-hole-card.active .stat-value {
+    font-size: 9px;
+  }
+
+  .debug-hole-card.active .call-count {
+    font-size: 9px;
+  }
+
+  .debug-hole-card.active .progress-block {
+    width: 6px;
+    height: 8px;
+  }
+
+  .debug-hole-card.active .crt-screen {
+    padding: 8px;
+  }
+
+  .debug-hole-card.active .debug-header {
+    padding: 4px 0 6px;
+    margin-bottom: 6px;
+  }
+
+  .debug-hole-card.active .stat-row {
+    padding: 2px 4px;
+  }
+
+  .debug-hole-card.active .stat-divider {
+    margin: 4px 0;
+  }
+
+  .debug-hole-card.active .stat-footer {
+    padding-top: 4px;
+    gap: 4px;
+  }
+}
+
+/* Touch feedback */
+@media (hover: none) {
+  .debug-hole-card.has-debug:active .debug-card-inner:not(.flipped) {
+    transform: scale(0.98);
+  }
+}

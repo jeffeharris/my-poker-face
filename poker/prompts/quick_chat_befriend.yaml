@@ -1,0 +1,24 @@
+name: quick_chat_befriend
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Build genuine RAPPORT. Be warm. Make them like you.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "Good hand, {target_first_name}. Seriously."
+    - "You're playing well tonight."
+    - "Respect, {target_first_name}."
+    - "That was a nice play."
+
+    Be GENUINELY warm and friendly. No sarcasm. Build connection.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "befriend"}}, {{"text": "...", "tone": "befriend"}}], "targetPlayer": "{target_player}"}}

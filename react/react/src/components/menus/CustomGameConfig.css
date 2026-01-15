@@ -41,7 +41,59 @@
   gap: var(--space-3);
 }
 
-/* Settings grid */
+/* Settings table - labels left, dropdowns right */
+.settings-table {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+}
+
+.setting-label {
+  font-family: var(--font-body);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.setting-select {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-surface-hover);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-2) center;
+  padding-right: var(--space-6);
+}
+
+.setting-select:hover {
+  border-color: var(--color-border-hover);
+}
+
+.setting-select:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 2px var(--color-gold-muted);
+}
+
+.setting-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Legacy settings grid (kept for backwards compat) */
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -56,12 +108,14 @@
 
 .setting-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
   grid-column: 1 / -1;
 }
 
 .setting-row .setting {
-  flex: 1;
+  flex: 1 1 140px;
+  min-width: 140px;
 }
 
 .setting label {
@@ -265,6 +319,24 @@
   letter-spacing: var(--letter-spacing-tight);
 }
 
+/* Personality badges */
+.personality-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.custom-config-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--color-sapphire-muted);
+  border-radius: var(--radius-md);
+  color: var(--color-sapphire);
+}
+
 .checkmark {
   color: var(--color-emerald);
   font-size: var(--font-size-xl);
@@ -335,8 +407,47 @@
 
 /* Footer */
 .custom-config__footer {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
   margin-top: var(--space-8);
+}
+
+/* Configure Opponents Button */
+.configure-opponents-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+  min-height: 44px;
+}
+
+.configure-opponents-button:hover:not(:disabled) {
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
+}
+
+.configure-opponents-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.config-count {
+  color: var(--color-sapphire);
+  font-weight: var(--font-weight-semibold);
 }
 
 .start-button {
@@ -394,6 +505,14 @@
 @media (max-width: 768px) {
   .config-section {
     padding: var(--space-5);
+  }
+
+  .settings-table {
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .setting-select {
+    min-height: 38px;
   }
 
   .personality-grid {

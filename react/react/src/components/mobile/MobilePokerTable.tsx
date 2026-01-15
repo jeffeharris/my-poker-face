@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Check, X, MessageCircle, Circle } from 'lucide-react';
+import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
+import type { Player } from '../../types/player';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
@@ -8,6 +9,7 @@ import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
+import { LLMDebugModal } from './LLMDebugModal';
 import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
@@ -46,27 +48,8 @@ export function MobilePokerTable({
     setRecentAiMessage(null);
   }, []);
 
-  // Debug mode state
-  const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
-
-  // Toggle prompt capture for debugging AI decisions
-  const togglePromptCapture = async () => {
-    if (!gameId) return;
-    try {
-      const newState = !promptCaptureEnabled;
-      const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ enabled: newState }),
-      });
-      if (response.ok) {
-        setPromptCaptureEnabled(newState);
-      }
-    } catch (error) {
-      console.error('Failed to toggle prompt capture:', error);
-    }
-  };
+  // LLM Debug modal state
+  const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
 
   // Use the shared hook for all socket/state management
   const {
@@ -90,27 +73,6 @@ export function MobilePokerTable({
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
   });
-
-  // Fetch debug capture state on mount and when gameId changes
-  useEffect(() => {
-    if (!gameId) return;
-
-    const fetchDebugModeState = async () => {
-      try {
-        const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setPromptCaptureEnabled(data.debug_capture || false);
-        }
-      } catch (error) {
-        console.error('Failed to fetch debug mode state:', error);
-      }
-    };
-
-    fetchDebugModeState();
-  }, [gameId]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -291,30 +253,10 @@ export function MobilePokerTable({
         onBack={onBack}
         centerContent={<PotDisplay total={gameState.pot.total} />}
         rightContent={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {config.ENABLE_DEBUG && (
-              <button
-                onClick={togglePromptCapture}
-                style={{
-                  padding: '4px',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <Circle
-                  size={20}
-                  fill={promptCaptureEnabled ? '#e74c3c' : 'none'}
-                  color={promptCaptureEnabled ? '#e74c3c' : 'rgba(255,255,255,0.5)'}
-                />
-              </button>
-            )}
-            <ChatToggle
-              onClick={() => setShowChatSheet(true)}
-              badgeCount={messages.length}
-            />
-          </div>
+          <ChatToggle
+            onClick={() => setShowChatSheet(true)}
+            badgeCount={messages.length}
+          />
         }
       />
 
@@ -337,7 +279,13 @@ export function MobilePokerTable({
               }}
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''}`}
             >
-              <div className="opponent-avatar">
+              <div
+                className={`opponent-avatar ${config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'debug-enabled' : ''}`}
+                onClick={config.ENABLE_AI_DEBUG && opponent.llm_debug ? () => setDebugModalPlayer(opponent) : undefined}
+                role={config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'button' : undefined}
+                tabIndex={config.ENABLE_AI_DEBUG && opponent.llm_debug ? 0 : undefined}
+                aria-label={config.ENABLE_AI_DEBUG && opponent.llm_debug ? `View ${opponent.name}'s AI model info` : undefined}
+              >
                 {opponent.avatar_url ? (
                   <img
                     src={`${config.API_URL}${opponent.avatar_url}/full`}
@@ -361,6 +309,10 @@ export function MobilePokerTable({
                   opponent.name.charAt(0).toUpperCase()
                 )}
                 {isDealer && <span className="dealer-badge">D</span>}
+                {/* Debug indicator badge */}
+                {config.ENABLE_AI_DEBUG && opponent.llm_debug && (
+                  <span className="debug-badge" title="Tap to view AI model info"></span>
+                )}
               </div>
               <div className="opponent-info">
                 <span className="opponent-name">{opponent.name.split(' ')[0]}</span>
@@ -593,6 +545,14 @@ export function MobilePokerTable({
           </div>
         </div>
       )}
+
+      {/* LLM Debug Modal */}
+      <LLMDebugModal
+        isOpen={!!debugModalPlayer}
+        onClose={() => setDebugModalPlayer(null)}
+        playerName={debugModalPlayer?.name || ''}
+        debugInfo={debugModalPlayer?.llm_debug}
+      />
     </div>
   );
 }

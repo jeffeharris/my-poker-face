@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { BarChart3 } from 'lucide-react';
-import { Card, CommunityCard, HoleCard } from '../../cards';
+import { Card, CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import { ChatSidebar } from '../../chat/ChatSidebar';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -459,8 +459,14 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                       <Card card={player.hand[0]} faceDown={false} size="large" className="hole-card" />
                       <Card card={player.hand[1]} faceDown={false} size="large" className="hole-card" />
                     </>
+                  ) : config.ENABLE_AI_DEBUG ? (
+                    // Show debug-enabled cards for AI players (can flip to reveal LLM info)
+                    <>
+                      <DebugHoleCard debugInfo={player.llm_debug} />
+                      <DebugHoleCard debugInfo={player.llm_debug} />
+                    </>
                   ) : (
-                    // Show face-down cards for AI players (small size)
+                    // Show standard face-down cards for AI players
                     <>
                       <HoleCard visible={false} />
                       <HoleCard visible={false} />

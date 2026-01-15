@@ -100,6 +100,7 @@ def replay_capture(capture_id):
         user_message: Modified user message (optional)
         conversation_history: Modified conversation history (optional, list of {role, content})
         use_history: Whether to include conversation history (default: True)
+        provider: LLM provider to use (optional, defaults to original capture's provider)
         model: Model to use (optional, defaults to original)
         reasoning_effort: Reasoning effort level (optional, defaults to original or 'low')
     """
@@ -113,6 +114,7 @@ def replay_capture(capture_id):
     # Use modified prompts or originals
     system_prompt = data.get('system_prompt', capture['system_prompt'])
     user_message = data.get('user_message', capture['user_message'])
+    provider = data.get('provider', capture.get('provider', 'openai')).lower()  # Normalize case
     model = data.get('model', capture.get('model', 'gpt-5-nano'))
     reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
 
@@ -121,8 +123,8 @@ def replay_capture(capture_id):
     conversation_history = data.get('conversation_history', capture.get('conversation_history', []))
 
     try:
-        # Create LLM client and replay the prompt
-        client = LLMClient(model=model, reasoning_effort=reasoning_effort)
+        # Create LLM client and replay the prompt (using same provider as original)
+        client = LLMClient(provider=provider, model=model, reasoning_effort=reasoning_effort)
 
         # Build messages array
         messages = []
@@ -154,8 +156,13 @@ def replay_capture(capture_id):
             'success': True,
             'original_response': capture['ai_response'],
             'new_response': response.content,
-            'model_used': model,
+            'provider_used': response.provider,
+            'model_used': response.model,  # Actual model used (e.g., grok-4-fast-non-reasoning)
+            'model_requested': model,       # Original request (e.g., grok-4-fast)
             'reasoning_effort_used': reasoning_effort,
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'reasoning_tokens': response.reasoning_tokens,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
             'messages_count': len(messages),
             'used_history': use_history and bool(conversation_history)
@@ -181,6 +188,7 @@ def interrogate_capture(capture_id):
         message: User's question to ask the AI (required)
         session_id: Session ID for continuing a conversation (optional)
         reset: Boolean to reset the session and start fresh (optional)
+        provider: LLM provider override (optional, defaults to original capture's provider)
         model: Model override (optional, defaults to original capture's model)
         reasoning_effort: Reasoning effort level (optional, defaults to 'low')
 
@@ -189,6 +197,7 @@ def interrogate_capture(capture_id):
         response: AI's response text
         session_id: Session ID for continuing the conversation
         messages_count: Number of messages in conversation
+        provider_used: LLM provider that was used
         model_used: Model that was used
         reasoning_effort_used: Reasoning effort level used
         latency_ms: Response latency
@@ -206,6 +215,7 @@ def interrogate_capture(capture_id):
 
     session_id = data.get('session_id')
     reset = data.get('reset', False)
+    provider = data.get('provider', capture.get('provider', 'openai')).lower()  # Normalize case
     model = data.get('model', capture.get('model', 'gpt-5-nano'))
     reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
 
@@ -241,9 +251,10 @@ The AI player's original personality/instructions were:
 
 Now help the administrator understand why this AI made the decision it did."""
 
-            # Create assistant with debug system prompt
+            # Create assistant with debug system prompt (using same provider as original)
             assistant = Assistant(
                 system_prompt=debug_system_prompt,
+                provider=provider,
                 model=model,
                 reasoning_effort=reasoning_effort,
                 call_type=CallType.DEBUG_INTERROGATE,
@@ -283,8 +294,13 @@ Now help the administrator understand why this AI made the decision it did."""
             'response': response.content,
             'session_id': session_id,
             'messages_count': len(assistant.memory),
-            'model_used': model,
+            'provider_used': response.provider,
+            'model_used': response.model,  # Actual model used (e.g., grok-4-fast-non-reasoning)
+            'model_requested': model,       # Original request (e.g., grok-4-fast)
             'reasoning_effort_used': reasoning_effort,
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'reasoning_tokens': response.reasoning_tokens,
             'latency_ms': response.latency_ms if hasattr(response, 'latency_ms') else None,
         })
 
@@ -331,62 +347,6 @@ def get_capture_stats():
     return jsonify({
         'success': True,
         'stats': stats
-    })
-
-
-@prompt_debug_bp.route('/api/prompt-debug/game/<game_id>/debug-mode', methods=['GET'])
-def get_debug_mode(game_id):
-    """Get the current debug capture mode state for a game.
-
-    Returns:
-        success: Boolean
-        debug_capture: Boolean indicating if debug capture is enabled
-        game_id: The game ID
-    """
-    # Check persisted state in database
-    enabled = persistence.get_debug_capture_enabled(game_id)
-
-    return jsonify({
-        'success': True,
-        'debug_capture': enabled,
-        'game_id': game_id
-    })
-
-
-@prompt_debug_bp.route('/api/prompt-debug/game/<game_id>/debug-mode', methods=['POST'])
-def toggle_debug_mode(game_id):
-    """Toggle debug capture mode for a game.
-
-    Request body:
-        enabled: Boolean to enable/disable debug capture
-    """
-    from ..services import game_state_service
-
-    data = request.get_json() or {}
-    enabled = data.get('enabled', True)
-
-    # Check if game exists
-    game_data = game_state_service.get_game(game_id)
-    if not game_data:
-        return jsonify({'success': False, 'error': 'Game not found'}), 404
-
-    # Persist the state to the database
-    persistence.set_debug_capture_enabled(game_id, enabled)
-
-    # Enable debug capture on all AI controllers
-    controllers = game_state_service.get_ai_controllers(game_id)
-    updated_count = 0
-    for controller in controllers.values():
-        if hasattr(controller, 'debug_capture'):
-            controller.debug_capture = enabled
-            controller._persistence = persistence if enabled else None
-            updated_count += 1
-
-    return jsonify({
-        'success': True,
-        'debug_capture': enabled,
-        'game_id': game_id,
-        'controllers_updated': updated_count
     })
 
 

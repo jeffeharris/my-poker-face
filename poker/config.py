@@ -2,6 +2,19 @@
 Centralized configuration for poker game constants.
 Eliminates magic numbers scattered throughout the codebase.
 """
+import os
+
+
+def is_development_mode() -> bool:
+    """Check if running in development mode.
+
+    Used to enable features like prompt hot-reload that should
+    only be active during development.
+    """
+    flask_env = os.environ.get('FLASK_ENV', 'production')
+    flask_debug = os.environ.get('FLASK_DEBUG', '0')
+    return flask_env == 'development' or flask_debug == '1'
+
 
 # Betting configuration
 MIN_RAISE = 10
@@ -32,7 +45,7 @@ MEMORY_CONTEXT_TOKENS = 150       # Max tokens for session context in prompts
 OPPONENT_SUMMARY_TOKENS = 200     # Max tokens for opponent summaries in prompts
 COMMENTARY_ENABLED = True         # Enable end-of-hand AI commentary
 MEMORABLE_HAND_THRESHOLD = 0.7    # Impact score threshold for memorable hands (0-1)
-MEMORY_TRIM_KEEP_EXCHANGES = 4    # Number of message exchanges to keep when trimming memory
+MEMORY_TRIM_KEEP_EXCHANGES = 0    # Clear conversation memory each turn (was 4) - table chatter preserved via game_messages
 
 # Opponent modeling thresholds
 MIN_HANDS_FOR_STYLE_LABEL = 5     # Minimum hands observed before labeling play style

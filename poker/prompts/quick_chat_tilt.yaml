@@ -1,0 +1,24 @@
+name: quick_chat_tilt
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Get under their skin. Be MEAN. Attack their ego, mistakes, insecurities.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "That call was... a choice."
+    - "You look nervous, {target_first_name}."
+    - "Remember last hand, {target_first_name}?"
+    - "{target_first_name}, still thinking about that one?"
+
+    Include "{target_first_name}" naturally. Make it PERSONAL - reference their recent play or words.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "tilt"}}, {{"text": "...", "tone": "tilt"}}], "targetPlayer": "{target_player}"}}

@@ -7,6 +7,15 @@ export interface PlayerPsychology {
   losing_streak: number;
 }
 
+export interface LLMDebugInfo {
+  provider: string;           // e.g., 'openai', 'anthropic', 'groq'
+  model: string;              // e.g., 'gpt-5-nano', 'claude-sonnet-4'
+  reasoning_effort?: string;  // e.g., 'low', 'medium', 'high'
+  total_calls: number;        // Number of decisions made
+  avg_latency_ms: number;     // Average response time
+  avg_cost_per_call: number;  // Average cost per decision
+}
+
 export interface Player {
   name: string;
   stack: number;
@@ -18,4 +27,5 @@ export interface Player {
   avatar_url?: string;
   avatar_emotion?: string;
   psychology?: PlayerPsychology;
+  llm_debug?: LLMDebugInfo;  // AI model stats (debug mode only)
 }
