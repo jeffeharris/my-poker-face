@@ -73,10 +73,11 @@ class ResponseValidator:
             if response["action"] not in context["valid_actions"]:
                 self.errors.append(f"Invalid action: {response['action']}. Must be one of: {context['valid_actions']}")
         
-        # Validate adding_to_pot is numeric if present
+        # Validate and normalize adding_to_pot to int if present
         if "adding_to_pot" in response:
             try:
                 amount = int(response["adding_to_pot"])
+                response["adding_to_pot"] = amount  # Convert in place
                 if amount < 0:
                     self.errors.append("adding_to_pot must be non-negative")
             except (ValueError, TypeError):

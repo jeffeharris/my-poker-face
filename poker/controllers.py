@@ -301,10 +301,17 @@ class AIPlayerController:
             response_dict.setdefault('action', default_action)
             logger.warning(f"AI response was missing action, defaulted to {default_action}")
         
-        # Set default for adding_to_pot if not present
+        # Set default for adding_to_pot if not present, and ensure it's an int
+        # (AI may return numbers as strings in JSON)
         if 'adding_to_pot' not in response_dict:
             response_dict['adding_to_pot'] = 0
-        
+        else:
+            try:
+                response_dict['adding_to_pot'] = int(response_dict['adding_to_pot'])
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid adding_to_pot value: {response_dict['adding_to_pot']}, defaulting to 0")
+                response_dict['adding_to_pot'] = 0
+
         # Normalize action to lowercase for consistency (before validation checks)
         if 'action' in response_dict:
             response_dict['action'] = response_dict['action'].lower()
