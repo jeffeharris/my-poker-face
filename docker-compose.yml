@@ -19,6 +19,7 @@ services:
       - FLASK_APP=flask_app.ui_web
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379
+      - ENABLE_AI_DEBUG=${ENABLE_AI_DEBUG:-false}
     env_file:
       - .env
     command: python -m flask_app.ui_web
@@ -48,6 +49,7 @@ services:
       # VITE_BACKEND_PORT tells frontend which host port to use for API calls
       - VITE_BACKEND_PORT=${BACKEND_PORT:-5000}
       - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
+      - VITE_ENABLE_AI_DEBUG=${ENABLE_AI_DEBUG:-false}
     depends_on:
       - backend
     command: sh -c "rm -rf node_modules/.vite* && npm run dev -- --host 0.0.0.0"

@@ -1,0 +1,326 @@
+/* LLMDebugModal - Mobile Bottom Sheet with CRT Aesthetic */
+
+.llm-debug-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: overlay-fade-in 0.2s ease-out;
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.llm-debug-modal {
+  --phosphor-green: #39ff14;
+  --phosphor-dim: #1a8f0a;
+  --phosphor-glow: rgba(57, 255, 20, 0.6);
+  --crt-black: #0a0a0a;
+  --scanline: rgba(0, 0, 0, 0.12);
+  --cyan-accent: #00ffff;
+  --amber-accent: #ffb000;
+
+  width: 100%;
+  max-width: 400px;
+  max-height: 70vh;
+  background: var(--crt-black);
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
+  animation: modal-slide-up 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+@keyframes modal-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* CRT Screen container */
+.llm-debug-crt {
+  position: relative;
+  padding: 16px 20px 20px;
+  font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Subtle screen glow */
+  box-shadow: inset 0 0 40px rgba(57, 255, 20, 0.08);
+}
+
+/* Scanline overlay */
+.llm-debug-scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    var(--scanline) 0px,
+    var(--scanline) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0.6;
+}
+
+/* Header */
+.llm-debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--phosphor-dim);
+}
+
+.llm-debug-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.llm-debug-title {
+  color: var(--phosphor-green);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  margin: 0;
+  text-shadow:
+    0 0 4px var(--phosphor-glow),
+    0 0 8px var(--phosphor-glow),
+    0 0 12px rgba(57, 255, 20, 0.3);
+}
+
+.block-char {
+  color: var(--phosphor-green);
+  font-size: 12px;
+  text-shadow:
+    0 0 4px var(--phosphor-glow),
+    0 0 8px var(--phosphor-glow);
+}
+
+.block-char::before {
+  content: '\2593\2593';
+}
+
+.llm-debug-close {
+  background: transparent;
+  border: 1px solid var(--phosphor-dim);
+  border-radius: 4px;
+  padding: 4px;
+  color: var(--phosphor-dim);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.llm-debug-close:hover,
+.llm-debug-close:active {
+  color: var(--phosphor-green);
+  border-color: var(--phosphor-green);
+  box-shadow: 0 0 8px var(--phosphor-glow);
+}
+
+/* Player name */
+.llm-debug-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(57, 255, 20, 0.05);
+  border-radius: 4px;
+  border-left: 2px solid var(--phosphor-green);
+}
+
+.player-label {
+  color: var(--phosphor-dim);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.player-value {
+  color: var(--phosphor-green);
+  font-size: 14px;
+  font-weight: 500;
+  text-shadow: 0 0 4px var(--phosphor-glow);
+}
+
+/* Stats section */
+.llm-debug-stats {
+  animation: stats-fade-in 0.4s ease-out 0.1s both;
+}
+
+@keyframes stats-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stat-group {
+  margin-bottom: 4px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.stat-label {
+  color: var(--phosphor-dim);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  color: var(--phosphor-green);
+  font-size: 13px;
+  font-weight: 400;
+  text-shadow:
+    0 0 2px var(--phosphor-glow),
+    0 0 4px var(--phosphor-glow);
+}
+
+.model-value {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latency-value {
+  color: var(--cyan-accent);
+  text-shadow:
+    0 0 2px rgba(0, 255, 255, 0.6),
+    0 0 4px rgba(0, 255, 255, 0.4);
+}
+
+.cost-value.high-cost {
+  color: var(--amber-accent);
+  text-shadow:
+    0 0 2px rgba(255, 176, 0, 0.6),
+    0 0 4px rgba(255, 176, 0, 0.4);
+}
+
+.stat-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--phosphor-dim) 15%,
+    var(--phosphor-dim) 85%,
+    transparent 100%
+  );
+  margin: 12px 0;
+}
+
+/* Footer with progress */
+.stat-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.progress-visualization {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.progress-block {
+  width: 12px;
+  height: 8px;
+  background: var(--phosphor-green);
+  opacity: 0.7;
+  box-shadow: 0 0 4px var(--phosphor-glow);
+  border-radius: 1px;
+}
+
+.progress-block:nth-child(odd) {
+  opacity: 0.9;
+}
+
+.call-count {
+  color: var(--phosphor-dim);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+
+/* No data state */
+.llm-debug-no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  gap: 8px;
+}
+
+.no-data-text {
+  color: var(--phosphor-dim);
+  font-size: 14px;
+  font-weight: 500;
+  animation: blink 1.5s infinite;
+}
+
+.no-data-hint {
+  color: var(--phosphor-dim);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 0.4; }
+}
+
+/* Modal footer */
+.llm-debug-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(57, 255, 20, 0.1);
+  text-align: center;
+}
+
+.footer-text {
+  color: var(--phosphor-dim);
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.5;
+}
+
+/* Boot flicker animation */
+.llm-debug-crt {
+  animation: boot-flicker 0.5s ease-out;
+}
+
+@keyframes boot-flicker {
+  0%, 8% { opacity: 0; }
+  12%, 18% { opacity: 1; }
+  22% { opacity: 0.4; }
+  28%, 100% { opacity: 1; }
+}

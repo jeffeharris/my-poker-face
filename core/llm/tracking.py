@@ -484,9 +484,49 @@ def capture_prompt(
                 capture_data.get('raise_amount'),
             ))
 
-        logger.debug(f"Captured prompt for {call_type.value}: {response.model}")
-        return True
+        capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        logger.debug(f"Captured prompt {capture_id} for {call_type.value}: {response.model}")
+        return capture_id
 
     except Exception as e:
         logger.error(f"Failed to capture prompt: {e}")
+        return None
+
+
+def update_prompt_capture(capture_id: int, **fields) -> bool:
+    """Update a prompt capture with additional fields (e.g., action_taken after parsing).
+
+    Args:
+        capture_id: The ID of the capture to update
+        **fields: Fields to update (action_taken, raise_amount, etc.)
+
+    Returns:
+        True if update succeeded, False otherwise
+    """
+    if not capture_id or not fields:
+        return False
+
+    try:
+        # Get database path
+        if Path('/app/data').exists():
+            db_path = '/app/data/poker_games.db'
+        else:
+            db_path = str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+        # Build UPDATE statement for provided fields
+        allowed_fields = {'action_taken', 'raise_amount'}
+        update_fields = {k: v for k, v in fields.items() if k in allowed_fields}
+
+        if not update_fields:
+            return False
+
+        set_clause = ", ".join(f"{k} = ?" for k in update_fields.keys())
+        values = list(update_fields.values()) + [capture_id]
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(f"UPDATE prompt_captures SET {set_clause} WHERE id = ?", values)
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update prompt capture {capture_id}: {e}")
         return False

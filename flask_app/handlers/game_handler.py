@@ -24,7 +24,9 @@ from core.card import Card
 from ..extensions import socketio, persistence
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
+from ..services.ai_debug_service import get_all_players_llm_stats
 from .message_handler import send_message, format_action_message, record_action_in_memory
+from .. import config
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,19 @@ def update_and_emit_game_state(game_id: str) -> None:
             }
             player_dict['psychology'] = psych_data
             logger.debug(f"[HeadsUp] Psychology for {player_name}: {psych_data}")
+
+    # Add LLM debug info for AI players (when enabled)
+    if config.enable_ai_debug:
+        ai_player_names = [
+            p.get('name') for p in game_state_dict.get('players', [])
+            if not p.get('is_human', True)
+        ]
+        if ai_player_names:
+            llm_stats = get_all_players_llm_stats(game_id, ai_player_names)
+            for player_dict in game_state_dict.get('players', []):
+                player_name = player_dict.get('name', '')
+                if player_name in llm_stats:
+                    player_dict['llm_debug'] = llm_stats[player_name]
 
     # Include messages (transform to frontend format)
     messages = []

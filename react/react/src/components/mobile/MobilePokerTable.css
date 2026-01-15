@@ -277,6 +277,45 @@
     border: 2px solid #ffd700;
 }
 
+/* AI Debug mode - tappable avatars */
+.opponent-avatar.debug-enabled {
+    cursor: pointer;
+}
+
+.opponent-avatar.debug-enabled:active {
+    transform: scale(0.95);
+}
+
+/* Debug badge indicator (phosphor green dot) */
+.debug-badge {
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    z-index: 4;
+    width: 12px;
+    height: 12px;
+    background: #39ff14;
+    border-radius: 50%;
+    border: 2px solid #0a0a0a;
+    box-shadow:
+        0 0 4px rgba(57, 255, 20, 0.8),
+        0 0 8px rgba(57, 255, 20, 0.4);
+    animation: debug-pulse 2s ease-in-out infinite;
+}
+
+@keyframes debug-pulse {
+    0%, 100% {
+        box-shadow:
+            0 0 4px rgba(57, 255, 20, 0.8),
+            0 0 8px rgba(57, 255, 20, 0.4);
+    }
+    50% {
+        box-shadow:
+            0 0 6px rgba(57, 255, 20, 1),
+            0 0 12px rgba(57, 255, 20, 0.6);
+    }
+}
+
 .opponent-info {
     display: flex;
     flex-direction: column;

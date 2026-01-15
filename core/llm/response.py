@@ -21,6 +21,7 @@ class LLMResponse:
     error_code: Optional[str] = None
     request_id: Optional[str] = None  # Vendor request ID for correlation
     raw_response: Any = field(default=None, repr=False)
+    capture_id: Optional[int] = None  # ID of prompt capture for later updates
 
     @property
     def total_tokens(self) -> int:

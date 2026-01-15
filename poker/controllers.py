@@ -347,6 +347,13 @@ class AIPlayerController:
         # Analyze decision quality (always, for monitoring)
         self._analyze_decision(response_dict, context)
 
+        # Update capture with action_taken (now that we've parsed the response)
+        if llm_response.capture_id:
+            from core.llm.tracking import update_prompt_capture
+            action = response_dict.get('action')
+            raise_amount = response_dict.get('adding_to_pot') if action == 'raise' else None
+            update_prompt_capture(llm_response.capture_id, action_taken=action, raise_amount=raise_amount)
+
         return response_dict
 
     def _analyze_decision(self, response_dict: Dict, context: Dict) -> None:
