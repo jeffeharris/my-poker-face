@@ -1116,7 +1116,8 @@ def handle_ai_action(game_id: str) -> None:
         player_response_dict = controller.decide_action(game_messages[-AI_MESSAGE_CONTEXT_LIMIT:])
 
         action = player_response_dict['action']
-        amount = player_response_dict.get('adding_to_pot', 0)
+        # Ensure amount is int (defensive - controllers.py should handle this, but be safe)
+        amount = int(player_response_dict.get('adding_to_pot', 0) or 0)
         player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
 

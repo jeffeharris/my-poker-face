@@ -40,10 +40,10 @@ def _validate_format_placeholders(text: str) -> Set[str]:
     Raises:
         ValueError: If an unsafe placeholder is detected
     """
-    # Remove escaped braces ({{ and }}) before validation
-    # These are Python's way of including literal braces in format strings
-    text_without_escapes = text.replace('{{', '').replace('}}', '')
-    placeholders = _FORMAT_PLACEHOLDER_RE.findall(text_without_escapes)
+    # Remove escaped braces before validation - {{ and }} are literal braces
+    # in Python's .format(), not placeholders
+    unescaped_text = text.replace('{{', '').replace('}}', '')
+    placeholders = _FORMAT_PLACEHOLDER_RE.findall(unescaped_text)
     validated = set()
 
     for placeholder in placeholders:
