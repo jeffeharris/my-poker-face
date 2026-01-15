@@ -30,24 +30,6 @@ interface ElasticityData {
   [playerName: string]: PlayerElasticity;
 }
 
-interface LLMConfig {
-  provider?: string;
-  model?: string;
-  reasoning_effort?: string;
-}
-
-interface PlayerLLMConfig {
-  name: string;
-  is_human: boolean;
-  llm_config: LLMConfig | null;
-  has_custom_config?: boolean;
-}
-
-interface LLMConfigData {
-  default_llm_config: LLMConfig;
-  player_configs: PlayerLLMConfig[];
-}
-
 export function DebugPanel({ gameId, socket }: DebugPanelProps) {
   const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css' | 'prompts'>('elasticity');
   const [elasticityData, setElasticityData] = useState<ElasticityData>({});
