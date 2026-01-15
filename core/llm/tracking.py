@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple, List, Callable, Any
 
 from .response import LLMResponse, ImageResponse
-from .capture_config import should_capture_prompt, PROMPT_CAPTURE_MODE, CAPTURE_DISABLED
+from .capture_config import should_capture_prompt
 
 logger = logging.getLogger(__name__)
 

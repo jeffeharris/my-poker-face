@@ -3888,7 +3888,11 @@ class GamePersistence:
                         try:
                             capture[field] = json.loads(capture[field])
                         except json.JSONDecodeError:
-                            pass
+                            logger.warning(
+                                "Failed to decode JSON for field '%s' on capture id=%s; keeping raw value",
+                                field,
+                                capture.get("id"),
+                            )
                 captures.append(capture)
 
             return {

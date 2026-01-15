@@ -551,7 +551,6 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    import sqlite3
     from pathlib import Path
 
     db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
