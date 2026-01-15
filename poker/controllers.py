@@ -105,13 +105,12 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, llm_config=None,
                  session_memory=None, opponent_model_manager=None,
-                 game_id=None, owner_id=None, debug_capture=False, persistence=None):
+                 game_id=None, owner_id=None, persistence=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
         self.game_id = game_id
         self.owner_id = owner_id
-        self.debug_capture = debug_capture
         self._persistence = persistence
         self.ai_player = AIPokerPlayer(
             player_name,

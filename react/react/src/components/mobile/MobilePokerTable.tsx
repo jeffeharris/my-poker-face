@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Check, X, MessageCircle, Circle } from 'lucide-react';
+import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
@@ -48,30 +48,8 @@ export function MobilePokerTable({
     setRecentAiMessage(null);
   }, []);
 
-  // Debug mode state
-  const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
-
   // LLM Debug modal state
   const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
-
-  // Toggle prompt capture for debugging AI decisions
-  const togglePromptCapture = async () => {
-    if (!gameId) return;
-    try {
-      const newState = !promptCaptureEnabled;
-      const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ enabled: newState }),
-      });
-      if (response.ok) {
-        setPromptCaptureEnabled(newState);
-      }
-    } catch (error) {
-      console.error('Failed to toggle prompt capture:', error);
-    }
-  };
 
   // Use the shared hook for all socket/state management
   const {
@@ -95,27 +73,6 @@ export function MobilePokerTable({
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
   });
-
-  // Fetch debug capture state on mount and when gameId changes
-  useEffect(() => {
-    if (!gameId) return;
-
-    const fetchDebugModeState = async () => {
-      try {
-        const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setPromptCaptureEnabled(data.debug_capture || false);
-        }
-      } catch (error) {
-        console.error('Failed to fetch debug mode state:', error);
-      }
-    };
-
-    fetchDebugModeState();
-  }, [gameId]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -296,30 +253,10 @@ export function MobilePokerTable({
         onBack={onBack}
         centerContent={<PotDisplay total={gameState.pot.total} />}
         rightContent={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {config.ENABLE_DEBUG && (
-              <button
-                onClick={togglePromptCapture}
-                style={{
-                  padding: '4px',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <Circle
-                  size={20}
-                  fill={promptCaptureEnabled ? '#e74c3c' : 'none'}
-                  color={promptCaptureEnabled ? '#e74c3c' : 'rgba(255,255,255,0.5)'}
-                />
-              </button>
-            )}
-            <ChatToggle
-              onClick={() => setShowChatSheet(true)}
-              badgeCount={messages.length}
-            />
-          </div>
+          <ChatToggle
+            onClick={() => setShowChatSheet(true)}
+            badgeCount={messages.length}
+          />
         }
       />
 

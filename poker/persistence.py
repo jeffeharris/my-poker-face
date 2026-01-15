@@ -2721,41 +2721,6 @@ class GamePersistence:
             result = cursor.fetchone()[0]
             return result or 0
 
-    def get_debug_capture_enabled(self, game_id: str) -> bool:
-        """Get the debug capture enabled state for a game.
-
-        Args:
-            game_id: The game identifier
-
-        Returns:
-            True if debug capture is enabled, False otherwise (default)
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT debug_capture_enabled FROM games WHERE game_id = ?",
-                (game_id,)
-            )
-            result = cursor.fetchone()
-            return bool(result[0]) if result and result[0] else False
-
-    def set_debug_capture_enabled(self, game_id: str, enabled: bool) -> bool:
-        """Set the debug capture enabled state for a game.
-
-        Args:
-            game_id: The game identifier
-            enabled: Whether debug capture should be enabled
-
-        Returns:
-            True if the update succeeded, False otherwise
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "UPDATE games SET debug_capture_enabled = ? WHERE game_id = ?",
-                (1 if enabled else 0, game_id)
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-
     def load_hand_history(self, game_id: str, limit: int = None) -> List[Dict[str, Any]]:
         """Load hand history for a game.
 

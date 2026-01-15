@@ -31,32 +31,9 @@ interface ElasticityData {
 }
 
 export function DebugPanel({ gameId, socket }: DebugPanelProps) {
-  const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css' | 'prompts'>('elasticity');
+  const [activeTab, setActiveTab] = useState<'elasticity' | 'cards' | 'css'>('elasticity');
   const [elasticityData, setElasticityData] = useState<ElasticityData>({});
   const [loading, setLoading] = useState(false);
-  const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
-  const [captureStats, setCaptureStats] = useState<{ total: number; suspicious_folds: number } | null>(null);
-
-  // Fetch debug mode state on mount and when gameId changes
-  useEffect(() => {
-    if (!gameId) return;
-
-    const fetchDebugModeState = async () => {
-      try {
-        const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setPromptCaptureEnabled(data.debug_capture || false);
-        }
-      } catch (error) {
-        console.error('Failed to fetch debug mode state:', error);
-      }
-    };
-
-    fetchDebugModeState();
-  }, [gameId]);
 
   // Sample cards for demo
   const demoCards = [
@@ -103,51 +80,6 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
     }
   }, [gameId, activeTab, socket]);
 
-  // Toggle prompt capture mode
-  const togglePromptCapture = async () => {
-    if (!gameId) return;
-
-    try {
-      const newState = !promptCaptureEnabled;
-      const response = await fetch(`${config.API_URL}/api/prompt-debug/game/${gameId}/debug-mode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ enabled: newState }),
-      });
-
-      if (response.ok) {
-        setPromptCaptureEnabled(newState);
-      }
-    } catch (error) {
-      console.error('Failed to toggle prompt capture:', error);
-    }
-  };
-
-  // Fetch capture stats when on prompts tab
-  useEffect(() => {
-    if (!gameId || activeTab !== 'prompts') return;
-
-    const fetchStats = async () => {
-      try {
-        const response = await fetch(
-          `${config.API_URL}/api/prompt-debug/captures?game_id=${gameId}&limit=1`,
-          { credentials: 'include' }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          setCaptureStats(data.stats);
-        }
-      } catch (error) {
-        console.error('Failed to fetch capture stats:', error);
-      }
-    };
-
-    fetchStats();
-    const interval = setInterval(fetchStats, 5000);
-    return () => clearInterval(interval);
-  }, [gameId, activeTab]);
-
   const getTraitColor = (trait: TraitData) => {
     const deviation = Math.abs(trait.current - trait.anchor);
     if (deviation > trait.elasticity * 0.7) return '#ff4444'; // High deviation
@@ -182,12 +114,6 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
             onClick={() => setActiveTab('css')}
           >
             CSS Debug
-          </button>
-          <button
-            className={`debug-tab ${activeTab === 'prompts' ? 'active' : ''} ${promptCaptureEnabled ? 'recording' : ''}`}
-            onClick={() => setActiveTab('prompts')}
-          >
-            Prompts {promptCaptureEnabled && '🔴'}
           </button>
         </div>
       </div>
@@ -320,40 +246,6 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
         {activeTab === 'css' && (
           <div className="css-debug-content">
             <CSSDebugger standalone={false} />
-          </div>
-        )}
-
-        {activeTab === 'prompts' && (
-          <div className="prompts-content">
-            <div className="prompt-capture-toggle">
-              <h4>Prompt Capture</h4>
-              <p>Capture AI decision prompts and responses for debugging.</p>
-
-              <button
-                className={`capture-toggle-btn ${promptCaptureEnabled ? 'enabled' : ''}`}
-                onClick={togglePromptCapture}
-                disabled={!gameId}
-              >
-                {promptCaptureEnabled ? '🔴 Recording - Click to Stop' : '⏺️ Start Recording'}
-              </button>
-
-              {captureStats && (
-                <div className="capture-stats">
-                  <div className="stat">
-                    <span className="stat-value">{captureStats.total}</span>
-                    <span className="stat-label">Captures</span>
-                  </div>
-                  <div className="stat warning">
-                    <span className="stat-value">{captureStats.suspicious_folds}</span>
-                    <span className="stat-label">Suspicious Folds</span>
-                  </div>
-                </div>
-              )}
-
-              <p className="prompt-hint">
-                View captured prompts in the Prompt Debugger from the main menu.
-              </p>
-            </div>
           </div>
         )}
       </div>
