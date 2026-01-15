@@ -23,6 +23,193 @@ from .player_psychology import PlayerPsychology
 
 logger = logging.getLogger(__name__)
 
+# Hand strength evaluation for clearer AI decision making
+SUIT_MAP = {'♣': 'c', '♦': 'd', '♠': 's', '♥': 'h'}
+
+
+def _convert_card_for_eval(card_str: str) -> str:
+    """Convert unicode card string to eval7 format."""
+    for unicode_suit, letter_suit in SUIT_MAP.items():
+        if unicode_suit in card_str:
+            card_str = card_str.replace(unicode_suit, letter_suit)
+            break
+    if card_str.startswith('10'):
+        card_str = 'T' + card_str[2:]
+    return card_str
+
+
+def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
+    """
+    Evaluate hand strength and return a human-readable description.
+
+    Returns None if eval7 is not available or cards are insufficient.
+    """
+    if not community_cards:  # Pre-flop - no hand to evaluate
+        return None
+
+    try:
+        import eval7
+
+        # Convert cards
+        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
+        board = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+
+        # Evaluate
+        score = eval7.evaluate(hand + board)
+        hand_type = eval7.handtype(score)
+
+        # Map to clearer descriptions
+        strength_map = {
+            'High Card': ('High Card', 'Weak - only high card'),
+            'Pair': ('One Pair', 'Marginal'),
+            'Two Pair': ('Two Pair', 'Strong'),
+            'Trips': ('Three of a Kind', 'Very Strong'),
+            'Straight': ('Straight', 'Very Strong'),
+            'Flush': ('Flush', 'Very Strong'),
+            'Full House': ('Full House', 'Monster'),
+            'Quads': ('Four of a Kind', 'Monster'),
+            'Straight Flush': ('Straight Flush', 'Nuts'),
+        }
+
+        name, assessment = strength_map.get(hand_type, (hand_type, 'Unknown'))
+        return f"{name} - {assessment}"
+
+    except ImportError:
+        return None
+    except Exception as e:
+        logger.debug(f"Hand evaluation failed: {e}")
+        return None
+
+
+# Preflop hand rankings - neutral/informational only
+# Based on standard poker hand rankings (169 unique starting hands)
+PREMIUM_HANDS = {'AA', 'KK', 'QQ', 'JJ', 'AKs'}  # Top ~3%
+TOP_10_HANDS = PREMIUM_HANDS | {'TT', 'AKo', 'AQs', 'AJs', 'KQs'}  # Top ~10%
+TOP_20_HANDS = TOP_10_HANDS | {'99', '88', '77', 'ATs', 'AQo', 'AJo', 'KJs', 'KTs', 'QJs', 'QTs', 'JTs'}  # Top ~20%
+TOP_35_HANDS = TOP_20_HANDS | {
+    '66', '55', '44', '33', '22',  # Small pairs
+    'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',  # Suited aces
+    'KQo', 'K9s', 'K8s', 'Q9s', 'J9s', 'T9s', '98s', '87s', '76s', '65s', '54s',  # Suited connectors
+}
+
+
+def _get_canonical_hand(hole_cards: List[str]) -> str:
+    """Convert hole cards to canonical notation (e.g., 'AKs', 'QQ', 'T9o')."""
+    if len(hole_cards) != 2:
+        return ''
+
+    # Normalize cards
+    c1 = _convert_card_for_eval(hole_cards[0])
+    c2 = _convert_card_for_eval(hole_cards[1])
+
+    # Extract rank and suit
+    rank1, suit1 = c1[0], c1[1] if len(c1) > 1 else ''
+    rank2, suit2 = c2[0], c2[1] if len(c2) > 1 else ''
+
+    # Rank order for comparison
+    rank_order = '23456789TJQKA'
+    idx1 = rank_order.index(rank1) if rank1 in rank_order else -1
+    idx2 = rank_order.index(rank2) if rank2 in rank_order else -1
+
+    # Order by rank (higher first)
+    if idx1 < idx2:
+        rank1, rank2 = rank2, rank1
+        suit1, suit2 = suit2, suit1
+
+    # Build canonical notation
+    if rank1 == rank2:
+        return f"{rank1}{rank2}"  # Pair
+    elif suit1 == suit2:
+        return f"{rank1}{rank2}s"  # Suited
+    else:
+        return f"{rank1}{rank2}o"  # Offsuit
+
+
+def _get_hand_category(canonical: str) -> str:
+    """Get descriptive category for a hand."""
+    if len(canonical) == 2:  # Pair
+        rank = canonical[0]
+        if rank in 'AKQJ':
+            return "High pocket pair"
+        elif rank in 'T987':
+            return "Medium pocket pair"
+        else:
+            return "Low pocket pair"
+
+    rank1, rank2 = canonical[0], canonical[1]
+    suited = canonical.endswith('s')
+
+    # Broadway cards (T+)
+    broadway = 'AKQJT'
+    if rank1 in broadway and rank2 in broadway:
+        return "Suited broadway" if suited else "Offsuit broadway"
+
+    # Ace-x hands
+    if rank1 == 'A':
+        return "Suited ace" if suited else "Offsuit ace"
+
+    # Connectors/gappers
+    rank_order = '23456789TJQKA'
+    idx1 = rank_order.index(rank1) if rank1 in rank_order else -1
+    idx2 = rank_order.index(rank2) if rank2 in rank_order else -1
+    gap = abs(idx1 - idx2)
+
+    if gap == 1:
+        return "Suited connector" if suited else "Offsuit connector"
+    elif gap <= 3 and suited:
+        return "Suited gapper"
+
+    # Default
+    if suited:
+        return "Suited cards"
+    else:
+        return "Unconnected cards"
+
+
+def _get_hand_percentile(canonical: str) -> str:
+    """Get percentile ranking for a hand."""
+    if canonical in PREMIUM_HANDS:
+        return "Top 3% of starting hands"
+    elif canonical in TOP_10_HANDS:
+        return "Top 10% of starting hands"
+    elif canonical in TOP_20_HANDS:
+        return "Top 20% of starting hands"
+    elif canonical in TOP_35_HANDS:
+        return "Top 35% of starting hands"
+    else:
+        # Check for weak hands
+        rank1 = canonical[0] if canonical else ''
+        rank2 = canonical[1] if len(canonical) > 1 else ''
+        low_ranks = '23456'
+
+        if rank1 in low_ranks and rank2 in low_ranks:
+            return "Bottom 10% of starting hands"
+        elif rank1 in '789' and rank2 in low_ranks:
+            return "Bottom 25% of starting hands"
+        else:
+            return "Below average starting hand"
+
+
+def classify_preflop_hand(hole_cards: List[str]) -> Optional[str]:
+    """
+    Classify preflop hand strength - neutral/informational only.
+
+    Returns a factual description without prescriptive action advice,
+    preserving AI personality-driven decision making.
+    """
+    try:
+        canonical = _get_canonical_hand(hole_cards)
+        if not canonical:
+            return None
+
+        category = _get_hand_category(canonical)
+        percentile = _get_hand_percentile(canonical)
+
+        return f"{canonical} - {category}, {percentile}"
+    except Exception as e:
+        logger.debug(f"Preflop classification failed: {e}")
+        return None
+
 
 class ConsolePlayerController:
     def __init__(self, player_name, state_machine: PokerStateMachine = None):
@@ -713,11 +900,19 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages):
     #         action_comment_list[-number_of_opponents:], self.name)
     action_summary = messages
 
+    # Evaluate hand strength - preflop uses classification, post-flop uses eval7
+    if community_cards:
+        hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+    else:
+        hand_strength = classify_preflop_hand(hole_cards)
+    hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
+
     persona_state = (
         f"Persona: {persona}\n"
         # f"Attitude: {attitude}\n"
         # f"Confidence: {confidence}\n"
         f"Your Cards: {hole_cards}\n"
+        f"{hand_strength_line}"
         f"Your Money: {player_money}\n"
     )
 
