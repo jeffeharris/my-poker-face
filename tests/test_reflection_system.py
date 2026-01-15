@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from poker.memory.commentary_generator import DecisionPlan, HandCommentary
 from poker.memory.session_memory import SessionMemory
-from poker.memory.opponent_model import OpponentModel, OpponentModelManager
+from poker.memory.opponent_model import OpponentModel
 from poker.persistence import GamePersistence
 from poker.prompt_config import PromptConfig
 
