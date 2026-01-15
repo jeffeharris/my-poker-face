@@ -338,3 +338,132 @@
   0%, 100% { background: transparent; }
   50% { background: rgba(255, 68, 68, 0.1); }
 }
+
+/* LLM Config Tab */
+.llm-config-content {
+  padding: 8px;
+}
+
+.llm-default-config {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.llm-default-config h4,
+.llm-players-grid h4 {
+  margin: 0 0 12px 0;
+  color: #4caf50;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.llm-config-details {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.llm-config-item {
+  display: flex;
+  gap: 8px;
+}
+
+.llm-config-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+
+.llm-config-value {
+  color: #88ccff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.llm-players-grid {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.llm-grid-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 2fr 1fr;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+}
+
+.llm-grid-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 2fr 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  transition: background 0.2s ease;
+}
+
+.llm-grid-row:last-child {
+  border-bottom: none;
+}
+
+.llm-grid-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.llm-grid-row.human {
+  opacity: 0.5;
+}
+
+.llm-grid-row.custom {
+  background: rgba(255, 152, 0, 0.08);
+}
+
+.llm-grid-row.custom:hover {
+  background: rgba(255, 152, 0, 0.12);
+}
+
+.llm-player-name {
+  color: #ffcc00;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.custom-badge {
+  color: #ff9800;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.llm-provider {
+  color: #88ccff;
+}
+
+.llm-model {
+  color: #4ecca3;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.llm-reasoning {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.llm-no-data {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 40px;
+  font-style: italic;
+}

@@ -3,8 +3,10 @@
 import time
 import json
 import logging
+import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
 from flask_socketio import join_room
@@ -35,6 +37,7 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
+from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +255,14 @@ def api_game_state(game_id):
             base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
-                ai_controllers = restore_ai_controllers(game_id, state_machine, persistence, owner_id=owner_id)
+                # Load per-player LLM configs for proper provider restoration
+                llm_configs = persistence.load_llm_configs(game_id) or {}
+                ai_controllers = restore_ai_controllers(
+                    game_id, state_machine, persistence,
+                    owner_id=owner_id,
+                    player_llm_configs=llm_configs.get('player_llm_configs'),
+                    default_llm_config=llm_configs.get('default_llm_config')
+                )
                 db_messages = persistence.load_messages(game_id)
 
                 elasticity_manager = ElasticityManager()
@@ -416,6 +426,153 @@ def api_game_state(game_id):
     return jsonify(response)
 
 
+def _get_db_path() -> str:
+    """Get the database path based on environment."""
+    if Path('/app/data').exists():
+        return '/app/data/poker_games.db'
+    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+
+def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
+    """Calculate cost tiers for all models from pricing database.
+
+    Tiers are based on output_tokens_1m cost:
+    - free: <= $0.10
+    - $: < $1.00
+    - $$: $1.00 - $5.00
+    - $$$: $5.00 - $20.00
+    - $$$$: > $20.00
+
+    Returns:
+        Dict mapping provider -> model -> tier string
+    """
+    tiers: Dict[str, Dict[str, str]] = {}
+
+    # Model aliases: UI name -> pricing table name(s)
+    # Used when UI model names differ from actual API model names
+    model_aliases = {
+        'xai': {
+            'grok-4-fast': 'grok-4-fast-reasoning',  # Maps to same price as non-reasoning
+        }
+    }
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.execute("""
+                SELECT provider, model, cost FROM model_pricing
+                WHERE unit = 'output_tokens_1m'
+                  AND (valid_from IS NULL OR valid_from <= datetime('now'))
+                  AND (valid_until IS NULL OR valid_until > datetime('now'))
+            """)
+
+            for provider, model, cost in cursor:
+                if provider not in tiers:
+                    tiers[provider] = {}
+
+                # Calculate tier based on output cost thresholds
+                if cost <= 0.10:
+                    tier = "free"
+                elif cost < 1.00:
+                    tier = "$"
+                elif cost <= 5.00:
+                    tier = "$$"
+                elif cost <= 20.00:
+                    tier = "$$$"
+                else:
+                    tier = "$$$$"
+
+                tiers[provider][model] = tier
+
+            # Apply model aliases: copy tier from pricing model to UI model name
+            for provider, aliases in model_aliases.items():
+                if provider in tiers:
+                    for ui_model, pricing_model in aliases.items():
+                        if pricing_model in tiers[provider]:
+                            tiers[provider][ui_model] = tiers[provider][pricing_model]
+
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        logger.warning(f"Failed to load model pricing for tiers: {e}")
+
+    return tiers
+
+
+@game_bp.route('/api/llm-providers', methods=['GET'])
+def api_llm_providers():
+    """Get available LLM providers and their models for game configuration."""
+    from core.llm import (
+        AVAILABLE_PROVIDERS,
+        PROVIDER_MODELS,
+        PROVIDER_DEFAULT_MODELS,
+        PROVIDER_CAPABILITIES,
+    )
+
+    # Get cost tiers from pricing database
+    model_tiers = get_model_cost_tiers()
+
+    # Get enabled models from database (if table exists)
+    enabled_models = _get_enabled_models_map()
+
+    providers = []
+    for provider in AVAILABLE_PROVIDERS:
+        all_models = PROVIDER_MODELS.get(provider, [])
+
+        # Filter by enabled models if we have the table
+        if enabled_models:
+            models = [m for m in all_models if enabled_models.get((provider, m), True)]
+        else:
+            models = all_models
+
+        # Skip providers with no enabled models
+        if not models:
+            continue
+
+        # Adjust default model if it's been disabled
+        default_model = PROVIDER_DEFAULT_MODELS.get(provider)
+        if default_model not in models and models:
+            default_model = models[0]
+
+        providers.append({
+            'id': provider,
+            'name': provider.title(),
+            'models': models,
+            'default_model': default_model,
+            'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+            'model_tiers': model_tiers.get(provider, {}),
+        })
+
+    return jsonify({
+        'providers': providers,
+        'default_provider': 'openai',
+    })
+
+
+def _get_enabled_models_map():
+    """Get a map of (provider, model) -> enabled status.
+
+    Returns empty dict if enabled_models table doesn't exist yet.
+    """
+    from pathlib import Path
+
+    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            # Check if table exists
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='enabled_models'
+            """)
+            if not cursor.fetchone():
+                return {}
+
+            cursor = conn.execute("""
+                SELECT provider, model, enabled FROM enabled_models
+            """)
+            return {(row[0], row[1]): bool(row[2]) for row in cursor.fetchall()}
+    except Exception:
+        return {}
+
+
 @game_bp.route('/api/new-game', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_NEW_GAME)
 def api_new_game():
@@ -441,19 +598,52 @@ def api_new_game():
         owner_name = None
 
     requested_personalities = data.get('personalities', [])
-    llm_config = data.get('llm_config', {})
+    default_llm_config = data.get('llm_config', {})
     starting_stack = data.get('starting_stack', 10000)
     big_blind = data.get('big_blind', 50)
     blind_growth = data.get('blind_growth', 1.5)
     blinds_increase = data.get('blinds_increase', 6)
     max_blind = data.get('max_blind', 0)  # 0 = no limit
 
+    # Validate default LLM config if provided
+    if default_llm_config:
+        default_provider = default_llm_config.get('provider', 'openai').lower()
+        if default_provider not in AVAILABLE_PROVIDERS:
+            return jsonify({'error': f'Invalid default provider: {default_provider}'}), 400
+        default_model = default_llm_config.get('model')
+        if default_model and default_model not in PROVIDER_MODELS.get(default_provider, []):
+            return jsonify({'error': f'Invalid default model {default_model} for provider {default_provider}'}), 400
+
     # Validate: ensure starting stack is at least 10x big blind
     if starting_stack < big_blind * 10:
         starting_stack = big_blind * 10
 
+    # Parse personalities - supports both string names and objects with llm_config
+    # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}}]
+    ai_player_names = []
+    player_llm_configs = {}  # Map of player_name -> llm_config
+
     if requested_personalities:
-        ai_player_names = requested_personalities
+        for p in requested_personalities:
+            if isinstance(p, str):
+                # Simple string name - uses default llm_config
+                ai_player_names.append(p)
+            elif isinstance(p, dict):
+                # Object with name and optional llm_config
+                name = p.get('name')
+                if name:
+                    ai_player_names.append(name)
+                    if 'llm_config' in p:
+                        # Validate per-player LLM config before merging
+                        p_llm_config = p['llm_config']
+                        provider = p_llm_config.get('provider', 'openai').lower()
+                        if provider not in AVAILABLE_PROVIDERS:
+                            return jsonify({'error': f'Invalid provider: {provider}'}), 400
+                        model = p_llm_config.get('model')
+                        if model and model not in PROVIDER_MODELS.get(provider, []):
+                            return jsonify({'error': f'Invalid model {model} for provider {provider}'}), 400
+                        # Merge with default config (per-player overrides default)
+                        player_llm_configs[name] = {**default_llm_config, **p_llm_config}
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
@@ -481,10 +671,12 @@ def api_new_game():
 
     for player in state_machine.game_state.players:
         if not player.is_human:
+            # Use per-player config if set, otherwise use default
+            player_config = player_llm_configs.get(player.name, default_llm_config)
             new_controller = AIPlayerController(
                 player.name,
                 state_machine,
-                llm_config=llm_config,
+                llm_config=player_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 persistence=persistence
@@ -532,7 +724,8 @@ def api_new_game():
         'tournament_tracker': tournament_tracker,
         'owner_id': owner_id,
         'owner_name': owner_name,
-        'llm_config': llm_config,
+        'llm_config': default_llm_config,  # Default config for new players
+        'player_llm_configs': player_llm_configs,  # Per-player overrides
         'messages': [{
             'id': '1',
             'sender': 'System',
@@ -543,7 +736,10 @@ def api_new_game():
     }
     game_state_service.set_game(game_id, game_data)
 
-    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+    persistence.save_game(
+        game_id, state_machine._state_machine, owner_id, owner_name,
+        llm_configs={'player_llm_configs': player_llm_configs, 'default_llm_config': default_llm_config}
+    )
     persistence.save_tournament_tracker(game_id, tournament_tracker)
     persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
@@ -718,6 +914,55 @@ def get_messages(game_id):
     if not game_data:
         return jsonify([])
     return jsonify(game_data.get('messages', []))
+
+
+@game_bp.route('/api/game/<game_id>/llm-configs', methods=['GET'])
+def api_game_llm_configs(game_id):
+    """Get LLM configurations for all players in a game (debug endpoint)."""
+    current_game_data = game_state_service.get_game(game_id)
+
+    if not current_game_data:
+        # Try to load from database
+        try:
+            llm_configs = persistence.load_llm_configs(game_id)
+            if llm_configs:
+                return jsonify(llm_configs)
+            return jsonify({'error': 'Game not found'}), 404
+        except Exception as e:
+            logger.error(f"Error loading LLM configs for game {game_id}: {e}")
+            return jsonify({'error': 'Game not found'}), 404
+
+    # Get configs from memory
+    state_machine = current_game_data['state_machine']
+    ai_controllers = current_game_data.get('ai_controllers', {})
+    default_llm_config = current_game_data.get('llm_config', {})
+    player_llm_configs = current_game_data.get('player_llm_configs', {})
+
+    # Build detailed player configs with actual controller info
+    player_configs = []
+    for player in state_machine.game_state.players:
+        config_entry = {
+            'name': player.name,
+            'is_human': player.is_human,
+        }
+
+        if player.is_human:
+            config_entry['llm_config'] = None
+        elif player.name in ai_controllers:
+            controller = ai_controllers[player.name]
+            # Get the actual config from the controller
+            actual_config = getattr(controller, 'llm_config', {})
+            config_entry['llm_config'] = actual_config if actual_config else default_llm_config
+            config_entry['has_custom_config'] = player.name in player_llm_configs
+        else:
+            # Fallback to stored configs
+            config_entry['llm_config'] = player_llm_configs.get(player.name, default_llm_config)
+            config_entry['has_custom_config'] = player.name in player_llm_configs
+
+    return jsonify({
+        'default_llm_config': default_llm_config,
+        'player_configs': player_configs
+    })
 
 
 # SocketIO event handlers

@@ -1,0 +1,24 @@
+name: quick_chat_goad
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: DARE them. Challenge their courage. Make folding feel like weakness.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "You won't bet, {target_first_name}."
+    - "Fold if you're scared."
+    - "Do it."
+    - "{target_first_name}, prove it."
+
+    Challenge their ego. Make them want to prove you wrong.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "goad"}}, {{"text": "...", "tone": "goad"}}], "targetPlayer": "{target_player}"}}

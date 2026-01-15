@@ -1,13 +1,19 @@
 """Unified LLM client with built-in tracking."""
 import time
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Callable
 
-from .config import DEFAULT_MAX_TOKENS
+from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
 from .response import LLMResponse, ImageResponse
-from .tracking import UsageTracker, CallType
+from .tracking import UsageTracker, CallType, capture_prompt
 from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
+from .providers.groq import GroqProvider
+from .providers.anthropic import AnthropicProvider
+from .providers.deepseek import DeepSeekProvider
+from .providers.mistral import MistralProvider
+from .providers.google import GoogleProvider
+from .providers.xai import XAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,7 @@ class LLMClient:
         """Initialize LLM client.
 
         Args:
-            provider: Provider name ('openai', future: 'anthropic', 'groq')
+            provider: Provider name ('openai', 'groq', 'anthropic', 'deepseek', 'mistral', 'google')
             model: Model to use (provider-specific default if None)
             reasoning_effort: Reasoning effort for models that support it
             tracker: Usage tracker (uses default singleton if None)
@@ -44,10 +50,22 @@ class LLMClient:
         reasoning_effort: str,
     ) -> LLMProvider:
         """Create the appropriate provider instance."""
-        if provider == "openai":
-            return OpenAIProvider(model=model, reasoning_effort=reasoning_effort)
-        else:
-            raise ValueError(f"Unknown provider: {provider}. Supported: openai")
+        # Provider registry - add new providers here
+        provider_registry = {
+            "openai": lambda: OpenAIProvider(model=model, reasoning_effort=reasoning_effort),
+            "groq": lambda: GroqProvider(model=model, reasoning_effort=reasoning_effort),
+            "anthropic": lambda: AnthropicProvider(model=model, reasoning_effort=reasoning_effort),
+            "deepseek": lambda: DeepSeekProvider(model=model, reasoning_effort=reasoning_effort),
+            "mistral": lambda: MistralProvider(model=model, reasoning_effort=reasoning_effort),
+            "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
+            "xai": lambda: XAIProvider(model=model, reasoning_effort=reasoning_effort),
+        }
+
+        if provider not in provider_registry:
+            supported = ", ".join(AVAILABLE_PROVIDERS)
+            raise ValueError(f"Unknown provider: {provider}. Supported: {supported}")
+
+        return provider_registry[provider]()
 
     @property
     def model(self) -> str:
@@ -73,6 +91,7 @@ class LLMClient:
         prompt_template: Optional[str] = None,
         message_count: Optional[int] = None,
         system_prompt_tokens: Optional[int] = None,
+        capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """Make a completion request.
 
@@ -88,6 +107,7 @@ class LLMClient:
             prompt_template: Prompt template name for tracking
             message_count: Number of messages in conversation (for Assistant)
             system_prompt_tokens: Token count of system prompt (via tiktoken)
+            capture_enricher: Optional callback to add domain-specific fields to capture
 
         Returns:
             LLMResponse with content and usage data
@@ -152,6 +172,19 @@ class LLMClient:
             message_count=message_count,
             system_prompt_tokens=system_prompt_tokens,
         )
+
+        # Capture prompt for playground (if enabled via LLM_PROMPT_CAPTURE env var)
+        if response.status == "ok" and call_type:
+            capture_prompt(
+                messages=messages,
+                response=response,
+                call_type=call_type,
+                game_id=game_id,
+                player_name=player_name,
+                hand_number=hand_number,
+                debug_mode=False,  # Game-level debug mode handled separately
+                enricher=capture_enricher,
+            )
 
         return response
 

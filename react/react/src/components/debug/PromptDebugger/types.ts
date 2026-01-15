@@ -23,6 +23,7 @@ export interface PromptCapture {
   player_hand: string[] | null;
   valid_actions: string[] | null;
   raise_amount: number | null;
+  provider: string | null;
   model: string | null;
   reasoning_effort: string | null;
   latency_ms: number | null;
@@ -54,6 +55,7 @@ export interface ReplayResponse {
   success: boolean;
   original_response: string;
   new_response: string;
+  provider_used: string;
   model_used: string;
   reasoning_effort_used?: string;
   latency_ms: number | null;
@@ -129,8 +131,16 @@ export interface InterrogationResponse {
   response: string;
   session_id: string;
   messages_count: number;
+  provider_used: string;
   model_used: string;
   reasoning_effort_used?: string;
   latency_ms: number | null;
   error?: string;
+}
+
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  models: string[];
+  default_model: string;
 }

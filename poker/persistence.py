@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 39
 
 
 @dataclass
@@ -338,6 +338,16 @@ class GamePersistence:
             27: (self._migrate_v27_fix_opponent_models_constraint, "Fix opponent_models unique constraint to include game_id"),
             28: (self._migrate_v28_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
             29: (self._migrate_v29_add_tournament_tracker, "Add tournament_tracker table for persisting elimination history"),
+            30: (self._migrate_v30_add_prompt_capture_columns, "Add raw_request and reasoning columns to prompt_captures"),
+            31: (self._migrate_v31_add_provider_pricing, "Add Groq and Claude 4.5 pricing to model_pricing"),
+            32: (self._migrate_v32_add_more_providers, "Add DeepSeek, Mistral, and Google Gemini pricing"),
+            33: (self._migrate_v33_add_provider_to_captures, "Add provider column to prompt_captures"),
+            34: (self._migrate_v34_add_llm_configs, "Add llm_configs_json column to games table"),
+            35: (self._migrate_v35_add_provider_index, "Add index on provider column in prompt_captures"),
+            36: (self._migrate_v36_add_xai_pricing, "Add xAI Grok pricing to model_pricing"),
+            37: (self._migrate_v37_add_gpt5_pricing, "Add OpenAI GPT-5 pricing"),
+            38: (self._migrate_v38_add_enabled_models, "Add enabled_models table for model management"),
+            39: (self._migrate_v39_playground_capture_support, "Make game_id nullable and add call_type to prompt_captures for playground"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1374,25 +1384,440 @@ class GamePersistence:
 
         logger.info("Migration v29 complete: tournament_tracker table added")
 
-    def save_game(self, game_id: str, state_machine: PokerStateMachine, 
-                  owner_id: Optional[str] = None, owner_name: Optional[str] = None) -> None:
-        """Save a game state to the database."""
+    def _migrate_v30_add_prompt_capture_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v30: Add raw_request and reasoning columns to prompt_captures.
+
+        These columns were added to the INSERT statement but missing from schema:
+        - raw_request: Full messages array sent to LLM (for debugging message history)
+        - reasoning_effort: LLM reasoning effort setting used
+        - original_request_id: Vendor request ID for correlation
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'raw_request' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN raw_request TEXT")
+            logger.info("Added raw_request column to prompt_captures")
+
+        if 'reasoning_effort' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN reasoning_effort TEXT")
+            logger.info("Added reasoning_effort column to prompt_captures")
+
+        if 'original_request_id' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN original_request_id TEXT")
+            logger.info("Added original_request_id column to prompt_captures")
+
+        logger.info("Migration v30 complete: prompt_captures columns added")
+
+    def _migrate_v31_add_provider_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v31: Add Groq and Claude 4.5 model pricing.
+
+        Adds pricing for:
+        - Groq models (Llama 3.3, Llama 3.1, Llama 4 Scout, Qwen 3)
+        - Anthropic Claude 4.5 models (Sonnet, Opus, Haiku)
+        """
+        # Pricing data as of Jan 2025
+        # Groq: https://console.groq.com/pricing
+        # Anthropic: https://www.anthropic.com/pricing
+        skus = [
+            # Groq - Llama 3.3 70B
+            ('groq', 'llama-3.3-70b-versatile', 'input_tokens_1m', 0.59),
+            ('groq', 'llama-3.3-70b-versatile', 'output_tokens_1m', 0.79),
+
+            # Groq - Llama 3.1 8B
+            ('groq', 'llama-3.1-8b-instant', 'input_tokens_1m', 0.05),
+            ('groq', 'llama-3.1-8b-instant', 'output_tokens_1m', 0.08),
+
+            # Groq - Llama 4 Scout (preview)
+            ('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 'input_tokens_1m', 0.11),
+            ('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 'output_tokens_1m', 0.34),
+
+            # Groq - Qwen 3 32B (preview)
+            ('groq', 'qwen/qwen3-32b', 'input_tokens_1m', 0.29),
+            ('groq', 'qwen/qwen3-32b', 'output_tokens_1m', 0.39),
+
+            # Anthropic Claude 4.5 Sonnet
+            ('anthropic', 'claude-sonnet-4-5-20250929', 'input_tokens_1m', 3.00),
+            ('anthropic', 'claude-sonnet-4-5-20250929', 'output_tokens_1m', 15.00),
+            ('anthropic', 'claude-sonnet-4-5-20250929', 'cached_input_tokens_1m', 0.30),
+
+            # Anthropic Claude 4.5 Opus
+            ('anthropic', 'claude-opus-4-5-20251101', 'input_tokens_1m', 15.00),
+            ('anthropic', 'claude-opus-4-5-20251101', 'output_tokens_1m', 75.00),
+            ('anthropic', 'claude-opus-4-5-20251101', 'cached_input_tokens_1m', 1.50),
+
+            # Anthropic Claude 4.5 Haiku
+            ('anthropic', 'claude-haiku-4-5-20251001', 'input_tokens_1m', 1.00),
+            ('anthropic', 'claude-haiku-4-5-20251001', 'output_tokens_1m', 5.00),
+            ('anthropic', 'claude-haiku-4-5-20251001', 'cached_input_tokens_1m', 0.10),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v31 complete: Added Groq and Claude 4.5 pricing")
+
+    def _migrate_v32_add_more_providers(self, conn: sqlite3.Connection) -> None:
+        """Migration v32: Add DeepSeek, Mistral, and Google Gemini pricing.
+
+        Adds pricing for:
+        - DeepSeek models (Chat, Reasoner)
+        - Mistral models (Small, Medium, Large)
+        - Google Gemini models (Flash, Pro)
+        """
+        skus = [
+            # DeepSeek - V3 Chat (extremely cheap!)
+            ('deepseek', 'deepseek-chat', 'input_tokens_1m', 0.28),
+            ('deepseek', 'deepseek-chat', 'output_tokens_1m', 0.42),
+            ('deepseek', 'deepseek-chat', 'cached_input_tokens_1m', 0.028),
+
+            # DeepSeek - R1 Reasoner
+            ('deepseek', 'deepseek-reasoner', 'input_tokens_1m', 0.55),
+            ('deepseek', 'deepseek-reasoner', 'output_tokens_1m', 2.19),
+
+            # Mistral - Small
+            ('mistral', 'mistral-small-latest', 'input_tokens_1m', 0.20),
+            ('mistral', 'mistral-small-latest', 'output_tokens_1m', 0.60),
+
+            # Mistral - Medium (estimated)
+            ('mistral', 'mistral-medium-latest', 'input_tokens_1m', 0.80),
+            ('mistral', 'mistral-medium-latest', 'output_tokens_1m', 2.40),
+
+            # Mistral - Large
+            ('mistral', 'mistral-large-latest', 'input_tokens_1m', 2.00),
+            ('mistral', 'mistral-large-latest', 'output_tokens_1m', 6.00),
+
+            # Google Gemini 2.0 Flash
+            ('google', 'gemini-2.0-flash', 'input_tokens_1m', 0.10),
+            ('google', 'gemini-2.0-flash', 'output_tokens_1m', 0.40),
+
+            # Google Gemini 2.5 Flash
+            ('google', 'gemini-2.5-flash', 'input_tokens_1m', 0.30),
+            ('google', 'gemini-2.5-flash', 'output_tokens_1m', 2.50),
+
+            # Google Gemini 2.5 Pro
+            ('google', 'gemini-2.5-pro', 'input_tokens_1m', 1.25),
+            ('google', 'gemini-2.5-pro', 'output_tokens_1m', 10.00),
+            ('google', 'gemini-2.5-pro', 'cached_input_tokens_1m', 0.125),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v32 complete: Added DeepSeek, Mistral, and Google pricing")
+
+    def _migrate_v33_add_provider_to_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v33: Add provider column to prompt_captures.
+
+        Enables tracking which LLM provider was used for each captured decision.
+        """
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'provider' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN provider TEXT DEFAULT 'openai'")
+            logger.info("Added provider column to prompt_captures")
+
+        logger.info("Migration v33 complete: Added provider to prompt_captures")
+
+    def _migrate_v34_add_llm_configs(self, conn: sqlite3.Connection) -> None:
+        """Migration v34: Add llm_configs_json column to games table.
+
+        Stores per-player LLM provider configurations so they persist across
+        game reloads and page refreshes.
+        """
+        cursor = conn.execute("PRAGMA table_info(games)")
+        columns = {row[1] for row in cursor}
+
+        if 'llm_configs_json' not in columns:
+            conn.execute("ALTER TABLE games ADD COLUMN llm_configs_json TEXT")
+            logger.info("Added llm_configs_json column to games table")
+
+        logger.info("Migration v34 complete: Added llm_configs_json to games")
+
+    def _migrate_v35_add_provider_index(self, conn: sqlite3.Connection) -> None:
+        """Migration v35: Add index on provider column in prompt_captures.
+
+        Improves query performance when filtering captures by provider.
+        """
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider
+            ON prompt_captures(provider)
+        """)
+        logger.info("Migration v35 complete: Added index on prompt_captures.provider")
+
+    def _migrate_v36_add_xai_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v36: Add xAI Grok pricing to model_pricing.
+
+        xAI pricing from https://docs.x.ai/docs/models (per 1M tokens):
+        - grok-3: $3.00 input, $15.00 output
+        - grok-3-mini: $0.30 input, $0.50 output
+        - grok-4-fast-reasoning: $0.20 input, $0.50 output
+        - grok-4-0709: $3.00 input, $15.00 output
+        - grok-2-vision-1212: $2.00 input, $10.00 output
+        - grok-2-image-1212: $0.07 per image
+        """
+        skus = [
+            # grok-3 - main production model
+            ('xai', 'grok-3', 'input_tokens_1m', 3.00),
+            ('xai', 'grok-3', 'output_tokens_1m', 15.00),
+
+            # grok-3-mini - budget model with reasoning
+            ('xai', 'grok-3-mini', 'input_tokens_1m', 0.30),
+            ('xai', 'grok-3-mini', 'output_tokens_1m', 0.50),
+            ('xai', 'grok-3-mini', 'reasoning_tokens_1m', 0.50),
+
+            # grok-4 - latest flagship (grok-4-0709)
+            ('xai', 'grok-4', 'input_tokens_1m', 3.00),
+            ('xai', 'grok-4', 'output_tokens_1m', 15.00),
+
+            # grok-4-fast-reasoning - fast with reasoning
+            ('xai', 'grok-4-fast-reasoning', 'input_tokens_1m', 0.20),
+            ('xai', 'grok-4-fast-reasoning', 'output_tokens_1m', 0.50),
+            ('xai', 'grok-4-fast-reasoning', 'reasoning_tokens_1m', 0.50),
+
+            # grok-4-fast-non-reasoning - fast without reasoning
+            ('xai', 'grok-4-fast-non-reasoning', 'input_tokens_1m', 0.20),
+            ('xai', 'grok-4-fast-non-reasoning', 'output_tokens_1m', 0.50),
+
+            # grok-2-vision-1212 - vision model
+            ('xai', 'grok-2-vision-1212', 'input_tokens_1m', 2.00),
+            ('xai', 'grok-2-vision-1212', 'output_tokens_1m', 10.00),
+
+            # grok-2-image-1212 - image generation
+            ('xai', 'grok-2-image-1212', 'image_1024x1024', 0.07),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v36 complete: Added xAI Grok pricing")
+
+    def _migrate_v37_add_gpt5_pricing(self, conn: sqlite3.Connection) -> None:
+        """Migration v37: Add/update OpenAI GPT-5 family pricing.
+
+        GPT-5 pricing per 1M tokens:
+        - gpt-5-nano: $0.05 input, $0.005 cached, $0.40 output
+        - gpt-5-mini: $0.25 input, $0.025 cached, $2.00 output
+        - gpt-5:      $1.25 input, $0.125 cached, $10.00 output
+        """
+        skus = [
+            # gpt-5-nano - cheapest tier
+            ('openai', 'gpt-5-nano', 'input_tokens_1m', 0.05),
+            ('openai', 'gpt-5-nano', 'cached_input_tokens_1m', 0.005),
+            ('openai', 'gpt-5-nano', 'output_tokens_1m', 0.40),
+            # gpt-5-mini - mid tier
+            ('openai', 'gpt-5-mini', 'input_tokens_1m', 0.25),
+            ('openai', 'gpt-5-mini', 'cached_input_tokens_1m', 0.025),
+            ('openai', 'gpt-5-mini', 'output_tokens_1m', 2.00),
+            # gpt-5 - flagship
+            ('openai', 'gpt-5', 'input_tokens_1m', 1.25),
+            ('openai', 'gpt-5', 'cached_input_tokens_1m', 0.125),
+            ('openai', 'gpt-5', 'output_tokens_1m', 10.00),
+        ]
+
+        for provider, model, unit, cost in skus:
+            conn.execute("""
+                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
+                VALUES (?, ?, ?, ?)
+            """, (provider, model, unit, cost))
+
+        logger.info("Migration v37 complete: Added GPT-5 family pricing")
+
+    def _migrate_v38_add_enabled_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v38: Add enabled_models table for model management.
+
+        This table allows admins to enable/disable models in the game UI
+        without code changes. Models are seeded from PROVIDER_MODELS config.
+        """
+        # Create enabled_models table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS enabled_models (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1,
+                display_name TEXT,
+                notes TEXT,
+                supports_reasoning INTEGER DEFAULT 0,
+                supports_json_mode INTEGER DEFAULT 1,
+                supports_image_gen INTEGER DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, model)
+            )
+        """)
+
+        # Create index for fast lookups
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_enabled_models_provider
+            ON enabled_models(provider, enabled)
+        """)
+
+        # Seed from PROVIDER_MODELS config
+        # Import here to avoid circular imports
+        from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES, DEFAULT_ENABLED_MODELS
+
+        for provider, models in PROVIDER_MODELS.items():
+            capabilities = PROVIDER_CAPABILITIES.get(provider, {})
+            supports_reasoning = 1 if capabilities.get('supports_reasoning', False) else 0
+            supports_json = 1 if capabilities.get('supports_json_mode', True) else 0
+            supports_image = 1 if capabilities.get('supports_image_generation', False) else 0
+
+            # Determine which models should be enabled by default
+            # If DEFAULT_ENABLED_MODELS is empty/None, enable all (backwards compatible)
+            # Otherwise, only enable models explicitly listed for this provider
+            enabled_whitelist = DEFAULT_ENABLED_MODELS.get(provider, []) if DEFAULT_ENABLED_MODELS else []
+            enable_all = not DEFAULT_ENABLED_MODELS
+
+            for sort_order, model in enumerate(models):
+                enabled = 1 if (enable_all or model in enabled_whitelist) else 0
+                conn.execute("""
+                    INSERT OR IGNORE INTO enabled_models
+                    (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (provider, model, enabled, supports_reasoning, supports_json, supports_image, sort_order))
+
+        logger.info("Migration v38 complete: Added enabled_models table with seeded data")
+
+    def _migrate_v39_playground_capture_support(self, conn: sqlite3.Connection) -> None:
+        """Migration v39: Enable prompt_captures for non-game playground captures.
+
+        Changes:
+        1. Makes game_id nullable (for non-game LLM calls like commentary, personality gen)
+        2. Adds call_type column to identify capture source
+        3. Changes ON DELETE CASCADE to ON DELETE SET NULL for game_id FK
+
+        SQLite doesn't support ALTER TABLE to change constraints, so we recreate the table.
+        """
+        # Check if call_type already exists (idempotency)
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'call_type' in columns:
+            logger.info("Migration v39: call_type already exists, skipping")
+            return
+
+        # Create new table with nullable game_id and call_type
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_captures_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id TEXT,
+                player_name TEXT,
+                hand_number INTEGER,
+                phase TEXT,
+                action_taken TEXT,
+                system_prompt TEXT NOT NULL,
+                user_message TEXT NOT NULL,
+                ai_response TEXT NOT NULL,
+                pot_total INTEGER,
+                cost_to_call INTEGER,
+                pot_odds REAL,
+                player_stack INTEGER,
+                community_cards TEXT,
+                player_hand TEXT,
+                valid_actions TEXT,
+                raise_amount INTEGER,
+                model TEXT,
+                latency_ms INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                tags TEXT,
+                notes TEXT,
+                conversation_history TEXT,
+                raw_api_response TEXT,
+                prompt_template TEXT,
+                prompt_version TEXT,
+                prompt_hash TEXT,
+                raw_request TEXT,
+                reasoning_effort TEXT,
+                original_request_id TEXT,
+                provider TEXT DEFAULT 'openai',
+                call_type TEXT,
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
+            )
+        """)
+
+        # Copy existing data
+        conn.execute("""
+            INSERT INTO prompt_captures_new (
+                id, created_at, game_id, player_name, hand_number, phase, action_taken,
+                system_prompt, user_message, ai_response,
+                pot_total, cost_to_call, pot_odds, player_stack,
+                community_cards, player_hand, valid_actions, raise_amount,
+                model, latency_ms, input_tokens, output_tokens,
+                tags, notes, conversation_history, raw_api_response,
+                prompt_template, prompt_version, prompt_hash,
+                raw_request, reasoning_effort, original_request_id, provider
+            )
+            SELECT
+                id, created_at, game_id, player_name, hand_number, phase, action_taken,
+                system_prompt, user_message, ai_response,
+                pot_total, cost_to_call, pot_odds, player_stack,
+                community_cards, player_hand, valid_actions, raise_amount,
+                model, latency_ms, input_tokens, output_tokens,
+                tags, notes, conversation_history, raw_api_response,
+                prompt_template, prompt_version, prompt_hash,
+                raw_request, reasoning_effort, original_request_id, provider
+            FROM prompt_captures
+        """)
+
+        # Drop old table and rename new one
+        conn.execute("DROP TABLE prompt_captures")
+        conn.execute("ALTER TABLE prompt_captures_new RENAME TO prompt_captures")
+
+        # Recreate indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+
+        logger.info("Migration v39 complete: prompt_captures now supports playground captures")
+
+    def save_game(self, game_id: str, state_machine: PokerStateMachine,
+                  owner_id: Optional[str] = None, owner_name: Optional[str] = None,
+                  llm_configs: Optional[Dict] = None) -> None:
+        """Save a game state to the database.
+
+        Args:
+            game_id: The game identifier
+            state_machine: The game's state machine
+            owner_id: The owner/user ID
+            owner_name: The owner's display name
+            llm_configs: Dict with 'player_llm_configs' and 'default_llm_config'
+        """
         game_state = state_machine.game_state
-        
+
         # Convert game state to dict and then to JSON
         state_dict = self._prepare_state_for_save(game_state)
         state_dict['current_phase'] = state_machine.current_phase.value
-        
+
         game_json = json.dumps(state_dict)
-        
+        llm_configs_json = json.dumps(llm_configs) if llm_configs else None
+
         with sqlite3.connect(self.db_path) as conn:
             # Use ON CONFLICT DO UPDATE to preserve columns not being updated
             # (like debug_capture_enabled) instead of INSERT OR REPLACE which
             # deletes and re-inserts, resetting unspecified columns to defaults
             conn.execute("""
                 INSERT INTO games
-                (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name)
-                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+                (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name, llm_configs_json)
+                VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(game_id) DO UPDATE SET
                     updated_at = CURRENT_TIMESTAMP,
                     phase = excluded.phase,
@@ -1400,7 +1825,8 @@ class GamePersistence:
                     pot_size = excluded.pot_size,
                     game_state_json = excluded.game_state_json,
                     owner_id = excluded.owner_id,
-                    owner_name = excluded.owner_name
+                    owner_name = excluded.owner_name,
+                    llm_configs_json = COALESCE(excluded.llm_configs_json, games.llm_configs_json)
             """, (
                 game_id,
                 state_machine.current_phase.value,
@@ -1408,7 +1834,8 @@ class GamePersistence:
                 game_state.pot['total'],
                 game_json,
                 owner_id,
-                owner_name
+                owner_name,
+                llm_configs_json
             ))
     
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
@@ -1440,6 +1867,28 @@ class GamePersistence:
 
             # Create state machine with the loaded state and phase
             return PokerStateMachine.from_saved_state(game_state, phase)
+
+    def load_llm_configs(self, game_id: str) -> Optional[Dict]:
+        """Load LLM configs for a game.
+
+        Args:
+            game_id: The game identifier
+
+        Returns:
+            Dict with 'player_llm_configs' and 'default_llm_config', or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT llm_configs_json FROM games WHERE game_id = ?",
+                (game_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row or not row['llm_configs_json']:
+                return None
+
+            return json.loads(row['llm_configs_json'])
 
     def save_tournament_tracker(self, game_id: str, tracker) -> None:
         """Save tournament tracker state to the database.
@@ -1528,7 +1977,77 @@ class GamePersistence:
                 SELECT COUNT(*) FROM games WHERE owner_id = ?
             """, (owner_id,))
             return cursor.fetchone()[0]
-    
+
+    def get_enabled_models(self) -> Dict[str, List[str]]:
+        """Get all enabled models grouped by provider.
+
+        Returns:
+            Dict mapping provider name to list of enabled model names.
+            Example: {'openai': ['gpt-4o', 'gpt-5-nano'], 'groq': ['llama-3.1-8b-instant']}
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT provider, model
+                FROM enabled_models
+                WHERE enabled = 1
+                ORDER BY provider, sort_order
+            """)
+            result: Dict[str, List[str]] = {}
+            for row in cursor.fetchall():
+                provider = row['provider']
+                if provider not in result:
+                    result[provider] = []
+                result[provider].append(row['model'])
+            return result
+
+    def get_all_enabled_models(self) -> List[Dict[str, Any]]:
+        """Get all models with their enabled status.
+
+        Returns:
+            List of dicts with provider, model, enabled, display_name, etc.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, provider, model, enabled, display_name, notes,
+                       supports_reasoning, supports_json_mode, supports_image_gen,
+                       sort_order, created_at, updated_at
+                FROM enabled_models
+                ORDER BY provider, sort_order
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_model_enabled(self, model_id: int, enabled: bool) -> bool:
+        """Update the enabled status of a model.
+
+        Returns:
+            True if model was found and updated, False otherwise.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE enabled_models
+                SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (1 if enabled else 0, model_id))
+            return cursor.rowcount > 0
+
+    def update_model_details(self, model_id: int, display_name: str = None, notes: str = None) -> bool:
+        """Update display name and notes for a model.
+
+        Returns:
+            True if model was found and updated, False otherwise.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE enabled_models
+                SET display_name = COALESCE(?, display_name),
+                    notes = COALESCE(?, notes),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (display_name, notes, model_id))
+            return cursor.rowcount > 0
+
     def delete_game(self, game_id: str) -> None:
         """Delete a game and all associated data."""
         with sqlite3.connect(self.db_path) as conn:
@@ -3030,7 +3549,7 @@ class GamePersistence:
                     -- Response (OUTPUT)
                     ai_response, raw_api_response,
                     -- LLM Config
-                    model, reasoning_effort,
+                    provider, model, reasoning_effort,
                     -- Metrics
                     latency_ms, input_tokens, output_tokens,
                     -- Tracking
@@ -3039,7 +3558,7 @@ class GamePersistence:
                     prompt_template, prompt_version, prompt_hash,
                     -- User Annotations
                     tags, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -3066,6 +3585,7 @@ class GamePersistence:
                 capture.get('ai_response'),
                 capture.get('raw_api_response'),
                 # LLM Config
+                capture.get('provider', 'openai'),
                 capture.get('model'),
                 capture.get('reasoning_effort'),
                 # Metrics
@@ -3179,7 +3699,7 @@ class GamePersistence:
             query = f"""
                 SELECT id, created_at, game_id, player_name, hand_number, phase,
                        action_taken, pot_total, cost_to_call, pot_odds, player_stack,
-                       community_cards, player_hand, model, latency_ms, tags, notes
+                       community_cards, player_hand, model, provider, latency_ms, tags, notes
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC
@@ -3212,21 +3732,21 @@ class GamePersistence:
         params = [game_id] if game_id else []
 
         with sqlite3.connect(self.db_path) as conn:
-            # Count by action
+            # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
             cursor = conn.execute(f"""
                 SELECT action_taken, COUNT(*) as count
                 FROM prompt_captures {where_clause}
                 GROUP BY action_taken
             """, params)
-            by_action = {row[0]: row[1] for row in cursor.fetchall()}
+            by_action = {(row[0] or 'unknown'): row[1] for row in cursor.fetchall()}
 
-            # Count by phase
+            # Count by phase (use 'unknown' for NULL)
             cursor = conn.execute(f"""
                 SELECT phase, COUNT(*) as count
                 FROM prompt_captures {where_clause}
                 GROUP BY phase
             """, params)
-            by_phase = {row[0]: row[1] for row in cursor.fetchall()}
+            by_phase = {(row[0] or 'unknown'): row[1] for row in cursor.fetchall()}
 
             # Suspicious folds (high pot odds)
             suspicious_params = params + [5.0]  # pot odds > 5:1
@@ -3295,6 +3815,158 @@ class GamePersistence:
             cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
             conn.commit()
             return cursor.rowcount
+
+    # ========== Playground Capture Methods ==========
+
+    def list_playground_captures(
+        self,
+        call_type: Optional[str] = None,
+        provider: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List captures for the playground (filtered by call_type).
+
+        This method is similar to list_prompt_captures but focuses on
+        non-game captures identified by call_type.
+
+        Args:
+            call_type: Filter by call type (e.g., 'commentary', 'personality_generation')
+            provider: Filter by LLM provider
+            limit: Max results to return
+            offset: Pagination offset
+            date_from: Filter by start date (ISO format)
+            date_to: Filter by end date (ISO format)
+
+        Returns:
+            Dict with 'captures' list and 'total' count
+        """
+        conditions = []  # Show all captures (including legacy ones without call_type)
+        params = []
+
+        if call_type:
+            conditions.append("call_type = ?")
+            params.append(call_type)
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if date_from:
+            conditions.append("created_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("created_at <= ?")
+            params.append(date_to)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            count_cursor = conn.execute(
+                f"SELECT COUNT(*) FROM prompt_captures {where_clause}",
+                params
+            )
+            total = count_cursor.fetchone()[0]
+
+            # Get captures with pagination
+            query = f"""
+                SELECT id, created_at, game_id, player_name, hand_number,
+                       phase, call_type, action_taken,
+                       model, provider, reasoning_effort,
+                       latency_ms, input_tokens, output_tokens,
+                       tags, notes
+                FROM prompt_captures
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            cursor = conn.execute(query, params)
+
+            captures = []
+            for row in cursor.fetchall():
+                capture = dict(row)
+                # Parse JSON fields
+                for field in ['tags']:
+                    if capture.get(field):
+                        try:
+                            capture[field] = json.loads(capture[field])
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "Failed to decode JSON for field '%s' on capture id=%s; keeping raw value",
+                                field,
+                                capture.get("id"),
+                            )
+                captures.append(capture)
+
+            return {
+                'captures': captures,
+                'total': total
+            }
+
+    def get_playground_capture_stats(self) -> Dict[str, Any]:
+        """Get aggregate statistics for all prompt captures."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Count by call_type (legacy captures without call_type shown as 'player_decision')
+            cursor = conn.execute("""
+                SELECT COALESCE(call_type, 'player_decision') as call_type, COUNT(*) as count
+                FROM prompt_captures
+                GROUP BY COALESCE(call_type, 'player_decision')
+                ORDER BY count DESC
+            """)
+            by_call_type = {row['call_type']: row['count'] for row in cursor.fetchall()}
+
+            # Count by provider
+            cursor = conn.execute("""
+                SELECT COALESCE(provider, 'openai') as provider, COUNT(*) as count
+                FROM prompt_captures
+                GROUP BY COALESCE(provider, 'openai')
+                ORDER BY count DESC
+            """)
+            by_provider = {row['provider']: row['count'] for row in cursor.fetchall()}
+
+            # Total count
+            cursor = conn.execute("""
+                SELECT COUNT(*) FROM prompt_captures
+            """)
+            total = cursor.fetchone()[0]
+
+            return {
+                'total': total,
+                'by_call_type': by_call_type,
+                'by_provider': by_provider,
+            }
+
+    def cleanup_old_captures(self, retention_days: int) -> int:
+        """Delete captures older than the retention period.
+
+        Args:
+            retention_days: Delete captures older than this many days.
+                           If 0, no deletion occurs (unlimited retention).
+
+        Returns:
+            Number of captures deleted.
+        """
+        if retention_days <= 0:
+            return 0  # Unlimited retention
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                DELETE FROM prompt_captures
+                WHERE call_type IS NOT NULL
+                  AND created_at < datetime('now', '-' || ? || ' days')
+            """, (retention_days,))
+            conn.commit()
+
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} playground captures older than {retention_days} days")
+            return deleted
 
     # ========== Decision Analysis Methods ==========
 

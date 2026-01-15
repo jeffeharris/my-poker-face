@@ -85,12 +85,16 @@ class EquityCalculator:
         if not EVAL7_AVAILABLE:
             logger.warning("eval7 not available - equity calculations will be disabled")
 
+    # Unicode suit symbols to letter codes
+    SUIT_MAP = {'♣': 'c', '♦': 'd', '♠': 's', '♥': 'h'}
+
     def _parse_card(self, card_str: str) -> 'eval7.Card':
         """
         Convert card string to eval7.Card.
 
         Accepts formats:
             - 'As', 'Kd', 'Qh', 'Jc', '10s', 'Ts', '2h'
+            - Unicode: 'A♠', 'K♦', 'Q♥', 'J♣', '10♠'
             - {'rank': 'A', 'suit': 'Spades'} dict format
         """
         if isinstance(card_str, dict):
@@ -101,6 +105,12 @@ class EquityCalculator:
                 rank = 'T'
             card_str = f"{rank}{suit}"
         else:
+            # Handle unicode suit symbols (♣, ♦, ♠, ♥)
+            for unicode_suit, letter_suit in self.SUIT_MAP.items():
+                if unicode_suit in card_str:
+                    card_str = card_str.replace(unicode_suit, letter_suit)
+                    break
+
             # Handle '10s' -> 'Ts'
             if card_str.startswith('10'):
                 card_str = 'T' + card_str[2:]

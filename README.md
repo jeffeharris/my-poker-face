@@ -67,6 +67,28 @@ The Docker setup includes:
 - Hot-reloading for development
 - API rate limiting for cost control
 
+### Admin Dashboard
+
+The admin dashboard provides LLM usage analytics, cost tracking, and debugging tools. Access it at `/admin/` in development mode.
+
+**Authentication:**
+The admin dashboard requires token authentication. Set `ADMIN_TOKEN` in your `.env` file:
+
+```bash
+ADMIN_TOKEN=my-poker-face-admin
+```
+
+Then access the dashboard via:
+- **Browser:** `http://localhost:5000/admin/?admin_token=my-poker-face-admin`
+- **API:** `curl -H "Authorization: Bearer my-poker-face-admin" http://localhost:5000/admin/api/summary`
+
+**Features:**
+- Cost analysis by provider and model
+- Performance metrics (latency percentiles, error rates)
+- Prompt viewer with filtering and pagination
+- Model management (enable/disable models)
+- Pricing configuration
+
 ### Development Setup (Manual)
 
 For developers who need to run services independently:

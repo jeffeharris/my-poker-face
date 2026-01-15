@@ -1,0 +1,24 @@
+name: quick_chat_false_confidence
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Sound SCARED of them. Build them up. Make them feel strong so they overplay.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "You probably have me beat, {target_first_name}."
+    - "I should fold to you more."
+    - "Nice bet, {target_first_name}. Honestly."
+    - "You're reading me like a book."
+
+    Sound WORRIED, not confident. You're trying to bait them into betting big.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "false_confidence"}}, {{"text": "...", "tone": "false_confidence"}}], "targetPlayer": "{target_player}"}}
