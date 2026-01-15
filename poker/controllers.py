@@ -478,9 +478,11 @@ class AIPlayerController:
 
         # Capture DecisionPlan for reflection system (if enabled)
         if self.prompt_config.strategic_reflection:
+            # Convert PokerPhase enum to string for JSON serialization
+            phase_str = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)
             plan = DecisionPlan(
                 hand_number=self.current_hand_number or 0,
-                phase=self.state_machine.phase,
+                phase=phase_str,
                 player_name=self.player_name,
                 hand_strategy=response_dict.get('hand_strategy'),
                 inner_monologue=response_dict.get('inner_monologue', ''),
