@@ -190,6 +190,7 @@
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .stat-value {
@@ -199,10 +200,9 @@
   text-shadow:
     0 0 2px var(--phosphor-glow),
     0 0 4px var(--phosphor-glow);
-}
-
-.model-value {
-  max-width: 200px;
+  text-align: right;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

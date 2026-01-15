@@ -178,19 +178,22 @@
 
 .stat-label {
   color: var(--phosphor-dim);
-  font-size: 7px;
+  font-size: 6px;
   font-weight: 500;
   letter-spacing: 0.3px;
+  flex-shrink: 0;
+  width: 28px;
 }
 
 .stat-value {
   color: var(--phosphor-green);
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 400;
   text-shadow:
     0 0 2px var(--phosphor-glow),
     0 0 4px var(--phosphor-glow);
-  max-width: 55px;
+  flex: 1;
+  text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -352,12 +355,12 @@
   }
 
   .debug-hole-card.active .stat-label {
-    font-size: 9px;
+    font-size: 8px;
+    width: 36px;
   }
 
   .debug-hole-card.active .stat-value {
-    font-size: 10px;
-    max-width: 80px;
+    font-size: 9px;
   }
 
   .debug-hole-card.active .call-count {
