@@ -1666,7 +1666,7 @@ class GamePersistence:
 
         # Seed from PROVIDER_MODELS config
         # Import here to avoid circular imports
-        from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES
+        from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES, DEFAULT_ENABLED_MODELS
 
         for provider, models in PROVIDER_MODELS.items():
             capabilities = PROVIDER_CAPABILITIES.get(provider, {})
@@ -1674,12 +1674,19 @@ class GamePersistence:
             supports_json = 1 if capabilities.get('supports_json_mode', True) else 0
             supports_image = 1 if capabilities.get('supports_image_generation', False) else 0
 
+            # Determine which models should be enabled by default
+            # If DEFAULT_ENABLED_MODELS is empty/None, enable all (backwards compatible)
+            # Otherwise, only enable models explicitly listed for this provider
+            enabled_whitelist = DEFAULT_ENABLED_MODELS.get(provider, []) if DEFAULT_ENABLED_MODELS else []
+            enable_all = not DEFAULT_ENABLED_MODELS
+
             for sort_order, model in enumerate(models):
+                enabled = 1 if (enable_all or model in enabled_whitelist) else 0
                 conn.execute("""
                     INSERT OR IGNORE INTO enabled_models
                     (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order)
-                    VALUES (?, ?, 1, ?, ?, ?, ?)
-                """, (provider, model, supports_reasoning, supports_json, supports_image, sort_order))
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (provider, model, enabled, supports_reasoning, supports_json, supports_image, sort_order))
 
         logger.info("Migration v38 complete: Added enabled_models table with seeded data")
 

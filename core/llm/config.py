@@ -128,6 +128,20 @@ XAI_AVAILABLE_MODELS = [
 # All available providers
 AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai"]
 
+# =============================================================================
+# Default Enabled Models (for new deployments)
+# =============================================================================
+# Models listed here will be enabled by default when the database is first created.
+# All other models will be seeded but disabled. Admins can enable/disable models
+# via the admin dashboard after deployment.
+#
+# To enable all models by default, set this to None or an empty dict.
+# To restrict to specific models, list them by provider.
+DEFAULT_ENABLED_MODELS = {
+    "openai": ["gpt-5-nano"],           # Cheapest OpenAI model
+    "groq": ["llama-3.1-8b-instant"],   # Fast and free-tier friendly
+}
+
 # Models by provider for UI selection
 PROVIDER_MODELS = {
     "openai": OPENAI_AVAILABLE_MODELS,
