@@ -3725,21 +3725,21 @@ class GamePersistence:
         params = [game_id] if game_id else []
 
         with sqlite3.connect(self.db_path) as conn:
-            # Count by action
+            # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
             cursor = conn.execute(f"""
                 SELECT action_taken, COUNT(*) as count
                 FROM prompt_captures {where_clause}
                 GROUP BY action_taken
             """, params)
-            by_action = {row[0]: row[1] for row in cursor.fetchall()}
+            by_action = {(row[0] or 'unknown'): row[1] for row in cursor.fetchall()}
 
-            # Count by phase
+            # Count by phase (use 'unknown' for NULL)
             cursor = conn.execute(f"""
                 SELECT phase, COUNT(*) as count
                 FROM prompt_captures {where_clause}
                 GROUP BY phase
             """, params)
-            by_phase = {row[0]: row[1] for row in cursor.fetchall()}
+            by_phase = {(row[0] or 'unknown'): row[1] for row in cursor.fetchall()}
 
             # Suspicious folds (high pot odds)
             suspicious_params = params + [5.0]  # pot odds > 5:1
