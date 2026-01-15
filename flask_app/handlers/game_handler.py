@@ -42,10 +42,10 @@ def _feed_opponent_observations(memory_manager, observer: str, observations: Lis
         observer: The AI player making the observations
         observations: List of observation strings from commentary
     """
-    if not observations or not hasattr(memory_manager, 'opponent_models'):
+    if not observations or not hasattr(memory_manager, 'opponent_model_manager'):
         return
 
-    opponent_models = memory_manager.opponent_models
+    opponent_models = memory_manager.opponent_model_manager
 
     for observation in observations:
         if not observation or not isinstance(observation, str):
