@@ -52,7 +52,7 @@ export function PromptPlayground({ onBack }: Props) {
   const [replaying, setReplaying] = useState(false);
 
   // Available providers/models
-  const [providers, setProviders] = useState<Array<{ id: string; name: string; models: string[] }>>([]);
+  const [providers, setProviders] = useState<Array<{ id: string; name: string; models: string[]; model_tiers?: Record<string, string> }>>([]);
 
   // Fetch captures
   const fetchCaptures = useCallback(async () => {
@@ -170,7 +170,14 @@ export function PromptPlayground({ onBack }: Props) {
   }, [fetchCaptures]);
 
   // Get models for selected provider
-  const providerModels = providers.find(p => p.id === replayProvider)?.models || [];
+  const currentProvider = providers.find(p => p.id === replayProvider);
+  const providerModels = currentProvider?.models || [];
+
+  // Format model label with cost tier
+  const formatModelLabel = (model: string): string => {
+    const tier = currentProvider?.model_tiers?.[model] || '';
+    return tier ? `${model} (${tier})` : model;
+  };
 
   return (
     <div className="playground-container">
@@ -410,7 +417,7 @@ export function PromptPlayground({ onBack }: Props) {
                       >
                         <option value="">Default</option>
                         {providerModels.map(m => (
-                          <option key={m} value={m}>{m}</option>
+                          <option key={m} value={m}>{formatModelLabel(m)}</option>
                         ))}
                       </select>
                     </div>
