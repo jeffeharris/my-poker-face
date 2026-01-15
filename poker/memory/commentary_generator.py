@@ -6,7 +6,8 @@ Generates end-of-hand commentary including reactions, reflections, and observati
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
@@ -19,13 +20,71 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class DecisionPlan:
+    """Captured AI decision reasoning from a single action.
+
+    Stores the AI's strategy and inner thoughts at the time of a decision,
+    enabling post-hand reflection on whether the plan worked.
+    """
+    hand_number: int
+    phase: str                        # PRE_FLOP, FLOP, TURN, RIVER
+    player_name: str
+    hand_strategy: Optional[str]      # "Check-raise to trap"
+    inner_monologue: str
+    action: str
+    amount: int
+    pot_size: int
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'hand_number': self.hand_number,
+            'phase': self.phase,
+            'player_name': self.player_name,
+            'hand_strategy': self.hand_strategy,
+            'inner_monologue': self.inner_monologue,
+            'action': self.action,
+            'amount': self.amount,
+            'pot_size': self.pot_size,
+            'timestamp': self.timestamp.isoformat()
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DecisionPlan':
+        timestamp = data.get('timestamp')
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp)
+        elif timestamp is None:
+            timestamp = datetime.now()
+        return cls(
+            hand_number=data['hand_number'],
+            phase=data['phase'],
+            player_name=data['player_name'],
+            hand_strategy=data.get('hand_strategy'),
+            inner_monologue=data.get('inner_monologue', ''),
+            action=data['action'],
+            amount=data.get('amount', 0),
+            pot_size=data.get('pot_size', 0),
+            timestamp=timestamp
+        )
+
+
+@dataclass
 class HandCommentary:
-    """AI-generated commentary about a completed hand."""
+    """AI-generated commentary about a completed hand.
+
+    Extended to support strategic reflection persistence and feedback loop.
+    """
     player_name: str
     emotional_reaction: str
     strategic_reflection: str
     opponent_observations: List[str]
     table_comment: Optional[str]  # What they say out loud (if anything)
+
+    # NEW FIELDS for reflection persistence
+    decision_plans: List[DecisionPlan] = field(default_factory=list)
+    key_insight: Optional[str] = None   # One-liner for session context
+    hand_number: Optional[int] = None   # For persistence lookup
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -33,17 +92,26 @@ class HandCommentary:
             'emotional_reaction': self.emotional_reaction,
             'strategic_reflection': self.strategic_reflection,
             'opponent_observations': self.opponent_observations,
-            'table_comment': self.table_comment
+            'table_comment': self.table_comment,
+            'decision_plans': [p.to_dict() for p in self.decision_plans],
+            'key_insight': self.key_insight,
+            'hand_number': self.hand_number
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'HandCommentary':
+        decision_plans = [
+            DecisionPlan.from_dict(p) for p in data.get('decision_plans', [])
+        ]
         return cls(
             player_name=data['player_name'],
             emotional_reaction=data['emotional_reaction'],
             strategic_reflection=data['strategic_reflection'],
             opponent_observations=data['opponent_observations'],
-            table_comment=data.get('table_comment')
+            table_comment=data.get('table_comment'),
+            decision_plans=decision_plans,
+            key_insight=data.get('key_insight'),
+            hand_number=data.get('hand_number')
         )
 
 
@@ -58,16 +126,74 @@ class CommentaryGenerator:
         # Use dedicated LLM client with minimal reasoning for fast/cheap commentary
         self._llm_client = LLMClient(reasoning_effort="minimal")
 
-    def _is_hand_interesting(
+    def _should_reflect(
+        self,
+        hand: RecordedHand,
+        player_name: str,
+        is_eliminated: bool = False
+    ) -> bool:
+        """Determine if a hand warrants reflection (internal learning).
+
+        Lower threshold than speaking - we want to learn from routine hands too.
+        Reflects on any hand where the player was meaningfully involved.
+
+        Args:
+            hand: The completed hand record
+            player_name: Name of the player considering reflection
+            is_eliminated: Whether player is eliminated (spectators always reflect on drama)
+
+        Returns:
+            bool: True if worth reflecting on
+        """
+        # Eliminated players (spectators) only reflect on dramatic hands
+        if is_eliminated:
+            return self._should_speak(hand, player_name)
+
+        # Get player's actions in this hand
+        player_actions = [a for a in hand.actions if a.player_name == player_name]
+
+        # No actions = wasn't in the hand (shouldn't happen, but safety check)
+        if not player_actions:
+            return False
+
+        # Pure preflop fold with no other action = skip reflection
+        # (Nothing interesting to learn from folding 72o preflop)
+        if len(player_actions) == 1 and player_actions[0].action == 'fold':
+            if player_actions[0].phase == 'PRE_FLOP':
+                logger.debug(f"Skipping reflection for {player_name}: preflop fold only")
+                return False
+
+        # Player saw the flop or made multiple decisions = worth reflecting
+        saw_flop = any(a.phase in ('FLOP', 'TURN', 'RIVER') for a in player_actions)
+        multiple_actions = len(player_actions) > 1
+
+        if saw_flop or multiple_actions:
+            logger.debug(f"Reflecting for {player_name}: saw_flop={saw_flop}, actions={len(player_actions)}")
+            return True
+
+        # Won the hand (even preflop) = worth noting
+        if hand.winners and any(w.name == player_name for w in hand.winners):
+            logger.debug(f"Reflecting for {player_name}: won the hand")
+            return True
+
+        # Default: reflect if involved at all (called, raised preflop)
+        non_fold_actions = [a for a in player_actions if a.action != 'fold']
+        if non_fold_actions:
+            logger.debug(f"Reflecting for {player_name}: made non-fold action preflop")
+            return True
+
+        return False
+
+    def _should_speak(
         self,
         hand: RecordedHand,
         player_name: str,
         big_blind: Optional[int] = None,
         chattiness: float = 0.5
     ) -> bool:
-        """Determine if a hand is interesting enough to warrant commentary.
+        """Determine if a hand is dramatic enough to warrant table talk.
 
-        Filters out mundane hands to reduce commentary spam.
+        Higher threshold than reflection - only speak on interesting hands.
 
         Priority (checked first, override pot size):
         1. All-ins - always dramatic
@@ -81,55 +207,44 @@ class CommentaryGenerator:
             chattiness: Player's chattiness level (affects pressure situation decisions)
 
         Returns:
-            bool: True if the hand is worth commenting on
+            bool: True if the hand is worth speaking about
         """
         # === PRIORITY OVERRIDES (check first, bypass pot threshold) ===
 
-        # All-ins are always interesting
+        # All-ins are always dramatic
         if any(a.action == 'all_in' for a in hand.actions):
-            logger.debug("Hand interesting: all-in occurred")
+            logger.debug("Should speak: all-in occurred")
             return True
 
-        # Showdowns are interesting
+        # Showdowns are dramatic
         if hand.was_showdown:
-            logger.debug("Hand interesting: showdown occurred")
+            logger.debug("Should speak: showdown occurred")
             return True
 
         # Pressure situations: pot is >30% of any player's starting stack
-        # Factor in chattiness - chatty players more likely to comment on pressure
         for player_info in hand.players:
             if player_info.starting_stack > 0:
                 pressure_ratio = hand.pot_size / player_info.starting_stack
-                # Use chattiness to modulate: high chattiness = lower threshold (0.3)
-                # Low chattiness = higher threshold (0.6)
                 pressure_threshold = 0.3 + (0.3 * (1.0 - chattiness))
                 if pressure_ratio > pressure_threshold:
                     logger.debug(
-                        f"Hand interesting: pressure situation "
+                        f"Should speak: pressure situation "
                         f"(pot/stack={pressure_ratio:.2f} for {player_info.name})"
                     )
                     return True
 
-        # === STANDARD FILTERS (only if no priority override) ===
+        # === STANDARD FILTERS ===
 
         # Dynamic pot threshold: 5x big blind or fallback to $200
         min_pot_threshold = (big_blind * 5) if big_blind else 200
 
-        # Small pots aren't interesting (unless overridden above)
+        # Small pots aren't worth talking about
         if hand.pot_size < min_pot_threshold:
-            logger.debug(
-                f"Hand not interesting: pot size {hand.pot_size} < {min_pot_threshold}"
-            )
+            logger.debug(f"Should not speak: pot {hand.pot_size} < {min_pot_threshold}")
             return False
 
-        # Simple fold-outs aren't interesting (player only folded, nothing else)
-        player_actions = [a for a in hand.actions if a.player_name == player_name]
-        if len(player_actions) == 1 and player_actions[0].action == 'fold':
-            logger.debug(f"Hand not interesting: {player_name} only folded")
-            return False
-
-        # Pot is big enough and player was involved
-        logger.debug(f"Hand interesting: pot {hand.pot_size} >= {min_pot_threshold}")
+        # Pot is big enough
+        logger.debug(f"Should speak: pot {hand.pot_size} >= {min_pot_threshold}")
         return True
 
     def generate_commentary(self,
@@ -173,11 +288,13 @@ class CommentaryGenerator:
         if not COMMENTARY_ENABLED:
             return None
 
-        # ALL players (including spectators) go through interest filtering
-        # Spectators only heckle on hands worth heckling about
-        if not self._is_hand_interesting(hand, player_name, big_blind, chattiness):
-            logger.debug(f"Skipping commentary for {player_name}: hand not interesting")
+        # Check if hand warrants reflection (lower bar than speaking)
+        if not self._should_reflect(hand, player_name, is_eliminated):
+            logger.debug(f"Skipping reflection for {player_name}: not involved enough")
             return None
+
+        # Determine if hand is dramatic enough to speak about (higher bar)
+        should_speak = self._should_speak(hand, player_name, big_blind, chattiness)
 
         try:
             # Build context for the prompt
@@ -189,6 +306,16 @@ class CommentaryGenerator:
                 session_context = session_context_override
             else:
                 session_context = session_memory.get_context_for_prompt(100) if session_memory else "First hand"
+
+            # Use override if provided, otherwise build from opponent_models
+            if opponent_context_override is not None:
+                opponent_context = opponent_context_override
+            else:
+                opponent_context = ""  # Will be empty if not provided
+
+            # Format opponent context for prompt (add newline prefix if non-empty)
+            if opponent_context:
+                opponent_context = f"\nYour reads on opponents:\n{opponent_context}"
 
             # Handle spectator mode vs active player
             if is_eliminated:
@@ -208,6 +335,7 @@ class CommentaryGenerator:
                 player_cards=cards_display,
                 winner_info=winner_info,
                 session_context=session_context,
+                opponent_context=opponent_context,
                 player_name=player_name,
                 confidence=confidence,
                 attitude=attitude,
@@ -215,18 +343,19 @@ class CommentaryGenerator:
                 spectator_context=spectator_context or ""
             )
 
-            # Get the player's system prompt for character voice
-            system_prompt = ""
-            if assistant and hasattr(assistant, 'system_message'):
-                system_prompt = assistant.system_message
-            elif assistant and hasattr(assistant, '_memory'):
-                system_prompt = assistant._memory.system_prompt
+            # Use lightweight commentary-specific system prompt (not the decision-making one)
+            system_prompt = self.prompt_manager.render_prompt(
+                'poker_player_commentary',
+                name=player_name,
+                attitude=attitude,
+                confidence=confidence
+            )
 
             # Build messages for LLM call
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
 
             # Use internal LLM client with minimal reasoning for fast/cheap commentary
             llm_response = self._llm_client.complete(
@@ -244,19 +373,22 @@ class CommentaryGenerator:
             commentary_data = json.loads(llm_response.content)
 
             # Build commentary object
+            # Suppress table_comment if hand isn't dramatic enough to speak about
+            table_comment = commentary_data.get('would_say_aloud') if should_speak else None
+
             return HandCommentary(
                 player_name=player_name,
                 emotional_reaction=commentary_data.get('emotional_reaction', ''),
                 strategic_reflection=commentary_data.get('strategic_reflection', ''),
                 opponent_observations=commentary_data.get('opponent_observations', []),
-                table_comment=commentary_data.get('would_say_aloud')
+                table_comment=table_comment
             )
 
         except (json.JSONDecodeError, Exception) as e:
             logger.warning(f"Failed to generate commentary for {player_name}: {e}")
             # Return a simple fallback commentary
             return self._generate_fallback_commentary(
-                player_name, player_outcome, hand, chattiness
+                player_name, player_outcome, hand, chattiness, should_speak
             )
 
     def generate_quick_reaction(self,
@@ -372,7 +504,8 @@ class CommentaryGenerator:
                                      player_name: str,
                                      player_outcome: str,
                                      hand: RecordedHand,
-                                     chattiness: float) -> HandCommentary:
+                                     chattiness: float,
+                                     should_speak: bool = True) -> HandCommentary:
         """Generate simple fallback commentary without LLM."""
         if player_outcome == 'won':
             emotional = "Feeling good about that one."
@@ -384,9 +517,9 @@ class CommentaryGenerator:
             emotional = "That's poker."
             strategic = "Sometimes the cards don't go your way."
 
-        # Only include table comment if chatty
+        # Only include table comment if chatty AND hand is dramatic enough
         table_comment = None
-        if chattiness > 0.5:
+        if should_speak and chattiness > 0.5:
             table_comment = self.generate_quick_reaction(
                 player_name, player_outcome, hand.pot_size, chattiness
             )

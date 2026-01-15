@@ -69,18 +69,19 @@ The Docker setup includes:
 
 ### Admin Dashboard
 
-The admin dashboard provides LLM usage analytics, cost tracking, and debugging tools. Access it at `/admin/` in development mode.
+The admin dashboard provides LLM usage analytics, cost tracking, and debugging tools.
 
-**Authentication:**
-The admin dashboard requires token authentication. Set `ADMIN_TOKEN` in your `.env` file:
+**Access:**
+- Available only in development mode (`FLASK_ENV=development`)
+- **Browser:** `http://localhost:5000/admin/`
+- **API:** `curl http://localhost:5000/admin/api/summary`
 
+**Optional Token Authentication:**
+For extra security in development, set `ADMIN_REQUIRE_TOKEN=true` and provide an `ADMIN_TOKEN`:
 ```bash
 ADMIN_TOKEN=my-poker-face-admin
+ADMIN_REQUIRE_TOKEN=true
 ```
-
-Then access the dashboard via:
-- **Browser:** `http://localhost:5000/admin/?admin_token=my-poker-face-admin`
-- **API:** `curl -H "Authorization: Bearer my-poker-face-admin" http://localhost:5000/admin/api/summary`
 
 **Features:**
 - Cost analysis by provider and model
