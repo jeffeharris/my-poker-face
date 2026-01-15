@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import List, Optional, Dict
 import logging
 
@@ -21,6 +22,7 @@ from .ai_resilience import (
     AIFallbackStrategy
 )
 from .player_psychology import PlayerPsychology
+from .memory.commentary_generator import DecisionPlan
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +331,9 @@ class AIPlayerController:
 
         # Hand number tracking (set by memory manager)
         self.current_hand_number = None
+
+        # Decision plans for current hand (captured during decide_action)
+        self._current_hand_plans: List[DecisionPlan] = []
         
     def get_current_personality_traits(self):
         """Get current trait values from psychology (elastic personality)."""
@@ -353,14 +358,33 @@ class AIPlayerController:
         setattr(self.prompt_config, component, enabled)
         logger.info(f"Prompt component '{component}' set to {enabled} for {self.player_name}")
 
+    def get_decision_plans(self) -> List[DecisionPlan]:
+        """Get all decision plans captured for the current hand."""
+        return self._current_hand_plans.copy()
+
+    def clear_decision_plans(self) -> List[DecisionPlan]:
+        """Clear and return decision plans for the current hand.
+
+        Called at end of hand to pass plans to commentary, then reset for next hand.
+        """
+        plans = self._current_hand_plans.copy()
+        self._current_hand_plans = []
+        return plans
+
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
 
-        # Clear conversation memory before each decision to avoid context overload
+        # Manage conversation memory based on prompt_config setting
         # Table chatter is preserved via game_messages -> Recent Actions
         # Mental state is preserved via PlayerPsychology (separate system)
         if hasattr(self, 'assistant') and self.assistant and self.assistant.memory:
-            self.assistant.memory.clear()
+            keep_exchanges = getattr(self.prompt_config, 'memory_keep_exchanges', 0)
+            if keep_exchanges > 0:
+                # Keep last N exchanges (user-assistant pairs)
+                self.assistant.memory.trim_to_exchanges(keep_exchanges)
+            else:
+                # Clear all memory (default behavior)
+                self.assistant.memory.clear()
 
         # Save original messages before summarizing (for address detection)
         original_messages = game_messages
@@ -448,10 +472,25 @@ class AIPlayerController:
         
         # Clean response based on speaking decision
         cleaned_response = self.response_validator.clean_response(
-            response_dict, 
+            response_dict,
             {'should_speak': should_speak}
         )
-        
+
+        # Capture DecisionPlan for reflection system (if enabled)
+        if self.prompt_config.strategic_reflection:
+            plan = DecisionPlan(
+                hand_number=self.current_hand_number or 0,
+                phase=self.state_machine.phase,
+                player_name=self.player_name,
+                hand_strategy=response_dict.get('hand_strategy'),
+                inner_monologue=response_dict.get('inner_monologue', ''),
+                action=response_dict.get('action', ''),
+                amount=response_dict.get('adding_to_pot', 0),
+                pot_size=game_state.pot.get('total', 0),
+                timestamp=datetime.now()
+            )
+            self._current_hand_plans.append(plan)
+
         print(json.dumps(cleaned_response, indent=4))
         return cleaned_response
     

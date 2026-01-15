@@ -15,6 +15,8 @@ class TestPromptConfig(unittest.TestCase):
         self.assertTrue(config.hand_strength)
         self.assertTrue(config.session_memory)
         self.assertTrue(config.opponent_intel)
+        self.assertTrue(config.strategic_reflection)
+        self.assertEqual(config.memory_keep_exchanges, 0)
         self.assertTrue(config.chattiness)
         self.assertTrue(config.emotional_state)
         self.assertTrue(config.tilt_effects)
@@ -26,11 +28,13 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 9)
+        self.assertEqual(len(d), 11)  # 10 bool + 1 int
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
-        self.assertTrue(all(v is True for v in d.values()))
+        self.assertIn('strategic_reflection', d)
+        self.assertIn('memory_keep_exchanges', d)
+        self.assertEqual(d['memory_keep_exchanges'], 0)
 
     def test_from_dict_full(self):
         """from_dict should restore from a full dict."""
@@ -77,33 +81,54 @@ class TestPromptConfig(unittest.TestCase):
         self.assertFalse(hasattr(config, 'unknown_field'))
 
     def test_disable_all(self):
-        """disable_all should return config with all False."""
-        config = PromptConfig()
+        """disable_all should return config with all boolean components False."""
+        config = PromptConfig(memory_keep_exchanges=5)
         disabled = config.disable_all()
 
         self.assertFalse(disabled.pot_odds)
         self.assertFalse(disabled.hand_strength)
         self.assertFalse(disabled.session_memory)
         self.assertFalse(disabled.opponent_intel)
+        self.assertFalse(disabled.strategic_reflection)
         self.assertFalse(disabled.chattiness)
         self.assertFalse(disabled.emotional_state)
         self.assertFalse(disabled.tilt_effects)
         self.assertFalse(disabled.mind_games)
         self.assertFalse(disabled.persona_response)
 
+        # Int field should be preserved
+        self.assertEqual(disabled.memory_keep_exchanges, 5)
+
         # Original should be unchanged
         self.assertTrue(config.pot_odds)
 
     def test_enable_all(self):
-        """enable_all should return config with all True."""
-        config = PromptConfig(mind_games=False, pot_odds=False)
+        """enable_all should return config with all boolean components True."""
+        config = PromptConfig(mind_games=False, pot_odds=False, strategic_reflection=False,
+                             memory_keep_exchanges=3)
         enabled = config.enable_all()
 
         self.assertTrue(enabled.pot_odds)
         self.assertTrue(enabled.mind_games)
+        self.assertTrue(enabled.strategic_reflection)
+
+        # Int field should be preserved
+        self.assertEqual(enabled.memory_keep_exchanges, 3)
 
         # Original should be unchanged
         self.assertFalse(config.mind_games)
+
+    def test_strategic_reflection_and_memory_keep_exchanges(self):
+        """New fields should serialize and deserialize correctly."""
+        config = PromptConfig(strategic_reflection=False, memory_keep_exchanges=10)
+        d = config.to_dict()
+
+        self.assertFalse(d['strategic_reflection'])
+        self.assertEqual(d['memory_keep_exchanges'], 10)
+
+        restored = PromptConfig.from_dict(d)
+        self.assertFalse(restored.strategic_reflection)
+        self.assertEqual(restored.memory_keep_exchanges, 10)
 
     def test_copy_with_overrides(self):
         """copy should create a new config with overrides."""

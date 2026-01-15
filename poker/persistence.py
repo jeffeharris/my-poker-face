@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 41
 
 
 @dataclass
@@ -281,7 +281,35 @@ class GamePersistence:
                 CREATE INDEX IF NOT EXISTS idx_memorable_opponent
                 ON memorable_hands(opponent_name)
             """)
-            
+
+            # Hand commentary for AI reflection persistence
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS hand_commentary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    hand_number INTEGER NOT NULL,
+                    player_name TEXT NOT NULL,
+                    emotional_reaction TEXT,
+                    strategic_reflection TEXT,
+                    opponent_observations TEXT,
+                    key_insight TEXT,
+                    decision_plans TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, hand_number, player_name)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hand_commentary_game
+                ON hand_commentary(game_id, player_name)
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent
+                ON hand_commentary(game_id, player_name, hand_number DESC)
+            """)
+
             # Add index for owner_id
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_games_owner
@@ -349,6 +377,7 @@ class GamePersistence:
             38: (self._migrate_v38_add_enabled_models, "Add enabled_models table for model management"),
             39: (self._migrate_v39_playground_capture_support, "Make game_id nullable and add call_type to prompt_captures for playground"),
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
+            41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1804,6 +1833,44 @@ class GamePersistence:
 
         logger.info("Migration v40 complete: prompt_config support added")
 
+    def _migrate_v41_add_hand_commentary(self, conn: sqlite3.Connection) -> None:
+        """Migration v41: Add hand_commentary table for AI reflection persistence.
+
+        This table stores AI commentary (strategic_reflection, opponent_observations)
+        to enable feeding past insights back into future decisions.
+        """
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='hand_commentary'"
+        )
+        if cursor.fetchone() is None:
+            conn.execute("""
+                CREATE TABLE hand_commentary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    hand_number INTEGER NOT NULL,
+                    player_name TEXT NOT NULL,
+                    emotional_reaction TEXT,
+                    strategic_reflection TEXT,
+                    opponent_observations TEXT,
+                    key_insight TEXT,
+                    decision_plans TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, hand_number, player_name)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX idx_hand_commentary_game
+                ON hand_commentary(game_id, player_name)
+            """)
+            conn.execute("""
+                CREATE INDEX idx_hand_commentary_player_recent
+                ON hand_commentary(game_id, player_name, hand_number DESC)
+            """)
+            logger.info("Created hand_commentary table with indices")
+
+        logger.info("Migration v41 complete: hand_commentary table added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2740,6 +2807,65 @@ class GamePersistence:
             hand_id = cursor.lastrowid
             logger.debug(f"Saved hand #{hand_dict['hand_number']} for game {hand_dict['game_id']}")
             return hand_id
+
+    # Hand Commentary Persistence Methods
+    def save_hand_commentary(self, game_id: str, hand_number: int, player_name: str,
+                             commentary) -> None:
+        """Save AI commentary for a completed hand.
+
+        Args:
+            game_id: The game identifier
+            hand_number: The hand number
+            player_name: The AI player's name
+            commentary: HandCommentary instance or dict
+        """
+        if hasattr(commentary, 'to_dict'):
+            c = commentary.to_dict()
+        else:
+            c = commentary
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO hand_commentary
+                (game_id, hand_number, player_name, emotional_reaction,
+                 strategic_reflection, opponent_observations, key_insight, decision_plans)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                game_id,
+                hand_number,
+                player_name,
+                c.get('emotional_reaction'),
+                c.get('strategic_reflection'),
+                json.dumps(c.get('opponent_observations', [])),
+                c.get('key_insight'),
+                json.dumps(c.get('decision_plans', []))
+            ))
+            logger.debug(f"Saved commentary for {player_name} hand #{hand_number}")
+
+    def get_recent_reflections(self, game_id: str, player_name: str,
+                               limit: int = 5) -> List[Dict[str, Any]]:
+        """Get recent strategic reflections for a player.
+
+        Args:
+            game_id: The game identifier
+            player_name: The AI player's name
+            limit: Maximum number of reflections to return
+
+        Returns:
+            List of dicts with hand_number, strategic_reflection, key_insight
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT hand_number, strategic_reflection, key_insight,
+                       opponent_observations
+                FROM hand_commentary
+                WHERE game_id = ? AND player_name = ?
+                ORDER BY hand_number DESC
+                LIMIT ?
+            """, (game_id, player_name, limit))
+
+            return [dict(row) for row in cursor.fetchall()]
 
     def get_hand_count(self, game_id: str) -> int:
         """Get the current hand count for a game.

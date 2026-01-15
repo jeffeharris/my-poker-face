@@ -6,7 +6,8 @@ Generates end-of-hand commentary including reactions, reflections, and observati
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
@@ -19,13 +20,71 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class DecisionPlan:
+    """Captured AI decision reasoning from a single action.
+
+    Stores the AI's strategy and inner thoughts at the time of a decision,
+    enabling post-hand reflection on whether the plan worked.
+    """
+    hand_number: int
+    phase: str                        # PRE_FLOP, FLOP, TURN, RIVER
+    player_name: str
+    hand_strategy: Optional[str]      # "Check-raise to trap"
+    inner_monologue: str
+    action: str
+    amount: int
+    pot_size: int
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'hand_number': self.hand_number,
+            'phase': self.phase,
+            'player_name': self.player_name,
+            'hand_strategy': self.hand_strategy,
+            'inner_monologue': self.inner_monologue,
+            'action': self.action,
+            'amount': self.amount,
+            'pot_size': self.pot_size,
+            'timestamp': self.timestamp.isoformat()
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DecisionPlan':
+        timestamp = data.get('timestamp')
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp)
+        elif timestamp is None:
+            timestamp = datetime.now()
+        return cls(
+            hand_number=data['hand_number'],
+            phase=data['phase'],
+            player_name=data['player_name'],
+            hand_strategy=data.get('hand_strategy'),
+            inner_monologue=data.get('inner_monologue', ''),
+            action=data['action'],
+            amount=data.get('amount', 0),
+            pot_size=data.get('pot_size', 0),
+            timestamp=timestamp
+        )
+
+
+@dataclass
 class HandCommentary:
-    """AI-generated commentary about a completed hand."""
+    """AI-generated commentary about a completed hand.
+
+    Extended to support strategic reflection persistence and feedback loop.
+    """
     player_name: str
     emotional_reaction: str
     strategic_reflection: str
     opponent_observations: List[str]
     table_comment: Optional[str]  # What they say out loud (if anything)
+
+    # NEW FIELDS for reflection persistence
+    decision_plans: List[DecisionPlan] = field(default_factory=list)
+    key_insight: Optional[str] = None   # One-liner for session context
+    hand_number: Optional[int] = None   # For persistence lookup
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -33,17 +92,26 @@ class HandCommentary:
             'emotional_reaction': self.emotional_reaction,
             'strategic_reflection': self.strategic_reflection,
             'opponent_observations': self.opponent_observations,
-            'table_comment': self.table_comment
+            'table_comment': self.table_comment,
+            'decision_plans': [p.to_dict() for p in self.decision_plans],
+            'key_insight': self.key_insight,
+            'hand_number': self.hand_number
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'HandCommentary':
+        decision_plans = [
+            DecisionPlan.from_dict(p) for p in data.get('decision_plans', [])
+        ]
         return cls(
             player_name=data['player_name'],
             emotional_reaction=data['emotional_reaction'],
             strategic_reflection=data['strategic_reflection'],
             opponent_observations=data['opponent_observations'],
-            table_comment=data.get('table_comment')
+            table_comment=data.get('table_comment'),
+            decision_plans=decision_plans,
+            key_insight=data.get('key_insight'),
+            hand_number=data.get('hand_number')
         )
 
 
@@ -190,6 +258,16 @@ class CommentaryGenerator:
             else:
                 session_context = session_memory.get_context_for_prompt(100) if session_memory else "First hand"
 
+            # Use override if provided, otherwise build from opponent_models
+            if opponent_context_override is not None:
+                opponent_context = opponent_context_override
+            else:
+                opponent_context = ""  # Will be empty if not provided
+
+            # Format opponent context for prompt (add newline prefix if non-empty)
+            if opponent_context:
+                opponent_context = f"\nYour reads on opponents:\n{opponent_context}"
+
             # Handle spectator mode vs active player
             if is_eliminated:
                 # Spectators weren't dealt cards, use spectator outcome
@@ -208,6 +286,7 @@ class CommentaryGenerator:
                 player_cards=cards_display,
                 winner_info=winner_info,
                 session_context=session_context,
+                opponent_context=opponent_context,
                 player_name=player_name,
                 confidence=confidence,
                 attitude=attitude,

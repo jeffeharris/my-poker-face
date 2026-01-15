@@ -31,6 +31,79 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 
+def _feed_opponent_observations(memory_manager, observer: str, observations: List[str]) -> None:
+    """Feed opponent observations from commentary into opponent models.
+
+    Parses observations to determine which opponent they reference, then
+    adds them to the appropriate OpponentModel for future prompts.
+
+    Args:
+        memory_manager: The AIMemoryManager instance
+        observer: The AI player making the observations
+        observations: List of observation strings from commentary
+    """
+    if not observations or not hasattr(memory_manager, 'opponent_models'):
+        return
+
+    opponent_models = memory_manager.opponent_models
+
+    for observation in observations:
+        if not observation or not isinstance(observation, str):
+            continue
+
+        observation = observation.strip()
+        if not observation:
+            continue
+
+        # Try to parse "OpponentName: observation" format
+        # Common formats: "Trump: folds to pressure", "Trump is tight"
+        opponent_name = None
+        observation_text = observation
+
+        if ':' in observation:
+            parts = observation.split(':', 1)
+            potential_name = parts[0].strip()
+            # Check if the part before : is a known opponent
+            if potential_name in opponent_models.models.get(observer, {}):
+                opponent_name = potential_name
+                observation_text = parts[1].strip()
+
+        if not opponent_name:
+            # Try to find opponent name at start of observation
+            for opp_name in opponent_models.models.get(observer, {}).keys():
+                if observation.lower().startswith(opp_name.lower()):
+                    opponent_name = opp_name
+                    # Keep full text as observation
+                    break
+
+        if opponent_name and observation_text:
+            model = opponent_models.get_model(observer, opponent_name)
+            model.add_narrative_observation(observation_text)
+            logger.debug(f"[OpponentModel] Added observation for {observer}->{opponent_name}: {observation_text[:50]}...")
+
+
+def _feed_strategic_reflection(memory_manager, player_name: str, reflection: str,
+                               key_insight: Optional[str] = None) -> None:
+    """Feed strategic reflection from commentary into session memory.
+
+    Strategic reflections are included in future decision prompts so the AI
+    can learn and build upon its insights across hands.
+
+    Args:
+        memory_manager: The AIMemoryManager instance
+        player_name: The AI player name
+        reflection: Full strategic reflection text
+        key_insight: Optional one-liner summary (preferred if available)
+    """
+    if not reflection or not hasattr(memory_manager, 'session_memories'):
+        return
+
+    session_memory = memory_manager.session_memories.get(player_name)
+    if session_memory:
+        session_memory.add_reflection(reflection, key_insight)
+        logger.debug(f"[SessionMemory] Added reflection for {player_name}")
+
+
 def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                            owner_id: str = None,
                            player_llm_configs: Dict[str, Dict] = None,
@@ -565,10 +638,58 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         }
 
     def emit_commentary_immediately(player_name: str, commentary) -> None:
-        """Callback to emit commentary as soon as it's ready."""
-        if commentary and commentary.table_comment:
+        """Callback to emit commentary as soon as it's ready.
+
+        Also persists commentary to database and attaches decision plans.
+        """
+        if not commentary:
+            return
+
+        # Emit table comment to UI
+        if commentary.table_comment:
             logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
             send_message(game_id, player_name, commentary.table_comment, "ai")
+
+        # Attach decision plans from controller and set hand number
+        if player_name in ai_controllers:
+            controller = ai_controllers[player_name]
+            # Get and clear decision plans for this hand
+            plans = controller.clear_decision_plans()
+            commentary.decision_plans = plans
+            logger.debug(f"[Commentary] Attached {len(plans)} decision plans for {player_name}")
+
+        # Set hand number for persistence
+        hand_number = memory_manager.hand_count if memory_manager else 0
+        commentary.hand_number = hand_number
+
+        # Persist commentary to database
+        try:
+            persistence.save_hand_commentary(
+                game_id=game_id,
+                hand_number=hand_number,
+                player_name=player_name,
+                commentary=commentary
+            )
+            logger.debug(f"[Commentary] Persisted commentary for {player_name} hand {hand_number}")
+        except Exception as e:
+            logger.warning(f"[Commentary] Failed to persist commentary for {player_name}: {e}")
+
+        # Feed opponent observations to opponent model
+        if memory_manager and hasattr(commentary, 'opponent_observations') and commentary.opponent_observations:
+            _feed_opponent_observations(
+                memory_manager=memory_manager,
+                observer=player_name,
+                observations=commentary.opponent_observations
+            )
+
+        # Feed strategic reflection to session memory
+        if memory_manager and hasattr(commentary, 'strategic_reflection') and commentary.strategic_reflection:
+            _feed_strategic_reflection(
+                memory_manager=memory_manager,
+                player_name=player_name,
+                reflection=commentary.strategic_reflection,
+                key_insight=getattr(commentary, 'key_insight', None)
+            )
 
     try:
         logger.info(f"[Commentary] Starting generation for {len(ai_players_with_context)} AI players")

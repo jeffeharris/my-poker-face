@@ -12,7 +12,7 @@ This module provides memory and learning capabilities for AI poker players:
 from .hand_history import RecordedHand, RecordedAction, HandHistoryRecorder
 from .session_memory import SessionMemory, HandMemory
 from .opponent_model import OpponentTendencies, OpponentModel, OpponentModelManager
-from .commentary_generator import HandCommentary, CommentaryGenerator
+from .commentary_generator import DecisionPlan, HandCommentary, CommentaryGenerator
 from .memory_manager import AIMemoryManager
 
 __all__ = [
@@ -30,7 +30,8 @@ __all__ = [
     'OpponentModel',
     'OpponentModelManager',
 
-    # Commentary
+    # Commentary & Decision Plans
+    'DecisionPlan',
     'HandCommentary',
     'CommentaryGenerator',
 
