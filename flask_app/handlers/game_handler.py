@@ -664,13 +664,16 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
 
         # Persist commentary to database
         try:
-            persistence.save_hand_commentary(
-                game_id=game_id,
-                hand_number=hand_number,
-                player_name=player_name,
-                commentary=commentary
-            )
-            logger.debug(f"[Commentary] Persisted commentary for {player_name} hand {hand_number}")
+            if persistence:
+                persistence.save_hand_commentary(
+                    game_id=game_id,
+                    hand_number=hand_number,
+                    player_name=player_name,
+                    commentary=commentary
+                )
+                logger.info(f"[Commentary] Persisted commentary for {player_name} hand {hand_number}")
+            else:
+                logger.warning(f"[Commentary] Persistence not available for {player_name}")
         except Exception as e:
             logger.warning(f"[Commentary] Failed to persist commentary for {player_name}: {e}")
 
