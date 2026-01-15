@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
 from ..prompt_manager import PromptManager
-from ..config import COMMENTARY_ENABLED
+from ..config import COMMENTARY_ENABLED, is_development_mode
 from .hand_history import RecordedHand
 from .session_memory import SessionMemory
 
@@ -52,7 +52,7 @@ class CommentaryGenerator:
 
     def __init__(self, prompt_manager: Optional[PromptManager] = None,
                  game_id: Optional[str] = None, owner_id: Optional[str] = None):
-        self.prompt_manager = prompt_manager or PromptManager()
+        self.prompt_manager = prompt_manager or PromptManager(enable_hot_reload=is_development_mode())
         self.game_id = game_id
         self.owner_id = owner_id
         # Use dedicated LLM client with minimal reasoning for fast/cheap commentary

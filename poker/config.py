@@ -2,6 +2,19 @@
 Centralized configuration for poker game constants.
 Eliminates magic numbers scattered throughout the codebase.
 """
+import os
+
+
+def is_development_mode() -> bool:
+    """Check if running in development mode.
+
+    Used to enable features like prompt hot-reload that should
+    only be active during development.
+    """
+    flask_env = os.environ.get('FLASK_ENV', 'production')
+    flask_debug = os.environ.get('FLASK_DEBUG', '0')
+    return flask_env == 'development' or flask_debug == '1'
+
 
 # Betting configuration
 MIN_RAISE = 10

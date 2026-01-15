@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Check, X, MessageCircle, Circle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
+import type { Player } from '../../types/player';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
@@ -8,6 +9,7 @@ import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
+import { LLMDebugModal } from './LLMDebugModal';
 import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
@@ -48,6 +50,9 @@ export function MobilePokerTable({
 
   // Debug mode state
   const [promptCaptureEnabled, setPromptCaptureEnabled] = useState(false);
+
+  // LLM Debug modal state
+  const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
 
   // Toggle prompt capture for debugging AI decisions
   const togglePromptCapture = async () => {
@@ -337,7 +342,13 @@ export function MobilePokerTable({
               }}
               className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''}`}
             >
-              <div className="opponent-avatar">
+              <div
+                className={`opponent-avatar ${config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'debug-enabled' : ''}`}
+                onClick={config.ENABLE_AI_DEBUG && opponent.llm_debug ? () => setDebugModalPlayer(opponent) : undefined}
+                role={config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'button' : undefined}
+                tabIndex={config.ENABLE_AI_DEBUG && opponent.llm_debug ? 0 : undefined}
+                aria-label={config.ENABLE_AI_DEBUG && opponent.llm_debug ? `View ${opponent.name}'s AI model info` : undefined}
+              >
                 {opponent.avatar_url ? (
                   <img
                     src={`${config.API_URL}${opponent.avatar_url}/full`}
@@ -361,6 +372,10 @@ export function MobilePokerTable({
                   opponent.name.charAt(0).toUpperCase()
                 )}
                 {isDealer && <span className="dealer-badge">D</span>}
+                {/* Debug indicator badge */}
+                {config.ENABLE_AI_DEBUG && opponent.llm_debug && (
+                  <span className="debug-badge" title="Tap to view AI model info"></span>
+                )}
               </div>
               <div className="opponent-info">
                 <span className="opponent-name">{opponent.name.split(' ')[0]}</span>
@@ -593,6 +608,14 @@ export function MobilePokerTable({
           </div>
         </div>
       )}
+
+      {/* LLM Debug Modal */}
+      <LLMDebugModal
+        isOpen={!!debugModalPlayer}
+        onClose={() => setDebugModalPlayer(null)}
+        playerName={debugModalPlayer?.name || ''}
+        debugInfo={debugModalPlayer?.llm_debug}
+      />
     </div>
   );
 }

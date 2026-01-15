@@ -1,5 +1,5 @@
 """High-level assistant with conversation memory."""
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 from .client import LLMClient
 from .conversation import ConversationMemory
@@ -27,6 +27,7 @@ class Assistant:
     def __init__(
         self,
         system_prompt: str = "",
+        provider: str = "openai",
         model: Optional[str] = None,
         reasoning_effort: str = "low",
         max_memory: int = 15,
@@ -41,6 +42,7 @@ class Assistant:
 
         Args:
             system_prompt: System prompt for the conversation
+            provider: LLM provider ('openai', 'groq', etc.)
             model: Model to use (provider default if None)
             reasoning_effort: Reasoning effort for models that support it
             max_memory: Maximum messages to keep in memory
@@ -51,10 +53,13 @@ class Assistant:
             player_name: Default AI player name for tracking
         """
         self._client = LLMClient(
+            provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
             tracker=tracker,
         )
+        self._provider = provider
+        self._reasoning_effort = reasoning_effort
         self._memory = ConversationMemory(
             system_prompt=system_prompt,
             max_messages=max_memory,
@@ -79,6 +84,11 @@ class Assistant:
         """Update the system message."""
         self._memory.system_prompt = value
 
+    @property
+    def provider(self) -> str:
+        """LLM provider being used (openai, groq, anthropic, etc.)."""
+        return self._provider
+
     def chat(
         self,
         message: str,
@@ -90,6 +100,7 @@ class Assistant:
         player_name: Optional[str] = None,
         hand_number: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ) -> str:
         """Send message and get response. Handles memory automatically.
 
@@ -102,6 +113,7 @@ class Assistant:
             player_name: Override default player name
             hand_number: Hand number for tracking
             prompt_template: Prompt template name for tracking
+            capture_enricher: Optional callback to add domain-specific fields to capture
 
         Returns:
             Assistant's response content (string)
@@ -115,6 +127,7 @@ class Assistant:
             player_name=player_name,
             hand_number=hand_number,
             prompt_template=prompt_template,
+            capture_enricher=capture_enricher,
         )
         return response.content
 
@@ -128,6 +141,7 @@ class Assistant:
         player_name: Optional[str] = None,
         hand_number: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """Like chat() but returns full LLMResponse for access to tokens, etc.
 
@@ -140,6 +154,7 @@ class Assistant:
             player_name: Override default player name
             hand_number: Hand number for tracking
             prompt_template: Prompt template name for tracking
+            capture_enricher: Optional callback to add domain-specific fields to capture
 
         Returns:
             Full LLMResponse object
@@ -163,6 +178,7 @@ class Assistant:
             "prompt_template": prompt_template,
             "message_count": message_count,
             "system_prompt_tokens": system_prompt_tokens,
+            "capture_enricher": capture_enricher,
         }
 
         # Make LLM call
@@ -187,7 +203,9 @@ class Assistant:
         """Serialize assistant state for persistence."""
         return {
             "system_prompt": self._memory.system_prompt,
+            "provider": self._provider,
             "model": self._client.model,
+            "reasoning_effort": self._reasoning_effort,
             "memory": self._memory.to_dict(),
             "default_context": self._default_context,
         }
@@ -216,7 +234,9 @@ class Assistant:
 
         assistant = cls(
             system_prompt=data.get("system_prompt", ""),
+            provider=data.get("provider", "openai"),
             model=data.get("model"),
+            reasoning_effort=data.get("reasoning_effort", "low"),
             tracker=tracker,
             **context,
         )

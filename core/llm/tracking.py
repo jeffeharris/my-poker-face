@@ -1,20 +1,56 @@
 """Usage tracking for LLM operations."""
 import json
 import logging
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List, Callable, Any
 
 from .response import LLMResponse, ImageResponse
+from .capture_config import should_capture_prompt
 
 logger = logging.getLogger(__name__)
 
 # Cache TTL in seconds (1 hour)
 PRICING_CACHE_TTL = 3600
+
+# Configurable database path for prompt captures
+_capture_db_path: Optional[str] = None
+
+
+def set_capture_db_path(path: str) -> None:
+    """Configure the database path for prompt captures.
+
+    Call this at startup to set a custom database path.
+    If not set, defaults to LLM_CAPTURE_DB_PATH env var or auto-detection.
+    """
+    global _capture_db_path
+    _capture_db_path = path
+
+
+def get_capture_db_path() -> str:
+    """Get the database path for prompt captures.
+
+    Priority:
+    1. Path set via set_capture_db_path()
+    2. LLM_CAPTURE_DB_PATH environment variable
+    3. Auto-detect based on /app/data existence
+    """
+    if _capture_db_path:
+        return _capture_db_path
+
+    env_path = os.environ.get('LLM_CAPTURE_DB_PATH')
+    if env_path:
+        return env_path
+
+    # Auto-detect (legacy behavior)
+    if Path('/app/data').exists():
+        return '/app/data/poker_games.db'
+    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
 
 
 @dataclass
@@ -347,3 +383,186 @@ class UsageTracker:
                 estimated_cost,
                 pricing_ids_json,
             ))
+
+
+def capture_prompt(
+    messages: List[Dict[str, str]],
+    response: LLMResponse,
+    call_type: CallType,
+    game_id: Optional[str] = None,
+    player_name: Optional[str] = None,
+    hand_number: Optional[int] = None,
+    debug_mode: bool = False,
+    enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+) -> bool:
+    """Capture prompt and response to prompt_captures table.
+
+    This is called after a successful LLM call to optionally store
+    the full prompt/response for debugging and replay.
+
+    Args:
+        messages: The messages array sent to the LLM
+        response: The LLM response
+        call_type: Type of call (player_decision, commentary, etc.)
+        game_id: Optional game ID (nullable for non-game calls)
+        player_name: Optional player name
+        hand_number: Optional hand number
+        debug_mode: True if game has debug capture explicitly enabled
+        enricher: Optional callback to add domain-specific fields (e.g., game state).
+                  Receives capture dict, returns enriched dict.
+
+    Returns:
+        True if capture was saved, False if skipped or failed
+    """
+    # Check if we should capture this prompt
+    if not should_capture_prompt(call_type, debug_mode):
+        return False
+
+    # Skip image responses
+    if isinstance(response, ImageResponse):
+        return False
+
+    try:
+        # Extract prompt components
+        system_prompt = ""
+        conversation_history = []
+        user_message = ""
+
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            if role == "system":
+                system_prompt = content
+            elif role == "user":
+                if user_message:
+                    # Previous user message goes to history
+                    conversation_history.append({"role": "user", "content": user_message})
+                user_message = content
+            elif role == "assistant":
+                conversation_history.append({"role": "assistant", "content": content})
+
+        # Build base capture data
+        capture_data = {
+            'game_id': game_id,
+            'player_name': player_name,
+            'hand_number': hand_number,
+            'phase': call_type.value,  # Default phase from call_type
+            'call_type': call_type.value,
+            'system_prompt': system_prompt or "(no system prompt)",
+            'user_message': user_message or "(no user message)",
+            'ai_response': response.content or "",
+            'conversation_history': conversation_history,
+            'raw_api_response': response.raw_response,
+            'provider': response.provider,
+            'model': response.model,
+            'reasoning_effort': getattr(response, 'reasoning_effort', None),
+            'latency_ms': int(response.latency_ms),
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'original_request_id': getattr(response, 'request_id', None),
+        }
+
+        # Apply enricher callback if provided (adds game state, etc.)
+        if enricher:
+            try:
+                capture_data = enricher(capture_data)
+            except Exception as e:
+                logger.warning(f"Capture enricher failed: {e}")
+
+        db_path = get_capture_db_path()
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                INSERT INTO prompt_captures (
+                    game_id, player_name, hand_number, phase, call_type,
+                    system_prompt, user_message, ai_response,
+                    conversation_history, raw_api_response,
+                    provider, model, reasoning_effort,
+                    latency_ms, input_tokens, output_tokens,
+                    original_request_id,
+                    pot_total, cost_to_call, pot_odds, player_stack,
+                    community_cards, player_hand, valid_actions,
+                    action_taken, raise_amount
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                capture_data.get('game_id'),
+                capture_data.get('player_name'),
+                capture_data.get('hand_number'),
+                capture_data.get('phase'),
+                capture_data.get('call_type'),
+                capture_data.get('system_prompt'),
+                capture_data.get('user_message'),
+                capture_data.get('ai_response'),
+                json.dumps(capture_data.get('conversation_history')) if capture_data.get('conversation_history') else None,
+                json.dumps(capture_data.get('raw_api_response'), default=str) if capture_data.get('raw_api_response') else None,
+                capture_data.get('provider'),
+                capture_data.get('model'),
+                capture_data.get('reasoning_effort'),
+                capture_data.get('latency_ms'),
+                capture_data.get('input_tokens'),
+                capture_data.get('output_tokens'),
+                capture_data.get('original_request_id'),
+                # Enriched fields (may be None for non-game captures)
+                capture_data.get('pot_total'),
+                capture_data.get('cost_to_call'),
+                capture_data.get('pot_odds'),
+                capture_data.get('player_stack'),
+                json.dumps(capture_data.get('community_cards')) if capture_data.get('community_cards') else None,
+                json.dumps(capture_data.get('player_hand')) if capture_data.get('player_hand') else None,
+                json.dumps(capture_data.get('valid_actions')) if capture_data.get('valid_actions') else None,
+                capture_data.get('action_taken'),
+                capture_data.get('raise_amount'),
+            ))
+
+        capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Call on_captured callback if provided (allows caller to get capture_id without coupling)
+        on_captured = capture_data.get('_on_captured')
+        if callable(on_captured):
+            try:
+                on_captured(capture_id)
+            except Exception as e:
+                logger.warning(f"on_captured callback failed: {e}")
+
+        logger.debug(f"Captured prompt {capture_id} for {call_type.value}: {response.model}")
+        return capture_id
+
+    except Exception as e:
+        logger.error(f"Failed to capture prompt: {e}")
+        return None
+
+
+def update_prompt_capture(capture_id: int, **fields) -> bool:
+    """Update a prompt capture with additional fields (e.g., action_taken after parsing).
+
+    Args:
+        capture_id: The ID of the capture to update
+        **fields: Fields to update (action_taken, raise_amount, etc.)
+
+    Returns:
+        True if update succeeded, False otherwise
+    """
+    if not capture_id or not fields:
+        return False
+
+    try:
+        db_path = get_capture_db_path()
+
+        # Build UPDATE statement for provided fields
+        allowed_fields = {'action_taken', 'raise_amount'}
+        update_fields = {k: v for k, v in fields.items() if k in allowed_fields}
+
+        if not update_fields:
+            return False
+
+        set_clause = ", ".join(f"{k} = ?" for k in update_fields.keys())
+        values = list(update_fields.values()) + [capture_id]
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(f"UPDATE prompt_captures SET {set_clause} WHERE id = ?", values)
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update prompt capture {capture_id}: {e}")
+        return False

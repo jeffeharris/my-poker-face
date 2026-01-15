@@ -11,6 +11,9 @@ flask_env = os.environ.get('FLASK_ENV', 'production')
 flask_debug = os.environ.get('FLASK_DEBUG', '0')
 is_development = (flask_env == 'development' or flask_debug == '1')
 
+# AI Debug mode - enables LLM stats on player cards
+enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
+
 # Secret key
 SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 

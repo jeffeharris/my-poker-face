@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import type { InterrogationMessage, PromptCapture, InterrogationResponse } from './types';
+import type { InterrogationMessage, PromptCapture, InterrogationResponse, ProviderInfo } from './types';
 import { config } from '../../../config';
 
 interface InterrogationChatProps {
@@ -8,11 +8,14 @@ interface InterrogationChatProps {
   onMessagesUpdate: (messages: InterrogationMessage[]) => void;
   sessionId: string | null;
   onSessionIdUpdate: (sessionId: string | null) => void;
+  provider: string;
+  onProviderChange: (provider: string) => void;
   model: string;
   onModelChange: (model: string) => void;
   reasoningEffort: string;
   onReasoningEffortChange: (effort: string) => void;
-  availableModels: string[];
+  providers: ProviderInfo[];
+  getModelsForProvider: (provider: string) => string[];
   reasoningLevels: string[];
 }
 
@@ -51,11 +54,14 @@ export function InterrogationChat({
   onMessagesUpdate,
   sessionId,
   onSessionIdUpdate,
+  provider,
+  onProviderChange,
   model,
   onModelChange,
   reasoningEffort,
   onReasoningEffortChange,
-  availableModels,
+  providers,
+  getModelsForProvider,
   reasoningLevels,
 }: InterrogationChatProps) {
   const [input, setInput] = useState('');
@@ -96,6 +102,7 @@ export function InterrogationChat({
           body: JSON.stringify({
             message: userMessage.content,
             session_id: sessionId,
+            provider: provider,
             model: model,
             reasoning_effort: reasoningEffort,
           }),
@@ -217,8 +224,25 @@ export function InterrogationChat({
         </div>
       )}
 
-      {/* Model and Reasoning Settings */}
+      {/* Provider, Model, and Reasoning Settings */}
       <div className="interrogation-settings">
+        <div className="setting-group">
+          <label>Provider:</label>
+          <select
+            value={provider}
+            onChange={(e) => onProviderChange(e.target.value)}
+            disabled={sessionId !== null}
+            title={sessionId ? "Reset to change provider" : "Select provider"}
+          >
+            {providers.length > 0 ? (
+              providers.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))
+            ) : (
+              <option value="openai">OpenAI</option>
+            )}
+          </select>
+        </div>
         <div className="setting-group">
           <label>Model:</label>
           <select
@@ -227,7 +251,7 @@ export function InterrogationChat({
             disabled={sessionId !== null}
             title={sessionId ? "Reset to change model" : "Select model"}
           >
-            {availableModels.map(m => (
+            {getModelsForProvider(provider).map(m => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>

@@ -1,0 +1,24 @@
+name: quick_chat_mislead
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: LIE about YOUR hand. Give FALSE tells. Misdirection.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "I missed everything, {target_first_name}."
+    - "Finally caught something."
+    - "This board killed me."
+    - "I needed that card."
+
+    This is about YOUR hand, not theirs. Act weak when strong, strong when bluffing.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "mislead"}}, {{"text": "...", "tone": "mislead"}}], "targetPlayer": "{target_player}"}}
