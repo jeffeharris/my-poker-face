@@ -13,11 +13,12 @@ from core.llm import LLMClient, CallType
 from ..extensions import persistence, auth_manager, limiter, personality_generator
 from poker.prompt_manager import PromptManager
 from poker.memory.hand_history import RecordedHand
+from poker.config import is_development_mode
 from typing import Dict, Any
 from collections import defaultdict
 
-# Module-level prompt manager instance
-_prompt_manager = PromptManager()
+# Module-level prompt manager instance (with hot-reload in dev mode)
+_prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
 from ..services import game_state_service
 from .. import config
 

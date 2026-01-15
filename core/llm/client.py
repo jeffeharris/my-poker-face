@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Any
 
 from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
 from .response import LLMResponse, ImageResponse
-from .tracking import UsageTracker, CallType
+from .tracking import UsageTracker, CallType, capture_prompt
 from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
 from .providers.groq import GroqProvider
@@ -170,6 +170,18 @@ class LLMClient:
             message_count=message_count,
             system_prompt_tokens=system_prompt_tokens,
         )
+
+        # Capture prompt for playground (if enabled via LLM_PROMPT_CAPTURE env var)
+        if response.status == "ok" and call_type:
+            capture_prompt(
+                messages=messages,
+                response=response,
+                call_type=call_type,
+                game_id=game_id,
+                player_name=player_name,
+                hand_number=hand_number,
+                debug_mode=False,  # Game-level debug mode handled separately
+            )
 
         return response
 

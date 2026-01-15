@@ -9,7 +9,7 @@ from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .personality_generator import PersonalityGenerator
-from .config import MEMORY_TRIM_KEEP_EXCHANGES
+from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
 
 
 class PokerPlayer:
@@ -109,7 +109,7 @@ class AIPokerPlayer(PokerPlayer):
     def __init__(self, name="AI Player", starting_money=10000, llm_config=None,
                  game_id=None, owner_id=None):
         super().__init__(name, starting_money=starting_money)
-        self.prompt_manager = PromptManager()
+        self.prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
         self.personality_config = self._load_personality_config()
         self.confidence = self.personality_config.get("default_confidence", "Unsure")
         self.attitude = self.personality_config.get("default_attitude", "Distracted")

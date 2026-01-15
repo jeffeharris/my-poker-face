@@ -1,0 +1,14 @@
+name: post_round_salty
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    GOAL: Express FRUSTRATION. Vent about the hand. Be salty but not toxic. Reference the actual hand/cards from the HAND INFO above - note which street (FLOP/TURN/RIVER) the key card hit.
+
+    Keep it SHORT (10-15 words max). First person.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "salty"}}, {{"text": "...", "tone": "salty"}}]}}

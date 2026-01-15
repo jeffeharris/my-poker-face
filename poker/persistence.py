@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 
 @dataclass
@@ -347,6 +347,7 @@ class GamePersistence:
             36: (self._migrate_v36_add_xai_pricing, "Add xAI Grok pricing to model_pricing"),
             37: (self._migrate_v37_add_gpt5_pricing, "Add OpenAI GPT-5 pricing"),
             38: (self._migrate_v38_add_enabled_models, "Add enabled_models table for model management"),
+            39: (self._migrate_v39_playground_capture_support, "Make game_id nullable and add call_type to prompt_captures for playground"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1681,6 +1682,105 @@ class GamePersistence:
                 """, (provider, model, supports_reasoning, supports_json, supports_image, sort_order))
 
         logger.info("Migration v38 complete: Added enabled_models table with seeded data")
+
+    def _migrate_v39_playground_capture_support(self, conn: sqlite3.Connection) -> None:
+        """Migration v39: Enable prompt_captures for non-game playground captures.
+
+        Changes:
+        1. Makes game_id nullable (for non-game LLM calls like commentary, personality gen)
+        2. Adds call_type column to identify capture source
+        3. Changes ON DELETE CASCADE to ON DELETE SET NULL for game_id FK
+
+        SQLite doesn't support ALTER TABLE to change constraints, so we recreate the table.
+        """
+        # Check if call_type already exists (idempotency)
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = {row[1] for row in cursor}
+
+        if 'call_type' in columns:
+            logger.info("Migration v39: call_type already exists, skipping")
+            return
+
+        # Create new table with nullable game_id and call_type
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_captures_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                game_id TEXT,
+                player_name TEXT,
+                hand_number INTEGER,
+                phase TEXT,
+                action_taken TEXT,
+                system_prompt TEXT NOT NULL,
+                user_message TEXT NOT NULL,
+                ai_response TEXT NOT NULL,
+                pot_total INTEGER,
+                cost_to_call INTEGER,
+                pot_odds REAL,
+                player_stack INTEGER,
+                community_cards TEXT,
+                player_hand TEXT,
+                valid_actions TEXT,
+                raise_amount INTEGER,
+                model TEXT,
+                latency_ms INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                tags TEXT,
+                notes TEXT,
+                conversation_history TEXT,
+                raw_api_response TEXT,
+                prompt_template TEXT,
+                prompt_version TEXT,
+                prompt_hash TEXT,
+                raw_request TEXT,
+                reasoning_effort TEXT,
+                original_request_id TEXT,
+                provider TEXT DEFAULT 'openai',
+                call_type TEXT,
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
+            )
+        """)
+
+        # Copy existing data
+        conn.execute("""
+            INSERT INTO prompt_captures_new (
+                id, created_at, game_id, player_name, hand_number, phase, action_taken,
+                system_prompt, user_message, ai_response,
+                pot_total, cost_to_call, pot_odds, player_stack,
+                community_cards, player_hand, valid_actions, raise_amount,
+                model, latency_ms, input_tokens, output_tokens,
+                tags, notes, conversation_history, raw_api_response,
+                prompt_template, prompt_version, prompt_hash,
+                raw_request, reasoning_effort, original_request_id, provider
+            )
+            SELECT
+                id, created_at, game_id, player_name, hand_number, phase, action_taken,
+                system_prompt, user_message, ai_response,
+                pot_total, cost_to_call, pot_odds, player_stack,
+                community_cards, player_hand, valid_actions, raise_amount,
+                model, latency_ms, input_tokens, output_tokens,
+                tags, notes, conversation_history, raw_api_response,
+                prompt_template, prompt_version, prompt_hash,
+                raw_request, reasoning_effort, original_request_id, provider
+            FROM prompt_captures
+        """)
+
+        # Drop old table and rename new one
+        conn.execute("DROP TABLE prompt_captures")
+        conn.execute("ALTER TABLE prompt_captures_new RENAME TO prompt_captures")
+
+        # Recreate indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+
+        logger.info("Migration v39 complete: prompt_captures now supports playground captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -3708,6 +3808,154 @@ class GamePersistence:
             cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
             conn.commit()
             return cursor.rowcount
+
+    # ========== Playground Capture Methods ==========
+
+    def list_playground_captures(
+        self,
+        call_type: Optional[str] = None,
+        provider: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List captures for the playground (filtered by call_type).
+
+        This method is similar to list_prompt_captures but focuses on
+        non-game captures identified by call_type.
+
+        Args:
+            call_type: Filter by call type (e.g., 'commentary', 'personality_generation')
+            provider: Filter by LLM provider
+            limit: Max results to return
+            offset: Pagination offset
+            date_from: Filter by start date (ISO format)
+            date_to: Filter by end date (ISO format)
+
+        Returns:
+            Dict with 'captures' list and 'total' count
+        """
+        conditions = []  # Show all captures (including legacy ones without call_type)
+        params = []
+
+        if call_type:
+            conditions.append("call_type = ?")
+            params.append(call_type)
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if date_from:
+            conditions.append("created_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("created_at <= ?")
+            params.append(date_to)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            count_cursor = conn.execute(
+                f"SELECT COUNT(*) FROM prompt_captures {where_clause}",
+                params
+            )
+            total = count_cursor.fetchone()[0]
+
+            # Get captures with pagination
+            query = f"""
+                SELECT id, created_at, game_id, player_name, hand_number,
+                       phase, call_type, action_taken,
+                       model, provider, reasoning_effort,
+                       latency_ms, input_tokens, output_tokens,
+                       tags, notes
+                FROM prompt_captures
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            cursor = conn.execute(query, params)
+
+            captures = []
+            for row in cursor.fetchall():
+                capture = dict(row)
+                # Parse JSON fields
+                for field in ['tags']:
+                    if capture.get(field):
+                        try:
+                            capture[field] = json.loads(capture[field])
+                        except json.JSONDecodeError:
+                            pass
+                captures.append(capture)
+
+            return {
+                'captures': captures,
+                'total': total
+            }
+
+    def get_playground_capture_stats(self) -> Dict[str, Any]:
+        """Get aggregate statistics for all prompt captures."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Count by call_type (legacy captures without call_type shown as 'player_decision')
+            cursor = conn.execute("""
+                SELECT COALESCE(call_type, 'player_decision') as call_type, COUNT(*) as count
+                FROM prompt_captures
+                GROUP BY COALESCE(call_type, 'player_decision')
+                ORDER BY count DESC
+            """)
+            by_call_type = {row['call_type']: row['count'] for row in cursor.fetchall()}
+
+            # Count by provider
+            cursor = conn.execute("""
+                SELECT COALESCE(provider, 'openai') as provider, COUNT(*) as count
+                FROM prompt_captures
+                GROUP BY COALESCE(provider, 'openai')
+                ORDER BY count DESC
+            """)
+            by_provider = {row['provider']: row['count'] for row in cursor.fetchall()}
+
+            # Total count
+            cursor = conn.execute("""
+                SELECT COUNT(*) FROM prompt_captures
+            """)
+            total = cursor.fetchone()[0]
+
+            return {
+                'total': total,
+                'by_call_type': by_call_type,
+                'by_provider': by_provider,
+            }
+
+    def cleanup_old_captures(self, retention_days: int) -> int:
+        """Delete captures older than the retention period.
+
+        Args:
+            retention_days: Delete captures older than this many days.
+                           If 0, no deletion occurs (unlimited retention).
+
+        Returns:
+            Number of captures deleted.
+        """
+        if retention_days <= 0:
+            return 0  # Unlimited retention
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                DELETE FROM prompt_captures
+                WHERE call_type IS NOT NULL
+                  AND created_at < datetime('now', '-' || ? || ' days')
+            """, (retention_days,))
+            conn.commit()
+
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} playground captures older than {retention_days} days")
+            return deleted
 
     # ========== Decision Analysis Methods ==========
 

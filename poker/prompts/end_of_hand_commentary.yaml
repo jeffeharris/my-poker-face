@@ -1,0 +1,38 @@
+name: end_of_hand_commentary
+version: 1.0.0
+sections:
+  context: |-
+    The hand just ended. Here's what happened:
+    {hand_summary}
+
+    Your outcome: {player_outcome}
+    Your cards: {player_cards}
+    Winner: {winner_info}
+
+    Your session so far: {session_context}{spectator_context}
+  instruction: |-
+    As {player_name}, react to this hand in character.
+    Your personality: {confidence}, {attitude}
+    Your chattiness level: {chattiness}/1.0
+
+    If you're spectating (eliminated), focus on:
+    - Heckling players who knocked you out or rivals
+    - Cheering for allies still in the game
+    - Commenting on the action from the sidelines
+
+    If you played this hand, consider:
+    - How do you FEEL about the outcome?
+    - Did you play it well? Any regrets?
+    - What did you notice about opponents?
+
+    Respond in JSON format:
+    {{
+      "emotional_reaction": "How you feel right now (1-2 sentences, in character)",
+      "strategic_reflection": "Your thoughts on the hand (1-2 sentences)",
+      "opponent_observations": ["What you noticed about specific players"],
+      "would_say_aloud": "Trash talk, heckling, celebration, or dig at opponents (or null if quiet)"
+    }}
+
+    For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. If you're spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! Be an exaggerated caricature of yourself - use signature phrases. Only speak if chattiness ({chattiness}) > 0.4.
+
+    IMPORTANT: Vary your phrasing. Don't repeat phrases you've used before in this game.

@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 
 from .response import LLMResponse, ImageResponse
+from .capture_config import should_capture_prompt, PROMPT_CAPTURE_MODE, CAPTURE_DISABLED
 
 logger = logging.getLogger(__name__)
 
@@ -347,3 +348,101 @@ class UsageTracker:
                 estimated_cost,
                 pricing_ids_json,
             ))
+
+
+def capture_prompt(
+    messages: List[Dict[str, str]],
+    response: LLMResponse,
+    call_type: CallType,
+    game_id: Optional[str] = None,
+    player_name: Optional[str] = None,
+    hand_number: Optional[int] = None,
+    debug_mode: bool = False,
+) -> bool:
+    """Capture prompt and response to prompt_captures table.
+
+    This is called after a successful LLM call to optionally store
+    the full prompt/response for debugging and replay.
+
+    Args:
+        messages: The messages array sent to the LLM
+        response: The LLM response
+        call_type: Type of call (player_decision, commentary, etc.)
+        game_id: Optional game ID (nullable for non-game calls)
+        player_name: Optional player name
+        hand_number: Optional hand number
+        debug_mode: True if game has debug capture explicitly enabled
+
+    Returns:
+        True if capture was saved, False if skipped or failed
+    """
+    # Check if we should capture this prompt
+    if not should_capture_prompt(call_type, debug_mode):
+        return False
+
+    # Skip image responses
+    if isinstance(response, ImageResponse):
+        return False
+
+    try:
+        # Extract prompt components
+        system_prompt = ""
+        conversation_history = []
+        user_message = ""
+
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            if role == "system":
+                system_prompt = content
+            elif role == "user":
+                if user_message:
+                    # Previous user message goes to history
+                    conversation_history.append({"role": "user", "content": user_message})
+                user_message = content
+            elif role == "assistant":
+                conversation_history.append({"role": "assistant", "content": content})
+
+        # Get database path
+        if Path('/app/data').exists():
+            db_path = '/app/data/poker_games.db'
+        else:
+            db_path = str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                INSERT INTO prompt_captures (
+                    game_id, player_name, hand_number, phase, call_type,
+                    system_prompt, user_message, ai_response,
+                    conversation_history, raw_api_response,
+                    provider, model, reasoning_effort,
+                    latency_ms, input_tokens, output_tokens,
+                    original_request_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                game_id,
+                player_name,
+                hand_number,
+                call_type.value,  # Use call_type as phase for non-game captures
+                call_type.value,
+                system_prompt or "(no system prompt)",
+                user_message or "(no user message)",
+                response.content or "",
+                json.dumps(conversation_history) if conversation_history else None,
+                json.dumps(response.raw_response, default=str) if response.raw_response else None,
+                response.provider,
+                response.model,
+                getattr(response, 'reasoning_effort', None),
+                int(response.latency_ms),
+                response.input_tokens,
+                response.output_tokens,
+                getattr(response, 'request_id', None),
+            ))
+
+        logger.debug(f"Captured prompt for {call_type.value}: {response.model}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to capture prompt: {e}")
+        return False

@@ -19,3 +19,5 @@ redis~=5.0.1
 PyJWT~=2.8.0
 Pillow>=10.0.0
 eval7>=0.1.9
+PyYAML>=6.0
+watchdog>=3.0.0

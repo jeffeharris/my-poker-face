@@ -1,0 +1,14 @@
+name: post_round_gloat
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference the actual hand/cards from the HAND INFO above.
+
+    Keep it SHORT (10-15 words max). First person. Confident.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "gloat"}}, {{"text": "...", "tone": "gloat"}}]}}

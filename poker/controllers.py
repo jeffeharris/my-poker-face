@@ -10,7 +10,7 @@ from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
-from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS
+from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS, is_development_mode
 from .ai_resilience import (
     with_ai_fallback,
     expects_json,
@@ -120,7 +120,7 @@ class AIPlayerController:
             owner_id=owner_id
         )
         self.assistant = self.ai_player.assistant
-        self.prompt_manager = PromptManager()
+        self.prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
         self.chattiness_manager = ChattinessManager()
         self.response_validator = ResponseValidator()
 

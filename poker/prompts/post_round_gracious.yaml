@@ -1,0 +1,14 @@
+name: post_round_gracious
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    GOAL: Be a GOOD SPORT. No bitterness. Acknowledge their good hand. Reference the actual hand/cards from the HAND INFO above.
+
+    Keep it SHORT (10-15 words max). First person.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "gracious"}}, {{"text": "...", "tone": "gracious"}}]}}

@@ -1,10 +1,20 @@
 """
 Centralized prompt management for AI players.
+
+Loads prompt templates from YAML files with optional hot-reload in development mode.
 """
 import hashlib
 import json
-from typing import Dict, List, Optional
+import logging
+import threading
+import time
+from pathlib import Path
+from typing import Dict, Optional
 from dataclasses import dataclass, field
+
+import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def compute_prompt_hash(text: str) -> str:
@@ -38,340 +48,203 @@ class PromptTemplate:
 
 
 class PromptManager:
-    """Manages all AI player prompts and templates."""
-    
-    def __init__(self):
-        self.templates = {}
-        self._load_default_templates()
-    
-    def _load_default_templates(self):
-        """Load default poker player prompt templates."""
-        self.templates['poker_player'] = PromptTemplate(
-            name='poker_player',
-            sections={
-                # Competitive framing: The shift from "friendly game" to "rivals competing" was intentional
-                # to make AI players more engaging and create dramatic tension. Players found a collaborative
-                # tone made the game feel less exciting. This competitive framing encourages bolder play
-                # and more entertaining table talk.
-                'persona_details': (
-                    "Persona: {name}\n"
-                    "Attitude: {attitude}\n"
-                    "Confidence: {confidence}\n"
-                    "Starting money: ${money}\n"
-                    "Situation: You ARE {name} at a high-stakes celebrity poker tournament. These other players are your "
-                    "RIVALS - you're here to take their chips and their dignity. This is competitive poker with real egos "
-                    "on the line. Play like {name} would actually play: use your signature personality, quirks, and attitude "
-                    "to get inside their heads. Win at all costs."
-                ),
-                'strategy': (
-                    "Strategy:\n"
-                    "Begin by examining your cards and any cards that may be on the table. Evaluate your hand strength and "
-                    "the potential hands your opponents might have. Consider the pot odds, the amount of money in the pot, "
-                    "and how much you would have to risk. Even if you're confident, remember that it's important to "
-                    "preserve your chips for stronger opportunities. Balance your confidence with "
-                    "a healthy dose of skepticism. You can bluff, be strategic, or play cautiously depending on the "
-                    "situation. The goal is to win the game, not just individual hands."
-                ),
-                'direction': (
-                    "Table Talk:\n"
-                    "Your persona_response is what you say OUT LOUD to your opponents at the table. This is poker banter - "
-                    "needle them, taunt them, get in their heads. Be a CARICATURE of {name}: exaggerate your famous traits, "
-                    "catchphrases, and mannerisms. Mock their plays, question their courage, celebrate your wins. "
-                    "Never reveal your actual cards or strategy - use misdirection and mind games instead. "
-                    "Your physical actions should match your personality (intimidating stares, dismissive gestures, etc.)."
-                ),
-                'response_format': (
-                    "Response format:\n"
-                    "You must always respond in JSON format with these fields:\n"
-                    "{json_template}"
-                ),
-                'reminder': (
-                    "Remember {name}, you're feeling {attitude} and {confidence}.\n"
-                    "Stay in character and keep your responses in JSON format."
-                )
-            }
-        )
-        
-        self.templates['decision'] = PromptTemplate(
-            name='decision',
-            sections={
-                'instruction': (
-                    "{message}\n"
-                    "Please only respond with the JSON, not the text with back quotes.\n"
-                    "CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.\n"
-                    "Example: If you say 'I raise by $500', then adding_to_pot should be 500.\n"
-                    "Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.\n\n"
-                    "PERSONA RESPONSE: Talk directly to your opponents - taunt, trash talk, intimidate, or charm them. "
-                    "Stay in character as an exaggerated version of yourself. Reference specific opponents by name when "
-                    "needling them. Use your signature phrases and mannerisms. Mix up your energy - sometimes quiet menace, "
-                    "sometimes loud bravado. Emojis optional. Keep your actual hand SECRET - lie, misdirect, or stay cryptic."
-                )
-            }
-        )
+    """Manages all AI player prompts and templates.
 
-        # End of hand commentary template for AI reflection
-        self.templates['end_of_hand_commentary'] = PromptTemplate(
-            name='end_of_hand_commentary',
-            sections={
-                'context': (
-                    "The hand just ended. Here's what happened:\n"
-                    "{hand_summary}\n\n"
-                    "Your outcome: {player_outcome}\n"
-                    "Your cards: {player_cards}\n"
-                    "Winner: {winner_info}\n\n"
-                    "Your session so far: {session_context}"
-                    "{spectator_context}"
-                ),
-                'instruction': (
-                    "As {player_name}, react to this hand in character.\n"
-                    "Your personality: {confidence}, {attitude}\n"
-                    "Your chattiness level: {chattiness}/1.0\n\n"
-                    "If you're spectating (eliminated), focus on:\n"
-                    "- Heckling players who knocked you out or rivals\n"
-                    "- Cheering for allies still in the game\n"
-                    "- Commenting on the action from the sidelines\n\n"
-                    "If you played this hand, consider:\n"
-                    "- How do you FEEL about the outcome?\n"
-                    "- Did you play it well? Any regrets?\n"
-                    "- What did you notice about opponents?\n\n"
-                    "Respond in JSON format:\n"
-                    "{{\n"
-                    "  \"emotional_reaction\": \"How you feel right now (1-2 sentences, in character)\",\n"
-                    "  \"strategic_reflection\": \"Your thoughts on the hand (1-2 sentences)\",\n"
-                    "  \"opponent_observations\": [\"What you noticed about specific players\"],\n"
-                    "  \"would_say_aloud\": \"Trash talk, heckling, celebration, or dig at opponents (or null if quiet)\"\n"
-                    "}}\n\n"
-                    "For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. "
-                    "If you're spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! "
-                    "Be an exaggerated caricature of yourself - use signature phrases. "
-                    "Only speak if chattiness ({chattiness}) > 0.4.\n\n"
-                    "IMPORTANT: Vary your phrasing. Don't repeat phrases you've used before in this game."
-                )
-            }
-        )
+    Loads templates from YAML files in poker/prompts/ directory.
+    Supports hot-reload in development mode for rapid iteration.
 
-        # Quick chat templates - one for each manipulation goal
-        self._load_quick_chat_templates()
+    Args:
+        enable_hot_reload: If True, watches for file changes and reloads templates.
+                          Should only be True in development mode.
+        prompts_dir: Optional custom directory for YAML files. Defaults to poker/prompts/.
+    """
 
-        # Post-round chat templates - for winner screen reactions
-        self._load_post_round_templates()
+    # Debounce delay for hot-reload (seconds)
+    RELOAD_DEBOUNCE_SECONDS = 0.5
 
-    def _load_quick_chat_templates(self):
-        """Load quick chat templates for player manipulation tactics."""
+    def __init__(self, enable_hot_reload: bool = False, prompts_dir: Optional[Path] = None):
+        self.templates: Dict[str, PromptTemplate] = {}
+        self._last_good_templates: Dict[str, PromptTemplate] = {}
+        self._lock = threading.RLock()
+        self._observer = None
+        self._pending_reloads: Dict[str, float] = {}
+        self._debounce_timer = None
 
-        # TILT: Get under their skin, make them emotional/sloppy
-        self.templates['quick_chat_tilt'] = PromptTemplate(
-            name='quick_chat_tilt',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
-                    "GOAL: Get under their skin. Be MEAN. Attack their ego, mistakes, insecurities.\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "EXAMPLES:\n"
-                    "- \"That call was... a choice.\"\n"
-                    "- \"You look nervous, {target_first_name}.\"\n"
-                    "- \"Remember last hand, {target_first_name}?\"\n"
-                    "- \"{target_first_name}, still thinking about that one?\"\n\n"
-                    "Include \"{target_first_name}\" naturally. Make it PERSONAL - reference their recent play or words.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"tilt\"}}, {{\"text\": \"...\", \"tone\": \"tilt\"}}], \"targetPlayer\": \"{target_player}\"}}"
-                )
-            }
-        )
+        # Set prompts directory
+        if prompts_dir is not None:
+            self.prompts_dir = prompts_dir
+        else:
+            self.prompts_dir = Path(__file__).parent / 'prompts'
 
-        # FALSE CONFIDENCE: Build them up so they overplay
-        self.templates['quick_chat_false_confidence'] = PromptTemplate(
-            name='quick_chat_false_confidence',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
-                    "GOAL: Sound SCARED of them. Build them up. Make them feel strong so they overplay.\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "EXAMPLES:\n"
-                    "- \"You probably have me beat, {target_first_name}.\"\n"
-                    "- \"I should fold to you more.\"\n"
-                    "- \"Nice bet, {target_first_name}. Honestly.\"\n"
-                    "- \"You're reading me like a book.\"\n\n"
-                    "Sound WORRIED, not confident. You're trying to bait them into betting big.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"false_confidence\"}}, {{\"text\": \"...\", \"tone\": \"false_confidence\"}}], \"targetPlayer\": \"{target_player}\"}}"
-                )
-            }
-        )
+        # Load templates from YAML
+        self._load_all_templates()
 
-        # DOUBT: Plant uncertainty, make them second-guess
-        self.templates['quick_chat_doubt'] = PromptTemplate(
-            name='quick_chat_doubt',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
-                    "GOAL: Plant seeds of DOUBT. Be subtle. Make them second-guess their read.\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "EXAMPLES:\n"
-                    "- \"Interesting sizing, {target_first_name}...\"\n"
-                    "- \"You sure about that read?\"\n"
-                    "- \"Hm.\"\n"
-                    "- \"{target_first_name}, you seem... uncertain.\"\n\n"
-                    "Be SUBTLE and questioning. Raise doubt without being aggressive.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"doubt\"}}, {{\"text\": \"...\", \"tone\": \"doubt\"}}], \"targetPlayer\": \"{target_player}\"}}"
-                )
-            }
-        )
+        # Set up hot-reload if enabled
+        self.hot_reload_enabled = enable_hot_reload
+        if enable_hot_reload:
+            self._setup_hot_reload()
 
-        # GOAD: Bait them into bad decisions
-        self.templates['quick_chat_goad'] = PromptTemplate(
-            name='quick_chat_goad',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
-                    "GOAL: DARE them. Challenge their courage. Make folding feel like weakness.\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "EXAMPLES:\n"
-                    "- \"You won't bet, {target_first_name}.\"\n"
-                    "- \"Fold if you're scared.\"\n"
-                    "- \"Do it.\"\n"
-                    "- \"{target_first_name}, prove it.\"\n\n"
-                    "Challenge their ego. Make them want to prove you wrong.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"goad\"}}, {{\"text\": \"...\", \"tone\": \"goad\"}}], \"targetPlayer\": \"{target_player}\"}}"
-                )
-            }
-        )
+    def _load_all_templates(self) -> None:
+        """Load all templates from YAML files."""
+        if not self.prompts_dir.exists():
+            logger.warning(f"Prompts directory not found: {self.prompts_dir}")
+            return
 
-        # MISLEAD: Give false tells about YOUR hand
-        self.templates['quick_chat_mislead'] = PromptTemplate(
-            name='quick_chat_mislead',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
-                    "GOAL: LIE about YOUR hand. Give FALSE tells. Misdirection.\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "EXAMPLES:\n"
-                    "- \"I missed everything, {target_first_name}.\"\n"
-                    "- \"Finally caught something.\"\n"
-                    "- \"This board killed me.\"\n"
-                    "- \"I needed that card.\"\n\n"
-                    "This is about YOUR hand, not theirs. Act weak when strong, strong when bluffing.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"mislead\"}}, {{\"text\": \"...\", \"tone\": \"mislead\"}}], \"targetPlayer\": \"{target_player}\"}}"
-                )
-            }
-        )
+        loaded_count = 0
+        for yaml_file in self.prompts_dir.glob('*.yaml'):
+            try:
+                template = self._load_template_file(yaml_file)
+                if template:
+                    with self._lock:
+                        self.templates[template.name] = template
+                        self._last_good_templates[template.name] = template
+                    loaded_count += 1
+            except Exception as e:
+                logger.error(f"Failed to load template {yaml_file.name}: {e}")
 
-        # BEFRIEND: Build rapport for later exploitation
-        self.templates['quick_chat_befriend'] = PromptTemplate(
-            name='quick_chat_befriend',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to say to {target_player} at a poker table.\n\n"
-                    "GOAL: Build genuine RAPPORT. Be warm. Make them like you.\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "EXAMPLES:\n"
-                    "- \"Good hand, {target_first_name}. Seriously.\"\n"
-                    "- \"You're playing well tonight.\"\n"
-                    "- \"Respect, {target_first_name}.\"\n"
-                    "- \"That was a nice play.\"\n\n"
-                    "Be GENUINELY warm and friendly. No sarcasm. Build connection.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"befriend\"}}, {{\"text\": \"...\", \"tone\": \"befriend\"}}], \"targetPlayer\": \"{target_player}\"}}"
-                )
-            }
-        )
+        logger.info(f"Loaded {loaded_count} prompt templates from {self.prompts_dir}")
 
-        # Table talk version (no target player)
-        self.templates['quick_chat_table'] = PromptTemplate(
-            name='quick_chat_table',
-            sections={
-                'instruction': (
-                    "Write 2 messages for {player_name} to announce to the whole poker table.\n\n"
-                    "GOAL: {tone_description}\n\n"
-                    "CONTEXT:\n{context_str}\n{chat_context}\n\n"
-                    "{length_guidance}\n"
-                    "{intensity_guidance}\n\n"
-                    "Write in first person. React to the recent conversation.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"{tone}\"}}, {{\"text\": \"...\", \"tone\": \"{tone}\"}}], \"targetPlayer\": null}}"
-                )
-            }
-        )
+    def _load_template_file(self, yaml_file: Path) -> Optional[PromptTemplate]:
+        """Load a single template from a YAML file.
 
-    def _load_post_round_templates(self):
-        """Load post-round chat templates for winner screen reactions.
-
-        These templates generate chat suggestions FOR THE HUMAN PLAYER to send.
-        The {hand_context} contains structured info about the hand including:
-        - OUTCOME: WON_SHOWDOWN, WON_BY_FOLD, LOST_SHOWDOWN, or FOLDED
-        - YOUR CARDS and OPPONENT info
-        - HAND TIMELINE with betting actions by street (PRE_FLOP, FLOP, TURN, RIVER)
+        Uses yaml.safe_load() to prevent arbitrary code execution.
         """
+        try:
+            with open(yaml_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
 
-        # GLOAT: Trash talk after winning
-        self.templates['post_round_gloat'] = PromptTemplate(
-            name='post_round_gloat',
-            sections={
-                'instruction': (
-                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
-                    "HAND INFO:\n{hand_context}\n\n"
-                    "GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference the actual hand/cards from the HAND INFO above.\n\n"
-                    "Keep it SHORT (10-15 words max). First person. Confident.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"gloat\"}}, {{\"text\": \"...\", \"tone\": \"gloat\"}}]}}"
-                )
-            }
-        )
+            if not data or not isinstance(data, dict):
+                logger.error(f"Invalid YAML structure in {yaml_file.name}")
+                return None
 
-        # HUMBLE: Gracious winner
-        self.templates['post_round_humble'] = PromptTemplate(
-            name='post_round_humble',
-            sections={
-                'instruction': (
-                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
-                    "HAND INFO:\n{hand_context}\n\n"
-                    "GOAL: Be HUMBLE. Downplay your skill. Credit luck. Be a good sport. Reference the actual hand/cards from the HAND INFO above.\n\n"
-                    "Keep it SHORT (10-15 words max). First person.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"humble\"}}, {{\"text\": \"...\", \"tone\": \"humble\"}}]}}"
-                )
-            }
-        )
+            name = data.get('name')
+            if not name:
+                logger.error(f"Missing 'name' field in {yaml_file.name}")
+                return None
 
-        # SALTY: Frustrated after losing or folding
-        self.templates['post_round_salty'] = PromptTemplate(
-            name='post_round_salty',
-            sections={
-                'instruction': (
-                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
-                    "HAND INFO:\n{hand_context}\n\n"
-                    "GOAL: Express FRUSTRATION. Vent about the hand. Be salty but not toxic. Reference the actual hand/cards from the HAND INFO above - note which street (FLOP/TURN/RIVER) the key card hit.\n\n"
-                    "Keep it SHORT (10-15 words max). First person.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"salty\"}}, {{\"text\": \"...\", \"tone\": \"salty\"}}]}}"
-                )
-            }
-        )
+            return PromptTemplate(
+                name=name,
+                version=data.get('version', '1.0.0'),
+                sections=data.get('sections', {})
+            )
+        except yaml.YAMLError as e:
+            logger.error(f"YAML parse error in {yaml_file.name}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error loading {yaml_file.name}: {e}")
+            return None
 
-        # GRACIOUS: Good sport after losing or folding
-        self.templates['post_round_gracious'] = PromptTemplate(
-            name='post_round_gracious',
-            sections={
-                'instruction': (
-                    "Generate 2 SHORT chat suggestions for {player_name} to send after this hand.\n\n"
-                    "HAND INFO:\n{hand_context}\n\n"
-                    "GOAL: Be a GOOD SPORT. No bitterness. Acknowledge their good hand. Reference the actual hand/cards from the HAND INFO above.\n\n"
-                    "Keep it SHORT (10-15 words max). First person.\n\n"
-                    "Return JSON: {{\"suggestions\": [{{\"text\": \"...\", \"tone\": \"gracious\"}}, {{\"text\": \"...\", \"tone\": \"gracious\"}}]}}"
-                )
-            }
+    def _reload_template(self, template_name: str) -> bool:
+        """Reload a single template from its YAML file.
+
+        Thread-safe with fallback to last good version on error.
+
+        Returns:
+            True if reload succeeded, False otherwise.
+        """
+        yaml_file = self.prompts_dir / f"{template_name}.yaml"
+        if not yaml_file.exists():
+            logger.warning(f"Template file not found: {yaml_file}")
+            return False
+
+        try:
+            new_template = self._load_template_file(yaml_file)
+            if new_template:
+                with self._lock:
+                    self.templates[template_name] = new_template
+                    self._last_good_templates[template_name] = new_template
+                logger.info(f"[PromptManager] Reloaded template: {template_name}")
+                return True
+            else:
+                logger.error(f"Failed to parse template: {template_name}")
+                return False
+        except Exception as e:
+            logger.error(f"Error reloading {template_name}: {e}")
+            # Keep the last good version
+            return False
+
+    def _setup_hot_reload(self) -> None:
+        """Set up file watching for hot-reload."""
+        try:
+            from watchdog.observers import Observer
+            from watchdog.events import FileSystemEventHandler
+
+            manager = self
+
+            class PromptFileHandler(FileSystemEventHandler):
+                def on_modified(self, event):
+                    if event.is_directory:
+                        return
+                    if event.src_path.endswith('.yaml'):
+                        template_name = Path(event.src_path).stem
+                        manager._schedule_reload(template_name)
+
+            self._observer = Observer()
+            self._observer.schedule(
+                PromptFileHandler(),
+                str(self.prompts_dir),
+                recursive=False
+            )
+            self._observer.start()
+            logger.info(f"[PromptManager] Hot-reload enabled, watching {self.prompts_dir}")
+        except ImportError:
+            logger.warning("watchdog not installed, hot-reload disabled")
+        except Exception as e:
+            logger.error(f"Failed to set up hot-reload: {e}")
+
+    def _schedule_reload(self, template_name: str) -> None:
+        """Schedule a template reload with debouncing.
+
+        Multiple rapid file changes will be coalesced into a single reload.
+        """
+        with self._lock:
+            self._pending_reloads[template_name] = time.time()
+
+        # Cancel existing timer
+        if self._debounce_timer:
+            self._debounce_timer.cancel()
+
+        # Schedule new timer
+        self._debounce_timer = threading.Timer(
+            self.RELOAD_DEBOUNCE_SECONDS,
+            self._process_pending_reloads
         )
+        self._debounce_timer.daemon = True
+        self._debounce_timer.start()
+
+    def _process_pending_reloads(self) -> None:
+        """Process all pending template reloads."""
+        with self._lock:
+            templates_to_reload = list(self._pending_reloads.keys())
+            self._pending_reloads.clear()
+
+        for template_name in templates_to_reload:
+            self._reload_template(template_name)
+
+    def stop_hot_reload(self) -> None:
+        """Stop the file watcher. Call this on shutdown."""
+        if self._observer:
+            self._observer.stop()
+            self._observer.join(timeout=2.0)
+            self._observer = None
+            logger.info("[PromptManager] Hot-reload stopped")
+
+        if self._debounce_timer:
+            self._debounce_timer.cancel()
+            self._debounce_timer = None
+
+    def __del__(self):
+        """Clean up file watcher on destruction."""
+        self.stop_hot_reload()
+
+    # === Public API (unchanged for backward compatibility) ===
 
     def get_template(self, template_name: str) -> PromptTemplate:
         """Get a specific template by name."""
-        if template_name not in self.templates:
-            raise ValueError(f"Template '{template_name}' not found")
-        return self.templates[template_name]
+        with self._lock:
+            if template_name not in self.templates:
+                raise ValueError(f"Template '{template_name}' not found")
+            return self.templates[template_name]
 
     def get_version_info(self, template_name: str) -> dict:
         """Get version info for a template."""
@@ -386,6 +259,86 @@ class PromptManager:
         """Render a template with provided variables."""
         template = self.get_template(template_name)
         return template.render(**kwargs)
+
+    def list_templates(self) -> list:
+        """List all available template names."""
+        with self._lock:
+            return list(self.templates.keys())
+
+    def save_template(self, template_name: str, sections: Dict[str, str],
+                      version: Optional[str] = None) -> bool:
+        """Save a template to its YAML file.
+
+        Args:
+            template_name: Name of the template (must already exist)
+            sections: Dict of section_name -> content
+            version: Optional new version string
+
+        Returns:
+            True if save succeeded, False otherwise
+        """
+        from poker.prompts import validate_template_name, get_template_path
+
+        # Security: validate template name
+        if not validate_template_name(template_name):
+            logger.error(f"Invalid template name: {template_name}")
+            return False
+
+        yaml_path = get_template_path(template_name)
+        if yaml_path is None:
+            logger.error(f"Invalid template path for: {template_name}")
+            return False
+
+        # Get current version if not specified
+        if version is None:
+            with self._lock:
+                if template_name in self.templates:
+                    version = self.templates[template_name].version
+                else:
+                    version = "1.0.0"
+
+        # Build YAML data
+        yaml_data = {
+            'name': template_name,
+            'version': version,
+            'sections': sections
+        }
+
+        # Atomic write: write to temp file then rename
+        temp_path = yaml_path.with_suffix('.yaml.tmp')
+        try:
+            # Custom representer for multi-line strings
+            def str_representer(dumper, data):
+                if '\n' in data:
+                    return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+                return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+            yaml.add_representer(str, str_representer)
+
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                yaml.dump(yaml_data, f,
+                         default_flow_style=False,
+                         allow_unicode=True,
+                         sort_keys=False)
+
+            # Atomic rename
+            temp_path.rename(yaml_path)
+
+            # Reload the template
+            self._reload_template(template_name)
+
+            logger.info(f"Saved template: {template_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save template {template_name}: {e}")
+            # Clean up temp file
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
+            return False
 
 
 # Response format definitions - structured to simulate human thinking process

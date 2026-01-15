@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, ChevronRight } from 'lucide-react';
+import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, FlaskConical, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { config } from '../../config';
 import './GameMenu.css';
@@ -13,6 +13,7 @@ interface GameMenuProps {
   onManagePersonalities: () => void;
   onViewStats?: () => void;
   onPromptDebugger?: () => void;
+  onPromptPlayground?: () => void;
   savedGamesCount: number;
 }
 
@@ -25,6 +26,7 @@ export function GameMenu({
   onManagePersonalities,
   onViewStats,
   onPromptDebugger,
+  onPromptPlayground,
   savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
@@ -145,6 +147,22 @@ export function GameMenu({
               <ChevronRight className="option-arrow" size={20} />
             </button>
           )}
+
+          {config.ENABLE_DEBUG && onPromptPlayground && (
+            <button
+              className="menu-option prompt-playground"
+              onClick={onPromptPlayground}
+              onMouseEnter={() => setHoveredOption('playground')}
+              onMouseLeave={() => setHoveredOption(null)}
+            >
+              <FlaskConical className="option-icon" size={24} />
+              <div className="option-content">
+                <h3>Prompt Playground</h3>
+                <p>View and replay any captured LLM prompt</p>
+              </div>
+              <ChevronRight className="option-arrow" size={20} />
+            </button>
+          )}
         </div>
 
       <div className="game-menu__footer">
@@ -156,6 +174,7 @@ export function GameMenu({
           {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
           {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
           {hoveredOption === 'debugger' && "Debug AI decisions by viewing and replaying captured prompts."}
+          {hoveredOption === 'playground' && "Explore and replay any LLM prompt with different models."}
           {!hoveredOption && "Ready to test your poker face?"}
         </p>
       </div>

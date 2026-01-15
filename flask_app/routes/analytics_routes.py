@@ -1564,3 +1564,433 @@ def _render_pricing(rows):
     </html>
     '''
     return html
+
+
+# =============================================================================
+# Prompt Playground API
+# =============================================================================
+
+@analytics_bp.route('/api/playground/captures')
+@_dev_only
+def api_playground_captures():
+    """List captured prompts for the playground.
+
+    Query params:
+        call_type: Filter by call type (e.g., 'commentary', 'personality_generation')
+        provider: Filter by LLM provider
+        limit: Max results (default 50)
+        offset: Pagination offset (default 0)
+        date_from: Filter by start date (ISO format)
+        date_to: Filter by end date (ISO format)
+    """
+    from ..extensions import persistence
+
+    try:
+        result = persistence.list_playground_captures(
+            call_type=request.args.get('call_type'),
+            provider=request.args.get('provider'),
+            limit=int(request.args.get('limit', 50)),
+            offset=int(request.args.get('offset', 0)),
+            date_from=request.args.get('date_from'),
+            date_to=request.args.get('date_to'),
+        )
+
+        stats = persistence.get_playground_capture_stats()
+
+        return jsonify({
+            'success': True,
+            'captures': result['captures'],
+            'total': result['total'],
+            'stats': stats,
+        })
+
+    except Exception as e:
+        logger.error(f"Playground captures error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/playground/captures/<int:capture_id>')
+@_dev_only
+def api_playground_capture(capture_id):
+    """Get a single playground capture by ID."""
+    from ..extensions import persistence
+
+    try:
+        capture = persistence.get_prompt_capture(capture_id)
+
+        if not capture:
+            return jsonify({'success': False, 'error': 'Capture not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'capture': capture,
+        })
+
+    except Exception as e:
+        logger.error(f"Playground capture error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/playground/captures/<int:capture_id>/replay', methods=['POST'])
+@_dev_only
+def api_playground_replay(capture_id):
+    """Replay a captured prompt with optional modifications.
+
+    Request body:
+        system_prompt: Modified system prompt (optional)
+        user_message: Modified user message (optional)
+        conversation_history: Modified history (optional)
+        use_history: Whether to include history (default: True)
+        provider: LLM provider to use (optional)
+        model: Model to use (optional)
+        reasoning_effort: Reasoning effort (optional)
+    """
+    from ..extensions import persistence
+    from core.llm import LLMClient, CallType
+
+    try:
+        capture = persistence.get_prompt_capture(capture_id)
+        if not capture:
+            return jsonify({'success': False, 'error': 'Capture not found'}), 404
+
+        data = request.get_json() or {}
+
+        # Use modified prompts or originals
+        system_prompt = data.get('system_prompt', capture.get('system_prompt', ''))
+        user_message = data.get('user_message', capture.get('user_message', ''))
+        provider = data.get('provider', capture.get('provider', 'openai')).lower()
+        model = data.get('model', capture.get('model'))
+        reasoning_effort = data.get('reasoning_effort', capture.get('reasoning_effort', 'minimal'))
+
+        # Handle conversation history
+        use_history = data.get('use_history', True)
+        conversation_history = data.get('conversation_history', capture.get('conversation_history', []))
+
+        # Create LLM client
+        client = LLMClient(provider=provider, model=model, reasoning_effort=reasoning_effort)
+
+        # Build messages array
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        if use_history and conversation_history:
+            for msg in conversation_history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+
+        messages.append({"role": "user", "content": user_message})
+
+        # Check if JSON format requested
+        combined_text = (system_prompt or '') + (user_message or '')
+        use_json_format = 'json' in combined_text.lower()
+
+        response = client.complete(
+            messages=messages,
+            json_format=use_json_format,
+            call_type=CallType.DEBUG_REPLAY,
+        )
+
+        return jsonify({
+            'success': True,
+            'original_response': capture.get('ai_response', ''),
+            'new_response': response.content,
+            'provider_used': response.provider,
+            'model_used': response.model,
+            'reasoning_effort_used': reasoning_effort,
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'latency_ms': response.latency_ms,
+            'messages_count': len(messages),
+            'used_history': use_history and bool(conversation_history),
+        })
+
+    except Exception as e:
+        logger.error(f"Playground replay error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/playground/stats')
+@_dev_only
+def api_playground_stats():
+    """Get aggregate statistics for playground captures."""
+    from ..extensions import persistence
+
+    try:
+        stats = persistence.get_playground_capture_stats()
+        return jsonify({'success': True, 'stats': stats})
+
+    except Exception as e:
+        logger.error(f"Playground stats error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/playground/cleanup', methods=['POST'])
+@_dev_only
+def api_playground_cleanup():
+    """Delete old playground captures.
+
+    Request body:
+        retention_days: Delete captures older than this many days (default: from config)
+    """
+    from ..extensions import persistence
+    from core.llm.capture_config import get_retention_days
+
+    try:
+        data = request.get_json() or {}
+        retention_days = data.get('retention_days', get_retention_days())
+
+        if retention_days <= 0:
+            return jsonify({
+                'success': True,
+                'message': 'Unlimited retention configured, no cleanup performed',
+                'deleted': 0,
+            })
+
+        deleted = persistence.cleanup_old_captures(retention_days)
+
+        return jsonify({
+            'success': True,
+            'message': f'Deleted {deleted} captures older than {retention_days} days',
+            'deleted': deleted,
+        })
+
+    except Exception as e:
+        logger.error(f"Playground cleanup error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Prompt Template Management
+# =============================================================================
+
+@analytics_bp.route('/api/prompts/templates')
+@_dev_only
+def api_list_templates():
+    """List all prompt templates.
+
+    Returns:
+        JSON with list of template summaries (name, version, section_count, hash)
+    """
+    from poker.prompt_manager import PromptManager
+    from poker.prompts import extract_variables
+
+    try:
+        manager = PromptManager()
+        templates = []
+
+        for name in sorted(manager.list_templates()):
+            template = manager.get_template(name)
+            # Extract variables from all sections
+            all_content = '\n'.join(template.sections.values())
+            variables = extract_variables(all_content)
+
+            templates.append({
+                'name': template.name,
+                'version': template.version,
+                'section_count': len(template.sections),
+                'hash': template.template_hash,
+                'variables': variables,
+            })
+
+        return jsonify({
+            'success': True,
+            'templates': templates,
+            'total': len(templates),
+        })
+
+    except Exception as e:
+        logger.error(f"Error listing templates: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/prompts/templates/<template_name>')
+@_dev_only
+def api_get_template(template_name: str):
+    """Get a single template with full content.
+
+    Args:
+        template_name: Name of the template
+
+    Returns:
+        JSON with full template details including all sections
+    """
+    from poker.prompt_manager import PromptManager
+    from poker.prompts import validate_template_name, extract_variables
+
+    # Security: validate template name
+    if not validate_template_name(template_name):
+        return jsonify({'success': False, 'error': 'Invalid template name'}), 400
+
+    try:
+        manager = PromptManager()
+        template = manager.get_template(template_name)
+
+        # Extract variables from all sections
+        all_content = '\n'.join(template.sections.values())
+        variables = extract_variables(all_content)
+
+        return jsonify({
+            'success': True,
+            'template': {
+                'name': template.name,
+                'version': template.version,
+                'sections': template.sections,
+                'hash': template.template_hash,
+                'variables': variables,
+            }
+        })
+
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Error getting template {template_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/prompts/templates/<template_name>', methods=['PUT'])
+@_dev_only
+def api_update_template(template_name: str):
+    """Update a template by saving to its YAML file.
+
+    Args:
+        template_name: Name of the template
+
+    Request body:
+        {
+            "sections": {"section_name": "content", ...},
+            "version": "1.0.1" (optional)
+        }
+
+    Returns:
+        JSON with success status and new hash
+    """
+    from poker.prompt_manager import PromptManager
+    from poker.prompts import validate_template_name, validate_template_schema
+
+    # Security: validate template name
+    if not validate_template_name(template_name):
+        return jsonify({'success': False, 'error': 'Invalid template name'}), 400
+
+    try:
+        data = request.get_json()
+        if not data or 'sections' not in data:
+            return jsonify({'success': False, 'error': 'Missing sections'}), 400
+
+        sections = data['sections']
+        version = data.get('version')
+
+        # Validate sections is a dict of strings
+        if not isinstance(sections, dict):
+            return jsonify({'success': False, 'error': 'sections must be a dict'}), 400
+
+        for key, value in sections.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                return jsonify({'success': False, 'error': 'Section keys and values must be strings'}), 400
+
+        # Validate schema (required sections)
+        is_valid, error = validate_template_schema(template_name, sections)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error}), 400
+
+        # Save the template
+        manager = PromptManager()
+
+        # Verify template exists
+        try:
+            manager.get_template(template_name)
+        except ValueError:
+            return jsonify({'success': False, 'error': f"Template '{template_name}' not found"}), 404
+
+        # Save to YAML file
+        success = manager.save_template(template_name, sections, version)
+
+        if success:
+            # Get the new hash
+            updated = manager.get_template(template_name)
+            return jsonify({
+                'success': True,
+                'message': 'Template updated',
+                'new_hash': updated.template_hash,
+                'new_version': updated.version,
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save template'}), 500
+
+    except Exception as e:
+        logger.error(f"Error updating template {template_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@analytics_bp.route('/api/prompts/templates/<template_name>/preview', methods=['POST'])
+@_dev_only
+def api_preview_template(template_name: str):
+    """Preview a template render with sample variables.
+
+    Args:
+        template_name: Name of the template
+
+    Request body:
+        {
+            "sections": {"section_name": "content", ...} (optional, uses current if not provided),
+            "variables": {"var_name": "value", ...}
+        }
+
+    Returns:
+        JSON with rendered output and any missing variables
+    """
+    from poker.prompt_manager import PromptManager, PromptTemplate
+    from poker.prompts import validate_template_name, extract_variables
+
+    # Security: validate template name
+    if not validate_template_name(template_name):
+        return jsonify({'success': False, 'error': 'Invalid template name'}), 400
+
+    try:
+        data = request.get_json() or {}
+        variables = data.get('variables', {})
+        custom_sections = data.get('sections')
+
+        manager = PromptManager()
+
+        # Get the template (or use custom sections)
+        if custom_sections:
+            template = PromptTemplate(
+                name=template_name,
+                sections=custom_sections
+            )
+        else:
+            template = manager.get_template(template_name)
+
+        # Find all variables needed
+        all_content = '\n'.join(template.sections.values())
+        required_vars = set(extract_variables(all_content))
+        provided_vars = set(variables.keys())
+        missing_vars = required_vars - provided_vars
+
+        # Render with provided variables (fill missing with placeholders)
+        render_vars = {var: f'[{var}]' for var in required_vars}
+        render_vars.update(variables)
+
+        try:
+            rendered = template.render(**render_vars)
+            render_error = None
+        except Exception as e:
+            rendered = None
+            render_error = str(e)
+
+        return jsonify({
+            'success': True,
+            'rendered': rendered,
+            'render_error': render_error,
+            'required_variables': sorted(required_vars),
+            'missing_variables': sorted(missing_vars),
+        })
+
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Error previewing template {template_name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
