@@ -6,15 +6,67 @@ Loads prompt templates from YAML files with optional hot-reload in development m
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from dataclasses import dataclass, field
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# Regex to extract format placeholders from strings
+# Matches {name} or {name:format_spec} but captures only the name part
+_FORMAT_PLACEHOLDER_RE = re.compile(r'\{([^}:!]+)(?:[!:][^}]*)?\}')
+
+# Regex to validate safe variable names (no private/dunder access)
+_SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
+
+
+def _validate_format_placeholders(text: str) -> Set[str]:
+    """Extract and validate format placeholders from a string.
+
+    This prevents format string injection attacks by ensuring placeholders
+    are simple variable names without attribute access or private variable access.
+
+    Args:
+        text: The format string to validate
+
+    Returns:
+        Set of valid placeholder names found
+
+    Raises:
+        ValueError: If an unsafe placeholder is detected
+    """
+    placeholders = _FORMAT_PLACEHOLDER_RE.findall(text)
+    validated = set()
+
+    for placeholder in placeholders:
+        # Check for attribute access (e.g., obj.attr or obj.__class__)
+        if '.' in placeholder:
+            raise ValueError(
+                f"Unsafe format placeholder: '{placeholder}' - attribute access not allowed"
+            )
+        # Check for bracket access (e.g., obj[key])
+        if '[' in placeholder:
+            raise ValueError(
+                f"Unsafe format placeholder: '{placeholder}' - index access not allowed"
+            )
+        # Check for dunder/private variables
+        if placeholder.startswith('_'):
+            raise ValueError(
+                f"Unsafe format placeholder: '{placeholder}' - private variables not allowed"
+            )
+        # Validate it's a proper variable name
+        if not _SAFE_VARIABLE_RE.match(placeholder):
+            raise ValueError(
+                f"Invalid format placeholder: '{placeholder}' - must be a valid identifier"
+            )
+        validated.add(placeholder)
+
+    return validated
 
 
 def compute_prompt_hash(text: str) -> str:
@@ -36,10 +88,25 @@ class PromptTemplate:
         return compute_prompt_hash(content)
 
     def render(self, **kwargs) -> str:
-        """Render the prompt with provided variables."""
+        """Render the prompt with provided variables.
+
+        This method validates all format placeholders before rendering to prevent
+        format string injection attacks (e.g., accessing __class__ or __globals__).
+
+        Args:
+            **kwargs: Variables to substitute into the template
+
+        Returns:
+            Rendered prompt string
+
+        Raises:
+            ValueError: If a placeholder is missing or if an unsafe placeholder is detected
+        """
         rendered_sections = []
         for section_name, section_content in self.sections.items():
             try:
+                # Validate placeholders before rendering to prevent injection attacks
+                _validate_format_placeholders(section_content)
                 rendered = section_content.format(**kwargs)
                 rendered_sections.append(rendered)
             except KeyError as e:

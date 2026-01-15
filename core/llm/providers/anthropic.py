@@ -73,6 +73,13 @@ class AnthropicProvider(LLMProvider):
         """Anthropic doesn't have image generation."""
         return "unsupported"
 
+    # Explicit JSON instruction to append when json_format=True
+    _JSON_INSTRUCTION = (
+        "\n\nIMPORTANT: You MUST respond with valid JSON only. "
+        "Do not include any text, explanation, or markdown formatting outside the JSON object. "
+        "Your entire response must be parseable as JSON."
+    )
+
     def complete(
         self,
         messages: List[Dict[str, str]],
@@ -84,6 +91,9 @@ class AnthropicProvider(LLMProvider):
         Anthropic has a different message format:
         - System prompt is a separate parameter
         - Messages array only contains user/assistant messages
+
+        When json_format=True, explicit JSON instructions are injected into the
+        system prompt since Anthropic doesn't have native JSON mode support.
         """
         # Extract system prompt from messages if present
         system_prompt = None
@@ -94,6 +104,20 @@ class AnthropicProvider(LLMProvider):
                 system_prompt = msg.get("content", "")
             else:
                 filtered_messages.append(msg)
+
+        # JSON output handling:
+        # Anthropic does not have a native JSON mode like OpenAI's response_format.
+        # We enforce JSON output by injecting explicit instructions into the system prompt.
+        if json_format:
+            if system_prompt:
+                system_prompt = system_prompt + self._JSON_INSTRUCTION
+            else:
+                # If no system prompt exists, add one with JSON instruction
+                system_prompt = self._JSON_INSTRUCTION.strip()
+            logger.debug(
+                "json_format=True for Anthropic model %s; injected JSON instruction into system prompt",
+                self._model,
+            )
 
         kwargs = {
             "model": self._model,
@@ -110,16 +134,6 @@ class AnthropicProvider(LLMProvider):
                 "type": "enabled",
                 "budget_tokens": self._thinking_budget,
             }
-
-        # JSON output handling:
-        # Anthropic does not have a native JSON mode like OpenAI's response_format.
-        # When json_format=True, we rely on prompt instructions to request JSON.
-        # The upstream prompt templates already include explicit JSON format requests.
-        if json_format:
-            logger.debug(
-                "json_format=True for Anthropic model %s; relying on prompt for JSON output (no native JSON mode)",
-                self._model,
-            )
 
         return self._client.messages.create(**kwargs)
 

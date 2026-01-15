@@ -1,9 +1,12 @@
 """Admin dashboard routes for LLM usage analysis, model management, and debug tools."""
 
 import logging
+import os
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from flask import Blueprint, jsonify, request
 
@@ -23,27 +26,89 @@ def _get_db_path() -> str:
     return str(Path(__file__).parent.parent.parent / 'poker_games.db')
 
 
-def _get_date_filter(range_param: str) -> str:
-    """Convert range parameter to SQL datetime filter."""
-    if range_param == '24h':
-        return "datetime('now', '-1 day')"
-    elif range_param == '7d':
-        return "datetime('now', '-7 days')"
-    elif range_param == '30d':
-        return "datetime('now', '-30 days')"
-    else:  # 'all' or default
-        return "datetime('1970-01-01')"
+def _get_date_modifier(range_param: str) -> str:
+    """Convert range parameter to SQLite datetime modifier for parameterized queries.
+
+    Returns a modifier string to be used with datetime('now', ?).
+    This approach prevents SQL injection by using parameterized queries.
+    """
+    modifiers = {
+        '24h': '-1 day',
+        '7d': '-7 days',
+        '30d': '-30 days',
+        'all': '-100 years',  # Effectively all time
+    }
+    return modifiers.get(range_param, '-7 days')
 
 
-def _dev_only(f):
-    """Decorator to restrict route to development mode only."""
-    from functools import wraps
+def _check_admin_auth() -> tuple[bool, str]:
+    """Check if the request has valid admin authentication.
+
+    Authentication is required when ADMIN_TOKEN is set in environment.
+    Token can be provided via:
+    - Authorization: Bearer <token> header
+    - ?admin_token=<token> query parameter (for browser access)
+
+    Returns:
+        Tuple of (is_authenticated, error_message)
+    """
+    admin_token = os.environ.get('ADMIN_TOKEN')
+
+    # If no token is configured, allow access (but log warning in production-like envs)
+    if not admin_token:
+        if not config.is_development:
+            logger.warning("ADMIN_TOKEN not set - admin endpoints unprotected")
+        return True, ""
+
+    # Check Authorization header first
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        provided_token = auth_header[7:]
+        if secrets.compare_digest(provided_token, admin_token):
+            return True, ""
+
+    # Check query parameter (for browser access to HTML pages)
+    provided_token = request.args.get('admin_token', '')
+    if provided_token and secrets.compare_digest(provided_token, admin_token):
+        return True, ""
+
+    return False, "Invalid or missing admin token"
+
+
+def _admin_required(f):
+    """Decorator to require admin authentication and restrict to development mode.
+
+    Security layers:
+    1. Checks development mode (fails in production unless explicitly enabled)
+    2. Requires ADMIN_TOKEN authentication when token is configured
+
+    Token can be provided via:
+    - Authorization: Bearer <token> header
+    - ?admin_token=<token> query parameter
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Check development mode
         if not config.is_development:
-            return jsonify({'error': 'Analytics only available in development mode'}), 403
+            return jsonify({'error': 'Admin dashboard only available in development mode'}), 403
+
+        # Check authentication
+        is_authenticated, error_msg = _check_admin_auth()
+        if not is_authenticated:
+            # Return 401 for API requests, redirect hint for browser requests
+            if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+                return jsonify({'error': error_msg}), 401
+            return jsonify({
+                'error': error_msg,
+                'hint': 'Add ?admin_token=YOUR_TOKEN to the URL or set Authorization: Bearer YOUR_TOKEN header'
+            }), 401
+
         return f(*args, **kwargs)
     return decorated
+
+
+# Keep old decorator name as alias for backwards compatibility
+_dev_only = _admin_required
 
 
 # =============================================================================
@@ -55,48 +120,48 @@ def _dev_only(f):
 def dashboard():
     """Main analytics dashboard."""
     range_param = request.args.get('range', '7d')
-    date_filter = _get_date_filter(range_param)
+    date_modifier = _get_date_modifier(range_param)
 
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Summary metrics
-            cursor = conn.execute(f"""
+            # Summary metrics (parameterized query to prevent SQL injection)
+            cursor = conn.execute("""
                 SELECT
                     COUNT(*) as total_calls,
                     COALESCE(SUM(estimated_cost), 0) as total_cost,
                     COALESCE(AVG(latency_ms), 0) as avg_latency,
                     COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
                 FROM api_usage
-                WHERE created_at >= {date_filter}
-            """)
+                WHERE created_at >= datetime('now', ?)
+            """, (date_modifier,))
             summary = dict(cursor.fetchone())
 
-            # Cost by provider
-            cursor = conn.execute(f"""
+            # Cost by provider (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     provider,
                     COUNT(*) as calls,
                     COALESCE(SUM(estimated_cost), 0) as cost
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                 GROUP BY provider
                 ORDER BY cost DESC
-            """)
+            """, (date_modifier,))
             cost_by_provider = [dict(row) for row in cursor.fetchall()]
 
-            # Calls by type
-            cursor = conn.execute(f"""
+            # Calls by type (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     call_type,
                     COUNT(*) as calls,
                     COALESCE(SUM(estimated_cost), 0) as cost
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                 GROUP BY call_type
                 ORDER BY calls DESC
-            """)
+            """, (date_modifier,))
             calls_by_type = [dict(row) for row in cursor.fetchall()]
 
         return _render_dashboard(summary, cost_by_provider, calls_by_type, range_param)
@@ -455,21 +520,21 @@ def _render_dashboard_error(error: str):
 def api_summary():
     """JSON endpoint for dashboard summary data."""
     range_param = request.args.get('range', '7d')
-    date_filter = _get_date_filter(range_param)
+    date_modifier = _get_date_modifier(range_param)
 
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
-            cursor = conn.execute(f"""
+            cursor = conn.execute("""
                 SELECT
                     COUNT(*) as total_calls,
                     COALESCE(SUM(estimated_cost), 0) as total_cost,
                     COALESCE(AVG(latency_ms), 0) as avg_latency,
                     COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
                 FROM api_usage
-                WHERE created_at >= {date_filter}
-            """)
+                WHERE created_at >= datetime('now', ?)
+            """, (date_modifier,))
             summary = dict(cursor.fetchone())
 
             return jsonify({'success': True, 'summary': summary})
@@ -487,14 +552,14 @@ def api_summary():
 def costs():
     """Cost analysis page with detailed breakdowns."""
     range_param = request.args.get('range', '7d')
-    date_filter = _get_date_filter(range_param)
+    date_modifier = _get_date_modifier(range_param)
 
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Cost by model
-            cursor = conn.execute(f"""
+            # Cost by model (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     provider,
                     model,
@@ -503,14 +568,14 @@ def costs():
                     SUM(output_tokens) as output_tokens,
                     COALESCE(SUM(estimated_cost), 0) as cost
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                 GROUP BY provider, model
                 ORDER BY cost DESC
-            """)
+            """, (date_modifier,))
             by_model = [dict(row) for row in cursor.fetchall()]
 
-            # Cost by call type
-            cursor = conn.execute(f"""
+            # Cost by call type (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     call_type,
                     COUNT(*) as calls,
@@ -518,24 +583,24 @@ def costs():
                     SUM(output_tokens) as output_tokens,
                     COALESCE(SUM(estimated_cost), 0) as cost
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                 GROUP BY call_type
                 ORDER BY cost DESC
-            """)
+            """, (date_modifier,))
             by_type = [dict(row) for row in cursor.fetchall()]
 
-            # Daily time series
-            cursor = conn.execute(f"""
+            # Daily time series (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     DATE(created_at) as date,
                     provider,
                     COALESCE(SUM(estimated_cost), 0) as cost,
                     COUNT(*) as calls
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                 GROUP BY DATE(created_at), provider
                 ORDER BY date
-            """)
+            """, (date_modifier,))
             time_series = [dict(row) for row in cursor.fetchall()]
 
         return _render_costs(by_model, by_type, time_series, range_param)
@@ -713,20 +778,20 @@ def _render_costs(by_model, by_type, time_series, range_param):
 def performance():
     """Performance metrics page with latency and error analysis."""
     range_param = request.args.get('range', '7d')
-    date_filter = _get_date_filter(range_param)
+    date_modifier = _get_date_modifier(range_param)
 
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Latency by provider
-            cursor = conn.execute(f"""
+            # Latency by provider (parameterized query)
+            cursor = conn.execute("""
                 SELECT provider, latency_ms
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                   AND status = 'ok'
                   AND latency_ms IS NOT NULL
-            """)
+            """, (date_modifier,))
             latency_data = {}
             for row in cursor.fetchall():
                 provider = row['provider'] or 'unknown'
@@ -757,8 +822,8 @@ def performance():
                         'p99': percentile(latencies, 99),
                     })
 
-            # Error rates by provider/model
-            cursor = conn.execute(f"""
+            # Error rates by provider/model (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     provider,
                     model,
@@ -766,25 +831,25 @@ def performance():
                     SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors,
                     COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                 GROUP BY provider, model
                 ORDER BY error_rate DESC
-            """)
+            """, (date_modifier,))
             error_rates = [dict(row) for row in cursor.fetchall()]
 
-            # Token efficiency
-            cursor = conn.execute(f"""
+            # Token efficiency (parameterized query)
+            cursor = conn.execute("""
                 SELECT
                     provider,
                     AVG(CAST(output_tokens AS FLOAT) / NULLIF(input_tokens, 0)) as output_ratio,
                     SUM(cached_tokens) * 100.0 / NULLIF(SUM(input_tokens), 0) as cache_rate,
                     COUNT(*) as calls
                 FROM api_usage
-                WHERE created_at >= {date_filter}
+                WHERE created_at >= datetime('now', ?)
                   AND status = 'ok'
                   AND input_tokens > 0
                 GROUP BY provider
-            """)
+            """, (date_modifier,))
             efficiency = [dict(row) for row in cursor.fetchall()]
 
         return _render_performance(latency_stats, error_rates, efficiency, range_param)
@@ -946,15 +1011,15 @@ def prompts():
     page = int(request.args.get('page', 1))
     per_page = 50
 
-    date_filter = _get_date_filter(range_param)
+    date_modifier = _get_date_modifier(range_param)
 
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Build query with filters
-            where_clauses = [f"created_at >= {date_filter}"]
-            params = []
+            # Build query with filters (all parameterized to prevent SQL injection)
+            where_clauses = ["created_at >= datetime('now', ?)"]
+            params = [date_modifier]
 
             if call_type:
                 where_clauses.append("call_type = ?")
