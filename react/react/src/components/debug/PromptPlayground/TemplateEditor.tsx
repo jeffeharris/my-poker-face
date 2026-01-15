@@ -51,7 +51,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
     setError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}/analytics/api/prompts/templates`);
+      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates`);
       const data = await response.json();
 
       if (data.success) {
@@ -69,7 +69,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
   // Fetch single template
   const fetchTemplate = async (name: string) => {
     try {
-      const response = await fetch(`${config.API_URL}/analytics/api/prompts/templates/${name}`);
+      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates/${name}`);
       const data = await response.json();
 
       if (data.success) {
@@ -104,7 +104,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
       const allCaptures: PlaygroundCapture[] = [];
       for (const callType of callTypes) {
         const response = await fetch(
-          `${config.API_URL}/analytics/api/playground/captures?call_type=${callType}&limit=10`
+          `${config.API_URL}/admin/api/playground/captures?call_type=${callType}&limit=10`
         );
         const data = await response.json();
         if (data.success && data.captures) {
@@ -132,7 +132,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
 
     try {
       const response = await fetch(
-        `${config.API_URL}/analytics/api/playground/captures/${captureId}/replay`,
+        `${config.API_URL}/admin/api/playground/captures/${captureId}/replay`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -170,7 +170,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
 
     try {
       const response = await fetch(
-        `${config.API_URL}/analytics/api/prompts/templates/${selectedTemplate.name}`,
+        `${config.API_URL}/admin/api/prompts/templates/${selectedTemplate.name}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },

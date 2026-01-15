@@ -1,15 +1,19 @@
-"""Analytics routes for LLM usage analysis and model management."""
+"""Admin dashboard routes for LLM usage analysis, model management, and debug tools."""
 
 import logging
+import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from .. import config
+from ..services import game_state_service
+from core.llm import UsageTracker
 
 logger = logging.getLogger(__name__)
 
-analytics_bp = Blueprint('analytics', __name__, url_prefix='/analytics')
+admin_dashboard_bp = Blueprint('admin_dashboard', __name__, url_prefix='/admin')
 
 
 def _get_db_path() -> str:
@@ -46,7 +50,7 @@ def _dev_only(f):
 # Dashboard
 # =============================================================================
 
-@analytics_bp.route('/')
+@admin_dashboard_bp.route('/')
 @_dev_only
 def dashboard():
     """Main analytics dashboard."""
@@ -129,7 +133,7 @@ def _render_dashboard(summary, cost_by_provider, calls_by_type, range_param):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>LLM Analytics Dashboard</title>
+        <title>Admin Dashboard Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             * {{ box-sizing: border-box; }}
@@ -261,19 +265,20 @@ def _render_dashboard(summary, cost_by_provider, calls_by_type, range_param):
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/" class="active">Dashboard</a>
-                <a href="/analytics/costs">Cost Analysis</a>
-                <a href="/analytics/performance">Performance</a>
-                <a href="/analytics/prompts">Prompts</a>
-                <a href="/analytics/models">Models</a>
-                <a href="/analytics/pricing">Pricing</a>
+                <a href="/admin/" class="active">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
 
         <div class="content">
-            <h1>LLM Analytics Dashboard</h1>
+            <h1>Admin Dashboard Dashboard</h1>
             <p class="subtitle">Monitor API usage, costs, and performance across providers</p>
 
             <div class="date-selector">
@@ -350,7 +355,7 @@ def _render_dashboard(summary, cost_by_provider, calls_by_type, range_param):
 
         <script>
             function setRange(range) {{
-                window.location.href = '/analytics/?range=' + range;
+                window.location.href = '/admin/?range=' + range;
             }}
 
             // Provider pie chart
@@ -426,7 +431,7 @@ def _render_dashboard_error(error: str):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>LLM Analytics - Error</title>
+        <title>Admin Dashboard - Error</title>
         <style>
             body {{ font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 40px; }}
             .error {{ background: #ef4444; padding: 20px; border-radius: 8px; }}
@@ -435,7 +440,7 @@ def _render_dashboard_error(error: str):
     <body>
         <h1>Analytics Error</h1>
         <div class="error">{error}</div>
-        <p><a href="/analytics/" style="color: #4ecca3;">Try again</a></p>
+        <p><a href="/admin/" style="color: #4ecca3;">Try again</a></p>
     </body>
     </html>
     '''
@@ -445,7 +450,7 @@ def _render_dashboard_error(error: str):
 # API Endpoints (for AJAX updates)
 # =============================================================================
 
-@analytics_bp.route('/api/summary')
+@admin_dashboard_bp.route('/api/summary')
 @_dev_only
 def api_summary():
     """JSON endpoint for dashboard summary data."""
@@ -477,7 +482,7 @@ def api_summary():
 # Cost Analysis
 # =============================================================================
 
-@analytics_bp.route('/costs')
+@admin_dashboard_bp.route('/costs')
 @_dev_only
 def costs():
     """Cost analysis page with detailed breakdowns."""
@@ -569,7 +574,7 @@ def _render_costs(by_model, by_type, time_series, range_param):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Cost Analysis - LLM Analytics</title>
+        <title>Cost Analysis - Admin Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             * {{ box-sizing: border-box; }}
@@ -596,14 +601,15 @@ def _render_costs(by_model, by_type, time_series, range_param):
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/">Dashboard</a>
-                <a href="/analytics/costs" class="active">Cost Analysis</a>
-                <a href="/analytics/performance">Performance</a>
-                <a href="/analytics/prompts">Prompts</a>
-                <a href="/analytics/models">Models</a>
-                <a href="/analytics/pricing">Pricing</a>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs" class="active">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
         <div class="content">
@@ -673,7 +679,7 @@ def _render_costs(by_model, by_type, time_series, range_param):
         </div>
 
         <script>
-            function setRange(range) {{ window.location.href = '/analytics/costs?range=' + range; }}
+            function setRange(range) {{ window.location.href = '/admin/costs?range=' + range; }}
 
             new Chart(document.getElementById('timeChart'), {{
                 type: 'bar',
@@ -702,7 +708,7 @@ def _render_costs(by_model, by_type, time_series, range_param):
 # Performance Metrics
 # =============================================================================
 
-@analytics_bp.route('/performance')
+@admin_dashboard_bp.route('/performance')
 @_dev_only
 def performance():
     """Performance metrics page with latency and error analysis."""
@@ -795,7 +801,7 @@ def _render_performance(latency_stats, error_rates, efficiency, range_param):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Performance - LLM Analytics</title>
+        <title>Performance - Admin Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             * {{ box-sizing: border-box; }}
@@ -823,14 +829,15 @@ def _render_performance(latency_stats, error_rates, efficiency, range_param):
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/">Dashboard</a>
-                <a href="/analytics/costs">Cost Analysis</a>
-                <a href="/analytics/performance" class="active">Performance</a>
-                <a href="/analytics/prompts">Prompts</a>
-                <a href="/analytics/models">Models</a>
-                <a href="/analytics/pricing">Pricing</a>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance" class="active">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
         <div class="content">
@@ -917,7 +924,7 @@ def _render_performance(latency_stats, error_rates, efficiency, range_param):
         </div>
 
         <script>
-            function setRange(range) { window.location.href = '/analytics/performance?range=' + range; }
+            function setRange(range) { window.location.href = '/admin/performance?range=' + range; }
         </script>
     </body>
     </html>
@@ -929,7 +936,7 @@ def _render_performance(latency_stats, error_rates, efficiency, range_param):
 # Prompt Viewer
 # =============================================================================
 
-@analytics_bp.route('/prompts')
+@admin_dashboard_bp.route('/prompts')
 @_dev_only
 def prompts():
     """Prompt viewer with filtering and pagination."""
@@ -998,7 +1005,7 @@ def _render_prompts(rows, total, page, per_page, call_types, providers, range_pa
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Prompts - LLM Analytics</title>
+        <title>Prompts - Admin Dashboard</title>
         <style>
             * {{ box-sizing: border-box; }}
             body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }}
@@ -1026,14 +1033,15 @@ def _render_prompts(rows, total, page, per_page, call_types, providers, range_pa
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/">Dashboard</a>
-                <a href="/analytics/costs">Cost Analysis</a>
-                <a href="/analytics/performance">Performance</a>
-                <a href="/analytics/prompts" class="active">Prompts</a>
-                <a href="/analytics/models">Models</a>
-                <a href="/analytics/pricing">Pricing</a>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts" class="active">Prompts</a>
+                <a href="/admin/models">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
         <div class="content">
@@ -1124,7 +1132,7 @@ def _render_prompts(rows, total, page, per_page, call_types, providers, range_pa
                 const range = document.getElementById('range').value;
                 const callType = document.getElementById('call_type').value;
                 const provider = document.getElementById('provider').value;
-                let url = '/analytics/prompts?range=' + range;
+                let url = '/admin/prompts?range=' + range;
                 if (callType) url += '&call_type=' + encodeURIComponent(callType);
                 if (provider) url += '&provider=' + encodeURIComponent(provider);
                 window.location.href = url;
@@ -1132,7 +1140,7 @@ def _render_prompts(rows, total, page, per_page, call_types, providers, range_pa
             function goPage(page) {{
                 const params = new URLSearchParams(window.location.search);
                 params.set('page', page);
-                window.location.href = '/analytics/prompts?' + params.toString();
+                window.location.href = '/admin/prompts?' + params.toString();
             }}
         </script>
     </body>
@@ -1145,7 +1153,7 @@ def _render_prompts(rows, total, page, per_page, call_types, providers, range_pa
 # Models Manager
 # =============================================================================
 
-@analytics_bp.route('/models')
+@admin_dashboard_bp.route('/models')
 @_dev_only
 def models():
     """Model manager page - enable/disable models for game UI."""
@@ -1182,7 +1190,7 @@ def _render_models_migration_needed():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Models - LLM Analytics</title>
+        <title>Models - Admin Dashboard</title>
         <style>
             body { font-family: sans-serif; background: #1a1a2e; color: #eee; margin: 0; }
             .sidebar { width: 200px; background: #16213e; position: fixed; height: 100%; padding: 20px; }
@@ -1198,14 +1206,15 @@ def _render_models_migration_needed():
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/">Dashboard</a>
-                <a href="/analytics/costs">Cost Analysis</a>
-                <a href="/analytics/performance">Performance</a>
-                <a href="/analytics/prompts">Prompts</a>
-                <a href="/analytics/models" class="active">Models</a>
-                <a href="/analytics/pricing">Pricing</a>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models" class="active">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
         <div class="content">
@@ -1236,7 +1245,7 @@ def _render_models(rows):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Models - LLM Analytics</title>
+        <title>Models - Admin Dashboard</title>
         <style>
             * { box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }
@@ -1271,14 +1280,15 @@ def _render_models(rows):
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/">Dashboard</a>
-                <a href="/analytics/costs">Cost Analysis</a>
-                <a href="/analytics/performance">Performance</a>
-                <a href="/analytics/prompts">Prompts</a>
-                <a href="/analytics/models" class="active">Models</a>
-                <a href="/analytics/pricing">Pricing</a>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models" class="active">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
         <div class="content">
@@ -1337,7 +1347,7 @@ def _render_models(rows):
             async function toggleModel(id, enabled) {
                 const row = document.getElementById('row-' + id);
                 try {
-                    const resp = await fetch('/analytics/api/models/' + id + '/toggle', {
+                    const resp = await fetch('/admin/api/models/' + id + '/toggle', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({enabled: enabled})
@@ -1370,7 +1380,7 @@ def _render_models(rows):
     return html
 
 
-@analytics_bp.route('/api/models/<int:model_id>/toggle', methods=['POST'])
+@admin_dashboard_bp.route('/api/models/<int:model_id>/toggle', methods=['POST'])
 @_dev_only
 def api_toggle_model(model_id):
     """Toggle a model's enabled status."""
@@ -1398,7 +1408,7 @@ def api_toggle_model(model_id):
 # Pricing Manager (Placeholder - UI for existing API)
 # =============================================================================
 
-@analytics_bp.route('/pricing')
+@admin_dashboard_bp.route('/pricing')
 @_dev_only
 def pricing():
     """Pricing manager page - UI for existing pricing API."""
@@ -1428,7 +1438,7 @@ def _render_pricing(rows):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Pricing - LLM Analytics</title>
+        <title>Pricing - Admin Dashboard</title>
         <style>
             * { box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }
@@ -1459,14 +1469,15 @@ def _render_pricing(rows):
     </head>
     <body>
         <div class="sidebar">
-            <h2>LLM Analytics</h2>
+            <h2>Admin Dashboard</h2>
             <nav>
-                <a href="/analytics/">Dashboard</a>
-                <a href="/analytics/costs">Cost Analysis</a>
-                <a href="/analytics/performance">Performance</a>
-                <a href="/analytics/prompts">Prompts</a>
-                <a href="/analytics/models">Models</a>
-                <a href="/analytics/pricing" class="active">Pricing</a>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models">Models</a>
+                <a href="/admin/pricing" class="active">Pricing</a>
+                <a href="/admin/debug">Debug Tools</a>
             </nav>
         </div>
         <div class="content">
@@ -1569,7 +1580,7 @@ def _render_pricing(rows):
 # Prompt Playground API
 # =============================================================================
 
-@analytics_bp.route('/api/playground/captures')
+@admin_dashboard_bp.route('/api/playground/captures')
 @_dev_only
 def api_playground_captures():
     """List captured prompts for the playground.
@@ -1608,7 +1619,7 @@ def api_playground_captures():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/playground/captures/<int:capture_id>')
+@admin_dashboard_bp.route('/api/playground/captures/<int:capture_id>')
 @_dev_only
 def api_playground_capture(capture_id):
     """Get a single playground capture by ID."""
@@ -1630,7 +1641,7 @@ def api_playground_capture(capture_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/playground/captures/<int:capture_id>/replay', methods=['POST'])
+@admin_dashboard_bp.route('/api/playground/captures/<int:capture_id>/replay', methods=['POST'])
 @_dev_only
 def api_playground_replay(capture_id):
     """Replay a captured prompt with optional modifications.
@@ -1711,7 +1722,7 @@ def api_playground_replay(capture_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/playground/stats')
+@admin_dashboard_bp.route('/api/playground/stats')
 @_dev_only
 def api_playground_stats():
     """Get aggregate statistics for playground captures."""
@@ -1726,7 +1737,7 @@ def api_playground_stats():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/playground/cleanup', methods=['POST'])
+@admin_dashboard_bp.route('/api/playground/cleanup', methods=['POST'])
 @_dev_only
 def api_playground_cleanup():
     """Delete old playground captures.
@@ -1765,7 +1776,7 @@ def api_playground_cleanup():
 # Prompt Template Management
 # =============================================================================
 
-@analytics_bp.route('/api/prompts/templates')
+@admin_dashboard_bp.route('/api/prompts/templates')
 @_dev_only
 def api_list_templates():
     """List all prompt templates.
@@ -1805,7 +1816,7 @@ def api_list_templates():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/prompts/templates/<template_name>')
+@admin_dashboard_bp.route('/api/prompts/templates/<template_name>')
 @_dev_only
 def api_get_template(template_name: str):
     """Get a single template with full content.
@@ -1849,7 +1860,7 @@ def api_get_template(template_name: str):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/prompts/templates/<template_name>', methods=['PUT'])
+@admin_dashboard_bp.route('/api/prompts/templates/<template_name>', methods=['PUT'])
 @_dev_only
 def api_update_template(template_name: str):
     """Update a template by saving to its YAML file.
@@ -1923,7 +1934,7 @@ def api_update_template(template_name: str):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@analytics_bp.route('/api/prompts/templates/<template_name>/preview', methods=['POST'])
+@admin_dashboard_bp.route('/api/prompts/templates/<template_name>/preview', methods=['POST'])
 @_dev_only
 def api_preview_template(template_name: str):
     """Preview a template render with sample variables.
@@ -1993,3 +2004,532 @@ def api_preview_template(template_name: str):
     except Exception as e:
         logger.error(f"Error previewing template {template_name}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Pricing Management API
+# =============================================================================
+
+@admin_dashboard_bp.route('/pricing', methods=['GET'])
+def list_pricing():
+    """List all pricing entries, optionally filtered.
+
+    Query params:
+        provider: Filter by provider (e.g., 'openai')
+        model: Filter by model (e.g., 'gpt-4o')
+        current_only: If 'true', only show currently valid prices
+    """
+    provider = request.args.get('provider')
+    model = request.args.get('model')
+    current_only = request.args.get('current_only', 'false').lower() == 'true'
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            conn.row_factory = sqlite3.Row
+
+            query = "SELECT * FROM model_pricing WHERE 1=1"
+            params = []
+
+            if provider:
+                query += " AND provider = ?"
+                params.append(provider)
+            if model:
+                query += " AND model = ?"
+                params.append(model)
+            if current_only:
+                query += " AND (valid_from IS NULL OR valid_from <= datetime('now'))"
+                query += " AND (valid_until IS NULL OR valid_until > datetime('now'))"
+
+            query += " ORDER BY provider, model, unit, valid_from DESC"
+
+            cursor = conn.execute(query, params)
+            rows = [dict(row) for row in cursor.fetchall()]
+
+            return jsonify({'success': True, 'count': len(rows), 'pricing': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/pricing', methods=['POST'])
+def add_pricing():
+    """Add a new pricing entry, expiring any current price for the same SKU.
+
+    Body (JSON):
+        provider: Provider name (required)
+        model: Model name (required)
+        unit: Pricing unit (required) - e.g., 'input_tokens_1m', 'image_1024x1024'
+        cost: Cost in USD (required)
+        valid_from: When effective (optional, default: now)
+        notes: Optional notes
+    """
+    data = request.get_json()
+
+    required = ['provider', 'model', 'unit', 'cost']
+    missing = [f for f in required if f not in data]
+    if missing:
+        return jsonify({'success': False, 'error': f'Missing required fields: {missing}'}), 400
+
+    provider = data['provider']
+    model = data['model']
+    unit = data['unit']
+    try:
+        cost = float(data['cost'])
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Invalid cost value: must be a number'}), 400
+    valid_from = data.get('valid_from') or datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    notes = data.get('notes')
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            # Expire any current pricing for this SKU
+            conn.execute("""
+                UPDATE model_pricing
+                SET valid_until = ?
+                WHERE provider = ? AND model = ? AND unit = ?
+                  AND valid_until IS NULL
+            """, (valid_from, provider, model, unit))
+
+            # Insert new pricing
+            conn.execute("""
+                INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (provider, model, unit, cost, valid_from, notes))
+
+            # Invalidate pricing cache so future cost calculations use fresh data
+            UsageTracker.get_default().invalidate_pricing_cache()
+
+            return jsonify({
+                'success': True,
+                'message': f'Added pricing for {provider}/{model}/{unit}: ${cost}'
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/pricing/bulk', methods=['POST'])
+def bulk_add_pricing():
+    """Add multiple pricing entries at once.
+
+    Body (JSON):
+        entries: List of {provider, model, unit, cost, notes?}
+        expire_existing: If true, expire existing prices (default: true)
+    """
+    data = request.get_json()
+    entries = data.get('entries', [])
+    expire_existing = data.get('expire_existing', True)
+
+    if not entries:
+        return jsonify({'success': False, 'error': 'No entries provided'}), 400
+
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    added = 0
+    errors = []
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            for entry in entries:
+                try:
+                    provider = entry['provider']
+                    model = entry['model']
+                    unit = entry['unit']
+                    try:
+                        cost = float(entry['cost'])
+                    except (TypeError, ValueError):
+                        raise ValueError(f"Invalid cost value '{entry.get('cost')}': must be a number")
+                    valid_from = entry.get('valid_from') or now
+                    notes = entry.get('notes')
+
+                    if expire_existing:
+                        conn.execute("""
+                            UPDATE model_pricing SET valid_until = ?
+                            WHERE provider = ? AND model = ? AND unit = ? AND valid_until IS NULL
+                        """, (valid_from, provider, model, unit))
+
+                    conn.execute("""
+                        INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (provider, model, unit, cost, valid_from, notes))
+                    added += 1
+                except Exception as e:
+                    errors.append({'entry': entry, 'error': str(e)})
+
+            # Invalidate pricing cache so future cost calculations use fresh data
+            if added > 0:
+                UsageTracker.get_default().invalidate_pricing_cache()
+            return jsonify({'success': True, 'added': added, 'errors': errors})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/pricing/<int:pricing_id>', methods=['DELETE'])
+def delete_pricing(pricing_id: int):
+    """Delete a pricing entry by ID."""
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.execute("DELETE FROM model_pricing WHERE id = ?", (pricing_id,))
+            if cursor.rowcount == 0:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            # Invalidate pricing cache so future cost calculations use fresh data
+            UsageTracker.get_default().invalidate_pricing_cache()
+            return jsonify({'success': True, 'message': f'Deleted pricing entry {pricing_id}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/pricing/providers', methods=['GET'])
+def list_providers():
+    """List all providers with model/SKU counts."""
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT provider, COUNT(DISTINCT model) as model_count, COUNT(*) as sku_count
+                FROM model_pricing
+                WHERE valid_until IS NULL OR valid_until > datetime('now')
+                GROUP BY provider
+                ORDER BY provider
+            """)
+            return jsonify({'success': True, 'providers': [dict(r) for r in cursor.fetchall()]})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/pricing/models/<provider>', methods=['GET'])
+def list_models_for_provider(provider: str):
+    """List all models for a provider."""
+    # Validate provider: alphanumeric, hyphens, underscores, max 64 chars
+    if not provider or len(provider) > 64 or not re.match(r'^[\w-]+$', provider):
+        return jsonify({'success': False, 'error': 'Invalid provider format'}), 400
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT DISTINCT model FROM model_pricing
+                WHERE provider = ? AND (valid_until IS NULL OR valid_until > datetime('now'))
+                ORDER BY model
+            """, (provider,))
+            return jsonify({
+                'success': True,
+                'provider': provider,
+                'models': [r['model'] for r in cursor.fetchall()]
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Debug Tools
+# =============================================================================
+
+@admin_dashboard_bp.route('/debug')
+@_dev_only
+def debug_page():
+    """Debug page with links to debug endpoints."""
+    active_games = game_state_service.list_game_ids()
+
+    games_html = ''
+    if active_games:
+        for game_id in active_games:
+            games_html += f'<span class="game-id">{game_id}</span> '
+    else:
+        games_html = '<em>No active games</em>'
+
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Debug Tools - Admin Dashboard</title>
+        <style>
+            * {{ box-sizing: border-box; }}
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #1a1a2e;
+                color: #eee;
+                margin: 0;
+                padding: 0;
+            }}
+            .sidebar {{
+                width: 200px;
+                background: #16213e;
+                position: fixed;
+                height: 100%;
+                padding: 20px;
+            }}
+            .sidebar h2 {{
+                color: #00d4ff;
+                margin: 0 0 30px 0;
+                font-size: 1.2em;
+            }}
+            .sidebar nav a {{
+                display: block;
+                color: #aaa;
+                text-decoration: none;
+                padding: 10px 15px;
+                margin: 5px 0;
+                border-radius: 6px;
+                transition: all 0.2s;
+            }}
+            .sidebar nav a:hover {{
+                background: #0f3460;
+                color: #eee;
+            }}
+            .sidebar nav a.active {{
+                background: #4ecca3;
+                color: #1a1a2e;
+            }}
+            .content {{
+                margin-left: 220px;
+                padding: 30px;
+            }}
+            h1 {{
+                color: #00d4ff;
+                margin: 0 0 10px 0;
+            }}
+            .subtitle {{
+                color: #888;
+                margin-bottom: 30px;
+            }}
+            h2 {{
+                color: #ff6b6b;
+                margin-top: 30px;
+                font-size: 1.2em;
+            }}
+            .section {{
+                background: #16213e;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 15px 0;
+            }}
+            .endpoint {{
+                margin: 10px 0;
+                padding: 15px;
+                background: #0f3460;
+                border-radius: 4px;
+            }}
+            .method {{
+                color: #ff9f1c;
+                font-weight: bold;
+                font-family: monospace;
+            }}
+            .url {{
+                color: #4ecca3;
+                font-family: monospace;
+            }}
+            .desc {{
+                color: #aaa;
+                font-size: 0.9em;
+                margin: 5px 0;
+            }}
+            input, select {{
+                background: #0f3460;
+                color: #eee;
+                border: 1px solid #4ecca3;
+                padding: 8px 12px;
+                border-radius: 4px;
+                margin: 5px;
+            }}
+            button {{
+                background: #4ecca3;
+                color: #1a1a2e;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+            }}
+            button:hover {{
+                background: #3db892;
+            }}
+            pre {{
+                background: #0f3460;
+                padding: 15px;
+                border-radius: 4px;
+                overflow-x: auto;
+                font-family: monospace;
+                font-size: 0.85em;
+            }}
+            .game-id {{
+                background: #0f3460;
+                padding: 5px 10px;
+                border-radius: 4px;
+                margin: 5px;
+                display: inline-block;
+                font-family: monospace;
+            }}
+            a {{
+                color: #4ecca3;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="sidebar">
+            <h2>Admin Dashboard</h2>
+            <nav>
+                <a href="/admin/">Dashboard</a>
+                <a href="/admin/costs">Cost Analysis</a>
+                <a href="/admin/performance">Performance</a>
+                <a href="/admin/prompts">Prompts</a>
+                <a href="/admin/models">Models</a>
+                <a href="/admin/pricing">Pricing</a>
+                <a href="/admin/debug" class="active">Debug Tools</a>
+            </nav>
+        </div>
+        <div class="content">
+            <h1>Debug Tools</h1>
+            <p class="subtitle">Game debugging and AI system inspection tools</p>
+
+            <div class="section">
+                <h2>Active Games</h2>
+                <div style="margin: 10px 0;">
+                    {games_html}
+                </div>
+                <p><a href="/games">View saved games</a></p>
+            </div>
+
+            <div class="section">
+                <h2>Tilt System Debug</h2>
+                <p class="desc">Test the tilt modifier system that affects AI decision-making</p>
+
+                <div class="endpoint">
+                    <span class="method">GET</span>
+                    <span class="url">/api/game/{{game_id}}/tilt-debug</span>
+                    <p class="desc">View tilt state for all AI players</p>
+                    <input type="text" id="tilt-game-id" placeholder="game_id" style="width: 300px;">
+                    <button onclick="fetchTilt()">Fetch Tilt States</button>
+                </div>
+
+                <div class="endpoint">
+                    <span class="method">POST</span>
+                    <span class="url">/api/game/{{game_id}}/tilt-debug/{{player_name}}</span>
+                    <p class="desc">Set tilt state for testing</p>
+                    <input type="text" id="set-tilt-game-id" placeholder="game_id" style="width: 200px;">
+                    <input type="text" id="set-tilt-player" placeholder="player_name" style="width: 150px;">
+                    <br>
+                    <select id="tilt-level">
+                        <option value="0">None (0.0)</option>
+                        <option value="0.3">Mild (0.3)</option>
+                        <option value="0.5">Moderate (0.5)</option>
+                        <option value="0.8" selected>Severe (0.8)</option>
+                        <option value="1.0">Maximum (1.0)</option>
+                    </select>
+                    <select id="tilt-source">
+                        <option value="bad_beat">Bad Beat</option>
+                        <option value="bluff_called">Bluff Called</option>
+                        <option value="big_loss">Big Loss</option>
+                        <option value="losing_streak">Losing Streak</option>
+                    </select>
+                    <input type="text" id="tilt-nemesis" placeholder="nemesis (optional)" style="width: 150px;">
+                    <button onclick="setTilt()">Set Tilt</button>
+                </div>
+                <pre id="tilt-result">Results will appear here...</pre>
+            </div>
+
+            <div class="section">
+                <h2>Memory System Debug</h2>
+                <div class="endpoint">
+                    <span class="method">GET</span>
+                    <span class="url">/api/game/{{game_id}}/memory-debug</span>
+                    <p class="desc">View AI memory state (session memory, opponent models)</p>
+                    <input type="text" id="memory-game-id" placeholder="game_id" style="width: 300px;">
+                    <button onclick="fetchMemory()">Fetch Memory</button>
+                </div>
+                <pre id="memory-result">Results will appear here...</pre>
+            </div>
+
+            <div class="section">
+                <h2>Elasticity System Debug</h2>
+                <div class="endpoint">
+                    <span class="method">GET</span>
+                    <span class="url">/api/game/{{game_id}}/elasticity</span>
+                    <p class="desc">View elastic personality traits for all AI players</p>
+                    <input type="text" id="elasticity-game-id" placeholder="game_id" style="width: 300px;">
+                    <button onclick="fetchElasticity()">Fetch Elasticity</button>
+                </div>
+                <pre id="elasticity-result">Results will appear here...</pre>
+            </div>
+
+            <div class="section">
+                <h2>Pressure Stats</h2>
+                <div class="endpoint">
+                    <span class="method">GET</span>
+                    <span class="url">/api/game/{{game_id}}/pressure-stats</span>
+                    <p class="desc">View pressure events and statistics</p>
+                    <input type="text" id="pressure-game-id" placeholder="game_id" style="width: 300px;">
+                    <button onclick="fetchPressure()">Fetch Pressure Stats</button>
+                </div>
+                <pre id="pressure-result">Results will appear here...</pre>
+            </div>
+
+            <div class="section">
+                <h2>Game State</h2>
+                <div class="endpoint">
+                    <span class="method">GET</span>
+                    <span class="url">/api/game/{{game_id}}/diagnostic</span>
+                    <p class="desc">Full game diagnostic info</p>
+                    <input type="text" id="diag-game-id" placeholder="game_id" style="width: 300px;">
+                    <button onclick="fetchDiagnostic()">Fetch Diagnostic</button>
+                </div>
+                <pre id="diag-result">Results will appear here...</pre>
+            </div>
+        </div>
+
+        <script>
+            async function fetchJson(url, options = {{}}) {{
+                try {{
+                    const resp = await fetch(url, options);
+                    return await resp.json();
+                }} catch (e) {{
+                    return {{error: e.message}};
+                }}
+            }}
+
+            async function fetchTilt() {{
+                const gameId = document.getElementById('tilt-game-id').value;
+                const result = await fetchJson(`/api/game/${{gameId}}/tilt-debug`);
+                document.getElementById('tilt-result').textContent = JSON.stringify(result, null, 2);
+            }}
+
+            async function setTilt() {{
+                const gameId = document.getElementById('set-tilt-game-id').value;
+                const player = encodeURIComponent(document.getElementById('set-tilt-player').value);
+                const data = {{
+                    tilt_level: parseFloat(document.getElementById('tilt-level').value),
+                    tilt_source: document.getElementById('tilt-source').value,
+                    nemesis: document.getElementById('tilt-nemesis').value || null
+                }};
+                const result = await fetchJson(`/api/game/${{gameId}}/tilt-debug/${{player}}`, {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify(data)
+                }});
+                document.getElementById('tilt-result').textContent = JSON.stringify(result, null, 2);
+            }}
+
+            async function fetchMemory() {{
+                const gameId = document.getElementById('memory-game-id').value;
+                const result = await fetchJson(`/api/game/${{gameId}}/memory-debug`);
+                document.getElementById('memory-result').textContent = JSON.stringify(result, null, 2);
+            }}
+
+            async function fetchElasticity() {{
+                const gameId = document.getElementById('elasticity-game-id').value;
+                const result = await fetchJson(`/api/game/${{gameId}}/elasticity`);
+                document.getElementById('elasticity-result').textContent = JSON.stringify(result, null, 2);
+            }}
+
+            async function fetchPressure() {{
+                const gameId = document.getElementById('pressure-game-id').value;
+                const result = await fetchJson(`/api/game/${{gameId}}/pressure-stats`);
+                document.getElementById('pressure-result').textContent = JSON.stringify(result, null, 2);
+            }}
+
+            async function fetchDiagnostic() {{
+                const gameId = document.getElementById('diag-game-id').value;
+                const result = await fetchJson(`/api/game/${{gameId}}/diagnostic`);
+                document.getElementById('diag-result').textContent = JSON.stringify(result, null, 2);
+            }}
+        </script>
+    </body>
+    </html>
+    '''

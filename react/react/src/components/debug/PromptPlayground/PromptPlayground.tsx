@@ -66,7 +66,7 @@ export function PromptPlayground({ onBack }: Props) {
       if (filters.limit) params.append('limit', String(filters.limit));
       if (filters.offset) params.append('offset', String(filters.offset));
 
-      const response = await fetch(`${config.API_URL}/analytics/api/playground/captures?${params}`);
+      const response = await fetch(`${config.API_URL}/admin/api/playground/captures?${params}`);
       const data = await response.json();
 
       if (data.success) {
@@ -86,7 +86,7 @@ export function PromptPlayground({ onBack }: Props) {
   // Fetch single capture details
   const fetchCaptureDetail = async (id: number) => {
     try {
-      const response = await fetch(`${config.API_URL}/analytics/api/playground/captures/${id}`);
+      const response = await fetch(`${config.API_URL}/admin/api/playground/captures/${id}`);
       const data = await response.json();
 
       if (data.success) {
@@ -125,7 +125,7 @@ export function PromptPlayground({ onBack }: Props) {
 
     try {
       const response = await fetch(
-        `${config.API_URL}/analytics/api/playground/captures/${selectedCapture.id}/replay`,
+        `${config.API_URL}/admin/api/playground/captures/${selectedCapture.id}/replay`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

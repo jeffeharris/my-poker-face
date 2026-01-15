@@ -54,16 +54,15 @@ def register_error_handlers(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
-    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_bp, prompt_debug_bp, analytics_bp
+    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp
 
     app.register_blueprint(game_bp)
     app.register_blueprint(debug_bp)
     app.register_blueprint(personality_bp)
     app.register_blueprint(image_bp)
     app.register_blueprint(stats_bp)
-    app.register_blueprint(admin_bp)
+    app.register_blueprint(admin_dashboard_bp)
     app.register_blueprint(prompt_debug_bp)
-    app.register_blueprint(analytics_bp)
 
 
 def register_socket_handlers() -> None:

@@ -5,9 +5,8 @@ from .debug_routes import debug_bp
 from .personality_routes import personality_bp
 from .image_routes import image_bp
 from .stats_routes import stats_bp
-from .admin_routes import admin_bp
+from .admin_dashboard_routes import admin_dashboard_bp
 from .prompt_debug_routes import prompt_debug_bp
-from .analytics_routes import analytics_bp
 
 __all__ = [
     'game_bp',
@@ -15,8 +14,7 @@ __all__ = [
     'personality_bp',
     'image_bp',
     'stats_bp',
-    'admin_bp',
+    'admin_dashboard_bp',
     'prompt_debug_bp',
-    'analytics_bp',
     'register_socket_events',
 ]
