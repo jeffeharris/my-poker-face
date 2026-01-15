@@ -1,5 +1,5 @@
 """High-level assistant with conversation memory."""
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 from .client import LLMClient
 from .conversation import ConversationMemory
@@ -100,6 +100,7 @@ class Assistant:
         player_name: Optional[str] = None,
         hand_number: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ) -> str:
         """Send message and get response. Handles memory automatically.
 
@@ -112,6 +113,7 @@ class Assistant:
             player_name: Override default player name
             hand_number: Hand number for tracking
             prompt_template: Prompt template name for tracking
+            capture_enricher: Optional callback to add domain-specific fields to capture
 
         Returns:
             Assistant's response content (string)
@@ -125,6 +127,7 @@ class Assistant:
             player_name=player_name,
             hand_number=hand_number,
             prompt_template=prompt_template,
+            capture_enricher=capture_enricher,
         )
         return response.content
 
@@ -138,6 +141,7 @@ class Assistant:
         player_name: Optional[str] = None,
         hand_number: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """Like chat() but returns full LLMResponse for access to tokens, etc.
 
@@ -150,6 +154,7 @@ class Assistant:
             player_name: Override default player name
             hand_number: Hand number for tracking
             prompt_template: Prompt template name for tracking
+            capture_enricher: Optional callback to add domain-specific fields to capture
 
         Returns:
             Full LLMResponse object
@@ -173,6 +178,7 @@ class Assistant:
             "prompt_template": prompt_template,
             "message_count": message_count,
             "system_prompt_tokens": system_prompt_tokens,
+            "capture_enricher": capture_enricher,
         }
 
         # Make LLM call

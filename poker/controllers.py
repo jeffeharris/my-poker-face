@@ -247,19 +247,41 @@ class AIPlayerController:
         """Get AI decision with automatic fallback on failure"""
         # Store context for fallback
         self._fallback_context = context
-        
+
         # Use the prompt manager for the decision prompt
         decision_prompt = self.prompt_manager.render_prompt(
             'decision',
             message=message
         )
-        
+
+        # Create enricher callback with game state for capture
+        def enrich_capture(capture_data: Dict) -> Dict:
+            """Add game state to capture data."""
+            game_state = self.state_machine.game_state
+            player = game_state.current_player
+
+            cost_to_call = context.get('call_amount', 0)
+            pot_total = game_state.pot.get('total', 0)
+
+            capture_data.update({
+                'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
+                'pot_total': pot_total,
+                'cost_to_call': cost_to_call,
+                'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
+                'player_stack': player.stack,
+                'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
+                'player_hand': [str(c) for c in player.hand] if player.hand else [],
+                'valid_actions': context.get('valid_actions', []),
+            })
+            return capture_data
+
         # Use JSON mode for more reliable structured responses
         llm_response = self.assistant.chat_full(
             decision_prompt,
             json_format=True,
             hand_number=self.current_hand_number,
-            prompt_template='decision'
+            prompt_template='decision',
+            capture_enricher=enrich_capture,
         )
         response_json = llm_response.content
         response_dict = parse_json_response(response_json)
@@ -325,113 +347,7 @@ class AIPlayerController:
         # Analyze decision quality (always, for monitoring)
         self._analyze_decision(response_dict, context)
 
-        # Capture prompt data for debugging if enabled
-        if self.debug_capture and self._persistence:
-            self._capture_prompt_data(
-                decision_prompt=decision_prompt,
-                response_json=response_json,
-                response_dict=response_dict,
-                context=context
-            )
-
         return response_dict
-
-    def _capture_prompt_data(self, decision_prompt: str, response_json: str,
-                             response_dict: Dict, context: Dict) -> None:
-        """Capture prompt and response data for debugging AI decisions."""
-        try:
-            game_state = self.state_machine.game_state
-            player = game_state.current_player
-
-            # Calculate pot odds
-            cost_to_call = context.get('call_amount', 0)
-            pot_total = game_state.pot.get('total', 0)
-            pot_odds = pot_total / cost_to_call if cost_to_call > 0 else None
-
-            # Get community cards and player hand as strings
-            community_cards = [str(c) for c in game_state.community_cards] if game_state.community_cards else []
-            player_hand = [str(c) for c in player.hand] if player.hand else []
-
-            # Get conversation history (prior messages that influence the AI's decision)
-            # Exclude the last user/assistant pair since they're stored separately as user_message and ai_response
-            conversation_history = []
-            if hasattr(self.assistant, 'memory'):
-                full_history = self.assistant.memory.get_history()
-                # Remove last assistant message (ai_response) if present
-                if full_history and full_history[-1].get('role') == 'assistant':
-                    full_history = full_history[:-1]
-                # Remove last user message (user_message/decision_prompt) if present
-                if full_history and full_history[-1].get('role') == 'user':
-                    full_history = full_history[:-1]
-                conversation_history = full_history
-
-            # Serialize raw API response if available (contains reasoning tokens, etc.)
-            raw_api_response = None
-            llm_response = getattr(self, '_last_llm_response', None)
-            if llm_response and llm_response.raw_response:
-                try:
-                    # OpenAI response objects have model_dump_json() method
-                    if hasattr(llm_response.raw_response, 'model_dump_json'):
-                        raw_api_response = llm_response.raw_response.model_dump_json()
-                    elif hasattr(llm_response.raw_response, 'to_dict'):
-                        raw_api_response = json.dumps(llm_response.raw_response.to_dict())
-                except Exception as e:
-                    logger.debug(f"Could not serialize raw_response: {e}")
-
-            # Build raw_request - the full messages array sent to the LLM
-            raw_request = None
-            try:
-                messages = self.assistant.memory.get_messages() if hasattr(self.assistant, 'memory') else []
-                raw_request = json.dumps(messages)
-            except Exception as e:
-                logger.debug(f"Could not serialize raw_request: {e}")
-
-            # Get reasoning_effort if available
-            reasoning_effort = None
-            if hasattr(self.assistant, '_client') and hasattr(self.assistant._client, '_provider'):
-                provider = self.assistant._client._provider
-                if hasattr(provider, 'reasoning_effort'):
-                    reasoning_effort = provider.reasoning_effort
-
-            # Get prompt version info
-            version_info = self.prompt_manager.get_version_info('decision')
-
-            capture_data = {
-                'game_id': self.game_id,
-                'player_name': self.player_name,
-                'hand_number': self.current_hand_number,
-                'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
-                'system_prompt': self.assistant.system_message,
-                'user_message': decision_prompt,
-                'ai_response': response_json,
-                'conversation_history': conversation_history,
-                'raw_request': raw_request,
-                'raw_api_response': raw_api_response,
-                'pot_total': pot_total,
-                'cost_to_call': cost_to_call,
-                'pot_odds': pot_odds,
-                'player_stack': player.stack,
-                'community_cards': community_cards,
-                'player_hand': player_hand,
-                'valid_actions': context.get('valid_actions', []),
-                'action_taken': response_dict.get('action'),
-                'raise_amount': response_dict.get('adding_to_pot') if response_dict.get('action') == 'raise' else None,
-                'model': llm_response.model if llm_response else None,
-                'provider': self.assistant.provider if self.assistant else 'openai',
-                'reasoning_effort': reasoning_effort,
-                'latency_ms': int(llm_response.latency_ms) if llm_response else None,
-                'input_tokens': llm_response.input_tokens if llm_response else None,
-                'output_tokens': llm_response.output_tokens if llm_response else None,
-                'original_request_id': llm_response.request_id if llm_response else None,
-                'prompt_template': version_info['template_name'],
-                'prompt_version': version_info['version'],
-                'prompt_hash': version_info['hash'],
-            }
-
-            capture_id = self._persistence.save_prompt_capture(capture_data)
-            logger.debug(f"[PROMPT_CAPTURE] Saved capture {capture_id} for {self.player_name}")
-        except Exception as e:
-            logger.warning(f"[PROMPT_CAPTURE] Failed to capture prompt data: {e}")
 
     def _analyze_decision(self, response_dict: Dict, context: Dict) -> None:
         """Analyze decision quality and save to database.

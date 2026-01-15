@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple, List, Callable, Any
 
 from .response import LLMResponse, ImageResponse
 from .capture_config import should_capture_prompt, PROMPT_CAPTURE_MODE, CAPTURE_DISABLED
@@ -358,6 +358,7 @@ def capture_prompt(
     player_name: Optional[str] = None,
     hand_number: Optional[int] = None,
     debug_mode: bool = False,
+    enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> bool:
     """Capture prompt and response to prompt_captures table.
 
@@ -372,6 +373,8 @@ def capture_prompt(
         player_name: Optional player name
         hand_number: Optional hand number
         debug_mode: True if game has debug capture explicitly enabled
+        enricher: Optional callback to add domain-specific fields (e.g., game state).
+                  Receives capture dict, returns enriched dict.
 
     Returns:
         True if capture was saved, False if skipped or failed
@@ -404,6 +407,34 @@ def capture_prompt(
             elif role == "assistant":
                 conversation_history.append({"role": "assistant", "content": content})
 
+        # Build base capture data
+        capture_data = {
+            'game_id': game_id,
+            'player_name': player_name,
+            'hand_number': hand_number,
+            'phase': call_type.value,  # Default phase from call_type
+            'call_type': call_type.value,
+            'system_prompt': system_prompt or "(no system prompt)",
+            'user_message': user_message or "(no user message)",
+            'ai_response': response.content or "",
+            'conversation_history': conversation_history,
+            'raw_api_response': response.raw_response,
+            'provider': response.provider,
+            'model': response.model,
+            'reasoning_effort': getattr(response, 'reasoning_effort', None),
+            'latency_ms': int(response.latency_ms),
+            'input_tokens': response.input_tokens,
+            'output_tokens': response.output_tokens,
+            'original_request_id': getattr(response, 'request_id', None),
+        }
+
+        # Apply enricher callback if provided (adds game state, etc.)
+        if enricher:
+            try:
+                capture_data = enricher(capture_data)
+            except Exception as e:
+                logger.warning(f"Capture enricher failed: {e}")
+
         # Get database path
         if Path('/app/data').exists():
             db_path = '/app/data/poker_games.db'
@@ -418,26 +449,39 @@ def capture_prompt(
                     conversation_history, raw_api_response,
                     provider, model, reasoning_effort,
                     latency_ms, input_tokens, output_tokens,
-                    original_request_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    original_request_id,
+                    pot_total, cost_to_call, pot_odds, player_stack,
+                    community_cards, player_hand, valid_actions,
+                    action_taken, raise_amount
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                game_id,
-                player_name,
-                hand_number,
-                call_type.value,  # Use call_type as phase for non-game captures
-                call_type.value,
-                system_prompt or "(no system prompt)",
-                user_message or "(no user message)",
-                response.content or "",
-                json.dumps(conversation_history) if conversation_history else None,
-                json.dumps(response.raw_response, default=str) if response.raw_response else None,
-                response.provider,
-                response.model,
-                getattr(response, 'reasoning_effort', None),
-                int(response.latency_ms),
-                response.input_tokens,
-                response.output_tokens,
-                getattr(response, 'request_id', None),
+                capture_data.get('game_id'),
+                capture_data.get('player_name'),
+                capture_data.get('hand_number'),
+                capture_data.get('phase'),
+                capture_data.get('call_type'),
+                capture_data.get('system_prompt'),
+                capture_data.get('user_message'),
+                capture_data.get('ai_response'),
+                json.dumps(capture_data.get('conversation_history')) if capture_data.get('conversation_history') else None,
+                json.dumps(capture_data.get('raw_api_response'), default=str) if capture_data.get('raw_api_response') else None,
+                capture_data.get('provider'),
+                capture_data.get('model'),
+                capture_data.get('reasoning_effort'),
+                capture_data.get('latency_ms'),
+                capture_data.get('input_tokens'),
+                capture_data.get('output_tokens'),
+                capture_data.get('original_request_id'),
+                # Enriched fields (may be None for non-game captures)
+                capture_data.get('pot_total'),
+                capture_data.get('cost_to_call'),
+                capture_data.get('pot_odds'),
+                capture_data.get('player_stack'),
+                json.dumps(capture_data.get('community_cards')) if capture_data.get('community_cards') else None,
+                json.dumps(capture_data.get('player_hand')) if capture_data.get('player_hand') else None,
+                json.dumps(capture_data.get('valid_actions')) if capture_data.get('valid_actions') else None,
+                capture_data.get('action_taken'),
+                capture_data.get('raise_amount'),
             ))
 
         logger.debug(f"Captured prompt for {call_type.value}: {response.model}")

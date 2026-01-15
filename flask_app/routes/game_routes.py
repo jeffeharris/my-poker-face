@@ -917,6 +917,55 @@ def get_messages(game_id):
     return jsonify(game_data.get('messages', []))
 
 
+@game_bp.route('/api/game/<game_id>/llm-configs', methods=['GET'])
+def api_game_llm_configs(game_id):
+    """Get LLM configurations for all players in a game (debug endpoint)."""
+    current_game_data = game_state_service.get_game(game_id)
+
+    if not current_game_data:
+        # Try to load from database
+        try:
+            llm_configs = persistence.load_llm_configs(game_id)
+            if llm_configs:
+                return jsonify(llm_configs)
+            return jsonify({'error': 'Game not found'}), 404
+        except Exception as e:
+            logger.error(f"Error loading LLM configs for game {game_id}: {e}")
+            return jsonify({'error': 'Game not found'}), 404
+
+    # Get configs from memory
+    state_machine = current_game_data['state_machine']
+    ai_controllers = current_game_data.get('ai_controllers', {})
+    default_llm_config = current_game_data.get('llm_config', {})
+    player_llm_configs = current_game_data.get('player_llm_configs', {})
+
+    # Build detailed player configs with actual controller info
+    player_configs = []
+    for player in state_machine.game_state.players:
+        config_entry = {
+            'name': player.name,
+            'is_human': player.is_human,
+        }
+
+        if player.is_human:
+            config_entry['llm_config'] = None
+        elif player.name in ai_controllers:
+            controller = ai_controllers[player.name]
+            # Get the actual config from the controller
+            actual_config = getattr(controller, 'llm_config', {})
+            config_entry['llm_config'] = actual_config if actual_config else default_llm_config
+            config_entry['has_custom_config'] = player.name in player_llm_configs
+        else:
+            # Fallback to stored configs
+            config_entry['llm_config'] = player_llm_configs.get(player.name, default_llm_config)
+            config_entry['has_custom_config'] = player.name in player_llm_configs
+
+    return jsonify({
+        'default_llm_config': default_llm_config,
+        'player_configs': player_configs
+    })
+
+
 # SocketIO event handlers
 def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""

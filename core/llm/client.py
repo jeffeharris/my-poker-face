@@ -1,7 +1,7 @@
 """Unified LLM client with built-in tracking."""
 import time
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Callable
 
 from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
 from .response import LLMResponse, ImageResponse
@@ -91,6 +91,7 @@ class LLMClient:
         prompt_template: Optional[str] = None,
         message_count: Optional[int] = None,
         system_prompt_tokens: Optional[int] = None,
+        capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """Make a completion request.
 
@@ -106,6 +107,7 @@ class LLMClient:
             prompt_template: Prompt template name for tracking
             message_count: Number of messages in conversation (for Assistant)
             system_prompt_tokens: Token count of system prompt (via tiktoken)
+            capture_enricher: Optional callback to add domain-specific fields to capture
 
         Returns:
             LLMResponse with content and usage data
@@ -181,6 +183,7 @@ class LLMClient:
                 player_name=player_name,
                 hand_number=hand_number,
                 debug_mode=False,  # Game-level debug mode handled separately
+                enricher=capture_enricher,
             )
 
         return response
