@@ -215,18 +215,19 @@ class CommentaryGenerator:
                 spectator_context=spectator_context or ""
             )
 
-            # Get the player's system prompt for character voice
-            system_prompt = ""
-            if assistant and hasattr(assistant, 'system_message'):
-                system_prompt = assistant.system_message
-            elif assistant and hasattr(assistant, '_memory'):
-                system_prompt = assistant._memory.system_prompt
+            # Use lightweight commentary-specific system prompt (not the decision-making one)
+            system_prompt = self.prompt_manager.render_prompt(
+                'poker_player_commentary',
+                name=player_name,
+                attitude=attitude,
+                confidence=confidence
+            )
 
             # Build messages for LLM call
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
 
             # Use internal LLM client with minimal reasoning for fast/cheap commentary
             llm_response = self._llm_client.complete(
