@@ -120,6 +120,10 @@ class SessionMemory:
     2. In-memory (legacy/fallback): Tracks stats in memory
 
     DB mode is enabled by calling set_persistence() with a GamePersistence instance.
+
+    Strategic Reflections:
+    The recent_reflections list stores key learnings from past hands,
+    enabling the AI to remember and build upon strategic insights.
     """
 
     def __init__(self, player_name: str, max_hand_memory: int = SESSION_MEMORY_HANDS):
@@ -127,6 +131,7 @@ class SessionMemory:
         self.max_hand_memory = max_hand_memory
         self.hand_memories: List[HandMemory] = []
         self.context = SessionContext()
+        self.recent_reflections: List[str] = []  # Strategic insights from past hands
 
         # DB-backed mode (set via set_persistence)
         self._persistence = None
@@ -221,6 +226,45 @@ class SessionMemory:
         if len(self.context.recent_observations) > 5:
             self.context.recent_observations = self.context.recent_observations[-5:]
 
+    def add_reflection(self, reflection: str, key_insight: str = None) -> None:
+        """Store strategic reflection from end-of-hand commentary.
+
+        These reflections are included in future decision prompts so the AI
+        can learn and build upon its strategic insights.
+
+        Args:
+            reflection: Full strategic reflection text
+            key_insight: Optional one-liner summary (preferred if available)
+        """
+        if not reflection and not key_insight:
+            return
+
+        # Prefer key_insight if provided, otherwise extract first sentence
+        if key_insight:
+            insight = key_insight.strip()
+        elif reflection:
+            # Extract first sentence for brevity
+            first_sentence = reflection.split('.')[0].strip()
+            if first_sentence:
+                insight = first_sentence + '.'
+            else:
+                insight = reflection.strip()[:100]
+        else:
+            return
+
+        if not insight:
+            return
+
+        # Avoid exact duplicates
+        if insight in self.recent_reflections:
+            return
+
+        self.recent_reflections.append(insight)
+
+        # Keep last 5 reflections
+        if len(self.recent_reflections) > 5:
+            self.recent_reflections = self.recent_reflections[-5:]
+
     def update_table_dynamics(self, assessment: str) -> None:
         """Update the perceived table dynamics."""
         self.context.table_dynamics = assessment
@@ -266,6 +310,10 @@ class SessionMemory:
         if self.context.recent_observations:
             parts.append("Observed: " + "; ".join(self.context.recent_observations[-2:]))
 
+        # Strategic reflections (learnings from past hands)
+        if self.recent_reflections:
+            parts.append("Learnings: " + "; ".join(self.recent_reflections[-3:]))
+
         result = "\n".join(parts)
 
         # Rough token estimation (4 chars ~= 1 token) and trim if needed
@@ -294,6 +342,7 @@ class SessionMemory:
             'player_name': self.player_name,
             'max_hand_memory': self.max_hand_memory,
             'hand_memories': [h.to_dict() for h in self.hand_memories],
+            'recent_reflections': self.recent_reflections,
             'context': {
                 'hands_played': self.context.hands_played,
                 'hands_won': self.context.hands_won,
@@ -315,6 +364,7 @@ class SessionMemory:
             max_hand_memory=data.get('max_hand_memory', SESSION_MEMORY_HANDS)
         )
         memory.hand_memories = [HandMemory.from_dict(h) for h in data.get('hand_memories', [])]
+        memory.recent_reflections = data.get('recent_reflections', [])
 
         ctx_data = data.get('context', {})
         memory.context.hands_played = ctx_data.get('hands_played', 0)

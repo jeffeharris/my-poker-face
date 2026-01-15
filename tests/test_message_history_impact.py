@@ -233,9 +233,9 @@ What is your move, Batman?"""
         print(f"MEMORY_TRIM_KEEP_EXCHANGES: {MEMORY_TRIM_KEEP_EXCHANGES}")
         print(f"Max messages after trim: {MEMORY_TRIM_KEEP_EXCHANGES * 2}")
 
-        # These are the current settings
+        # These are the current settings (MEMORY_TRIM_KEEP_EXCHANGES=0 clears history each turn)
         self.assertEqual(AI_MAX_MEMORY_LENGTH, 15)
-        self.assertEqual(MEMORY_TRIM_KEEP_EXCHANGES, 4)
+        self.assertEqual(MEMORY_TRIM_KEEP_EXCHANGES, 0)
 
     def test_token_accumulation_over_hand(self):
         """Measure how tokens accumulate during a single hand."""

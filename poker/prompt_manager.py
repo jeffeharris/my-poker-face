@@ -410,6 +410,35 @@ class PromptManager:
                     pass
             return False
 
+    def render_decision_prompt(self, message: str, include_mind_games: bool = True,
+                               include_persona_response: bool = True) -> str:
+        """Render the decision prompt with toggleable components from YAML.
+
+        Loads sections from the 'decision' template and combines them based on toggles.
+
+        Args:
+            message: The game state message to include
+            include_mind_games: Whether to include MIND GAMES instruction
+            include_persona_response: Whether to include PERSONA RESPONSE instruction
+
+        Returns:
+            Rendered decision prompt
+        """
+        template = self.get_template('decision')
+        sections_to_render = []
+
+        # Always include base section with message substitution
+        if 'base' in template.sections:
+            sections_to_render.append(template.sections['base'].format(message=message))
+
+        if include_mind_games and 'mind_games' in template.sections:
+            sections_to_render.append(template.sections['mind_games'])
+
+        if include_persona_response and 'persona_response' in template.sections:
+            sections_to_render.append(template.sections['persona_response'])
+
+        return "\n\n".join(sections_to_render)
+
 
 # Response format definitions - structured to simulate human thinking process
 # AI should work through these phases in order: Observe → Analyze → Deliberate → React → Commit

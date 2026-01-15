@@ -31,6 +31,79 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 
+def _feed_opponent_observations(memory_manager, observer: str, observations: List[str]) -> None:
+    """Feed opponent observations from commentary into opponent models.
+
+    Parses observations to determine which opponent they reference, then
+    adds them to the appropriate OpponentModel for future prompts.
+
+    Args:
+        memory_manager: The AIMemoryManager instance
+        observer: The AI player making the observations
+        observations: List of observation strings from commentary
+    """
+    if not observations or not hasattr(memory_manager, 'opponent_model_manager'):
+        return
+
+    opponent_models = memory_manager.opponent_model_manager
+
+    for observation in observations:
+        if not observation or not isinstance(observation, str):
+            continue
+
+        observation = observation.strip()
+        if not observation:
+            continue
+
+        # Try to parse "OpponentName: observation" format
+        # Common formats: "Trump: folds to pressure", "Trump is tight"
+        opponent_name = None
+        observation_text = observation
+
+        if ':' in observation:
+            parts = observation.split(':', 1)
+            potential_name = parts[0].strip()
+            # Check if the part before : is a known opponent
+            if potential_name in opponent_models.models.get(observer, {}):
+                opponent_name = potential_name
+                observation_text = parts[1].strip()
+
+        if not opponent_name:
+            # Try to find opponent name at start of observation
+            for opp_name in opponent_models.models.get(observer, {}).keys():
+                if observation.lower().startswith(opp_name.lower()):
+                    opponent_name = opp_name
+                    # Keep full text as observation
+                    break
+
+        if opponent_name and observation_text:
+            model = opponent_models.get_model(observer, opponent_name)
+            model.add_narrative_observation(observation_text)
+            logger.debug(f"[OpponentModel] Added observation for {observer}->{opponent_name}: {observation_text[:50]}...")
+
+
+def _feed_strategic_reflection(memory_manager, player_name: str, reflection: str,
+                               key_insight: Optional[str] = None) -> None:
+    """Feed strategic reflection from commentary into session memory.
+
+    Strategic reflections are included in future decision prompts so the AI
+    can learn and build upon its insights across hands.
+
+    Args:
+        memory_manager: The AIMemoryManager instance
+        player_name: The AI player name
+        reflection: Full strategic reflection text
+        key_insight: Optional one-liner summary (preferred if available)
+    """
+    if not reflection or not hasattr(memory_manager, 'session_memories'):
+        return
+
+    session_memory = memory_manager.session_memories.get(player_name)
+    if session_memory:
+        session_memory.add_reflection(reflection, key_insight)
+        logger.debug(f"[SessionMemory] Added reflection for {player_name}")
+
+
 def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                            owner_id: str = None,
                            player_llm_configs: Dict[str, Dict] = None,
@@ -116,6 +189,14 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                     if player.name in emotional_states:
                         controller.psychology.emotional = EmotionalState.from_dict(emotional_states[player.name])
 
+                # Restore prompt_config (toggleable prompt components)
+                if ctrl_state.get('prompt_config'):
+                    from poker.prompt_config import PromptConfig
+                    controller.prompt_config = PromptConfig.from_dict(ctrl_state['prompt_config'])
+                    logger.debug(f"Restored prompt_config for {player.name}: {controller.prompt_config}")
+                elif ctrl_state.get('prompt_config') is None:
+                    logger.warning(f"No prompt_config found for {player.name}, using defaults")
+
             ai_controllers[player.name] = controller
 
     return ai_controllers
@@ -196,20 +277,21 @@ def update_and_emit_game_state(game_id: str) -> None:
 
 
 def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data: dict = None) -> None:
-    """Send message about newly dealt community cards and record to hand history."""
-    if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
-        if game_state.no_action_taken:
-            num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
-            cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
-            message_content = f"{state_machine.current_phase} cards dealt: {cards}"
-            send_message(game_id, "Table", message_content, "table")
+    """Send message about newly dealt community cards and record to hand history.
 
-            # Record community cards to hand history
-            if game_data:
-                memory_manager = game_data.get('memory_manager')
-                if memory_manager:
-                    phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
-                    memory_manager.hand_recorder.record_community_cards(phase_name, cards)
+    Note: Caller is responsible for ensuring this is only called once per phase transition.
+    """
+    num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
+    cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+    message_content = f"{state_machine.current_phase} cards dealt: {cards}"
+    send_message(game_id, "Table", message_content, "table")
+
+    # Record community cards to hand history
+    if game_data:
+        memory_manager = game_data.get('memory_manager')
+        if memory_manager:
+            phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
+            memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
@@ -556,10 +638,61 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
         }
 
     def emit_commentary_immediately(player_name: str, commentary) -> None:
-        """Callback to emit commentary as soon as it's ready."""
-        if commentary and commentary.table_comment:
+        """Callback to emit commentary as soon as it's ready.
+
+        Also persists commentary to database and attaches decision plans.
+        """
+        if not commentary:
+            return
+
+        # Emit table comment to UI
+        if commentary.table_comment:
             logger.info(f"[Commentary] {player_name}: {commentary.table_comment[:80]}...")
             send_message(game_id, player_name, commentary.table_comment, "ai")
+
+        # Attach decision plans from controller and set hand number
+        if player_name in ai_controllers:
+            controller = ai_controllers[player_name]
+            # Get and clear decision plans for this hand
+            plans = controller.clear_decision_plans()
+            commentary.decision_plans = plans
+            logger.debug(f"[Commentary] Attached {len(plans)} decision plans for {player_name}")
+
+        # Set hand number for persistence
+        hand_number = memory_manager.hand_count if memory_manager else 0
+        commentary.hand_number = hand_number
+
+        # Persist commentary to database
+        try:
+            if persistence:
+                persistence.save_hand_commentary(
+                    game_id=game_id,
+                    hand_number=hand_number,
+                    player_name=player_name,
+                    commentary=commentary
+                )
+                logger.info(f"[Commentary] Persisted commentary for {player_name} hand {hand_number}")
+            else:
+                logger.warning(f"[Commentary] Persistence not available for {player_name}")
+        except Exception as e:
+            logger.warning(f"[Commentary] Failed to persist commentary for {player_name}: {e}")
+
+        # Feed opponent observations to opponent model
+        if memory_manager and hasattr(commentary, 'opponent_observations') and commentary.opponent_observations:
+            _feed_opponent_observations(
+                memory_manager=memory_manager,
+                observer=player_name,
+                observations=commentary.opponent_observations
+            )
+
+        # Feed strategic reflection to session memory
+        if memory_manager and hasattr(commentary, 'strategic_reflection') and commentary.strategic_reflection:
+            _feed_strategic_reflection(
+                memory_manager=memory_manager,
+                player_name=player_name,
+                reflection=commentary.strategic_reflection,
+                key_insight=getattr(commentary, 'key_insight', None)
+            )
 
     try:
         logger.info(f"[Commentary] Starting generation for {len(ai_players_with_context)} AI players")
@@ -796,6 +929,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
+    # Reset card announcement tracking for new hand
+    game_data['last_announced_phase'] = None
+
     # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
     state_machine.current_phase = PokerPhase.HAND_OVER
@@ -872,7 +1008,14 @@ def progress_game(game_id: str) -> None:
                 owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
                 persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-            handle_phase_cards_dealt(game_id, state_machine, game_state, current_game_data)
+            # Only announce cards when phase just changed to a card-dealing phase
+            # Track in game_data to persist across progress_game calls
+            current_phase = state_machine.current_phase
+            last_announced_phase = current_game_data.get('last_announced_phase')
+            if current_phase != last_announced_phase and current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
+                handle_phase_cards_dealt(game_id, state_machine, game_state, current_game_data)
+                current_game_data['last_announced_phase'] = current_phase
+                game_state_service.set_game(game_id, current_game_data)
 
             # Handle "run it out" scenario - auto-advance with delays
             if game_state.run_it_out:
@@ -1008,16 +1151,17 @@ def handle_ai_action(game_id: str) -> None:
     highest_bet = state_machine.game_state.highest_bet
     action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
+    # Send action as Table message (consistent with human actions)
+    send_message(game_id, "Table", action_text, "table")
+
+    # Only send separate AI message if player has something to say or show
     if player_message and player_message != '...':
         # Player has something to say - combine verbal and physical
         full_message = f"{player_message} {player_physical_description}".strip()
-        send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+        send_message(game_id, current_player.name, full_message, "ai", sleep=1)
     elif player_physical_description and player_physical_description.strip():
         # No speech but has physical reaction - show that
-        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1, action=action_text)
-    else:
-        # Silent action - show a brief action-only message
-        send_message(game_id, current_player.name, "", "ai", sleep=1, action=action_text)
+        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1)
 
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
@@ -1047,12 +1191,14 @@ def handle_ai_action(game_id: str) -> None:
             personality_state
         )
 
-        # Save unified psychology state
+        # Save unified psychology state and prompt config
         psychology_dict = controller.psychology.to_dict()
+        prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') else None
         persistence.save_controller_state(
             game_id,
             current_player.name,
-            psychology=psychology_dict
+            psychology=psychology_dict,
+            prompt_config=prompt_config_dict
         )
 
     update_and_emit_game_state(game_id)

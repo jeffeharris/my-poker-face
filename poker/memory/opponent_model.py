@@ -248,13 +248,18 @@ class MemorableHand:
 
 
 class OpponentModel:
-    """Tracks observations about a specific opponent."""
+    """Tracks observations about a specific opponent.
+
+    Combines statistical tendencies with AI-generated narrative observations
+    for richer opponent modeling.
+    """
 
     def __init__(self, observer: str, opponent: str):
         self.observer = observer
         self.opponent = opponent
         self.tendencies = OpponentTendencies()
         self.memorable_hands: List[MemorableHand] = []
+        self.narrative_observations: List[str] = []  # AI-generated insights about this opponent
         self._last_hand_counted: Optional[int] = None  # Track which hand we last counted
 
     def observe_action(self, action: str, phase: str, is_voluntary: bool = True, hand_number: int = None):
@@ -277,6 +282,43 @@ class OpponentModel:
         """Record fold/call response to continuation bet."""
         self.tendencies.update_fold_to_cbet(folded)
 
+    def add_narrative_observation(self, observation: str) -> None:
+        """Add an AI-generated observation about this opponent.
+
+        Keeps the most recent observations (up to 5) as a sliding window.
+        These observations are included in prompts so the AI can remember
+        and refine its understanding of opponents over time.
+
+        Args:
+            observation: A narrative insight about the opponent (e.g.,
+                "Folds to aggression on scary boards", "Overvalues top pair")
+        """
+        if not observation or not observation.strip():
+            return
+
+        observation = observation.strip()
+
+        # Avoid exact duplicates
+        if observation in self.narrative_observations:
+            return
+
+        self.narrative_observations.append(observation)
+
+        # Keep only most recent 5
+        if len(self.narrative_observations) > 5:
+            self.narrative_observations = self.narrative_observations[-5:]
+
+    def get_narrative_observations_text(self) -> str:
+        """Get narrative observations formatted for prompts.
+
+        Returns a concise string suitable for injection into AI prompts.
+        """
+        if not self.narrative_observations:
+            return ""
+
+        # Return most recent observation for prompt efficiency
+        return self.narrative_observations[-1]
+
     def add_memorable_hand(self, hand_id: int, memory_type: str,
                           impact_score: float, narrative: str, hand_summary: str):
         """Add a memorable hand if impact is high enough."""
@@ -294,8 +336,17 @@ class OpponentModel:
             self.memorable_hands = self.memorable_hands[:5]
 
     def get_prompt_summary(self, max_tokens: int = 100) -> str:
-        """Generate summary for AI prompt."""
+        """Generate summary for AI prompt.
+
+        Combines statistical analysis with narrative observations for
+        a richer opponent profile.
+        """
         parts = [f"{self.opponent}: {self.tendencies.get_summary()}"]
+
+        # Add narrative observation if available
+        narrative = self.get_narrative_observations_text()
+        if narrative:
+            parts.append(f"Notes: {narrative}")
 
         # Add most memorable hand if any
         if self.memorable_hands:
@@ -307,7 +358,11 @@ class OpponentModel:
         # Rough token limit
         estimated_tokens = len(result) / 4
         if estimated_tokens > max_tokens:
-            result = f"{self.opponent}: {self.tendencies.get_play_style_label()}"
+            # Fall back to just style + observation
+            if narrative:
+                result = f"{self.opponent}: {self.tendencies.get_play_style_label()}. Notes: {narrative}"
+            else:
+                result = f"{self.opponent}: {self.tendencies.get_play_style_label()}"
 
         return result
 
@@ -321,7 +376,8 @@ class OpponentModel:
             'observer': self.observer,
             'opponent': self.opponent,
             'tendencies': self.tendencies.to_dict(),
-            'memorable_hands': [h.to_dict() for h in self.memorable_hands]
+            'memorable_hands': [h.to_dict() for h in self.memorable_hands],
+            'narrative_observations': self.narrative_observations
         }
 
     @classmethod
@@ -331,6 +387,7 @@ class OpponentModel:
         model.memorable_hands = [
             MemorableHand.from_dict(h) for h in data.get('memorable_hands', [])
         ]
+        model.narrative_observations = data.get('narrative_observations', [])
         return model
 
 
