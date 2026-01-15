@@ -254,6 +254,9 @@ class AIPlayerController:
             message=message
         )
 
+        # Store capture_id via callback (keeps LLM layer decoupled from capture)
+        captured_id = [None]  # Use list to allow mutation in closure
+
         # Create enricher callback with game state for capture
         def enrich_capture(capture_data: Dict) -> Dict:
             """Add game state to capture data."""
@@ -272,6 +275,7 @@ class AIPlayerController:
                 'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
                 'player_hand': [str(c) for c in player.hand] if player.hand else [],
                 'valid_actions': context.get('valid_actions', []),
+                '_on_captured': lambda cid: captured_id.__setitem__(0, cid),  # Store capture_id
             })
             return capture_data
 
@@ -348,11 +352,11 @@ class AIPlayerController:
         self._analyze_decision(response_dict, context)
 
         # Update capture with action_taken (now that we've parsed the response)
-        if llm_response.capture_id:
+        if captured_id[0]:
             from core.llm.tracking import update_prompt_capture
             action = response_dict.get('action')
             raise_amount = response_dict.get('adding_to_pot') if action == 'raise' else None
-            update_prompt_capture(llm_response.capture_id, action_taken=action, raise_amount=raise_amount)
+            update_prompt_capture(captured_id[0], action_taken=action, raise_amount=raise_amount)
 
         return response_dict
 

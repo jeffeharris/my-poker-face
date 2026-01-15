@@ -1,6 +1,7 @@
 """Usage tracking for LLM operations."""
 import json
 import logging
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -16,6 +17,40 @@ logger = logging.getLogger(__name__)
 
 # Cache TTL in seconds (1 hour)
 PRICING_CACHE_TTL = 3600
+
+# Configurable database path for prompt captures
+_capture_db_path: Optional[str] = None
+
+
+def set_capture_db_path(path: str) -> None:
+    """Configure the database path for prompt captures.
+
+    Call this at startup to set a custom database path.
+    If not set, defaults to LLM_CAPTURE_DB_PATH env var or auto-detection.
+    """
+    global _capture_db_path
+    _capture_db_path = path
+
+
+def get_capture_db_path() -> str:
+    """Get the database path for prompt captures.
+
+    Priority:
+    1. Path set via set_capture_db_path()
+    2. LLM_CAPTURE_DB_PATH environment variable
+    3. Auto-detect based on /app/data existence
+    """
+    if _capture_db_path:
+        return _capture_db_path
+
+    env_path = os.environ.get('LLM_CAPTURE_DB_PATH')
+    if env_path:
+        return env_path
+
+    # Auto-detect (legacy behavior)
+    if Path('/app/data').exists():
+        return '/app/data/poker_games.db'
+    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
 
 
 @dataclass
@@ -435,11 +470,7 @@ def capture_prompt(
             except Exception as e:
                 logger.warning(f"Capture enricher failed: {e}")
 
-        # Get database path
-        if Path('/app/data').exists():
-            db_path = '/app/data/poker_games.db'
-        else:
-            db_path = str(Path(__file__).parent.parent.parent / 'poker_games.db')
+        db_path = get_capture_db_path()
 
         with sqlite3.connect(db_path) as conn:
             conn.execute("""
@@ -485,6 +516,15 @@ def capture_prompt(
             ))
 
         capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Call on_captured callback if provided (allows caller to get capture_id without coupling)
+        on_captured = capture_data.get('_on_captured')
+        if callable(on_captured):
+            try:
+                on_captured(capture_id)
+            except Exception as e:
+                logger.warning(f"on_captured callback failed: {e}")
+
         logger.debug(f"Captured prompt {capture_id} for {call_type.value}: {response.model}")
         return capture_id
 
@@ -507,11 +547,7 @@ def update_prompt_capture(capture_id: int, **fields) -> bool:
         return False
 
     try:
-        # Get database path
-        if Path('/app/data').exists():
-            db_path = '/app/data/poker_games.db'
-        else:
-            db_path = str(Path(__file__).parent.parent.parent / 'poker_games.db')
+        db_path = get_capture_db_path()
 
         # Build UPDATE statement for provided fields
         allowed_fields = {'action_taken', 'raise_amount'}

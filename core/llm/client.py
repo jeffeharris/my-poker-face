@@ -175,7 +175,7 @@ class LLMClient:
 
         # Capture prompt for playground (if enabled via LLM_PROMPT_CAPTURE env var)
         if response.status == "ok" and call_type:
-            capture_id = capture_prompt(
+            capture_prompt(
                 messages=messages,
                 response=response,
                 call_type=call_type,
@@ -185,7 +185,6 @@ class LLMClient:
                 debug_mode=False,  # Game-level debug mode handled separately
                 enricher=capture_enricher,
             )
-            response.capture_id = capture_id
 
         return response
 
