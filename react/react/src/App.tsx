@@ -5,6 +5,7 @@ import { MobilePokerTable } from './components/mobile'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
+import { AdminDashboard } from './components/admin/AdminDashboard'
 import { GameMenu } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
@@ -24,7 +25,7 @@ import './App.css'
 const MAX_GAMES_GUEST = 3;
 const MAX_GAMES_USER = 10;
 
-type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats' | 'prompt-debugger' | 'prompt-playground'
+type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats' | 'prompt-debugger' | 'prompt-playground' | 'admin-dashboard'
 
 interface Theme {
   id: string;
@@ -330,6 +331,7 @@ function App() {
           onViewStats={() => setCurrentView('stats')}
           onPromptDebugger={() => setCurrentView('prompt-debugger')}
           onPromptPlayground={() => setCurrentView('prompt-playground')}
+          onAdminDashboard={() => setCurrentView('admin-dashboard')}
           savedGamesCount={savedGamesCount}
         />
       )}
@@ -384,6 +386,9 @@ function App() {
       )}
       {currentView === 'prompt-playground' && (
         <PromptPlayground onBack={() => setCurrentView('game-menu')} />
+      )}
+      {currentView === 'admin-dashboard' && (
+        <AdminDashboard onBack={() => setCurrentView('game-menu')} />
       )}
 
       {/* Max Games Error Modal */}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, FlaskConical, ChevronRight } from 'lucide-react';
+import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, FlaskConical, ChevronRight, LayoutDashboard } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { config } from '../../config';
 import './GameMenu.css';
@@ -14,6 +14,7 @@ interface GameMenuProps {
   onViewStats?: () => void;
   onPromptDebugger?: () => void;
   onPromptPlayground?: () => void;
+  onAdminDashboard?: () => void;
   savedGamesCount: number;
 }
 
@@ -27,6 +28,7 @@ export function GameMenu({
   onViewStats,
   onPromptDebugger,
   onPromptPlayground,
+  onAdminDashboard,
   savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
@@ -116,6 +118,22 @@ export function GameMenu({
             </button>
           )}
 
+          {playerName.toLowerCase() === 'jeff' && onAdminDashboard && (
+            <button
+              className="menu-option admin-dashboard"
+              onClick={onAdminDashboard}
+              onMouseEnter={() => setHoveredOption('admin')}
+              onMouseLeave={() => setHoveredOption(null)}
+            >
+              <LayoutDashboard className="option-icon" size={24} />
+              <div className="option-content">
+                <h3>Admin Dashboard</h3>
+                <p>Personalities, decision analysis, and prompt tools</p>
+              </div>
+              <ChevronRight className="option-arrow" size={20} />
+            </button>
+          )}
+
           {onViewStats && (
             <button
               className="menu-option view-stats"
@@ -172,6 +190,7 @@ export function GameMenu({
           {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
           {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
           {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
+          {hoveredOption === 'admin' && "All admin tools in one place: personalities, decision analysis, and prompts."}
           {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
           {hoveredOption === 'debugger' && "Debug AI decisions by viewing and replaying captured prompts."}
           {hoveredOption === 'playground' && "Explore and replay any LLM prompt with different models."}
