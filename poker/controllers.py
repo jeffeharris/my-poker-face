@@ -300,7 +300,6 @@ class AIPlayerController:
         self.llm_config = llm_config or {}
         self.game_id = game_id
         self.owner_id = owner_id
-        self.debug_capture = debug_capture
         self._persistence = persistence
         self.ai_player = AIPokerPlayer(
             player_name,

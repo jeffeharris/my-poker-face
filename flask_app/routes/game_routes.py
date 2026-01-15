@@ -302,15 +302,6 @@ def api_game_state(game_id):
                         # Initialize human player for opponent observation tracking
                         memory_manager.initialize_human_observer(player.name)
 
-                # Restore debug capture state from database
-                debug_capture_enabled = persistence.get_debug_capture_enabled(game_id)
-                if debug_capture_enabled:
-                    for controller in ai_controllers.values():
-                        if hasattr(controller, 'debug_capture'):
-                            controller.debug_capture = True
-                            controller._persistence = persistence
-                    logger.info(f"[LOAD] Restored debug capture mode (enabled) for game {game_id}")
-
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
                 # Try to load tournament tracker from database, or create new one

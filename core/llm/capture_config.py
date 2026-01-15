@@ -3,11 +3,14 @@
 This module controls whether and when prompts/responses are captured
 to the prompt_captures table for debugging and replay.
 
+All captures go through the unified LLMClient with enricher callbacks that add
+full game state (hand, board, pot, stack, valid actions) when available.
+
 Environment Variables:
     LLM_PROMPT_CAPTURE: Capture mode
         - "disabled" (default): No automatic capture
-        - "all": Capture all LLM calls
-        - "all_except_decisions": Capture all except player_decision (unless debug_mode)
+        - "all": Capture all LLM calls with full context
+        - "all_except_decisions": Capture all except player_decision (reduces volume)
 
     LLM_PROMPT_RETENTION_DAYS: Days to keep captured prompts
         - 0 (default): Keep forever (no automatic cleanup)
