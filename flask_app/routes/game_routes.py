@@ -331,6 +331,7 @@ def api_game_state(game_id):
                     'owner_id': owner_id,
                     'owner_name': owner_name,
                     'messages': db_messages,
+                    'last_announced_phase': None,  # Reset on game load
                     'game_started': True
                 }
                 game_state_service.set_game(game_id, current_game_data)
@@ -533,6 +534,7 @@ def api_new_game():
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': llm_config,
+        'last_announced_phase': None,  # Track which phase we've announced cards for
         'messages': [{
             'id': '1',
             'sender': 'System',

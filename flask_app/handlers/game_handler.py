@@ -172,20 +172,21 @@ def update_and_emit_game_state(game_id: str) -> None:
 
 
 def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data: dict = None) -> None:
-    """Send message about newly dealt community cards and record to hand history."""
-    if state_machine.current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
-        if game_state.no_action_taken:
-            num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
-            cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
-            message_content = f"{state_machine.current_phase} cards dealt: {cards}"
-            send_message(game_id, "Table", message_content, "table")
+    """Send message about newly dealt community cards and record to hand history.
 
-            # Record community cards to hand history
-            if game_data:
-                memory_manager = game_data.get('memory_manager')
-                if memory_manager:
-                    phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
-                    memory_manager.hand_recorder.record_community_cards(phase_name, cards)
+    Note: Caller is responsible for ensuring this is only called once per phase transition.
+    """
+    num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
+    cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
+    message_content = f"{state_machine.current_phase} cards dealt: {cards}"
+    send_message(game_id, "Table", message_content, "table")
+
+    # Record community cards to hand history
+    if game_data:
+        memory_manager = game_data.get('memory_manager')
+        if memory_manager:
+            phase_name = state_machine.current_phase.name  # 'FLOP', 'TURN', 'RIVER'
+            memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
 def handle_pressure_events(game_id: str, game_data: dict, game_state,
@@ -772,6 +773,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
+    # Reset card announcement tracking for new hand
+    game_data['last_announced_phase'] = None
+
     # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
     state_machine.current_phase = PokerPhase.HAND_OVER
@@ -848,7 +852,14 @@ def progress_game(game_id: str) -> None:
                 owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
                 persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
 
-            handle_phase_cards_dealt(game_id, state_machine, game_state, current_game_data)
+            # Only announce cards when phase just changed to a card-dealing phase
+            # Track in game_data to persist across progress_game calls
+            current_phase = state_machine.current_phase
+            last_announced_phase = current_game_data.get('last_announced_phase')
+            if current_phase != last_announced_phase and current_phase in [PokerPhase.FLOP, PokerPhase.TURN, PokerPhase.RIVER]:
+                handle_phase_cards_dealt(game_id, state_machine, game_state, current_game_data)
+                current_game_data['last_announced_phase'] = current_phase
+                game_state_service.set_game(game_id, current_game_data)
 
             # Handle "run it out" scenario - auto-advance with delays
             if game_state.run_it_out:
@@ -983,16 +994,17 @@ def handle_ai_action(game_id: str) -> None:
     highest_bet = state_machine.game_state.highest_bet
     action_text = format_action_message(current_player.name, action, amount, highest_bet)
 
+    # Send action as Table message (consistent with human actions)
+    send_message(game_id, "Table", action_text, "table")
+
+    # Only send separate AI message if player has something to say or show
     if player_message and player_message != '...':
         # Player has something to say - combine verbal and physical
         full_message = f"{player_message} {player_physical_description}".strip()
-        send_message(game_id, current_player.name, full_message, "ai", sleep=1, action=action_text)
+        send_message(game_id, current_player.name, full_message, "ai", sleep=1)
     elif player_physical_description and player_physical_description.strip():
         # No speech but has physical reaction - show that
-        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1, action=action_text)
-    else:
-        # Silent action - show a brief action-only message
-        send_message(game_id, current_player.name, "", "ai", sleep=1, action=action_text)
+        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1)
 
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)
