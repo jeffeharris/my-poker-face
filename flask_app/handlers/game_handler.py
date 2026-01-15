@@ -105,6 +105,14 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                     if player.name in emotional_states:
                         controller.psychology.emotional = EmotionalState.from_dict(emotional_states[player.name])
 
+                # Restore prompt_config (toggleable prompt components)
+                if ctrl_state.get('prompt_config'):
+                    from poker.prompt_config import PromptConfig
+                    controller.prompt_config = PromptConfig.from_dict(ctrl_state['prompt_config'])
+                    logger.debug(f"Restored prompt_config for {player.name}: {controller.prompt_config}")
+                elif ctrl_state.get('prompt_config') is None:
+                    logger.warning(f"No prompt_config found for {player.name}, using defaults")
+
             ai_controllers[player.name] = controller
 
     return ai_controllers
@@ -1034,12 +1042,14 @@ def handle_ai_action(game_id: str) -> None:
             personality_state
         )
 
-        # Save unified psychology state
+        # Save unified psychology state and prompt config
         psychology_dict = controller.psychology.to_dict()
+        prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') else None
         persistence.save_controller_state(
             game_id,
             current_player.name,
-            psychology=psychology_dict
+            psychology=psychology_dict,
+            prompt_config=prompt_config_dict
         )
 
     update_and_emit_game_state(game_id)

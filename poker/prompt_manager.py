@@ -92,19 +92,37 @@ class PromptManager:
             }
         )
         
+        # Decision template components (split for toggleability)
+        self._decision_base = (
+            "{message}\n"
+            "Please only respond with the JSON, not the text with back quotes.\n"
+            "CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.\n"
+            "Example: If you say 'I raise by $500', then adding_to_pot should be 500.\n"
+            "Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400."
+        )
+
+        self._mind_games_instruction = (
+            "MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? "
+            "Trying to tilt you or bait you into a bad call? Use their words to read their hand - "
+            "excessive trash talk often means weakness, while silence or short responses may signal strength. "
+            "Let their table talk influence your decision."
+        )
+
+        self._persona_response_instruction = (
+            "PERSONA RESPONSE: Talk directly to your opponents - taunt, trash talk, intimidate, or charm them. "
+            "Stay in character as an exaggerated version of yourself. Reference specific opponents by name when "
+            "needling them. Use your signature phrases and mannerisms. Mix up your energy - sometimes quiet menace, "
+            "sometimes loud bravado. Emojis optional. Keep your actual hand SECRET - lie, misdirect, or stay cryptic."
+        )
+
+        # Default decision template (all components enabled)
         self.templates['decision'] = PromptTemplate(
             name='decision',
             sections={
                 'instruction': (
-                    "{message}\n"
-                    "Please only respond with the JSON, not the text with back quotes.\n"
-                    "CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.\n"
-                    "Example: If you say 'I raise by $500', then adding_to_pot should be 500.\n"
-                    "Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.\n\n"
-                    "PERSONA RESPONSE: Talk directly to your opponents - taunt, trash talk, intimidate, or charm them. "
-                    "Stay in character as an exaggerated version of yourself. Reference specific opponents by name when "
-                    "needling them. Use your signature phrases and mannerisms. Mix up your energy - sometimes quiet menace, "
-                    "sometimes loud bravado. Emojis optional. Keep your actual hand SECRET - lie, misdirect, or stay cryptic."
+                    self._decision_base + "\n\n" +
+                    self._mind_games_instruction + "\n\n" +
+                    self._persona_response_instruction
                 )
             }
         )
@@ -386,6 +404,29 @@ class PromptManager:
         """Render a template with provided variables."""
         template = self.get_template(template_name)
         return template.render(**kwargs)
+
+    def render_decision_prompt(self, message: str, include_mind_games: bool = True,
+                               include_persona_response: bool = True) -> str:
+        """
+        Render the decision prompt with toggleable components.
+
+        Args:
+            message: The game state message to include
+            include_mind_games: Whether to include MIND GAMES instruction
+            include_persona_response: Whether to include PERSONA RESPONSE instruction
+
+        Returns:
+            Rendered decision prompt
+        """
+        sections = [self._decision_base.format(message=message)]
+
+        if include_mind_games:
+            sections.append(self._mind_games_instruction)
+
+        if include_persona_response:
+            sections.append(self._persona_response_instruction)
+
+        return "\n\n".join(sections)
 
 
 # Response format definitions - structured to simulate human thinking process
