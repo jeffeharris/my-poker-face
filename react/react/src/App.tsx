@@ -120,7 +120,8 @@ function App() {
       'elasticity-demo': 'Elasticity Demo - My Poker Face',
       'stats': 'My Stats - My Poker Face',
       'prompt-debugger': 'Prompt Debugger - My Poker Face',
-      'prompt-playground': 'Prompt Playground - My Poker Face'
+      'prompt-playground': 'Prompt Playground - My Poker Face',
+      'admin-dashboard': 'Admin Dashboard - My Poker Face'
     };
     
     document.title = titles[currentView] || 'My Poker Face';
