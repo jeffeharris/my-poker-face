@@ -7,12 +7,24 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 
+import httpx
 from openai import OpenAI
 
 from .base import LLMProvider
 from ..config import DEFAULT_MAX_TOKENS, GROQ_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
+
+# Shared HTTP client with longer keepalive to avoid cold connection overhead
+# Default httpx keepalive is 5s, which causes 5-10s delays on reconnection
+_shared_http_client = httpx.Client(
+    limits=httpx.Limits(
+        max_connections=100,
+        max_keepalive_connections=20,
+        keepalive_expiry=300.0,  # 5 minutes keepalive (vs 5s default)
+    ),
+    timeout=httpx.Timeout(connect=10.0, read=600.0, write=600.0, pool=600.0),
+)
 
 
 class GroqProvider(LLMProvider):
@@ -38,10 +50,11 @@ class GroqProvider(LLMProvider):
             api_key: Groq API key (defaults to GROQ_API_KEY env var)
         """
         self._model = model or GROQ_DEFAULT_MODEL
-        # Groq uses OpenAI-compatible API
+        # Groq uses OpenAI-compatible API with shared HTTP client for connection reuse
         self._client = OpenAI(
             api_key=api_key or os.environ.get("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1"
+            base_url="https://api.groq.com/openai/v1",
+            http_client=_shared_http_client,
         )
 
     @property
