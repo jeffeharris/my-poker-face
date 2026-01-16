@@ -10,8 +10,11 @@ import {
   Percent,
   Timer,
   Gamepad2,
+  FlaskConical,
+  Filter,
 } from 'lucide-react';
 import { config } from '../../../config';
+import type { VariantResultSummary } from './types';
 
 type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -37,6 +40,7 @@ interface ExperimentDetailType {
     total_duration_seconds: number;
     avg_hands_per_tournament: number;
     winners: Record<string, number>;
+    variants?: Record<string, VariantResultSummary>;
   } | null;
 }
 
@@ -98,6 +102,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [variantFilter, setVariantFilter] = useState<string | null>(null);
 
   const fetchExperiment = useCallback(async () => {
     try {
@@ -246,6 +251,71 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
         </div>
       )}
 
+      {/* Variant Comparison (for A/B tests) */}
+      {summary?.variants && Object.keys(summary.variants).length > 0 && (
+        <div className="experiment-detail__section">
+          <h3 className="experiment-detail__section-title">
+            <FlaskConical size={18} />
+            Variant Comparison
+          </h3>
+          <div className="experiment-detail__variant-comparison">
+            {Object.entries(summary.variants).map(([label, variantSummary]) => (
+              <div key={label} className="experiment-detail__variant-card">
+                <div className="experiment-detail__variant-header">
+                  <h4 className="experiment-detail__variant-label">{label}</h4>
+                  <span className="experiment-detail__variant-model">
+                    {variantSummary.model_config?.provider}/{variantSummary.model_config?.model}
+                  </span>
+                </div>
+                <div className="experiment-detail__variant-stats">
+                  <div className="experiment-detail__variant-stat">
+                    <span className="experiment-detail__variant-stat-value">
+                      {variantSummary.tournaments}
+                    </span>
+                    <span className="experiment-detail__variant-stat-label">Tournaments</span>
+                  </div>
+                  <div className="experiment-detail__variant-stat">
+                    <span className="experiment-detail__variant-stat-value">
+                      {variantSummary.total_hands}
+                    </span>
+                    <span className="experiment-detail__variant-stat-label">Hands</span>
+                  </div>
+                  {variantSummary.decision_quality && (
+                    <div className="experiment-detail__variant-stat experiment-detail__variant-stat--highlight">
+                      <span className="experiment-detail__variant-stat-value">
+                        {variantSummary.decision_quality.correct_pct}%
+                      </span>
+                      <span className="experiment-detail__variant-stat-label">Correct</span>
+                    </div>
+                  )}
+                  {variantSummary.decision_quality && (
+                    <div className="experiment-detail__variant-stat">
+                      <span className="experiment-detail__variant-stat-value">
+                        ${variantSummary.decision_quality.avg_ev_lost}
+                      </span>
+                      <span className="experiment-detail__variant-stat-label">Avg EV Lost</span>
+                    </div>
+                  )}
+                </div>
+                {Object.keys(variantSummary.winners).length > 0 && (
+                  <div className="experiment-detail__variant-winners">
+                    <span className="experiment-detail__variant-winners-label">Top winners:</span>
+                    {Object.entries(variantSummary.winners)
+                      .sort(([, a], [, b]) => b - a)
+                      .slice(0, 3)
+                      .map(([name, wins]) => (
+                        <span key={name} className="experiment-detail__variant-winner">
+                          {name}: {wins}
+                        </span>
+                      ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Winners Distribution */}
       {summary?.winners && Object.keys(summary.winners).length > 0 && (
         <div className="experiment-detail__section">
@@ -350,19 +420,42 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
           <h3 className="experiment-detail__section-title">
             <Gamepad2 size={18} />
             Tournament Games ({games.length})
+            {/* Variant filter dropdown */}
+            {summary?.variants && Object.keys(summary.variants).length > 0 && (
+              <div className="experiment-detail__variant-filter">
+                <Filter size={14} />
+                <select
+                  value={variantFilter || ''}
+                  onChange={(e) => setVariantFilter(e.target.value || null)}
+                  className="experiment-detail__variant-filter-select"
+                >
+                  <option value="">All variants</option>
+                  {Object.keys(summary.variants).map((label) => (
+                    <option key={label} value={label}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </h3>
           <div className="experiment-detail__games">
-            {games.map((game) => (
-              <div key={game.id} className="experiment-detail__game">
-                <span className="experiment-detail__game-number">
-                  #{game.tournament_number}
-                </span>
-                <span className="experiment-detail__game-id">{game.game_id}</span>
-                <span className="experiment-detail__game-date">
-                  {formatDate(game.created_at)}
-                </span>
-              </div>
-            ))}
+            {games
+              .filter((game) => !variantFilter || game.variant === variantFilter)
+              .map((game) => (
+                <div key={game.id} className="experiment-detail__game">
+                  <span className="experiment-detail__game-number">
+                    #{game.tournament_number}
+                  </span>
+                  {game.variant && (
+                    <span className="experiment-detail__game-variant">
+                      {game.variant}
+                    </span>
+                  )}
+                  <span className="experiment-detail__game-id">{game.game_id}</span>
+                  <span className="experiment-detail__game-date">
+                    {formatDate(game.created_at)}
+                  </span>
+                </div>
+              ))}
           </div>
         </div>
       )}

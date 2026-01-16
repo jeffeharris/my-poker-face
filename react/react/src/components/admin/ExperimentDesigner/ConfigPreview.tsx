@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import type { ExperimentConfig, PromptConfig } from './types';
+import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical } from 'lucide-react';
+import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
 
@@ -40,6 +40,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
   const [validating, setValidating] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [promptConfigExpanded, setPromptConfigExpanded] = useState(false);
+  const [abTestingExpanded, setAbTestingExpanded] = useState(false);
   const [personalities, setPersonalities] = useState<string[]>([]);
 
   // Fetch available personalities
@@ -113,6 +114,62 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     const current = config.prompt_config || DEFAULT_PROMPT_CONFIG;
     const updated = { ...current, [field]: !current[field] };
     onConfigUpdate({ prompt_config: updated });
+  };
+
+  // A/B Testing helpers
+  const isAbTestingEnabled = config.control !== null;
+
+  const handleToggleAbTesting = () => {
+    if (isAbTestingEnabled) {
+      // Disable: clear control and variants
+      onConfigUpdate({ control: null, variants: null });
+    } else {
+      // Enable: create default control
+      onConfigUpdate({
+        control: {
+          label: 'Control',
+          model: config.model,
+          provider: config.provider,
+        },
+        variants: [],
+      });
+      setAbTestingExpanded(true);
+    }
+  };
+
+  const handleControlUpdate = (field: keyof ControlConfig, value: string) => {
+    if (!config.control) return;
+    onConfigUpdate({
+      control: { ...config.control, [field]: value },
+    });
+  };
+
+  const handleAddVariant = () => {
+    const variants = config.variants || [];
+    const newVariant: VariantConfig = {
+      label: `Variant ${variants.length + 1}`,
+      model: '',
+      provider: '',
+    };
+    onConfigUpdate({ variants: [...variants, newVariant] });
+  };
+
+  const handleVariantUpdate = (index: number, field: keyof VariantConfig, value: string) => {
+    const variants = [...(config.variants || [])];
+    variants[index] = { ...variants[index], [field]: value };
+    onConfigUpdate({ variants });
+  };
+
+  const handleRemoveVariant = (index: number) => {
+    const variants = [...(config.variants || [])];
+    variants.splice(index, 1);
+    onConfigUpdate({ variants });
+  };
+
+  const getTotalTournaments = () => {
+    if (!isAbTestingEnabled) return config.num_tournaments;
+    const numVariants = 1 + (config.variants?.length || 0);
+    return config.num_tournaments * numVariants;
   };
 
   const handleLaunch = async () => {
@@ -290,6 +347,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     className="config-preview__select"
                     value={config.provider}
                     onChange={(e) => handleFieldChange('provider', e.target.value)}
+                    disabled={isAbTestingEnabled}
                   >
                     <option value="openai">OpenAI</option>
                     <option value="anthropic">Anthropic</option>
@@ -305,9 +363,162 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     value={config.model}
                     onChange={(e) => handleFieldChange('model', e.target.value)}
                     placeholder="gpt-5-nano"
+                    disabled={isAbTestingEnabled}
                   />
                 </label>
               </div>
+              {isAbTestingEnabled && (
+                <p className="config-preview__hint">Model settings are configured per-variant in A/B testing mode</p>
+              )}
+            </div>
+
+            {/* A/B Testing (Collapsible) */}
+            <div className="config-preview__section config-preview__section--collapsible">
+              <button
+                className="config-preview__section-toggle"
+                onClick={() => setAbTestingExpanded(!abTestingExpanded)}
+                type="button"
+              >
+                {abTestingExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <FlaskConical size={16} />
+                <h5 className="config-preview__section-title">A/B Testing</h5>
+                <span className="config-preview__section-hint">
+                  {isAbTestingEnabled ? `${1 + (config.variants?.length || 0)} variants` : 'Disabled'}
+                </span>
+              </button>
+
+              {abTestingExpanded && (
+                <div className="config-preview__ab-testing">
+                  {/* Toggle */}
+                  <label className="config-preview__toggle-label config-preview__toggle-label--primary">
+                    <input
+                      type="checkbox"
+                      checked={isAbTestingEnabled}
+                      onChange={handleToggleAbTesting}
+                    />
+                    Enable A/B Testing
+                  </label>
+
+                  {isAbTestingEnabled && (
+                    <>
+                      {/* Total tournaments calculation */}
+                      <div className="config-preview__ab-info">
+                        <span>
+                          Total tournaments: <strong>{getTotalTournaments()}</strong>
+                          {' '}({config.num_tournaments} per variant × {1 + (config.variants?.length || 0)} variants)
+                        </span>
+                      </div>
+
+                      {/* Control Configuration */}
+                      <div className="config-preview__variant-card config-preview__variant-card--control">
+                        <div className="config-preview__variant-header">
+                          <span className="config-preview__variant-badge config-preview__variant-badge--control">Control</span>
+                        </div>
+                        <div className="config-preview__variant-fields">
+                          <label className="config-preview__label">
+                            Label
+                            <input
+                              type="text"
+                              className="config-preview__input"
+                              value={config.control?.label || ''}
+                              onChange={(e) => handleControlUpdate('label', e.target.value)}
+                              placeholder="Control"
+                            />
+                          </label>
+                          <div className="config-preview__row">
+                            <label className="config-preview__label config-preview__label--inline">
+                              Provider
+                              <select
+                                className="config-preview__select"
+                                value={config.control?.provider || config.provider}
+                                onChange={(e) => handleControlUpdate('provider', e.target.value)}
+                              >
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="groq">Groq</option>
+                              </select>
+                            </label>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Model
+                              <input
+                                type="text"
+                                className="config-preview__input"
+                                value={config.control?.model || ''}
+                                onChange={(e) => handleControlUpdate('model', e.target.value)}
+                                placeholder="gpt-5-nano"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Variants */}
+                      {config.variants?.map((variant, index) => (
+                        <div key={index} className="config-preview__variant-card">
+                          <div className="config-preview__variant-header">
+                            <span className="config-preview__variant-badge">Variant {index + 1}</span>
+                            <button
+                              type="button"
+                              className="config-preview__variant-remove"
+                              onClick={() => handleRemoveVariant(index)}
+                              title="Remove variant"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <div className="config-preview__variant-fields">
+                            <label className="config-preview__label">
+                              Label
+                              <input
+                                type="text"
+                                className="config-preview__input"
+                                value={variant.label || ''}
+                                onChange={(e) => handleVariantUpdate(index, 'label', e.target.value)}
+                                placeholder={`Variant ${index + 1}`}
+                              />
+                            </label>
+                            <div className="config-preview__row">
+                              <label className="config-preview__label config-preview__label--inline">
+                                Provider
+                                <select
+                                  className="config-preview__select"
+                                  value={variant.provider || ''}
+                                  onChange={(e) => handleVariantUpdate(index, 'provider', e.target.value)}
+                                >
+                                  <option value="">Inherit from Control</option>
+                                  <option value="openai">OpenAI</option>
+                                  <option value="anthropic">Anthropic</option>
+                                  <option value="groq">Groq</option>
+                                </select>
+                              </label>
+                              <label className="config-preview__label config-preview__label--inline">
+                                Model
+                                <input
+                                  type="text"
+                                  className="config-preview__input"
+                                  value={variant.model || ''}
+                                  onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
+                                  placeholder="Inherit from Control"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Add Variant Button */}
+                      <button
+                        type="button"
+                        className="config-preview__add-variant-btn"
+                        onClick={handleAddVariant}
+                      >
+                        <Plus size={14} />
+                        Add Variant
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Prompt Config (Collapsible) */}

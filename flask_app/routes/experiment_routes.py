@@ -45,6 +45,8 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'random_seed': None,
     'prompt_config': None,
     'player_configs': None,
+    'control': None,
+    'variants': None,
 }
 
 # System prompt for the experiment design assistant
@@ -55,16 +57,66 @@ You help configure experiments with these parameters:
 - description: What the experiment is testing
 - hypothesis: The expected outcome or question being answered
 - tags: Categories for filtering (e.g., ["model_comparison", "prompt_testing"])
-- num_tournaments: How many tournaments to run (1-20)
+- num_tournaments: How many tournaments to run PER VARIANT (1-20)
 - max_hands_per_tournament: Maximum hands per tournament (20-500)
 - num_players: Players per tournament (2-8)
 - starting_stack: Chips per player (1000-100000)
 - big_blind: Big blind amount (10-1000)
-- model: LLM model to use (e.g., "gpt-5-nano", "claude-haiku-4-5-20251001")
-- provider: LLM provider ("openai", "anthropic", "groq")
+- model: Default LLM model to use (e.g., "gpt-5-nano", "claude-sonnet-4-20250514")
+- provider: Default LLM provider ("openai", "anthropic", "groq")
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
+
+## A/B Testing with Control + Variants
+
+For comparing models, prompts, or other configurations, use the control/variants structure:
+
+- control: The baseline configuration (required for A/B tests)
+  - label: Name shown in results (e.g., "GPT-4o Baseline")
+  - model: Model to use (optional, defaults to experiment's model)
+  - provider: Provider to use (optional, defaults to experiment's provider)
+  - prompt_config: Prompt settings for control (optional)
+
+- variants: List of variations to compare against control
+  - Each variant inherits from control and only needs to specify what's different
+  - Same structure as control: label, model, provider, prompt_config
+
+Example A/B test structure for model comparison:
+{
+  "name": "gpt_vs_claude_comparison",
+  "num_tournaments": 3,
+  "control": {
+    "label": "GPT-4o Baseline",
+    "model": "gpt-4o",
+    "provider": "openai"
+  },
+  "variants": [
+    {
+      "label": "Claude Sonnet",
+      "model": "claude-sonnet-4-20250514",
+      "provider": "anthropic"
+    }
+  ]
+}
+
+This runs 3 tournaments with GPT-4o AND 3 tournaments with Claude (6 total).
+
+Example A/B test for prompt ablation:
+{
+  "name": "pot_odds_ablation",
+  "num_tournaments": 5,
+  "control": {
+    "label": "Full Prompts",
+    "prompt_config": {"pot_odds": true, "hand_strength": true}
+  },
+  "variants": [
+    {
+      "label": "No Pot Odds",
+      "prompt_config": {"pot_odds": false, "hand_strength": true}
+    }
+  ]
+}
 
 Available prompt_config options (all boolean, default true):
 - pot_odds: Include pot odds and equity calculations
@@ -87,11 +139,13 @@ IMPORTANT: When you have configuration suggestions, include them in your respons
 Only include fields that should be updated based on the conversation. The frontend will merge your updates with the existing config.
 
 Common experiment scenarios:
-1. Model comparison: Test different models/providers against each other
+1. Model comparison: Use control + variants with different models/providers
 2. Personality testing: See which AI personalities perform best
-3. Prompt ablation: Test with/without specific prompt components
+3. Prompt ablation: Use control + variants with different prompt_config settings
 4. Minimal vs full prompts: Compare stripped-down prompts to full prompts
 5. Baseline measurement: Simple default config to establish baseline metrics
+
+When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
 Keep responses concise and focused on experiment design. Be helpful and proactive in suggesting configurations."""
 
@@ -300,8 +354,42 @@ def validate_experiment_config():
         if provider not in valid_providers:
             errors.append(f"Invalid provider: {provider}. Must be one of {valid_providers}")
 
-        # Warnings for large experiments
-        if num_tournaments > 10:
+        # Validate control/variants structure if present
+        control = config_data.get('control')
+        variants = config_data.get('variants')
+
+        if control is not None:
+            if not isinstance(control, dict):
+                errors.append('control must be an object')
+            elif not control.get('label'):
+                errors.append('control.label is required')
+
+        if variants is not None:
+            if not isinstance(variants, list):
+                errors.append('variants must be an array')
+            else:
+                variant_labels = set()
+                for i, v in enumerate(variants):
+                    if not isinstance(v, dict):
+                        errors.append(f'variants[{i}] must be an object')
+                    elif not v.get('label'):
+                        errors.append(f'variants[{i}].label is required')
+                    else:
+                        label = v.get('label')
+                        if label in variant_labels:
+                            errors.append(f"Duplicate variant label: '{label}'")
+                        variant_labels.add(label)
+                        # Check for collision with control label
+                        if control and label == control.get('label'):
+                            errors.append(f"Variant label '{label}' cannot match control label")
+
+        # Calculate total tournaments for A/B tests
+        if control is not None:
+            num_variants = 1 + len(variants or [])  # control + variants
+            total_tournaments = num_tournaments * num_variants
+            if total_tournaments > 20:
+                warnings.append(f'Total tournaments ({total_tournaments}) exceeds 20 - this may take a long time')
+        elif num_tournaments > 10:
             warnings.append('Running more than 10 tournaments may take a long time')
 
         return jsonify({
@@ -329,7 +417,7 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
             'num_tournaments', 'max_hands_per_tournament', 'num_players',
             'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed'
+            'personalities', 'random_seed', 'control', 'variants'
         }
         filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
 

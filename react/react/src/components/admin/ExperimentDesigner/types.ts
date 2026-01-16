@@ -25,6 +25,26 @@ export interface PlayerConfig {
   prompt_config?: Partial<PromptConfig>;
 }
 
+/**
+ * Control (baseline) configuration for A/B testing experiments.
+ */
+export interface ControlConfig {
+  label: string;
+  model?: string;
+  provider?: string;
+  prompt_config?: Partial<PromptConfig>;
+}
+
+/**
+ * Variant configuration that overrides control for A/B testing.
+ */
+export interface VariantConfig {
+  label: string;
+  model?: string;
+  provider?: string;
+  prompt_config?: Partial<PromptConfig>;
+}
+
 export interface ExperimentConfig {
   name: string;
   description: string;
@@ -42,6 +62,9 @@ export interface ExperimentConfig {
   random_seed: number | null;
   prompt_config: Partial<PromptConfig> | null;
   player_configs: PlayerConfig[] | null;
+  // A/B testing support
+  control: ControlConfig | null;
+  variants: VariantConfig[] | null;
 }
 
 export interface ExperimentSummary {
@@ -60,6 +83,31 @@ export interface ExperimentSummary {
   summary: ExperimentResultSummary | null;
 }
 
+/**
+ * Per-variant summary statistics for A/B testing experiments.
+ */
+export interface VariantResultSummary {
+  tournaments: number;
+  total_hands: number;
+  total_api_calls: number;
+  total_duration_seconds: number;
+  avg_hands_per_tournament: number;
+  winners: Record<string, number>;
+  model_config: {
+    model: string;
+    provider: string;
+  };
+  decision_quality?: {
+    total_decisions: number;
+    correct: number;
+    marginal: number;
+    mistakes: number;
+    correct_pct: number;
+    mistake_pct: number;
+    avg_ev_lost: number;
+  };
+}
+
 export interface ExperimentResultSummary {
   tournaments: number;
   total_hands: number;
@@ -76,6 +124,8 @@ export interface ExperimentResultSummary {
     mistake_pct: number;
     avg_ev_lost: number;
   };
+  // Per-variant stats for A/B testing experiments
+  variants?: Record<string, VariantResultSummary>;
 }
 
 export interface ExperimentDetail extends ExperimentSummary {
@@ -150,6 +200,8 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   random_seed: null,
   prompt_config: null,
   player_configs: null,
+  control: null,
+  variants: null,
 };
 
 export const DEFAULT_PROMPT_CONFIG: PromptConfig = {
