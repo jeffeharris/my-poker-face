@@ -220,3 +220,34 @@ providers:
     # Grok-2-image (price per image)
     grok-2-image-1212:
       image_1024x1024: 0.07
+
+  pollinations:
+    # Pollinations.ai image models
+    # See: https://pollinations.ai/pricing
+    flux:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    zimage:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    turbo:
+      image_512x512: 0.0003
+      image_1024x1024: 0.0003
+
+    seedream:
+      image_512x512: 0.03
+      image_1024x1024: 0.03
+
+    kontext:
+      image_512x512: 0.04
+      image_1024x1024: 0.04
+
+    gptimage:
+      image_512x512: 0.008
+      image_1024x1024: 0.008
+
+    nanobanana:
+      image_512x512: 0.01
+      image_1024x1024: 0.01

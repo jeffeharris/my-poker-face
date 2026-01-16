@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 # Current schema version - increment when adding migrations
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
 # v43: Add app_settings table for dynamic configuration
-SCHEMA_VERSION = 43
+# v44: Add Pollinations image models to enabled_models table
+SCHEMA_VERSION = 44
 
 
 @dataclass
@@ -667,6 +668,7 @@ class GamePersistence:
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
             42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
             43: (self._migrate_v43_add_app_settings, "Add app_settings table for dynamic configuration"),
+            44: (self._migrate_v44_add_pollinations_models, "Add Pollinations image models to enabled_models"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1772,6 +1774,34 @@ class GamePersistence:
             )
         """)
         logger.info("Migration v43 complete: app_settings table created")
+
+    def _migrate_v44_add_pollinations_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v44: Add Pollinations image models to enabled_models table.
+
+        Pollinations.ai is an image-only provider with extremely cheap pricing (~$0.0002/image).
+        This migration adds Pollinations models to the enabled_models table with:
+        - flux and flux-realism enabled by default (most commonly used)
+        - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
+
+        Note: We use INSERT OR REPLACE to ensure correct enabled status, since v38 may have
+        already created these rows with enabled=0 (for new databases where Pollinations
+        is in PROVIDER_MODELS but not in DEFAULT_ENABLED_MODELS).
+        """
+        from core.llm.config import POLLINATIONS_AVAILABLE_MODELS
+
+        # Models that should be enabled by default (cheapest: $0.0002/image)
+        default_enabled = {"flux", "zimage"}
+
+        for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
+            enabled = 1 if model in default_enabled else 0
+            # Use INSERT OR REPLACE to update existing rows (from v38) with correct enabled status
+            conn.execute("""
+                INSERT OR REPLACE INTO enabled_models
+                (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
+
+        logger.info("Migration v44 complete: Added Pollinations image models to enabled_models")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
