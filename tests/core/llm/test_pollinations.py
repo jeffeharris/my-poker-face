@@ -40,8 +40,9 @@ class TestPollinationsProvider(unittest.TestCase):
     @patch('core.llm.providers.pollinations.requests.Session')
     def test_generate_image_success(self, mock_session_class):
         """Test successful image generation."""
-        # Set up mock
+        # Set up mock with proper headers dict
         mock_session = Mock()
+        mock_session.headers = {}  # Real dict for header assignment
         mock_session_class.return_value = mock_session
 
         # Create test image data (minimal PNG header)
@@ -82,6 +83,7 @@ class TestPollinationsProvider(unittest.TestCase):
     def test_generate_image_with_default_size(self, mock_session_class):
         """Test image generation with default size."""
         mock_session = Mock()
+        mock_session.headers = {}  # Real dict for header assignment
         mock_session_class.return_value = mock_session
 
         test_image_bytes = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
@@ -106,6 +108,7 @@ class TestPollinationsProvider(unittest.TestCase):
         """Test timeout handling."""
         import requests
         mock_session = Mock()
+        mock_session.headers = {}  # Real dict for header assignment
         mock_session_class.return_value = mock_session
         mock_session.get.side_effect = requests.exceptions.Timeout()
 
@@ -122,6 +125,7 @@ class TestPollinationsProvider(unittest.TestCase):
         """Test HTTP error handling."""
         import requests
         mock_session = Mock()
+        mock_session.headers = {}  # Real dict for header assignment
         mock_session_class.return_value = mock_session
 
         mock_response = Mock()
