@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles } from 'lucide-react';
 import type { ExperimentConfig } from './types';
-import config from '../../../config';
+import { config } from '../../../config';
 
 interface QuickPrompt {
   id: string;

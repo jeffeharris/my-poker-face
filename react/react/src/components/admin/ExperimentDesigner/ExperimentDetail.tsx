@@ -11,7 +11,7 @@ import {
   Timer,
   Gamepad2,
 } from 'lucide-react';
-import config from '../../../config';
+import { config } from '../../../config';
 
 type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
 

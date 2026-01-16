@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import type { ExperimentConfig, PromptConfig } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
-import config from '../../../config';
+import { config } from '../../../config';
 
 interface ValidationResult {
   valid: boolean;

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import type { ExperimentSummary } from './types';
-import config from '../../../config';
+import { config } from '../../../config';
 
 type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
 
