@@ -20,6 +20,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - XAI_API_KEY=${XAI_API_KEY}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY:-}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - FLASK_APP=flask_app.ui_web
       - PYTHONPATH=/app
@@ -28,6 +29,8 @@ services:
       - CORS_ORIGINS=https://mypokerfacegame.com,https://www.mypokerfacegame.com
       - LLM_PROMPT_CAPTURE=${LLM_PROMPT_CAPTURE:-all}
       - LLM_PROMPT_RETENTION_DAYS=${LLM_PROMPT_RETENTION_DAYS:-0}
+      - IMAGE_PROVIDER=${IMAGE_PROVIDER:-openai}
+      - IMAGE_MODEL=${IMAGE_MODEL:-}
     command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis
