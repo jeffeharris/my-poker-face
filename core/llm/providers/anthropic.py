@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import anthropic
 
 from .base import LLMProvider
+from .http_client import shared_http_client
 from ..config import DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,8 @@ class AnthropicProvider(LLMProvider):
         self._model = model or ANTHROPIC_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
         self._client = anthropic.Anthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
+            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+            http_client=shared_http_client,
         )
 
         # Map reasoning effort to thinking budget tokens
