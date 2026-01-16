@@ -1969,8 +1969,8 @@ class GamePersistence:
         """
         from core.llm.config import POLLINATIONS_AVAILABLE_MODELS
 
-        # Models that should be enabled by default (cheapest, most reliable)
-        default_enabled = {"flux", "flux-realism"}
+        # Models that should be enabled by default (cheapest: $0.0002/image)
+        default_enabled = {"flux", "zimage"}
 
         for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
             enabled = 1 if model in default_enabled else 0

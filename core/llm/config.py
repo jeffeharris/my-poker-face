@@ -132,15 +132,15 @@ XAI_AVAILABLE_MODELS = [
 POLLINATIONS_DEFAULT_MODEL = os.environ.get("POLLINATIONS_MODEL", "flux")
 
 # Available Pollinations models for image generation
-# See: https://image.pollinations.ai/docs
+# See: https://pollinations.ai/pricing
 POLLINATIONS_AVAILABLE_MODELS = [
-    "flux",                         # Default, good quality ($0.0002/image)
-    "flux-realism",                 # Photorealistic variant
-    "flux-cablyai",                 # CablyAI variant
-    "flux-anime",                   # Anime style
-    "flux-3d",                      # 3D render style
-    "any-dark",                     # Dark aesthetic
-    "turbo",                        # Fast generation
+    "flux",                         # Flux Schnell - fast, good quality ($0.0002/image)
+    "zimage",                       # Z-Image Turbo - fast ($0.0002/image)
+    "turbo",                        # SDXL Turbo ($0.0003/image)
+    "seedream",                     # Seedream 4.0 ($0.03/image)
+    "kontext",                      # FLUX.1 Kontext ($0.04/image)
+    "gptimage",                     # GPT Image 1 Mini ($0.008/image approx)
+    "nanobanana",                   # NanoBanana
 ]
 
 # =============================================================================
