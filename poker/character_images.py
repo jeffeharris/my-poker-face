@@ -32,6 +32,12 @@ EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
 # Icon size for processed images
 ICON_SIZE = 256
 
+# Image provider configuration (via environment)
+# IMAGE_PROVIDER: "openai" (default) or "pollinations"
+# IMAGE_MODEL: model to use (provider-specific default if not set)
+IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL")
+
 # Full image generation size (512x512 for DALL-E 2, 1024x1024 for DALL-E 3)
 # The full image is stored for CSS-based cropping on the frontend
 FULL_IMAGE_SIZE = "512x512"
@@ -234,7 +240,7 @@ class CharacterImageService:
             return {"success": False, "error": f"Missing dependency: {e}"}
 
         try:
-            llm_client = LLMClient()
+            llm_client = LLMClient(provider=IMAGE_PROVIDER, model=IMAGE_MODEL)
             raw_image_bytes = self._generate_single_image(llm_client, personality_name, emotion, game_id=game_id)
             self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
             return {
@@ -290,7 +296,8 @@ class CharacterImageService:
             }
 
         # Initialize LLM client for tracked API calls
-        llm_client = LLMClient()
+        # Use IMAGE_PROVIDER and IMAGE_MODEL for image generation
+        llm_client = LLMClient(provider=IMAGE_PROVIDER, model=IMAGE_MODEL)
 
         results = {"generated": 0, "failed": 0, "skipped": 0, "errors": []}
 

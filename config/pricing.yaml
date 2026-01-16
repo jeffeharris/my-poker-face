@@ -235,3 +235,34 @@ providers:
     # Grok-2-image (price per image)
     grok-2-image-1212:
       image_1024x1024: 0.07
+
+  pollinations:
+    # Pollinations.ai image models - extremely cheap (~$0.0002/image)
+    # See: https://image.pollinations.ai/docs
+    flux:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    flux-realism:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    flux-cablyai:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    flux-anime:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    flux-3d:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    any-dark:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002
+
+    turbo:
+      image_512x512: 0.0002
+      image_1024x1024: 0.0002

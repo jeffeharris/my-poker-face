@@ -125,11 +125,30 @@ XAI_AVAILABLE_MODELS = [
 ]
 
 # =============================================================================
+# Pollinations Configuration (Image-Only Provider)
+# =============================================================================
+
+# Default Pollinations model - flux is cheap and high quality
+POLLINATIONS_DEFAULT_MODEL = os.environ.get("POLLINATIONS_MODEL", "flux")
+
+# Available Pollinations models for image generation
+# See: https://image.pollinations.ai/docs
+POLLINATIONS_AVAILABLE_MODELS = [
+    "flux",                         # Default, good quality ($0.0002/image)
+    "flux-realism",                 # Photorealistic variant
+    "flux-cablyai",                 # CablyAI variant
+    "flux-anime",                   # Anime style
+    "flux-3d",                      # 3D render style
+    "any-dark",                     # Dark aesthetic
+    "turbo",                        # Fast generation
+]
+
+# =============================================================================
 # Provider Registry
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai"]
+AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai", "pollinations"]
 
 # =============================================================================
 # Default Enabled Models (for new deployments)
@@ -154,6 +173,7 @@ PROVIDER_MODELS = {
     "mistral": MISTRAL_AVAILABLE_MODELS,
     "google": GOOGLE_AVAILABLE_MODELS,
     "xai": XAI_AVAILABLE_MODELS,
+    "pollinations": POLLINATIONS_AVAILABLE_MODELS,
 }
 
 # Default model per provider
@@ -165,6 +185,7 @@ PROVIDER_DEFAULT_MODELS = {
     "mistral": MISTRAL_DEFAULT_MODEL,
     "google": GOOGLE_DEFAULT_MODEL,
     "xai": XAI_DEFAULT_MODEL,
+    "pollinations": POLLINATIONS_DEFAULT_MODEL,
 }
 
 # Provider capabilities
@@ -203,6 +224,12 @@ PROVIDER_CAPABILITIES = {
         "supports_reasoning": True,  # grok-3-mini only (low/high)
         "supports_json_mode": True,
         "supports_image_generation": False,
+    },
+    "pollinations": {
+        "supports_reasoning": False,
+        "supports_json_mode": False,
+        "supports_image_generation": True,  # Image-only provider
+        "image_only": True,  # Flag for image-only providers
     },
 }
 

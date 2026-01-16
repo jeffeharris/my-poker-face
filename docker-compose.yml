@@ -23,6 +23,9 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=http://localhost:${FRONTEND_PORT:-5173}
+      - IMAGE_PROVIDER=${IMAGE_PROVIDER:-openai}
+      - IMAGE_MODEL=${IMAGE_MODEL:-}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY:-}
     env_file:
       - .env
     command: python -m flask_app.ui_web

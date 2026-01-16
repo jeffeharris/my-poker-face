@@ -14,6 +14,7 @@ from .providers.deepseek import DeepSeekProvider
 from .providers.mistral import MistralProvider
 from .providers.google import GoogleProvider
 from .providers.xai import XAIProvider
+from .providers.pollinations import PollinationsProvider
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class LLMClient:
             "mistral": lambda: MistralProvider(model=model, reasoning_effort=reasoning_effort),
             "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
             "xai": lambda: XAIProvider(model=model, reasoning_effort=reasoning_effort),
+            "pollinations": lambda: PollinationsProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
         if provider not in provider_registry:

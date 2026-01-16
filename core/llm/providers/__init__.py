@@ -7,6 +7,7 @@ from .deepseek import DeepSeekProvider
 from .mistral import MistralProvider
 from .google import GoogleProvider
 from .xai import XAIProvider
+from .pollinations import PollinationsProvider
 
 __all__ = [
     "LLMProvider",
@@ -17,4 +18,5 @@ __all__ = [
     "MistralProvider",
     "GoogleProvider",
     "XAIProvider",
+    "PollinationsProvider",
 ]
