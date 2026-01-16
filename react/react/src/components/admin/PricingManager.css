@@ -1,0 +1,408 @@
+/**
+ * Pricing Manager - LLM Pricing Configuration
+ *
+ * Styles for managing LLM model pricing
+ */
+
+/* ============================================
+   Container
+   ============================================ */
+
+.prm-container {
+  padding: var(--space-4);
+}
+
+.prm-container--embedded {
+  padding: 0;
+}
+
+/* ============================================
+   Alert Toast
+   ============================================ */
+
+.prm-alert {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(16px);
+  z-index: var(--z-toast);
+  animation: prmAlertSlideIn 0.4s var(--ease-out-expo);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+@keyframes prmAlertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.prm-alert--success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--color-emerald);
+}
+
+.prm-alert--error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.prm-alert--info {
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  color: var(--color-gold-light);
+}
+
+.prm-alert__icon {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+}
+
+.prm-alert__message {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.prm-alert__close {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.prm-alert__close:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.prm-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-16);
+  color: var(--color-text-muted);
+}
+
+.prm-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 193, 7, 0.1);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: prmSpin 1s linear infinite;
+}
+
+@keyframes prmSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.prm-header {
+  margin-bottom: var(--space-6);
+}
+
+.prm-header__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.prm-header__title {
+  color: var(--color-gold);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0;
+}
+
+.prm-header__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* ============================================
+   Filters
+   ============================================ */
+
+.prm-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* ============================================
+   Form Elements
+   ============================================ */
+
+.prm-select {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.prm-select:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+
+.prm-input {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  width: 100%;
+}
+
+.prm-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+
+.prm-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.prm-checkbox input {
+  accent-color: var(--color-gold);
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+.prm-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.prm-btn--primary {
+  background: var(--color-gold);
+  color: var(--color-felt);
+}
+
+.prm-btn--primary:hover {
+  background: var(--color-gold-light);
+}
+
+.prm-btn--ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.prm-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.prm-btn--danger {
+  background: #ef4444;
+  color: white;
+}
+
+.prm-btn--danger:hover {
+  background: #dc2626;
+}
+
+.prm-btn--sm {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+/* ============================================
+   Table
+   ============================================ */
+
+.prm-table-wrapper {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+.prm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.prm-table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.prm-table td {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.prm-table tr:last-child td {
+  border-bottom: none;
+}
+
+.prm-table__row--expired {
+  opacity: 0.5;
+}
+
+.prm-table__model {
+  font-family: var(--font-mono);
+  color: var(--color-gold-light);
+}
+
+.prm-table__cost {
+  font-family: var(--font-mono);
+  color: var(--color-emerald);
+}
+
+.prm-table__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-8) !important;
+}
+
+.prm-confirm {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ============================================
+   Modal
+   ============================================ */
+
+.prm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  padding: var(--space-4);
+}
+
+.prm-modal {
+  background: var(--color-bg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.prm-modal__title {
+  color: var(--color-gold);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-6) 0;
+}
+
+.prm-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+/* ============================================
+   Form
+   ============================================ */
+
+.prm-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.prm-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prm-form__group label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  .prm-header__title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .prm-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prm-table th,
+  .prm-table td {
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+@media (max-width: 480px) {
+  .prm-table {
+    font-size: var(--font-size-xs);
+  }
+}
