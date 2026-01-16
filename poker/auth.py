@@ -5,6 +5,8 @@ Provides session-based authentication with optional Google OAuth support.
 """
 import os
 import secrets
+import logging
+import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional, Dict, Any
@@ -12,18 +14,24 @@ from typing import Optional, Dict, Any
 from flask import session, request, jsonify, redirect, url_for
 import jwt
 
+logger = logging.getLogger(__name__)
+
 # JWT configuration
 JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', secrets.token_hex(32))
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=7)
 
+# OAuth state expiration (10 minutes)
+OAUTH_STATE_EXPIRATION = timedelta(minutes=10)
+
 
 class AuthManager:
     """Manages authentication for the poker application."""
-    
-    def __init__(self, app=None, persistence=None):
+
+    def __init__(self, app=None, persistence=None, oauth=None):
         self.app = app
         self.persistence = persistence
+        self.oauth = oauth
         if app:
             self.init_app(app)
     
@@ -121,15 +129,146 @@ class AuthManager:
                 return jsonify({'user': user})
             return jsonify({'user': None})
         
+        @self.app.route('/api/auth/google/login', methods=['GET'])
+        def google_login():
+            """Initiate Google OAuth flow."""
+            # Check if OAuth is configured
+            if not self.oauth or not hasattr(self.oauth, 'google'):
+                return jsonify({
+                    'success': False,
+                    'error': 'Google OAuth not configured'
+                }), 503
+
+            # Store current guest_id if user is a guest (for linking)
+            current_user = self.get_current_user()
+            if current_user and current_user.get('is_guest'):
+                session['oauth_guest_id'] = current_user['id']
+
+            # Generate CSRF state token with expiration
+            state = secrets.token_urlsafe(32)
+            session['oauth_state'] = state
+            session['oauth_state_created'] = datetime.utcnow().isoformat()
+
+            # Get redirect URI
+            from flask_app import config
+            redirect_uri = url_for('google_callback', _external=True)
+
+            return self.oauth.google.authorize_redirect(redirect_uri, state=state)
+
         @self.app.route('/api/auth/google/callback', methods=['GET', 'POST'])
         def google_callback():
             """Handle Google OAuth callback."""
-            # This would be implemented with a proper OAuth library
-            # For now, return a placeholder response
-            return jsonify({
-                'success': False,
-                'error': 'Google OAuth not yet implemented'
-            }), 501
+            from flask_app import config
+
+            # Check if OAuth is configured
+            if not self.oauth or not hasattr(self.oauth, 'google'):
+                return redirect(f"{config.FRONTEND_URL}/?auth=error&message=oauth_not_configured")
+
+            # Verify CSRF state
+            state = request.args.get('state')
+            stored_state = session.pop('oauth_state', None)
+            state_created = session.pop('oauth_state_created', None)
+
+            if not state or not stored_state or state != stored_state:
+                logger.warning("OAuth state mismatch - possible CSRF attack")
+                return redirect(f"{config.FRONTEND_URL}/?auth=error&message=invalid_state")
+
+            # Check state expiration
+            if state_created:
+                created_time = datetime.fromisoformat(state_created)
+                if datetime.utcnow() - created_time > OAUTH_STATE_EXPIRATION:
+                    logger.warning("OAuth state expired")
+                    return redirect(f"{config.FRONTEND_URL}/?auth=error&message=state_expired")
+
+            try:
+                # Exchange code for token
+                token = self.oauth.google.authorize_access_token()
+                user_info = token.get('userinfo')
+
+                if not user_info:
+                    # Fetch user info if not in token
+                    user_info = self.oauth.google.userinfo()
+
+                google_sub = user_info.get('sub')
+                email = user_info.get('email')
+                name = user_info.get('name', email.split('@')[0] if email else 'User')
+                picture = user_info.get('picture')
+
+                if not google_sub or not email:
+                    logger.error("Missing required user info from Google")
+                    return redirect(f"{config.FRONTEND_URL}/?auth=error&message=missing_user_info")
+
+                # Check if user already exists by email
+                existing_user = self.persistence.get_user_by_email(email)
+
+                # Get guest_id if this was a linking attempt
+                guest_id = session.pop('oauth_guest_id', None)
+
+                if existing_user:
+                    # User already exists
+                    if guest_id and not existing_user.get('linked_guest_id'):
+                        # Guest trying to link to existing Google account
+                        # Check if guest has games to transfer
+                        games_transferred = self.persistence.transfer_game_ownership(
+                            guest_id, existing_user['id'], existing_user['name']
+                        )
+                        if games_transferred > 0:
+                            logger.info(f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}")
+
+                    # Update last login
+                    self.persistence.update_user_last_login(existing_user['id'])
+                    user_data = existing_user
+
+                else:
+                    # Create new user
+                    try:
+                        user_data = self.persistence.create_google_user(
+                            google_sub=google_sub,
+                            email=email,
+                            name=name,
+                            picture=picture,
+                            linked_guest_id=guest_id
+                        )
+
+                        # Transfer games from guest if linking
+                        if guest_id:
+                            games_transferred = self.persistence.transfer_game_ownership(
+                                guest_id, user_data['id'], user_data['name']
+                            )
+                            if games_transferred > 0:
+                                logger.info(f"Transferred {games_transferred} games from {guest_id} to {user_data['id']}")
+
+                    except sqlite3.IntegrityError as e:
+                        # Email already exists (race condition)
+                        logger.warning(f"Race condition creating user: {e}")
+                        existing_user = self.persistence.get_user_by_email(email)
+                        if existing_user:
+                            user_data = existing_user
+                        else:
+                            return redirect(f"{config.FRONTEND_URL}/?auth=error&message=user_creation_failed")
+
+                # Security: Regenerate session before setting authenticated user
+                session.clear()
+
+                # Set session
+                session['user'] = {
+                    'id': user_data['id'],
+                    'email': user_data.get('email'),
+                    'name': user_data['name'],
+                    'picture': user_data.get('picture'),
+                    'is_guest': False,
+                    'created_at': user_data.get('created_at', datetime.utcnow().isoformat())
+                }
+                session.permanent = True
+
+                logger.info(f"User {user_data['id']} logged in via Google OAuth")
+
+                # Redirect to frontend with success
+                return redirect(f"{config.FRONTEND_URL}/?auth=success")
+
+            except Exception as e:
+                logger.exception(f"Google OAuth callback error: {e}")
+                return redirect(f"{config.FRONTEND_URL}/?auth=error&message=oauth_failed")
     
     def create_guest_user(self, name: str) -> Dict[str, Any]:
         """Create a guest user session based on name."""

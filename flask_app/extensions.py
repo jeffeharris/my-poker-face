@@ -12,6 +12,7 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from authlib.integrations.flask_client import OAuth
 
 from poker.persistence import GamePersistence
 from poker.repositories.sqlite_repositories import PressureEventRepository
@@ -35,6 +36,9 @@ event_repository = None
 
 # Auth manager - will be set after app creation
 auth_manager = None
+
+# OAuth instance - will be initialized with app
+oauth = OAuth()
 
 # Personality generator
 personality_generator = None
@@ -124,12 +128,34 @@ def init_personality_generator() -> PersonalityGenerator:
     return personality_generator
 
 
+def init_oauth(app: Flask) -> OAuth:
+    """Initialize OAuth with Google provider."""
+    oauth.init_app(app)
+
+    # Only register Google if credentials are configured
+    if config.GOOGLE_CLIENT_ID and config.GOOGLE_CLIENT_SECRET:
+        oauth.register(
+            name='google',
+            client_id=config.GOOGLE_CLIENT_ID,
+            client_secret=config.GOOGLE_CLIENT_SECRET,
+            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+            client_kwargs={
+                'scope': 'openid email profile'
+            }
+        )
+        logger.info("Google OAuth registered successfully")
+    else:
+        logger.warning("Google OAuth credentials not configured - Google sign-in will be disabled")
+
+    return oauth
+
+
 def init_auth(app: Flask) -> None:
     """Initialize authentication manager."""
     global auth_manager
 
     from poker.auth import AuthManager
-    auth_manager = AuthManager(app, persistence)
+    auth_manager = AuthManager(app, persistence, oauth)
 
 
 def init_extensions(app: Flask) -> None:
@@ -148,6 +174,9 @@ def init_extensions(app: Flask) -> None:
 
     # Seed base pricing from YAML (idempotent - only adds missing SKUs)
     sync_pricing_from_yaml()
+
+    # Initialize OAuth (must be before auth)
+    init_oauth(app)
 
     # Initialize auth
     init_auth(app)

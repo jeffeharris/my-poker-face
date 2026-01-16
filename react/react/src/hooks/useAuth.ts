@@ -26,6 +26,26 @@ export function useAuth() {
     checkAuth();
   }, []);
 
+  // Handle OAuth callback parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authResult = params.get('auth');
+    const errorMessage = params.get('message');
+
+    if (authResult) {
+      // Clear the URL parameters
+      window.history.replaceState({}, '', window.location.pathname);
+
+      if (authResult === 'success') {
+        // OAuth was successful - refresh auth state
+        checkAuth();
+      } else if (authResult === 'error') {
+        console.error('OAuth error:', errorMessage);
+        // Could show a toast/notification here
+      }
+    }
+  }, []);
+
   const checkAuth = async () => {
     try {
       // Check localStorage first

@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
-SCHEMA_VERSION = 42
+# v43: Add users table for Google OAuth authentication
+SCHEMA_VERSION = 43
 
 
 @dataclass
@@ -592,6 +593,22 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
 
+            # 24. Users table (v43) - Google OAuth authentication
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    picture TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP,
+                    linked_guest_id TEXT,
+                    is_guest BOOLEAN DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)")
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with sqlite3.connect(self.db_path) as conn:
@@ -655,6 +672,7 @@ class GamePersistence:
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
             42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
+            43: (self._migrate_v43_add_users_table, "Add users table for Google OAuth authentication"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1745,6 +1763,37 @@ class GamePersistence:
         """
         logger.info("Migration v42 complete: Schema consolidation marker applied")
 
+    def _migrate_v43_add_users_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v43: Add users table for Google OAuth authentication.
+
+        Creates the users table for storing authenticated user information
+        from Google OAuth. Supports linking guest accounts to Google accounts.
+        """
+        # Check if table already exists (for fresh databases created with v43 _init_db)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )
+        if cursor.fetchone():
+            logger.info("Users table already exists (created in _init_db), skipping creation")
+        else:
+            conn.execute("""
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    picture TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP,
+                    linked_guest_id TEXT,
+                    is_guest BOOLEAN DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX idx_users_email ON users(email)")
+            conn.execute("CREATE INDEX idx_users_linked_guest ON users(linked_guest_id)")
+            logger.info("Created users table with indices")
+
+        logger.info("Migration v43 complete: Users table added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -1933,6 +1982,143 @@ class GamePersistence:
                 SELECT COUNT(*) FROM games WHERE owner_id = ?
             """, (owner_id,))
             return cursor.fetchone()[0]
+
+    # ==================== User Management Methods ====================
+
+    def create_google_user(
+        self,
+        google_sub: str,
+        email: str,
+        name: str,
+        picture: Optional[str] = None,
+        linked_guest_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create a new user from Google OAuth.
+
+        Args:
+            google_sub: Google's unique subject identifier
+            email: User's email address
+            name: User's display name
+            picture: URL to user's profile picture
+            linked_guest_id: Optional guest ID this account was linked from
+
+        Returns:
+            Dict containing user data
+
+        Raises:
+            sqlite3.IntegrityError: If email already exists
+        """
+        user_id = f"google_{google_sub}"
+        now = datetime.utcnow().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO users (id, email, name, picture, created_at, last_login, linked_guest_id, is_guest)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            """, (user_id, email, name, picture, now, now, linked_guest_id))
+
+        return {
+            'id': user_id,
+            'email': email,
+            'name': name,
+            'picture': picture,
+            'is_guest': False,
+            'created_at': now,
+            'linked_guest_id': linked_guest_id
+        }
+
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a user by their ID.
+
+        Args:
+            user_id: The user's unique identifier
+
+        Returns:
+            User dict if found, None otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM users WHERE id = ?",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get a user by their email address.
+
+        Args:
+            email: The user's email address
+
+        Returns:
+            User dict if found, None otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM users WHERE email = ?",
+                (email,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_user_by_linked_guest(self, guest_id: str) -> Optional[Dict[str, Any]]:
+        """Get a user by the guest ID they were linked from.
+
+        Args:
+            guest_id: The original guest ID
+
+        Returns:
+            User dict if found, None otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM users WHERE linked_guest_id = ?",
+                (guest_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def update_user_last_login(self, user_id: str) -> None:
+        """Update the last login timestamp for a user.
+
+        Args:
+            user_id: The user's unique identifier
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE users SET last_login = ? WHERE id = ?",
+                (datetime.utcnow().isoformat(), user_id)
+            )
+
+    def transfer_game_ownership(self, from_owner_id: str, to_owner_id: str, to_owner_name: str) -> int:
+        """Transfer all games from one owner to another.
+
+        Used when a guest links their account to Google OAuth.
+
+        Args:
+            from_owner_id: The current owner ID (e.g., guest_jeff)
+            to_owner_id: The new owner ID (e.g., google_12345)
+            to_owner_name: The new owner's display name
+
+        Returns:
+            Number of games transferred
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE games
+                SET owner_id = ?, owner_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE owner_id = ?
+            """, (to_owner_id, to_owner_name, from_owner_id))
+            return cursor.rowcount
 
     def get_enabled_models(self) -> Dict[str, List[str]]:
         """Get all enabled models grouped by provider.
