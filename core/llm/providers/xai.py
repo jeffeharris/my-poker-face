@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Optional
 from openai import OpenAI
 
 from .base import LLMProvider
+from .http_client import shared_http_client
 from ..config import DEFAULT_MAX_TOKENS, XAI_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
@@ -77,10 +78,11 @@ class XAIProvider(LLMProvider):
             if self._model in REASONING_EFFORT_MODELS and reasoning_effort in VALID_REASONING_EFFORTS:
                 self._reasoning_effort = reasoning_effort
 
-        # xAI uses OpenAI-compatible API
+        # xAI uses OpenAI-compatible API with shared HTTP client for connection reuse
         self._client = OpenAI(
             api_key=api_key or os.environ.get("XAI_API_KEY"),
-            base_url="https://api.x.ai/v1"
+            base_url="https://api.x.ai/v1",
+            http_client=shared_http_client,
         )
 
     @property

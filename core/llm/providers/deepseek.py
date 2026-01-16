@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from openai import OpenAI
 
 from .base import LLMProvider
+from .http_client import shared_http_client
 from ..config import DEFAULT_MAX_TOKENS, DEEPSEEK_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,8 @@ class DeepSeekProvider(LLMProvider):
         self._reasoning_effort = reasoning_effort
         self._client = OpenAI(
             api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
-            base_url="https://api.deepseek.com/v1"
+            base_url="https://api.deepseek.com/v1",
+            http_client=shared_http_client,
         )
 
     @property
