@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles } from 'lucide-react';
 import type { ExperimentConfig } from './types';
-import { config } from '../../../config';
+import { config as appConfig } from '../../../config';
 
 interface QuickPrompt {
   id: string;
@@ -38,7 +38,7 @@ export function ExperimentChat({
   useEffect(() => {
     const fetchQuickPrompts = async () => {
       try {
-        const response = await fetch(`${config.API_URL}/api/experiments/quick-prompts`);
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/quick-prompts`);
         const data = await response.json();
         if (data.success) {
           setQuickPrompts(data.prompts);
@@ -77,7 +77,7 @@ export function ExperimentChat({
     setLoading(true);
 
     try {
-      const response = await fetch(`${config.API_URL}/api/experiments/chat`, {
+      const response = await fetch(`${appConfig.API_URL}/api/experiments/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

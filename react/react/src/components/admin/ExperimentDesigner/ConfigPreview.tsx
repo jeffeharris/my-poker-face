@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import type { ExperimentConfig, PromptConfig } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
-import { config } from '../../../config';
+import { config as appConfig } from '../../../config';
 
 interface ValidationResult {
   valid: boolean;
@@ -46,7 +46,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
   useEffect(() => {
     const fetchPersonalities = async () => {
       try {
-        const response = await fetch(`${config.API_URL}/api/experiments/personalities`);
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/personalities`);
         const data = await response.json();
         if (data.success) {
           setPersonalities(data.personalities);
@@ -76,7 +76,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
       setValidating(true);
       try {
-        const response = await fetch(`${config.API_URL}/api/experiments/validate`, {
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/validate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config }),
@@ -120,7 +120,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
     setLaunching(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/experiments`, {
+      const response = await fetch(`${appConfig.API_URL}/api/experiments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
