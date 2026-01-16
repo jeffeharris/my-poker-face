@@ -22,7 +22,7 @@ Environment Variables:
 """
 import os
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .tracking import CallType

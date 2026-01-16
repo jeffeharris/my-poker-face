@@ -85,7 +85,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
   }, [fetchActiveGames]);
 
   // Fetch debug data
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!gameId.trim()) {
       setAlert({ type: 'error', message: 'Please enter a game ID' });
       return;
@@ -112,7 +112,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [gameId, activeTab, TABS]);
 
   // Auto-refresh
   useEffect(() => {
@@ -125,7 +125,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [autoRefresh, gameId, activeTab]);
+  }, [autoRefresh, gameId, fetchData]);
 
   // Clear result when tab changes
   useEffect(() => {
