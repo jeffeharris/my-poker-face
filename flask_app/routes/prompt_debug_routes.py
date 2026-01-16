@@ -42,9 +42,16 @@ def list_captures():
         min_pot_odds: Filter by minimum pot odds
         max_pot_odds: Filter by maximum pot odds
         tags: Comma-separated tags to filter by
+        call_type: Filter by call type (default: 'player_decision', use 'all' for all types)
         limit: Max results (default 50)
         offset: Pagination offset (default 0)
     """
+    # Default to player_decision to show only game decisions (not debug replays, interrogations, etc.)
+    call_type = request.args.get('call_type', 'player_decision')
+    # Allow 'all' to show all call types (for admin/debug purposes)
+    if call_type == 'all':
+        call_type = None
+
     filters = {
         'game_id': request.args.get('game_id'),
         'player_name': request.args.get('player_name'),
@@ -53,6 +60,7 @@ def list_captures():
         'min_pot_odds': float(request.args.get('min_pot_odds')) if request.args.get('min_pot_odds') else None,
         'max_pot_odds': float(request.args.get('max_pot_odds')) if request.args.get('max_pot_odds') else None,
         'tags': request.args.get('tags', '').split(',') if request.args.get('tags') else None,
+        'call_type': call_type,
         'limit': int(request.args.get('limit', 50)),
         'offset': int(request.args.get('offset', 0)),
     }
@@ -62,8 +70,11 @@ def list_captures():
 
     result = persistence.list_prompt_captures(**filters)
 
-    # Also get stats
-    stats = persistence.get_prompt_capture_stats(filters.get('game_id'))
+    # Also get stats (pass call_type filter to ensure stats match the filtered view)
+    stats = persistence.get_prompt_capture_stats(
+        game_id=filters.get('game_id'),
+        call_type=filters.get('call_type')
+    )
 
     return jsonify({
         'success': True,
@@ -339,10 +350,18 @@ def update_capture_tags(capture_id):
 
 @prompt_debug_bp.route('/api/prompt-debug/stats', methods=['GET'])
 def get_capture_stats():
-    """Get aggregate statistics for prompt captures."""
-    game_id = request.args.get('game_id')
+    """Get aggregate statistics for prompt captures.
 
-    stats = persistence.get_prompt_capture_stats(game_id)
+    Query params:
+        game_id: Filter by game (optional)
+        call_type: Filter by call type (default: 'player_decision', use 'all' for all types)
+    """
+    game_id = request.args.get('game_id')
+    call_type = request.args.get('call_type', 'player_decision')
+    if call_type == 'all':
+        call_type = None
+
+    stats = persistence.get_prompt_capture_stats(game_id=game_id, call_type=call_type)
 
     return jsonify({
         'success': True,

@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
-# v43: Add users table for Google OAuth authentication
-SCHEMA_VERSION = 43
+# v43: Add app_settings table for dynamic configuration
+# v44: Add users table for Google OAuth authentication
+SCHEMA_VERSION = 44
 
 
 @dataclass
@@ -593,7 +594,17 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
 
-            # 24. Users table (v43) - Google OAuth authentication
+# 24. App settings (v43) - Dynamic configuration
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 25. Users table (v44) - Google OAuth authentication
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
@@ -672,7 +683,8 @@ class GamePersistence:
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
             42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
-            43: (self._migrate_v43_add_users_table, "Add users table for Google OAuth authentication"),
+43: (self._migrate_v43_add_app_settings, "Add app_settings table for dynamic configuration"),
+            44: (self._migrate_v44_add_users_table, "Add users table for Google OAuth authentication"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1763,13 +1775,29 @@ class GamePersistence:
         """
         logger.info("Migration v42 complete: Schema consolidation marker applied")
 
-    def _migrate_v43_add_users_table(self, conn: sqlite3.Connection) -> None:
-        """Migration v43: Add users table for Google OAuth authentication.
+    def _migrate_v43_add_app_settings(self, conn: sqlite3.Connection) -> None:
+        """Migration v43: Add app_settings table for dynamic configuration.
+
+        This allows settings like LLM_PROMPT_CAPTURE and LLM_PROMPT_RETENTION_DAYS
+        to be changed from the admin dashboard without restarting the server.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("Migration v43 complete: app_settings table created")
+
+    def _migrate_v44_add_users_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v44: Add users table for Google OAuth authentication.
 
         Creates the users table for storing authenticated user information
         from Google OAuth. Supports linking guest accounts to Google accounts.
         """
-        # Check if table already exists (for fresh databases created with v43 _init_db)
+        # Check if table already exists (for fresh databases created with v44 _init_db)
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
         )
@@ -1792,7 +1820,7 @@ class GamePersistence:
             conn.execute("CREATE INDEX idx_users_linked_guest ON users(linked_guest_id)")
             logger.info("Created users table with indices")
 
-        logger.info("Migration v43 complete: Users table added")
+        logger.info("Migration v44 complete: Users table added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -3834,6 +3862,7 @@ class GamePersistence:
         min_pot_odds: Optional[float] = None,
         max_pot_odds: Optional[float] = None,
         tags: Optional[List[str]] = None,
+        call_type: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -3863,6 +3892,9 @@ class GamePersistence:
         if max_pot_odds is not None:
             conditions.append("pot_odds <= ?")
             params.append(max_pot_odds)
+        if call_type:
+            conditions.append("call_type = ?")
+            params.append(call_type)
         if tags:
             # Match any of the provided tags
             tag_conditions = []
@@ -3914,10 +3946,23 @@ class GamePersistence:
                 'total': total
             }
 
-    def get_prompt_capture_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_prompt_capture_stats(
+        self,
+        game_id: Optional[str] = None,
+        call_type: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get aggregate statistics for prompt captures."""
-        where_clause = "WHERE game_id = ?" if game_id else ""
-        params = [game_id] if game_id else []
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if call_type:
+            conditions.append("call_type = ?")
+            params.append(call_type)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with sqlite3.connect(self.db_path) as conn:
             # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
@@ -3938,10 +3983,10 @@ class GamePersistence:
 
             # Suspicious folds (high pot odds)
             suspicious_params = params + [5.0]  # pot odds > 5:1
+            suspicious_where = f"{where_clause} {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?"
             cursor = conn.execute(f"""
                 SELECT COUNT(*) FROM prompt_captures
-                {where_clause}
-                {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?
+                {suspicious_where}
             """, suspicious_params)
             suspicious_folds = cursor.fetchone()[0]
 
@@ -4393,3 +4438,101 @@ class GamePersistence:
                 'by_quality': by_quality,
                 'by_action': by_action,
             }
+
+    # ========== App Settings Methods ==========
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Get an app setting by key, with optional default.
+
+        Args:
+            key: The setting key (e.g., 'LLM_PROMPT_CAPTURE')
+            default: Default value if setting doesn't exist
+
+        Returns:
+            The setting value, or default if not found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT value FROM app_settings WHERE key = ?",
+                    (key,)
+                )
+                row = cursor.fetchone()
+                return row[0] if row else default
+        except sqlite3.OperationalError:
+            # Table doesn't exist yet (e.g., during startup)
+            return default
+
+    def set_setting(self, key: str, value: str, description: Optional[str] = None) -> bool:
+        """Set an app setting.
+
+        Args:
+            key: The setting key
+            value: The setting value (stored as string)
+            description: Optional description for the setting
+
+        Returns:
+            True if successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO app_settings (key, value, description, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        description = COALESCE(excluded.description, app_settings.description),
+                        updated_at = CURRENT_TIMESTAMP
+                """, (key, value, description))
+                conn.commit()
+                logger.info(f"Setting '{key}' updated to '{value}'")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to set setting '{key}': {e}")
+            return False
+
+    def get_all_settings(self) -> Dict[str, Dict[str, Any]]:
+        """Get all app settings.
+
+        Returns:
+            Dict mapping setting keys to their values and metadata
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT key, value, description, updated_at
+                    FROM app_settings
+                    ORDER BY key
+                """)
+                return {
+                    row['key']: {
+                        'value': row['value'],
+                        'description': row['description'],
+                        'updated_at': row['updated_at'],
+                    }
+                    for row in cursor.fetchall()
+                }
+        except sqlite3.OperationalError:
+            return {}
+
+    def delete_setting(self, key: str) -> bool:
+        """Delete an app setting.
+
+        Args:
+            key: The setting key to delete
+
+        Returns:
+            True if the setting was deleted, False if not found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM app_settings WHERE key = ?",
+                    (key,)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to delete setting '{key}': {e}")
+            return False
