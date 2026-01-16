@@ -3648,6 +3648,7 @@ class GamePersistence:
         min_pot_odds: Optional[float] = None,
         max_pot_odds: Optional[float] = None,
         tags: Optional[List[str]] = None,
+        call_type: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -3677,6 +3678,9 @@ class GamePersistence:
         if max_pot_odds is not None:
             conditions.append("pot_odds <= ?")
             params.append(max_pot_odds)
+        if call_type:
+            conditions.append("call_type = ?")
+            params.append(call_type)
         if tags:
             # Match any of the provided tags
             tag_conditions = []
@@ -3728,10 +3732,23 @@ class GamePersistence:
                 'total': total
             }
 
-    def get_prompt_capture_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_prompt_capture_stats(
+        self,
+        game_id: Optional[str] = None,
+        call_type: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get aggregate statistics for prompt captures."""
-        where_clause = "WHERE game_id = ?" if game_id else ""
-        params = [game_id] if game_id else []
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("game_id = ?")
+            params.append(game_id)
+        if call_type:
+            conditions.append("call_type = ?")
+            params.append(call_type)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         with sqlite3.connect(self.db_path) as conn:
             # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
@@ -3752,10 +3769,10 @@ class GamePersistence:
 
             # Suspicious folds (high pot odds)
             suspicious_params = params + [5.0]  # pot odds > 5:1
+            suspicious_where = f"{where_clause} {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?"
             cursor = conn.execute(f"""
                 SELECT COUNT(*) FROM prompt_captures
-                {where_clause}
-                {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?
+                {suspicious_where}
             """, suspicious_params)
             suspicious_folds = cursor.fetchone()[0]
 
