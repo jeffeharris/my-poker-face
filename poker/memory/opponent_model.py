@@ -39,14 +39,18 @@ class OpponentTendencies:
     recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
 
     # Action counters (for calculating stats)
-    _vpip_count: int = 0        # Times voluntarily put money in pot
-    _pfr_count: int = 0         # Times raised pre-flop
+    _vpip_count: int = 0        # Hands where player voluntarily put money in pot
+    _pfr_count: int = 0         # Hands where player raised pre-flop
     _bet_raise_count: int = 0   # Total bets and raises
     _call_count: int = 0        # Total calls
     _fold_to_cbet_count: int = 0
     _cbet_faced_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
+
+    # Per-hand tracking (reset each new hand)
+    _vpip_this_hand: bool = False
+    _pfr_this_hand: bool = False
 
     def update_from_action(self, action: str, phase: str, is_voluntary: bool = True, count_hand: bool = True):
         """Update stats based on observed action.
@@ -59,15 +63,20 @@ class OpponentTendencies:
         """
         if count_hand:
             self.hands_observed += 1
+            # Reset per-hand flags for new hand
+            self._vpip_this_hand = False
+            self._pfr_this_hand = False
 
-        # Track VPIP (voluntary pot entry)
-        if phase == 'PRE_FLOP' and is_voluntary:
+        # Track VPIP (voluntary pot entry) - only count ONCE per hand
+        if phase == 'PRE_FLOP' and is_voluntary and not self._vpip_this_hand:
             if action in ('call', 'raise', 'bet'):
                 self._vpip_count += 1
+                self._vpip_this_hand = True
 
-        # Track PFR (pre-flop raise)
-        if phase == 'PRE_FLOP' and action == 'raise':
+        # Track PFR (pre-flop raise) - only count ONCE per hand
+        if phase == 'PRE_FLOP' and action == 'raise' and not self._pfr_this_hand:
             self._pfr_count += 1
+            self._pfr_this_hand = True
 
         # Track aggression
         if action in ('bet', 'raise'):

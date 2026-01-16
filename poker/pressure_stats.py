@@ -19,12 +19,12 @@ class PressureEvent:
     details: Dict[str, Any] = field(default_factory=dict)
     
 
-@dataclass 
+@dataclass
 class PlayerPressureStats:
     """Tracks pressure statistics for a single player."""
     player_name: str
     events: List[PressureEvent] = field(default_factory=list)
-    
+
     # Event counters
     wins: int = 0  # Total wins (any size)
     big_wins: int = 0
@@ -36,12 +36,17 @@ class PlayerPressureStats:
     eliminations: int = 0
     fold_under_pressure: int = 0
     aggressive_bets: int = 0
-    
+
     # Derived stats
     biggest_pot_won: int = 0
     biggest_pot_lost: int = 0
     most_tilted_moment: float = 0.0  # Max pressure level
     comeback_count: int = 0  # Times recovered from high negative pressure
+
+    # Heads-up tracking
+    headsup_wins: int = 0
+    headsup_losses: int = 0
+    headsup_started: bool = False
     
     def add_event(self, event: PressureEvent) -> None:
         """Add an event and update counters."""
@@ -80,7 +85,13 @@ class PlayerPressureStats:
             
         elif event.event_type == "aggressive_bet":
             self.aggressive_bets += 1
-    
+
+        elif event.event_type == "headsup_win":
+            self.headsup_wins += 1
+
+        elif event.event_type == "headsup_loss":
+            self.headsup_losses += 1
+
     def get_tilt_score(self) -> float:
         """Calculate current tilt level (0-1)."""
         # More losses and bad beats = higher tilt
@@ -118,7 +129,9 @@ class PlayerPressureStats:
             'biggest_pot_lost': self.biggest_pot_lost,
             'tilt_score': self.get_tilt_score(),
             'aggression_score': self.get_aggression_score(),
-            'signature_move': self._get_signature_move()
+            'signature_move': self._get_signature_move(),
+            'headsup_wins': self.headsup_wins,
+            'headsup_losses': self.headsup_losses,
         }
     
     def _get_signature_move(self) -> str:

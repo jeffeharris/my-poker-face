@@ -17,6 +17,8 @@ interface PlayerSummary {
   tilt_score: number;
   aggression_score: number;
   signature_move: string;
+  headsup_wins: number;
+  headsup_losses: number;
 }
 
 interface OpponentObservation {
@@ -180,15 +182,15 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
         </div>
       )}
 
-      {/* Session Record */}
+      {/* Heads-Up Record */}
       <div className="psychology-section stats-section">
-        <div className="section-label">Session Record</div>
+        <div className="section-label">Heads-Up Record</div>
         <div className="session-record">
-          <span className="wins">{opponentStats?.big_wins || 0}W</span>
+          <span className="wins">{opponentStats?.headsup_wins || 0}W</span>
           <span className="separator"> - </span>
-          <span className="losses">{opponentStats?.big_losses || 0}L</span>
+          <span className="losses">{opponentStats?.headsup_losses || 0}L</span>
         </div>
-        {opponentStats?.biggest_pot_won && opponentStats.biggest_pot_won > 0 && (
+        {opponentStats?.biggest_pot_won > 0 && (
           <div className="biggest-pot">Best pot: ${opponentStats.biggest_pot_won}</div>
         )}
         {opponentStats?.signature_move && (

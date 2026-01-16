@@ -77,13 +77,21 @@ class PressureEventDetector:
         if winner_names and pot_total > 0:
             # Track any win for stats
             events.append(("win", winner_names))
-            
+
             # Additionally track big wins/losses
             if is_big_pot:
                 events.append(("big_win", winner_names))
                 losers = [p.name for p in active_players if p.name not in winner_names]
                 if losers:
                     events.append(("big_loss", losers))
+
+        # Track heads-up record (when only 2 players have chips)
+        players_with_chips = [p for p in game_state.players if p.stack > 0 or p.name in winner_names]
+        if len(players_with_chips) == 2 and winner_names:
+            events.append(("headsup_win", winner_names))
+            loser_names = [p.name for p in players_with_chips if p.name not in winner_names]
+            if loser_names:
+                events.append(("headsup_loss", loser_names))
         
         # Detect bad beat (strong hand loses)
         if len(active_players) > 1 and winner_names:
