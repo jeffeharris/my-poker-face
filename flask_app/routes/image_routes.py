@@ -4,9 +4,12 @@ Serves avatar images from the database (primary) with filesystem fallback.
 """
 
 import logging
+import time
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_from_directory, Response
+
+from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 
 from poker.character_images import (
     has_character_images,
@@ -23,6 +26,20 @@ from poker.persistence import GamePersistence
 logger = logging.getLogger(__name__)
 
 image_bp = Blueprint('image', __name__)
+
+
+def _detect_image_mimetype(image_data: bytes) -> str:
+    """Detect image mimetype from binary data."""
+    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    elif image_data[:3] == b'\xff\xd8\xff':
+        return 'image/jpeg'
+    elif image_data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    elif image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
+        return 'image/webp'
+    # Default to PNG if unknown
+    return 'image/png'
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
 
@@ -156,9 +173,10 @@ def serve_grid_icon(filename):
             # Try to load from database first
             image_data = load_avatar_image(personality_name, emotion)
             if image_data:
+                mimetype = _detect_image_mimetype(image_data)
                 return Response(
                     image_data,
-                    mimetype='image/png',
+                    mimetype=mimetype,
                     headers={'Cache-Control': 'public, max-age=86400'}
                 )
 
@@ -193,9 +211,10 @@ def serve_avatar(personality_name: str, emotion: str):
         image_data = load_avatar_image(personality_name, emotion)
 
         if image_data:
+            mimetype = _detect_image_mimetype(image_data)
             return Response(
                 image_data,
-                mimetype='image/png',
+                mimetype=mimetype,
                 headers={'Cache-Control': 'public, max-age=86400'}
             )
 
@@ -229,18 +248,20 @@ def serve_full_avatar(personality_name: str, emotion: str):
         image_data = load_full_avatar_image(personality_name, emotion)
 
         if image_data:
+            mimetype = _detect_image_mimetype(image_data)
             return Response(
                 image_data,
-                mimetype='image/png',
+                mimetype=mimetype,
                 headers={'Cache-Control': 'public, max-age=86400'}
             )
 
         # Fall back to regular avatar if full not available
         image_data = load_avatar_image(personality_name, emotion)
         if image_data:
+            mimetype = _detect_image_mimetype(image_data)
             return Response(
                 image_data,
-                mimetype='image/png',
+                mimetype=mimetype,
                 headers={'Cache-Control': 'public, max-age=86400'}
             )
 
@@ -299,7 +320,12 @@ def regenerate_avatar(personality_name: str):
         success_count = 0
         error_count = 0
 
-        for emotion in emotions:
+        for i, emotion in enumerate(emotions):
+            # Add delay between requests to respect rate limits (skip first request)
+            if i > 0 and POLLINATIONS_RATE_LIMIT_DELAY > 0:
+                logger.info(f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image")
+                time.sleep(POLLINATIONS_RATE_LIMIT_DELAY)
+
             result = regenerate_avatar_emotion(personality_name, emotion)
             results.append({
                 'emotion': emotion,

@@ -9,11 +9,13 @@ Supports on-demand generation for personalities without existing images.
 import io
 import logging
 import os
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 from core.llm import LLMClient, CallType
+from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 
 if TYPE_CHECKING:
     from .persistence import GamePersistence
@@ -301,10 +303,18 @@ class CharacterImageService:
 
         results = {"generated": 0, "failed": 0, "skipped": 0, "errors": []}
 
-        for emotion in emotions:
+        # Check if we're using Pollinations (needs rate limiting)
+        needs_rate_limit = IMAGE_PROVIDER == "pollinations" and POLLINATIONS_RATE_LIMIT_DELAY > 0
+
+        for i, emotion in enumerate(emotions):
             if emotion not in EMOTIONS:
                 results["skipped"] += 1
                 continue
+
+            # Add delay between requests to respect rate limits (skip first request)
+            if needs_rate_limit and i > 0:
+                logger.info(f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image")
+                time.sleep(POLLINATIONS_RATE_LIMIT_DELAY)
 
             try:
                 # Generate the image and get raw bytes

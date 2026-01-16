@@ -103,9 +103,10 @@ class TestPollinationsProvider(unittest.TestCase):
         self.assertEqual(call_args[1]["params"]["width"], 1024)
         self.assertEqual(call_args[1]["params"]["height"], 1024)
 
+    @patch('core.llm.providers.pollinations.time.sleep')
     @patch('core.llm.providers.pollinations.requests.Session')
-    def test_generate_image_timeout(self, mock_session_class):
-        """Test timeout handling."""
+    def test_generate_image_timeout_with_retries(self, mock_session_class, mock_sleep):
+        """Test timeout handling with retry logic."""
         import requests
         mock_session = Mock()
         mock_session.headers = {}  # Real dict for header assignment
@@ -118,11 +119,47 @@ class TestPollinationsProvider(unittest.TestCase):
         with self.assertRaises(Exception) as context:
             provider.generate_image(prompt="Test")
 
-        self.assertIn("timeout", str(context.exception).lower())
+        # Should have retried MAX_RETRIES times
+        self.assertIn("3 attempts", str(context.exception))
+        # Should have called get 3 times (initial + 2 retries)
+        self.assertEqual(mock_session.get.call_count, 3)
+        # Should have slept between retries
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch('core.llm.providers.pollinations.time.sleep')
+    @patch('core.llm.providers.pollinations.requests.Session')
+    def test_generate_image_retry_succeeds_on_second_attempt(self, mock_session_class, mock_sleep):
+        """Test that retry succeeds after initial timeout."""
+        import requests
+        mock_session = Mock()
+        mock_session.headers = {}
+        mock_session_class.return_value = mock_session
+
+        test_image_bytes = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
+        mock_response = Mock()
+        mock_response.content = test_image_bytes
+        mock_response.headers = {"Content-Type": "image/png"}
+        mock_response.raise_for_status = Mock()
+
+        # First call times out, second succeeds
+        mock_session.get.side_effect = [
+            requests.exceptions.Timeout(),
+            mock_response
+        ]
+
+        provider = PollinationsProvider(model="flux")
+        provider._session = mock_session
+
+        result = provider.generate_image(prompt="Test")
+
+        # Should succeed on second attempt
+        self.assertIsInstance(result, PollinationsImageResponse)
+        self.assertEqual(mock_session.get.call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
 
     @patch('core.llm.providers.pollinations.requests.Session')
-    def test_generate_image_http_error(self, mock_session_class):
-        """Test HTTP error handling."""
+    def test_generate_image_http_error_4xx_no_retry(self, mock_session_class):
+        """Test that 4xx client errors are NOT retried."""
         import requests
         mock_session = Mock()
         mock_session.headers = {}  # Real dict for header assignment
@@ -142,6 +179,61 @@ class TestPollinationsProvider(unittest.TestCase):
             provider.generate_image(prompt="Test")
 
         self.assertIn("400", str(context.exception))
+        # Should only call once - no retry for 4xx errors
+        self.assertEqual(mock_session.get.call_count, 1)
+
+    @patch('core.llm.providers.pollinations.time.sleep')
+    @patch('core.llm.providers.pollinations.requests.Session')
+    def test_generate_image_http_error_5xx_retries(self, mock_session_class, mock_sleep):
+        """Test that 5xx server errors ARE retried."""
+        import requests
+        mock_session = Mock()
+        mock_session.headers = {}
+        mock_session_class.return_value = mock_session
+
+        mock_response = Mock()
+        mock_response.status_code = 502
+        mock_response.text = "Bad Gateway"
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+        mock_session.get.return_value = mock_response
+
+        provider = PollinationsProvider(model="flux")
+        provider._session = mock_session
+
+        with self.assertRaises(Exception) as context:
+            provider.generate_image(prompt="Test")
+
+        self.assertIn("502", str(context.exception))
+        # Should have retried (initial + 2 retries = 3 calls)
+        self.assertEqual(mock_session.get.call_count, 3)
+
+    @patch('core.llm.providers.pollinations.requests.Session')
+    def test_generate_image_includes_random_seed(self, mock_session_class):
+        """Test that generate_image includes a seed parameter for unique generations."""
+        mock_session = Mock()
+        mock_session.headers = {}
+        mock_session_class.return_value = mock_session
+
+        test_image_bytes = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
+        mock_response = Mock()
+        mock_response.content = test_image_bytes
+        mock_response.headers = {"Content-Type": "image/png"}
+        mock_response.raise_for_status = Mock()
+        mock_session.get.return_value = mock_response
+
+        provider = PollinationsProvider(model="flux")
+        provider._session = mock_session
+
+        provider.generate_image(prompt="Test")
+
+        # Verify seed parameter is included
+        call_args = mock_session.get.call_args
+        self.assertIn("seed", call_args[1]["params"])
+        seed = call_args[1]["params"]["seed"]
+        self.assertIsInstance(seed, int)
+        self.assertGreaterEqual(seed, 1)
+        self.assertLessEqual(seed, 999999999)
 
     def test_extract_usage_returns_zeros(self):
         """Test extract_usage returns zeros (no tokens for images)."""

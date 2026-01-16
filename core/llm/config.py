@@ -131,6 +131,11 @@ XAI_AVAILABLE_MODELS = [
 # Default Pollinations model - flux is cheap and high quality
 POLLINATIONS_DEFAULT_MODEL = os.environ.get("POLLINATIONS_MODEL", "flux")
 
+# Rate limit delay between requests (in seconds)
+# Tier delays: anonymous=15, seed=5, flower=3, nectar=0
+# Set via POLLINATIONS_RATE_LIMIT_DELAY env var or defaults to 5 (seed tier with API key)
+POLLINATIONS_RATE_LIMIT_DELAY = float(os.environ.get("POLLINATIONS_RATE_LIMIT_DELAY", "5"))
+
 # Available Pollinations models for image generation
 # See: https://pollinations.ai/pricing
 POLLINATIONS_AVAILABLE_MODELS = [

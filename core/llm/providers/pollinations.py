@@ -7,6 +7,8 @@ with the existing image handling infrastructure (urllib.request.urlopen).
 import os
 import base64
 import logging
+import random
+import time
 import uuid
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -20,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 # HTTP client timeout (60 seconds for image generation)
 POLLINATIONS_TIMEOUT = 60
+
+# Retry configuration
+MAX_RETRIES = 2
+INITIAL_RETRY_DELAY = 2  # seconds
+MAX_RETRY_DELAY = 30  # seconds
 
 
 @dataclass
@@ -134,6 +141,7 @@ class PollinationsProvider(LLMProvider):
             "width": width,
             "height": height,
             "nologo": "true",  # Remove watermark
+            "seed": random.randint(1, 999999999),  # Force unique generation
         }
 
         # Add API key as query param if not using header auth
@@ -143,44 +151,73 @@ class PollinationsProvider(LLMProvider):
         logger.debug("Generating image with Pollinations: model=%s, size=%dx%d",
                      self._model, width, height)
 
-        try:
-            response = self._session.get(
-                url,
-                params=params,
-                timeout=POLLINATIONS_TIMEOUT,
-            )
-            response.raise_for_status()
+        last_exception = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = self._session.get(
+                    url,
+                    params=params,
+                    timeout=POLLINATIONS_TIMEOUT,
+                )
+                response.raise_for_status()
 
-            # Get content type from response
-            content_type = response.headers.get("Content-Type", "image/png")
-            if ";" in content_type:
-                content_type = content_type.split(";")[0].strip()
+                # Get content type from response
+                content_type = response.headers.get("Content-Type", "image/png")
+                if ";" in content_type:
+                    content_type = content_type.split(";")[0].strip()
 
-            # Convert binary to data URL
-            image_bytes = response.content
-            base64_data = base64.b64encode(image_bytes).decode("utf-8")
-            data_url = f"data:{content_type};base64,{base64_data}"
+                # Convert binary to data URL
+                image_bytes = response.content
+                base64_data = base64.b64encode(image_bytes).decode("utf-8")
+                data_url = f"data:{content_type};base64,{base64_data}"
 
-            # Generate a request ID for tracking
-            request_id = f"poll-{uuid.uuid4().hex[:12]}"
+                # Generate a request ID for tracking
+                request_id = f"poll-{uuid.uuid4().hex[:12]}"
 
-            logger.debug("Generated image: %d bytes, type=%s", len(image_bytes), content_type)
+                logger.debug("Generated image: %d bytes, type=%s", len(image_bytes), content_type)
 
-            return PollinationsImageResponse(
-                url=data_url,
-                id=request_id,
-                model=self._model,
-                size=size,
-            )
+                return PollinationsImageResponse(
+                    url=data_url,
+                    id=request_id,
+                    model=self._model,
+                    size=size,
+                )
 
-        except requests.exceptions.Timeout:
-            raise Exception(f"Pollinations API timeout after {POLLINATIONS_TIMEOUT}s")
-        except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code if e.response else "unknown"
-            error_text = e.response.text[:200] if e.response else str(e)
-            raise Exception(f"Pollinations API error ({status_code}): {error_text}")
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Pollinations API request failed: {e}")
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < MAX_RETRIES:
+                    delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+                    logger.warning(
+                        "Pollinations timeout, retry %d/%d in %ds",
+                        attempt + 1, MAX_RETRIES, delay
+                    )
+                    time.sleep(delay)
+                else:
+                    raise Exception(
+                        f"Pollinations API timeout after {MAX_RETRIES + 1} attempts"
+                    )
+            except requests.exceptions.HTTPError as e:
+                # Don't retry client errors (4xx)
+                status_code = e.response.status_code if e.response else 0
+                error_text = e.response.text[:200] if e.response else str(e)
+                if 400 <= status_code < 500:
+                    raise Exception(f"Pollinations API error ({status_code}): {error_text}")
+                # Retry server errors (5xx)
+                last_exception = e
+                if attempt < MAX_RETRIES:
+                    delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+                    logger.warning(
+                        "Pollinations server error (%s), retry %d/%d in %ds",
+                        status_code, attempt + 1, MAX_RETRIES, delay
+                    )
+                    time.sleep(delay)
+                else:
+                    raise Exception(f"Pollinations API error ({status_code}): {error_text}")
+            except requests.exceptions.RequestException as e:
+                raise Exception(f"Pollinations API request failed: {e}")
+
+        # Should never reach here, but just in case
+        raise Exception(f"Pollinations API failed: {last_exception}")
 
     def extract_usage(self, raw_response: Any) -> Dict[str, int]:
         """Extract token usage from Pollinations response.
