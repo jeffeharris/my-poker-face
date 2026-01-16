@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 
 from .base import LLMProvider
+from .http_client import shared_http_client
 from ..config import DEFAULT_MAX_TOKENS, GOOGLE_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
@@ -43,9 +44,11 @@ class GoogleProvider(LLMProvider):
         self._model_name = model or GOOGLE_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
 
-        # Initialize the client
+        # Initialize the client with shared HTTP client for connection reuse
+        http_options = types.HttpOptions(httpx_client=shared_http_client)
         self._client = genai.Client(
-            api_key=api_key or os.environ.get("GOOGLE_API_KEY")
+            api_key=api_key or os.environ.get("GOOGLE_API_KEY"),
+            http_options=http_options,
         )
 
         # Map reasoning effort to thinking budget
