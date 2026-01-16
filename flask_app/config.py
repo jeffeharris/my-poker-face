@@ -17,6 +17,11 @@ enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 # Secret key
 SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 
+# Google OAuth configuration
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
 # CORS configuration
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 

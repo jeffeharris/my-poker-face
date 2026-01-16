@@ -74,7 +74,7 @@ export interface ReplayResponse {
   error?: string;
 }
 
-export type PlaygroundMode = 'view' | 'replay' | 'templates';
+export type PlaygroundMode = 'view' | 'replay';
 
 // Template types
 export interface TemplateSummary {

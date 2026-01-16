@@ -190,7 +190,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
           <span className="separator"> - </span>
           <span className="losses">{opponentStats?.headsup_losses || 0}L</span>
         </div>
-        {opponentStats?.biggest_pot_won > 0 && (
+        {opponentStats && opponentStats.biggest_pot_won > 0 && (
           <div className="biggest-pot">Best pot: ${opponentStats.biggest_pot_won}</div>
         )}
         {opponentStats?.signature_move && (

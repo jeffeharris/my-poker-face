@@ -11,10 +11,8 @@ import type {
   PlaygroundCaptureDetail,
   PlaygroundStats,
   PlaygroundFilters,
-  PlaygroundMode,
   ReplayResponse,
 } from './types';
-import { TemplateEditor } from './TemplateEditor';
 import './PromptPlayground.css';
 
 interface Props {
@@ -38,7 +36,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   });
 
   // Mode (view or replay)
-  const [mode, setMode] = useState<PlaygroundMode>('view');
+  const [mode, setMode] = useState<'view' | 'replay'>('view');
 
   // Panel expansion state (for mobile)
   const [listCollapsed, setListCollapsed] = useState(false);
@@ -305,15 +303,10 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                 </>
               )}
             </button>
-            {selectedCapture && mode !== 'templates' && (
+            {selectedCapture && (
               <div className="capture-title">
                 <span className="capture-type">{selectedCapture.call_type}</span>
                 <span className="capture-model">{selectedCapture.model}</span>
-              </div>
-            )}
-            {mode === 'templates' && (
-              <div className="capture-title">
-                <span className="capture-type">Template Editor</span>
               </div>
             )}
           </div>
@@ -334,23 +327,9 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
             >
               Replay
             </button>
-            <button
-              className={mode === 'templates' ? 'active' : ''}
-              onClick={() => setMode('templates')}
-            >
-              Templates
-            </button>
           </div>
 
-          {mode === 'templates' ? (
-            /* Templates mode - always available */
-            <TemplateEditor
-              onNavigateToCapture={(captureId) => {
-                fetchCaptureDetail(captureId);
-                setMode('replay');
-              }}
-            />
-          ) : selectedCapture ? (
+          {selectedCapture ? (
             mode === 'view' ? (
                 /* View mode */
                 <div className="view-mode">

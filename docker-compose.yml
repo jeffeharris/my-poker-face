@@ -20,6 +20,9 @@ services:
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379
       - ENABLE_AI_DEBUG=${ENABLE_AI_DEBUG:-false}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - FRONTEND_URL=http://localhost:${FRONTEND_PORT:-5173}
     env_file:
       - .env
     command: python -m flask_app.ui_web
