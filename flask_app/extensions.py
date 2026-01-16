@@ -17,6 +17,7 @@ from poker.persistence import GamePersistence
 from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
+from poker.pricing_loader import sync_pricing_from_yaml
 
 from . import config
 
@@ -144,6 +145,9 @@ def init_extensions(app: Flask) -> None:
 
     # Initialize persistence
     init_persistence()
+
+    # Seed base pricing from YAML (idempotent - only adds missing SKUs)
+    sync_pricing_from_yaml()
 
     # Initialize auth
     init_auth(app)

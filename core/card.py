@@ -79,6 +79,31 @@ class Card:
         return False
 
 
+class CardSet:
+    """
+    A collection of Card objects with serialization support.
+    """
+    def __init__(self, cards: List[Card] = None):
+        self.cards: List[Card] = cards if cards is not None else []
+
+    def add_cards(self, cards: List[Card]):
+        """Add cards to the set."""
+        self.cards.extend(cards)
+
+    def to_dict(self) -> List[Dict]:
+        """Return list of card dictionaries."""
+        return [card.to_dict() for card in self.cards]
+
+    def __iter__(self):
+        return iter(self.cards)
+
+    def __len__(self):
+        return len(self.cards)
+
+    def __repr__(self):
+        return f"CardSet({self.cards})"
+
+
 class CardRenderer:
     _CARD_TEMPLATE = '''
 .---------.

@@ -10,7 +10,6 @@ from functools import wraps
 from typing import Optional, Dict, Any
 
 from flask import session, request, jsonify, redirect, url_for
-from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 
 # JWT configuration
@@ -216,49 +215,3 @@ class AuthManager:
             # but don't require it
             return f(*args, **kwargs)
         return decorated_function
-
-
-class BasicAuthProvider:
-    """Basic username/password authentication provider."""
-    
-    def __init__(self, persistence):
-        self.persistence = persistence
-    
-    def create_user(self, username: str, password: str, email: Optional[str] = None) -> Dict[str, Any]:
-        """Create a new user with hashed password."""
-        # This would store in database in production
-        password_hash = generate_password_hash(password)
-        user_data = {
-            'id': f'user_{secrets.token_hex(8)}',
-            'username': username,
-            'email': email,
-            'password_hash': password_hash,
-            'created_at': datetime.utcnow().isoformat()
-        }
-        # TODO: Save to database
-        return user_data
-    
-    def verify_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
-        """Verify username and password."""
-        # TODO: Load from database and check password hash
-        # For now, return None (not implemented)
-        return None
-
-
-class GoogleOAuthProvider:
-    """Google OAuth authentication provider."""
-    
-    def __init__(self, client_id: str, client_secret: str):
-        self.client_id = client_id
-        self.client_secret = client_secret
-    
-    def get_auth_url(self, redirect_uri: str) -> str:
-        """Get the Google OAuth authorization URL."""
-        # This would use a proper OAuth library in production
-        # For now, return a placeholder
-        return f"https://accounts.google.com/oauth2/auth?client_id={self.client_id}&redirect_uri={redirect_uri}"
-    
-    def handle_callback(self, code: str) -> Optional[Dict[str, Any]]:
-        """Handle the OAuth callback and return user data."""
-        # TODO: Implement actual OAuth flow
-        return None

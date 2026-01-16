@@ -1,0 +1,222 @@
+# Model Pricing Configuration
+# Base pricing data - dashboard can add newer entries with valid_from timestamps
+# Prices are per 1M tokens (USD) unless otherwise noted
+#
+# Source: Consolidated from database migrations v14, v31, v32, v36, v37
+# Last updated: 2025-01
+
+version: "2025-01"
+
+providers:
+  openai:
+    # GPT-4o
+    gpt-4o:
+      input_tokens_1m: 2.50
+      output_tokens_1m: 10.00
+      cached_input_tokens_1m: 1.25
+      batch_input_tokens_1m: 1.25
+      batch_output_tokens_1m: 5.00
+
+    # GPT-4o-mini
+    gpt-4o-mini:
+      input_tokens_1m: 0.15
+      output_tokens_1m: 0.60
+      cached_input_tokens_1m: 0.075
+      batch_input_tokens_1m: 0.075
+      batch_output_tokens_1m: 0.30
+
+    # GPT-4-turbo
+    gpt-4-turbo:
+      input_tokens_1m: 10.00
+      output_tokens_1m: 30.00
+
+    # GPT-4
+    gpt-4:
+      input_tokens_1m: 30.00
+      output_tokens_1m: 60.00
+
+    # GPT-3.5-turbo
+    gpt-3.5-turbo:
+      input_tokens_1m: 0.50
+      output_tokens_1m: 1.50
+
+    # o1-preview (reasoning model)
+    o1-preview:
+      input_tokens_1m: 15.00
+      output_tokens_1m: 60.00
+      cached_input_tokens_1m: 7.50
+
+    # o1-mini (reasoning model)
+    o1-mini:
+      input_tokens_1m: 3.00
+      output_tokens_1m: 12.00
+      cached_input_tokens_1m: 1.50
+
+    # GPT-5 family (from v37)
+    gpt-5:
+      input_tokens_1m: 1.25
+      output_tokens_1m: 10.00
+      cached_input_tokens_1m: 0.125
+
+    gpt-5-mini:
+      input_tokens_1m: 0.25
+      output_tokens_1m: 2.00
+      cached_input_tokens_1m: 0.025
+
+    gpt-5-nano:
+      input_tokens_1m: 0.05
+      output_tokens_1m: 0.40
+      cached_input_tokens_1m: 0.005
+
+    # DALL-E 2 (price per image)
+    dall-e-2:
+      image_256x256: 0.016
+      image_512x512: 0.018
+      image_1024x1024: 0.020
+
+    # DALL-E 3 (price per image)
+    dall-e-3:
+      image_1024x1024: 0.040
+      image_1024x1792: 0.080
+      image_1792x1024: 0.080
+      image_hd_1024x1024: 0.080
+      image_hd_1024x1792: 0.120
+      image_hd_1792x1024: 0.120
+
+  anthropic:
+    # Claude 3.5 Sonnet
+    claude-3-5-sonnet-20241022:
+      input_tokens_1m: 3.00
+      output_tokens_1m: 15.00
+      cached_input_tokens_1m: 0.30
+
+    # Claude 3.5 Haiku
+    claude-3-5-haiku-20241022:
+      input_tokens_1m: 0.80
+      output_tokens_1m: 4.00
+      cached_input_tokens_1m: 0.08
+
+    # Claude 3 Opus
+    claude-3-opus-20240229:
+      input_tokens_1m: 15.00
+      output_tokens_1m: 75.00
+      cached_input_tokens_1m: 1.50
+
+    # Claude 4.5 family (from v31)
+    claude-sonnet-4-5-20250929:
+      input_tokens_1m: 3.00
+      output_tokens_1m: 15.00
+      cached_input_tokens_1m: 0.30
+
+    claude-opus-4-5-20251101:
+      input_tokens_1m: 15.00
+      output_tokens_1m: 75.00
+      cached_input_tokens_1m: 1.50
+
+    claude-haiku-4-5-20251001:
+      input_tokens_1m: 1.00
+      output_tokens_1m: 5.00
+      cached_input_tokens_1m: 0.10
+
+  groq:
+    # Llama 3.3 70B
+    llama-3.3-70b-versatile:
+      input_tokens_1m: 0.59
+      output_tokens_1m: 0.79
+
+    # Llama 3.1 8B
+    llama-3.1-8b-instant:
+      input_tokens_1m: 0.05
+      output_tokens_1m: 0.08
+
+    # Llama 4 Scout
+    meta-llama/llama-4-scout-17b-16e-instruct:
+      input_tokens_1m: 0.11
+      output_tokens_1m: 0.34
+
+    # Qwen 3 32B
+    qwen/qwen3-32b:
+      input_tokens_1m: 0.29
+      output_tokens_1m: 0.39
+
+  deepseek:
+    # DeepSeek V3 Chat
+    deepseek-chat:
+      input_tokens_1m: 0.28
+      output_tokens_1m: 0.42
+      cached_input_tokens_1m: 0.028
+
+    # DeepSeek R1 Reasoner
+    deepseek-reasoner:
+      input_tokens_1m: 0.55
+      output_tokens_1m: 2.19
+
+  mistral:
+    # Mistral Small
+    mistral-small-latest:
+      input_tokens_1m: 0.20
+      output_tokens_1m: 0.60
+
+    # Mistral Medium
+    mistral-medium-latest:
+      input_tokens_1m: 0.80
+      output_tokens_1m: 2.40
+
+    # Mistral Large
+    mistral-large-latest:
+      input_tokens_1m: 2.00
+      output_tokens_1m: 6.00
+
+  google:
+    # Gemini 2.0 Flash
+    gemini-2.0-flash:
+      input_tokens_1m: 0.10
+      output_tokens_1m: 0.40
+
+    # Gemini 2.5 Flash
+    gemini-2.5-flash:
+      input_tokens_1m: 0.30
+      output_tokens_1m: 2.50
+
+    # Gemini 2.5 Pro
+    gemini-2.5-pro:
+      input_tokens_1m: 1.25
+      output_tokens_1m: 10.00
+      cached_input_tokens_1m: 0.125
+
+  xai:
+    # Grok-3 (main production model)
+    grok-3:
+      input_tokens_1m: 3.00
+      output_tokens_1m: 15.00
+
+    # Grok-3-mini (budget with reasoning)
+    grok-3-mini:
+      input_tokens_1m: 0.30
+      output_tokens_1m: 0.50
+      reasoning_tokens_1m: 0.50
+
+    # Grok-4 (flagship)
+    grok-4:
+      input_tokens_1m: 3.00
+      output_tokens_1m: 15.00
+
+    # Grok-4-fast-reasoning
+    grok-4-fast-reasoning:
+      input_tokens_1m: 0.20
+      output_tokens_1m: 0.50
+      reasoning_tokens_1m: 0.50
+
+    # Grok-4-fast-non-reasoning
+    grok-4-fast-non-reasoning:
+      input_tokens_1m: 0.20
+      output_tokens_1m: 0.50
+
+    # Grok-2-vision
+    grok-2-vision-1212:
+      input_tokens_1m: 2.00
+      output_tokens_1m: 10.00
+
+    # Grok-2-image (price per image)
+    grok-2-image-1212:
+      image_1024x1024: 0.07

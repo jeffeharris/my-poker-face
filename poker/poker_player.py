@@ -3,9 +3,8 @@ import random
 from typing import List, Dict, Optional
 from pathlib import Path
 
-from core.card import Card
+from core.card import Card, CardSet
 from core.llm import Assistant, LLMClient, CallType
-from old_files.deck import CardSet
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .personality_generator import PersonalityGenerator
@@ -359,45 +358,6 @@ class AIPokerPlayer(PokerPlayer):
             modifiers.append("Play cautiously. Avoid big risks unless you're certain.")
         
         return " ".join(modifiers)
-    
-    # def evaluate_hole_cards(self):
-    #     # Use Monte Carlo method to approximate hand strength
-    #     hand_ranks = []
-    #     for _ in range(100):  # Adjust this number as needed
-    #         simulated_community = Deck().deal(5)
-    #         simulated_hand_rank = HandEvaluator(self.cards + simulated_community).evaluate_hand()["hand_rank"]
-    #         hand_ranks.append(simulated_hand_rank)
-    #     hand_rank = sum(hand_ranks) / len(hand_ranks)
-    #     return hand_rank
-    # *** MORE BELOW ***
-    # if len(community_cards) < 3:
-    #     hand_rank = player.evaluate_hole_cards()
-    # else:
-    #     hand_rank = HandEvaluator(player.cards + community_cards).evaluate_hand()["hand_rank"]
-    #
-    # pot_odds = current_pot / current_bet if current_bet else 1
-    # money_left = player.money / current_bet if current_bet else 1
-    #
-    # bet = 0
-    #
-    # # Adjust these thresholds as needed
-    # if current_bet == 0:
-    #     if hand_rank < 5 or pot_odds > 3 or money_left > 3:
-    #         action = "raise"
-    #         bet = player.money // 10  # Bet 10% of AI's money
-    #     else:
-    #         action = "check"
-    # elif hand_rank > 5 and pot_odds < 2 and money_left < 2:
-    #     action = "fold"
-    # elif hand_rank < 5 or pot_odds > 3 or money_left > 3:
-    #     action = "raise"
-    #     bet = player.money // 10  # Bet 10% of AI's money
-    # else:
-    #     action = "call"
-    #     bet = current_bet
-    #
-    # player.chat_message = f"{player.name} chooses to {action} by {bet}."
-    # return action, bet
 
     def get_player_response(self, message) -> Dict[str, str]:
         try:

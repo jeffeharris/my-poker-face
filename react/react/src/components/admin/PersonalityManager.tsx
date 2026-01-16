@@ -625,10 +625,11 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
 // ============================================
 
 interface PersonalityManagerProps {
-  onBack: () => void;
+  onBack?: () => void;
+  embedded?: boolean;
 }
 
-export function PersonalityManager({ onBack }: PersonalityManagerProps) {
+export function PersonalityManager({ onBack, embedded = false }: PersonalityManagerProps) {
   // Core state
   const [personalities, setPersonalities] = useState<Record<string, PersonalityData>>({});
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -938,15 +939,8 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
     }
   };
 
-  return (
-    <PageLayout variant="top" glowColor="gold" maxWidth="lg">
-      <PageHeader
-        title="Character Manager"
-        subtitle="Create and customize AI opponents"
-        onBack={onBack}
-        titleVariant="primary"
-      />
-
+  const content = (
+    <>
       {/* Alert Toast */}
       {alert && (
         <div className={`pm-alert pm-alert--${alert.type}`}>
@@ -1268,6 +1262,24 @@ export function PersonalityManager({ onBack }: PersonalityManagerProps) {
           isLoading={saving}
         />
       )}
+    </>
+  );
+
+  // If embedded, return content directly without PageLayout wrapper
+  if (embedded) {
+    return content;
+  }
+
+  // Otherwise wrap in PageLayout
+  return (
+    <PageLayout variant="top" glowColor="gold" maxWidth="lg">
+      <PageHeader
+        title="Character Manager"
+        subtitle="Create and customize AI opponents"
+        onBack={onBack}
+        titleVariant="primary"
+      />
+      {content}
     </PageLayout>
   );
 }

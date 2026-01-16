@@ -17,7 +17,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
-SCHEMA_VERSION = 41
+# v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
+SCHEMA_VERSION = 42
 
 
 @dataclass
@@ -77,9 +78,38 @@ class GamePersistence:
         return tuple(self._deserialize_card(card_data) for card_data in cards_data)
     
     def _init_db(self):
-        """Initialize the database schema."""
+        """Initialize the database schema.
+
+        This method creates ALL tables for fresh databases. Existing databases
+        will have tables created by migrations, which are now no-ops.
+
+        Tables (23 total):
+        1. schema_version - Migration tracking
+        2. games - Core game state
+        3. game_messages - Chat log
+        4. ai_player_state - AI conversation history
+        5. personality_snapshots - Personality evolution
+        6. pressure_events - Event tracking
+        7. personalities - AI personality storage
+        8. hand_history - Historical hands
+        9. opponent_models - AI learning (v27 constraint)
+        10. memorable_hands - Memorable hand storage
+        11. hand_commentary - AI reflections (v41)
+        12. emotional_state - Tilt persistence (v3)
+        13. controller_state - TiltState/ElasticPersonality (v3, v40)
+        14. tournament_results - Tournament outcomes (v4)
+        15. tournament_standings - Player standings (v4)
+        16. player_career_stats - Career statistics (v4)
+        17. avatar_images - Character images (v5, v28)
+        18. api_usage - LLM cost tracking (v6-v17)
+        19. model_pricing - SKU-based pricing (v14, v15)
+        20. enabled_models - Model management (v38)
+        21. prompt_captures - AI debugging (v18, v39)
+        22. player_decision_analysis - Quality monitoring (v20-v23)
+        23. tournament_tracker - Elimination history (v29)
+        """
         with sqlite3.connect(self.db_path) as conn:
-            # Schema version tracking table - must be created first
+            # 1. Schema version tracking - must be first
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS schema_version (
                     version INTEGER PRIMARY KEY,
@@ -88,6 +118,7 @@ class GamePersistence:
                 )
             """)
 
+            # 2. Games - core game state (v1 added owner columns, v26 debug, v34 llm_configs)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS games (
                     game_id TEXT PRIMARY KEY,
@@ -98,10 +129,15 @@ class GamePersistence:
                     pot_size REAL NOT NULL,
                     game_state_json TEXT NOT NULL,
                     owner_id TEXT,
-                    owner_name TEXT
+                    owner_name TEXT,
+                    debug_capture_enabled BOOLEAN DEFAULT 0,
+                    llm_configs_json TEXT
                 )
             """)
-            
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_games_updated ON games(updated_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_games_owner ON games(owner_id)")
+
+            # 3. Game messages
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS game_messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,56 +148,39 @@ class GamePersistence:
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_games_updated 
-                ON games(updated_at DESC)
-            """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_game_id 
-                ON game_messages(game_id, timestamp)
-            """)
-            
-            # AI state persistence tables
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_game_id ON game_messages(game_id, timestamp)")
+
+            # 4. AI player state
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS ai_player_state (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     game_id TEXT NOT NULL,
                     player_name TEXT NOT NULL,
-                    conversation_history TEXT,  -- JSON array of messages
-                    personality_state TEXT,     -- JSON of current personality modifiers
+                    conversation_history TEXT,
+                    personality_state TEXT,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (game_id) REFERENCES games(game_id),
                     UNIQUE(game_id, player_name)
                 )
             """)
-            
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_player_game ON ai_player_state(game_id, player_name)")
+
+            # 5. Personality snapshots
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personality_snapshots (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     player_name TEXT NOT NULL,
                     game_id TEXT NOT NULL,
                     hand_number INTEGER,
-                    personality_traits TEXT,  -- JSON with all trait values
-                    pressure_levels TEXT,     -- JSON with pressure per trait
+                    personality_traits TEXT,
+                    pressure_levels TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            
-            # Create indices for AI tables
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_ai_player_game 
-                ON ai_player_state(game_id, player_name)
-            """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_personality_snapshots 
-                ON personality_snapshots(game_id, hand_number)
-            """)
-            
-            # Pressure events tracking
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_personality_snapshots ON personality_snapshots(game_id, hand_number)")
+
+            # 6. Pressure events
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS pressure_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,24 +192,11 @@ class GamePersistence:
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            
-            # Create indices for pressure events
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_pressure_events_game 
-                ON pressure_events(game_id)
-            """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_pressure_events_player 
-                ON pressure_events(player_name)
-            """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_pressure_events_type 
-                ON pressure_events(event_type)
-            """)
-            
-            # Personality storage for AI-generated personalities
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_game ON pressure_events(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_player ON pressure_events(player_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_type ON pressure_events(event_type)")
+
+            # 7. Personalities (v5 added elasticity_config)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS personalities (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,11 +206,12 @@ class GamePersistence:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_generated BOOLEAN DEFAULT 1,
                     source TEXT DEFAULT 'ai_generated',
-                    times_used INTEGER DEFAULT 0
+                    times_used INTEGER DEFAULT 0,
+                    elasticity_config TEXT
                 )
             """)
 
-            # Hand history for AI memory and learning
+            # 8. Hand history
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS hand_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,21 +229,14 @@ class GamePersistence:
                     UNIQUE(game_id, hand_number)
                 )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_history_game ON hand_history(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp ON hand_history(timestamp DESC)")
 
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_hand_history_game
-                ON hand_history(game_id)
-            """)
-
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp
-                ON hand_history(timestamp DESC)
-            """)
-
-            # Opponent models for AI learning across sessions
+            # 9. Opponent models (v21 added game_id, v25 added notes, v27 fixed constraint)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS opponent_models (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT,
                     observer_name TEXT NOT NULL,
                     opponent_name TEXT NOT NULL,
                     hands_observed INTEGER DEFAULT 0,
@@ -247,23 +247,22 @@ class GamePersistence:
                     bluff_frequency REAL DEFAULT 0.3,
                     showdown_win_rate REAL DEFAULT 0.5,
                     recent_trend TEXT,
+                    notes TEXT,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(observer_name, opponent_name)
+                    UNIQUE(game_id, observer_name, opponent_name)
                 )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer ON opponent_models(observer_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_game ON opponent_models(game_id)")
 
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_opponent_models_observer
-                ON opponent_models(observer_name)
-            """)
-
-            # Memorable hands that AI players remember
+            # 10. Memorable hands (v21 added game_id)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS memorable_hands (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     observer_name TEXT NOT NULL,
                     opponent_name TEXT NOT NULL,
                     hand_id INTEGER NOT NULL,
+                    game_id TEXT,
                     memory_type TEXT NOT NULL,
                     impact_score REAL,
                     narrative TEXT,
@@ -271,18 +270,11 @@ class GamePersistence:
                     FOREIGN KEY (hand_id) REFERENCES hand_history(id)
                 )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_observer ON memorable_hands(observer_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_opponent ON memorable_hands(opponent_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_hands_game ON memorable_hands(game_id)")
 
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memorable_observer
-                ON memorable_hands(observer_name)
-            """)
-
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memorable_opponent
-                ON memorable_hands(opponent_name)
-            """)
-
-            # Hand commentary for AI reflection persistence
+            # 11. Hand commentary (v41)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS hand_commentary (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -299,22 +291,306 @@ class GamePersistence:
                     UNIQUE(game_id, hand_number, player_name)
                 )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_commentary_game ON hand_commentary(game_id, player_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent ON hand_commentary(game_id, player_name, hand_number DESC)")
 
+            # 12. Emotional state (v3)
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_hand_commentary_game
-                ON hand_commentary(game_id, player_name)
+                CREATE TABLE IF NOT EXISTS emotional_state (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    valence REAL DEFAULT 0.0,
+                    arousal REAL DEFAULT 0.5,
+                    control REAL DEFAULT 0.5,
+                    focus REAL DEFAULT 0.5,
+                    narrative TEXT,
+                    inner_voice TEXT,
+                    generated_at_hand INTEGER DEFAULT 0,
+                    source_events TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, player_name)
+                )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)")
 
+            # 13. Controller state (v3, v40 added prompt_config_json)
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent
-                ON hand_commentary(game_id, player_name, hand_number DESC)
+                CREATE TABLE IF NOT EXISTS controller_state (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    tilt_state_json TEXT,
+                    elastic_personality_json TEXT,
+                    prompt_config_json TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, player_name)
+                )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_controller_state_game ON controller_state(game_id, player_name)")
 
-            # Add index for owner_id
+            # 14. Tournament results (v4)
             conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_games_owner
-                ON games(owner_id)
+                CREATE TABLE IF NOT EXISTS tournament_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL UNIQUE,
+                    winner_name TEXT,
+                    total_hands INTEGER DEFAULT 0,
+                    biggest_pot INTEGER DEFAULT 0,
+                    starting_player_count INTEGER,
+                    human_player_name TEXT,
+                    human_finishing_position INTEGER,
+                    started_at TIMESTAMP,
+                    ended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_results_winner ON tournament_results(winner_name)")
+
+            # 15. Tournament standings (v4)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_standings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    is_human BOOLEAN DEFAULT 0,
+                    finishing_position INTEGER,
+                    eliminated_by TEXT,
+                    eliminated_at_hand INTEGER,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id),
+                    UNIQUE(game_id, player_name)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_standings_game ON tournament_standings(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_standings_player ON tournament_standings(player_name)")
+
+            # 16. Player career stats (v4)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_career_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_name TEXT NOT NULL UNIQUE,
+                    games_played INTEGER DEFAULT 0,
+                    games_won INTEGER DEFAULT 0,
+                    total_eliminations INTEGER DEFAULT 0,
+                    best_finish INTEGER,
+                    worst_finish INTEGER,
+                    avg_finish REAL,
+                    biggest_pot_ever INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_career_stats_player ON player_career_stats(player_name)")
+
+            # 17. Avatar images (v5, v28 added full_image columns)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS avatar_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    personality_name TEXT NOT NULL,
+                    emotion TEXT NOT NULL,
+                    image_data BLOB NOT NULL,
+                    content_type TEXT DEFAULT 'image/png',
+                    width INTEGER DEFAULT 256,
+                    height INTEGER DEFAULT 256,
+                    file_size INTEGER,
+                    full_image_data BLOB,
+                    full_width INTEGER,
+                    full_height INTEGER,
+                    full_file_size INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(personality_name, emotion)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_personality ON avatar_images(personality_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)")
+
+            # 18. API usage (v6-v17: comprehensive LLM tracking)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS api_usage (
+                    id INTEGER PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    game_id TEXT REFERENCES games(game_id) ON DELETE SET NULL,
+                    owner_id TEXT,
+                    player_name TEXT,
+                    hand_number INTEGER,
+                    call_type TEXT NOT NULL,
+                    prompt_template TEXT,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cached_tokens INTEGER DEFAULT 0,
+                    reasoning_tokens INTEGER DEFAULT 0,
+                    image_count INTEGER DEFAULT 0,
+                    image_size TEXT,
+                    latency_ms INTEGER,
+                    status TEXT NOT NULL,
+                    finish_reason TEXT,
+                    error_code TEXT,
+                    reasoning_effort TEXT,
+                    request_id TEXT,
+                    max_tokens INTEGER,
+                    message_count INTEGER,
+                    system_prompt_tokens INTEGER,
+                    estimated_cost REAL,
+                    pricing_ids TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_owner ON api_usage(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game ON api_usage(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_owner_created ON api_usage(owner_id, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_owner_call_type ON api_usage(owner_id, call_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game_call_type ON api_usage(game_id, call_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_model_created ON api_usage(model, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_model_effort ON api_usage(model, reasoning_effort)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_request_id ON api_usage(request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_cost ON api_usage(estimated_cost)")
+
+            # 19. Model pricing (v14 SKU-based, v15 validity dates)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS model_pricing (
+                    id INTEGER PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    unit TEXT NOT NULL,
+                    cost REAL NOT NULL,
+                    valid_from TIMESTAMP,
+                    valid_until TIMESTAMP,
+                    effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    notes TEXT,
+                    UNIQUE(provider, model, unit, valid_from)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)")
+
+            # 20. Enabled models (v38)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS enabled_models (
+                    id INTEGER PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    enabled INTEGER DEFAULT 1,
+                    display_name TEXT,
+                    notes TEXT,
+                    supports_reasoning INTEGER DEFAULT 0,
+                    supports_json_mode INTEGER DEFAULT 1,
+                    supports_image_gen INTEGER DEFAULT 0,
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(provider, model)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)")
+
+            # 21. Prompt captures (v18, v19, v24, v30, v33, v39)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS prompt_captures (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    game_id TEXT,
+                    player_name TEXT,
+                    hand_number INTEGER,
+                    phase TEXT,
+                    action_taken TEXT,
+                    system_prompt TEXT NOT NULL,
+                    user_message TEXT NOT NULL,
+                    ai_response TEXT NOT NULL,
+                    pot_total INTEGER,
+                    cost_to_call INTEGER,
+                    pot_odds REAL,
+                    player_stack INTEGER,
+                    community_cards TEXT,
+                    player_hand TEXT,
+                    valid_actions TEXT,
+                    raise_amount INTEGER,
+                    model TEXT,
+                    latency_ms INTEGER,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    tags TEXT,
+                    notes TEXT,
+                    conversation_history TEXT,
+                    raw_api_response TEXT,
+                    prompt_template TEXT,
+                    prompt_version TEXT,
+                    prompt_hash TEXT,
+                    raw_request TEXT,
+                    reasoning_effort TEXT,
+                    original_request_id TEXT,
+                    provider TEXT DEFAULT 'openai',
+                    call_type TEXT,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+
+            # 22. Player decision analysis (v20, v22, v23)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_decision_analysis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    request_id TEXT,
+                    capture_id INTEGER,
+                    game_id TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    hand_number INTEGER,
+                    phase TEXT,
+                    pot_total INTEGER,
+                    cost_to_call INTEGER,
+                    player_stack INTEGER,
+                    num_opponents INTEGER,
+                    player_hand TEXT,
+                    community_cards TEXT,
+                    action_taken TEXT,
+                    raise_amount INTEGER,
+                    equity REAL,
+                    required_equity REAL,
+                    ev_call REAL,
+                    equity_vs_ranges REAL,
+                    optimal_action TEXT,
+                    decision_quality TEXT,
+                    ev_lost REAL,
+                    hand_rank INTEGER,
+                    relative_strength REAL,
+                    player_position TEXT,
+                    opponent_positions TEXT,
+                    analyzer_version TEXT,
+                    processing_time_ms INTEGER,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)")
+
+            # 23. Tournament tracker (v29)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tournament_tracker (
+                    game_id TEXT PRIMARY KEY,
+                    tracker_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
 
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
@@ -378,6 +654,7 @@ class GamePersistence:
             39: (self._migrate_v39_playground_capture_support, "Make game_id nullable and add call_type to prompt_captures for playground"),
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
+            42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -669,308 +946,56 @@ class GamePersistence:
         logger.info("Created api_usage table for LLM cost tracking")
 
     def _migrate_v7_add_reasoning_effort(self, conn: sqlite3.Connection) -> None:
-        """Migration v7: Add reasoning_effort column to api_usage table."""
-        conn.execute("ALTER TABLE api_usage ADD COLUMN reasoning_effort TEXT")
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_api_usage_model_effort
-            ON api_usage(model, reasoning_effort)
-        """)
-        logger.info("Added reasoning_effort column to api_usage table")
+        """Migration v7: Legacy - schema now in _init_db."""
+        # No-op: api_usage.reasoning_effort created in _init_db()
+        pass
 
     def _migrate_v8_add_request_id(self, conn: sqlite3.Connection) -> None:
-        """Migration v8: Add request_id column for vendor API correlation."""
-        conn.execute("ALTER TABLE api_usage ADD COLUMN request_id TEXT")
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_api_usage_request_id
-            ON api_usage(request_id)
-        """)
-        logger.info("Added request_id column to api_usage table")
+        """Migration v8: Legacy - schema now in _init_db."""
+        # No-op: api_usage.request_id created in _init_db()
+        pass
 
     def _migrate_v9_add_max_tokens(self, conn: sqlite3.Connection) -> None:
-        """Migration v9: Add max_tokens column for token limit tracking."""
-        conn.execute("ALTER TABLE api_usage ADD COLUMN max_tokens INTEGER")
-        logger.info("Added max_tokens column to api_usage table")
+        """Migration v9: Legacy - schema now in _init_db."""
+        # No-op: api_usage.max_tokens created in _init_db()
+        pass
 
     def _migrate_v10_add_conversation_metrics(self, conn: sqlite3.Connection) -> None:
-        """Migration v10: Add conversation metrics for cost analysis."""
-        conn.execute("ALTER TABLE api_usage ADD COLUMN message_count INTEGER")
-        conn.execute("ALTER TABLE api_usage ADD COLUMN system_prompt_length INTEGER")
-        logger.info("Added message_count and system_prompt_length columns to api_usage table")
+        """Migration v10: Legacy - schema now in _init_db."""
+        # No-op: api_usage.message_count created in _init_db()
+        pass
 
     def _migrate_v11_add_system_prompt_tokens(self, conn: sqlite3.Connection) -> None:
-        """Migration v11: Add system_prompt_tokens for accurate token tracking."""
-        conn.execute("ALTER TABLE api_usage ADD COLUMN system_prompt_tokens INTEGER")
-        logger.info("Added system_prompt_tokens column to api_usage table")
+        """Migration v11: Legacy - schema now in _init_db."""
+        # No-op: api_usage.system_prompt_tokens created in _init_db()
+        pass
 
     def _migrate_v12_drop_system_prompt_length(self, conn: sqlite3.Connection) -> None:
-        """Migration v12: Drop unused system_prompt_length column."""
-        conn.execute("ALTER TABLE api_usage DROP COLUMN system_prompt_length")
-        logger.info("Dropped system_prompt_length column from api_usage table")
+        """Migration v12: Legacy - column already absent in _init_db."""
+        # No-op: system_prompt_length was never added in consolidated schema
+        pass
 
     def _migrate_v13_add_pricing_tables(self, conn: sqlite3.Connection) -> None:
-        """Migration v13: Add model_pricing table and estimated_cost column."""
-        # Create model_pricing table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS model_pricing (
-                id INTEGER PRIMARY KEY,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL,
-                pricing_type TEXT NOT NULL,  -- 'text' or 'image'
-
-                -- Text model pricing (per 1M tokens, in USD)
-                input_price_per_million REAL,
-                output_price_per_million REAL,
-                cached_input_price_per_million REAL,
-
-                -- Image model pricing (per image, in USD)
-                image_size TEXT,
-                image_price REAL,
-
-                effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notes TEXT,
-
-                UNIQUE(provider, model, pricing_type, image_size)
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup
-            ON model_pricing(provider, model, pricing_type)
-        """)
-
-        # Add estimated_cost column to api_usage
-        conn.execute("ALTER TABLE api_usage ADD COLUMN estimated_cost REAL")
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_api_usage_cost
-            ON api_usage(estimated_cost)
-        """)
-
-        # Seed with current OpenAI pricing (as of Jan 2025)
-        text_models = [
-            # (provider, model, input, output, cached_input)
-            ('openai', 'gpt-4o', 2.50, 10.00, 1.25),
-            ('openai', 'gpt-4o-mini', 0.15, 0.60, 0.075),
-            ('openai', 'gpt-4-turbo', 10.00, 30.00, 5.00),
-            ('openai', 'gpt-4', 30.00, 60.00, 15.00),
-            ('openai', 'gpt-3.5-turbo', 0.50, 1.50, 0.25),
-            # Estimated pricing for newer models
-            ('openai', 'gpt-5-nano', 0.20, 0.80, 0.10),
-            ('openai', 'gpt-5-mini', 0.15, 0.60, 0.075),
-        ]
-
-        for provider, model, input_price, output_price, cached_price in text_models:
-            conn.execute("""
-                INSERT OR REPLACE INTO model_pricing
-                (provider, model, pricing_type, input_price_per_million,
-                 output_price_per_million, cached_input_price_per_million)
-                VALUES (?, ?, 'text', ?, ?, ?)
-            """, (provider, model, input_price, output_price, cached_price))
-
-        # Image model pricing
-        image_pricing = [
-            # (provider, model, size, price)
-            ('openai', 'dall-e-2', '256x256', 0.016),
-            ('openai', 'dall-e-2', '512x512', 0.018),
-            ('openai', 'dall-e-2', '1024x1024', 0.020),
-            ('openai', 'dall-e-3', '1024x1024', 0.040),
-            ('openai', 'dall-e-3', '1024x1792', 0.080),
-            ('openai', 'dall-e-3', '1792x1024', 0.080),
-        ]
-
-        for provider, model, size, price in image_pricing:
-            conn.execute("""
-                INSERT OR REPLACE INTO model_pricing
-                (provider, model, pricing_type, image_size, image_price)
-                VALUES (?, ?, 'image', ?, ?)
-            """, (provider, model, size, price))
-
-        logger.info("Created model_pricing table and added estimated_cost column")
+        """Migration v13: Legacy - schema now in _init_db, pricing from YAML."""
+        # No-op: model_pricing and api_usage.estimated_cost created in _init_db()
+        # Pricing data now loaded from config/pricing.yaml via pricing_loader
+        pass
 
     def _migrate_v14_sku_based_pricing(self, conn: sqlite3.Connection) -> None:
-        """Migration v14: Redesign model_pricing as SKU-based rows.
-
-        Instead of one row per model with multiple price columns,
-        each row is a SKU (provider, model, unit) with a single cost.
-
-        Units include:
-        - input_tokens_1m: Cost per 1M input tokens
-        - output_tokens_1m: Cost per 1M output tokens
-        - cached_input_tokens_1m: Cost per 1M cached input tokens
-        - batch_input_tokens_1m: Cost per 1M batch input tokens (50% off)
-        - batch_output_tokens_1m: Cost per 1M batch output tokens (50% off)
-        - image_<size>: Cost per image at given size (e.g., image_1024x1024)
-        """
-        # Drop old table and create new schema
-        conn.execute("DROP TABLE IF EXISTS model_pricing")
-
-        conn.execute("""
-            CREATE TABLE model_pricing (
-                id INTEGER PRIMARY KEY,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL,
-                unit TEXT NOT NULL,
-                cost REAL NOT NULL,
-                effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notes TEXT,
-                UNIQUE(provider, model, unit)
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup
-            ON model_pricing(provider, model)
-        """)
-
-        # Seed with OpenAI pricing (as of Jan 2025)
-        # https://openai.com/api/pricing/
-        skus = [
-            # GPT-4o
-            ('openai', 'gpt-4o', 'input_tokens_1m', 2.50),
-            ('openai', 'gpt-4o', 'output_tokens_1m', 10.00),
-            ('openai', 'gpt-4o', 'cached_input_tokens_1m', 1.25),
-            ('openai', 'gpt-4o', 'batch_input_tokens_1m', 1.25),
-            ('openai', 'gpt-4o', 'batch_output_tokens_1m', 5.00),
-
-            # GPT-4o-mini
-            ('openai', 'gpt-4o-mini', 'input_tokens_1m', 0.15),
-            ('openai', 'gpt-4o-mini', 'output_tokens_1m', 0.60),
-            ('openai', 'gpt-4o-mini', 'cached_input_tokens_1m', 0.075),
-            ('openai', 'gpt-4o-mini', 'batch_input_tokens_1m', 0.075),
-            ('openai', 'gpt-4o-mini', 'batch_output_tokens_1m', 0.30),
-
-            # GPT-4-turbo
-            ('openai', 'gpt-4-turbo', 'input_tokens_1m', 10.00),
-            ('openai', 'gpt-4-turbo', 'output_tokens_1m', 30.00),
-
-            # GPT-4
-            ('openai', 'gpt-4', 'input_tokens_1m', 30.00),
-            ('openai', 'gpt-4', 'output_tokens_1m', 60.00),
-
-            # GPT-3.5-turbo
-            ('openai', 'gpt-3.5-turbo', 'input_tokens_1m', 0.50),
-            ('openai', 'gpt-3.5-turbo', 'output_tokens_1m', 1.50),
-
-            # o1-preview (reasoning model)
-            ('openai', 'o1-preview', 'input_tokens_1m', 15.00),
-            ('openai', 'o1-preview', 'output_tokens_1m', 60.00),
-            ('openai', 'o1-preview', 'cached_input_tokens_1m', 7.50),
-
-            # o1-mini (reasoning model)
-            ('openai', 'o1-mini', 'input_tokens_1m', 3.00),
-            ('openai', 'o1-mini', 'output_tokens_1m', 12.00),
-            ('openai', 'o1-mini', 'cached_input_tokens_1m', 1.50),
-
-            # Estimated pricing for gpt-5 models (not official)
-            ('openai', 'gpt-5-nano', 'input_tokens_1m', 0.20),
-            ('openai', 'gpt-5-nano', 'output_tokens_1m', 0.80),
-            ('openai', 'gpt-5-nano', 'cached_input_tokens_1m', 0.10),
-            ('openai', 'gpt-5-mini', 'input_tokens_1m', 0.15),
-            ('openai', 'gpt-5-mini', 'output_tokens_1m', 0.60),
-            ('openai', 'gpt-5-mini', 'cached_input_tokens_1m', 0.075),
-
-            # DALL-E 2
-            ('openai', 'dall-e-2', 'image_256x256', 0.016),
-            ('openai', 'dall-e-2', 'image_512x512', 0.018),
-            ('openai', 'dall-e-2', 'image_1024x1024', 0.020),
-
-            # DALL-E 3 Standard
-            ('openai', 'dall-e-3', 'image_1024x1024', 0.040),
-            ('openai', 'dall-e-3', 'image_1024x1792', 0.080),
-            ('openai', 'dall-e-3', 'image_1792x1024', 0.080),
-
-            # DALL-E 3 HD
-            ('openai', 'dall-e-3', 'image_hd_1024x1024', 0.080),
-            ('openai', 'dall-e-3', 'image_hd_1024x1792', 0.120),
-            ('openai', 'dall-e-3', 'image_hd_1792x1024', 0.120),
-
-            # Anthropic Claude 3.5 Sonnet
-            ('anthropic', 'claude-3-5-sonnet-20241022', 'input_tokens_1m', 3.00),
-            ('anthropic', 'claude-3-5-sonnet-20241022', 'output_tokens_1m', 15.00),
-            ('anthropic', 'claude-3-5-sonnet-20241022', 'cached_input_tokens_1m', 0.30),
-
-            # Anthropic Claude 3.5 Haiku
-            ('anthropic', 'claude-3-5-haiku-20241022', 'input_tokens_1m', 0.80),
-            ('anthropic', 'claude-3-5-haiku-20241022', 'output_tokens_1m', 4.00),
-            ('anthropic', 'claude-3-5-haiku-20241022', 'cached_input_tokens_1m', 0.08),
-
-            # Anthropic Claude 3 Opus
-            ('anthropic', 'claude-3-opus-20240229', 'input_tokens_1m', 15.00),
-            ('anthropic', 'claude-3-opus-20240229', 'output_tokens_1m', 75.00),
-            ('anthropic', 'claude-3-opus-20240229', 'cached_input_tokens_1m', 1.50),
-        ]
-
-        for provider, model, unit, cost in skus:
-            conn.execute("""
-                INSERT INTO model_pricing (provider, model, unit, cost)
-                VALUES (?, ?, ?, ?)
-            """, (provider, model, unit, cost))
-
-        logger.info("Redesigned model_pricing table with SKU-based rows")
+        """Migration v14: Legacy - schema now in _init_db, pricing from YAML."""
+        # No-op: model_pricing with SKU schema created in _init_db()
+        # Pricing data now loaded from config/pricing.yaml via pricing_loader
+        pass
 
     def _migrate_v15_add_pricing_validity_dates(self, conn: sqlite3.Connection) -> None:
-        """Migration v15: Add valid_from and valid_until columns to model_pricing.
-
-        This allows tracking pricing changes over time:
-        - valid_from: When this price became effective (NULL = always valid)
-        - valid_until: When this price expires (NULL = still current)
-
-        Multiple price entries for the same SKU are allowed with different date ranges.
-        """
-        # Add validity columns
-        conn.execute("ALTER TABLE model_pricing ADD COLUMN valid_from TIMESTAMP")
-        conn.execute("ALTER TABLE model_pricing ADD COLUMN valid_until TIMESTAMP")
-
-        # Drop old unique constraint and recreate with date ranges
-        # SQLite doesn't support DROP CONSTRAINT, so we need to recreate the table
-        conn.execute("""
-            CREATE TABLE model_pricing_new (
-                id INTEGER PRIMARY KEY,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL,
-                unit TEXT NOT NULL,
-                cost REAL NOT NULL,
-                valid_from TIMESTAMP,
-                valid_until TIMESTAMP,
-                effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notes TEXT,
-                UNIQUE(provider, model, unit, valid_from)
-            )
-        """)
-
-        # Copy data from old table
-        conn.execute("""
-            INSERT INTO model_pricing_new (id, provider, model, unit, cost, effective_date, notes)
-            SELECT id, provider, model, unit, cost, effective_date, notes FROM model_pricing
-        """)
-
-        # Drop old table and rename new one
-        conn.execute("DROP TABLE model_pricing")
-        conn.execute("ALTER TABLE model_pricing_new RENAME TO model_pricing")
-
-        # Recreate index
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup
-            ON model_pricing(provider, model)
-        """)
-
-        # Add index for date-based lookups
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_model_pricing_validity
-            ON model_pricing(provider, model, unit, valid_from, valid_until)
-        """)
-
-        logger.info("Added valid_from and valid_until columns to model_pricing")
+        """Migration v15: Legacy - schema now in _init_db."""
+        # No-op: model_pricing with validity dates created in _init_db()
+        pass
 
     def _migrate_v16_add_pricing_id_to_usage(self, conn: sqlite3.Connection) -> None:
-        """Migration v16: Add pricing_ids JSON column to api_usage for audit trail.
-
-        Stores references to which model_pricing rows were used for cost calculation.
-        JSON format: {"input": 1, "output": 2, "cached": 3} or {"image": 45}
-        """
-        conn.execute("ALTER TABLE api_usage ADD COLUMN pricing_ids TEXT")
-
-        logger.info("Added pricing_ids column to api_usage table")
+        """Migration v16: Legacy - schema now in _init_db."""
+        # No-op: api_usage.pricing_ids created in _init_db()
+        pass
 
     def _migrate_v17_consolidate_pricing_ids(self, conn: sqlite3.Connection) -> None:
         """Migration v17: Consolidate 4 pricing_id columns into single JSON column.
@@ -1440,107 +1465,14 @@ class GamePersistence:
         logger.info("Migration v30 complete: prompt_captures columns added")
 
     def _migrate_v31_add_provider_pricing(self, conn: sqlite3.Connection) -> None:
-        """Migration v31: Add Groq and Claude 4.5 model pricing.
-
-        Adds pricing for:
-        - Groq models (Llama 3.3, Llama 3.1, Llama 4 Scout, Qwen 3)
-        - Anthropic Claude 4.5 models (Sonnet, Opus, Haiku)
-        """
-        # Pricing data as of Jan 2025
-        # Groq: https://console.groq.com/pricing
-        # Anthropic: https://www.anthropic.com/pricing
-        skus = [
-            # Groq - Llama 3.3 70B
-            ('groq', 'llama-3.3-70b-versatile', 'input_tokens_1m', 0.59),
-            ('groq', 'llama-3.3-70b-versatile', 'output_tokens_1m', 0.79),
-
-            # Groq - Llama 3.1 8B
-            ('groq', 'llama-3.1-8b-instant', 'input_tokens_1m', 0.05),
-            ('groq', 'llama-3.1-8b-instant', 'output_tokens_1m', 0.08),
-
-            # Groq - Llama 4 Scout (preview)
-            ('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 'input_tokens_1m', 0.11),
-            ('groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 'output_tokens_1m', 0.34),
-
-            # Groq - Qwen 3 32B (preview)
-            ('groq', 'qwen/qwen3-32b', 'input_tokens_1m', 0.29),
-            ('groq', 'qwen/qwen3-32b', 'output_tokens_1m', 0.39),
-
-            # Anthropic Claude 4.5 Sonnet
-            ('anthropic', 'claude-sonnet-4-5-20250929', 'input_tokens_1m', 3.00),
-            ('anthropic', 'claude-sonnet-4-5-20250929', 'output_tokens_1m', 15.00),
-            ('anthropic', 'claude-sonnet-4-5-20250929', 'cached_input_tokens_1m', 0.30),
-
-            # Anthropic Claude 4.5 Opus
-            ('anthropic', 'claude-opus-4-5-20251101', 'input_tokens_1m', 15.00),
-            ('anthropic', 'claude-opus-4-5-20251101', 'output_tokens_1m', 75.00),
-            ('anthropic', 'claude-opus-4-5-20251101', 'cached_input_tokens_1m', 1.50),
-
-            # Anthropic Claude 4.5 Haiku
-            ('anthropic', 'claude-haiku-4-5-20251001', 'input_tokens_1m', 1.00),
-            ('anthropic', 'claude-haiku-4-5-20251001', 'output_tokens_1m', 5.00),
-            ('anthropic', 'claude-haiku-4-5-20251001', 'cached_input_tokens_1m', 0.10),
-        ]
-
-        for provider, model, unit, cost in skus:
-            conn.execute("""
-                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
-                VALUES (?, ?, ?, ?)
-            """, (provider, model, unit, cost))
-
-        logger.info("Migration v31 complete: Added Groq and Claude 4.5 pricing")
+        """Migration v31: Legacy - pricing now in config/pricing.yaml."""
+        # No-op: Groq and Claude 4.5 pricing now loaded from config/pricing.yaml
+        pass
 
     def _migrate_v32_add_more_providers(self, conn: sqlite3.Connection) -> None:
-        """Migration v32: Add DeepSeek, Mistral, and Google Gemini pricing.
-
-        Adds pricing for:
-        - DeepSeek models (Chat, Reasoner)
-        - Mistral models (Small, Medium, Large)
-        - Google Gemini models (Flash, Pro)
-        """
-        skus = [
-            # DeepSeek - V3 Chat (extremely cheap!)
-            ('deepseek', 'deepseek-chat', 'input_tokens_1m', 0.28),
-            ('deepseek', 'deepseek-chat', 'output_tokens_1m', 0.42),
-            ('deepseek', 'deepseek-chat', 'cached_input_tokens_1m', 0.028),
-
-            # DeepSeek - R1 Reasoner
-            ('deepseek', 'deepseek-reasoner', 'input_tokens_1m', 0.55),
-            ('deepseek', 'deepseek-reasoner', 'output_tokens_1m', 2.19),
-
-            # Mistral - Small
-            ('mistral', 'mistral-small-latest', 'input_tokens_1m', 0.20),
-            ('mistral', 'mistral-small-latest', 'output_tokens_1m', 0.60),
-
-            # Mistral - Medium (estimated)
-            ('mistral', 'mistral-medium-latest', 'input_tokens_1m', 0.80),
-            ('mistral', 'mistral-medium-latest', 'output_tokens_1m', 2.40),
-
-            # Mistral - Large
-            ('mistral', 'mistral-large-latest', 'input_tokens_1m', 2.00),
-            ('mistral', 'mistral-large-latest', 'output_tokens_1m', 6.00),
-
-            # Google Gemini 2.0 Flash
-            ('google', 'gemini-2.0-flash', 'input_tokens_1m', 0.10),
-            ('google', 'gemini-2.0-flash', 'output_tokens_1m', 0.40),
-
-            # Google Gemini 2.5 Flash
-            ('google', 'gemini-2.5-flash', 'input_tokens_1m', 0.30),
-            ('google', 'gemini-2.5-flash', 'output_tokens_1m', 2.50),
-
-            # Google Gemini 2.5 Pro
-            ('google', 'gemini-2.5-pro', 'input_tokens_1m', 1.25),
-            ('google', 'gemini-2.5-pro', 'output_tokens_1m', 10.00),
-            ('google', 'gemini-2.5-pro', 'cached_input_tokens_1m', 0.125),
-        ]
-
-        for provider, model, unit, cost in skus:
-            conn.execute("""
-                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
-                VALUES (?, ?, ?, ?)
-            """, (provider, model, unit, cost))
-
-        logger.info("Migration v32 complete: Added DeepSeek, Mistral, and Google pricing")
+        """Migration v32: Legacy - pricing now in config/pricing.yaml."""
+        # No-op: DeepSeek, Mistral, and Google pricing now loaded from config/pricing.yaml
+        pass
 
     def _migrate_v33_add_provider_to_captures(self, conn: sqlite3.Connection) -> None:
         """Migration v33: Add provider column to prompt_captures.
@@ -1583,85 +1515,14 @@ class GamePersistence:
         logger.info("Migration v35 complete: Added index on prompt_captures.provider")
 
     def _migrate_v36_add_xai_pricing(self, conn: sqlite3.Connection) -> None:
-        """Migration v36: Add xAI Grok pricing to model_pricing.
-
-        xAI pricing from https://docs.x.ai/docs/models (per 1M tokens):
-        - grok-3: $3.00 input, $15.00 output
-        - grok-3-mini: $0.30 input, $0.50 output
-        - grok-4-fast-reasoning: $0.20 input, $0.50 output
-        - grok-4-0709: $3.00 input, $15.00 output
-        - grok-2-vision-1212: $2.00 input, $10.00 output
-        - grok-2-image-1212: $0.07 per image
-        """
-        skus = [
-            # grok-3 - main production model
-            ('xai', 'grok-3', 'input_tokens_1m', 3.00),
-            ('xai', 'grok-3', 'output_tokens_1m', 15.00),
-
-            # grok-3-mini - budget model with reasoning
-            ('xai', 'grok-3-mini', 'input_tokens_1m', 0.30),
-            ('xai', 'grok-3-mini', 'output_tokens_1m', 0.50),
-            ('xai', 'grok-3-mini', 'reasoning_tokens_1m', 0.50),
-
-            # grok-4 - latest flagship (grok-4-0709)
-            ('xai', 'grok-4', 'input_tokens_1m', 3.00),
-            ('xai', 'grok-4', 'output_tokens_1m', 15.00),
-
-            # grok-4-fast-reasoning - fast with reasoning
-            ('xai', 'grok-4-fast-reasoning', 'input_tokens_1m', 0.20),
-            ('xai', 'grok-4-fast-reasoning', 'output_tokens_1m', 0.50),
-            ('xai', 'grok-4-fast-reasoning', 'reasoning_tokens_1m', 0.50),
-
-            # grok-4-fast-non-reasoning - fast without reasoning
-            ('xai', 'grok-4-fast-non-reasoning', 'input_tokens_1m', 0.20),
-            ('xai', 'grok-4-fast-non-reasoning', 'output_tokens_1m', 0.50),
-
-            # grok-2-vision-1212 - vision model
-            ('xai', 'grok-2-vision-1212', 'input_tokens_1m', 2.00),
-            ('xai', 'grok-2-vision-1212', 'output_tokens_1m', 10.00),
-
-            # grok-2-image-1212 - image generation
-            ('xai', 'grok-2-image-1212', 'image_1024x1024', 0.07),
-        ]
-
-        for provider, model, unit, cost in skus:
-            conn.execute("""
-                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
-                VALUES (?, ?, ?, ?)
-            """, (provider, model, unit, cost))
-
-        logger.info("Migration v36 complete: Added xAI Grok pricing")
+        """Migration v36: Legacy - pricing now in config/pricing.yaml."""
+        # No-op: xAI Grok pricing now loaded from config/pricing.yaml
+        pass
 
     def _migrate_v37_add_gpt5_pricing(self, conn: sqlite3.Connection) -> None:
-        """Migration v37: Add/update OpenAI GPT-5 family pricing.
-
-        GPT-5 pricing per 1M tokens:
-        - gpt-5-nano: $0.05 input, $0.005 cached, $0.40 output
-        - gpt-5-mini: $0.25 input, $0.025 cached, $2.00 output
-        - gpt-5:      $1.25 input, $0.125 cached, $10.00 output
-        """
-        skus = [
-            # gpt-5-nano - cheapest tier
-            ('openai', 'gpt-5-nano', 'input_tokens_1m', 0.05),
-            ('openai', 'gpt-5-nano', 'cached_input_tokens_1m', 0.005),
-            ('openai', 'gpt-5-nano', 'output_tokens_1m', 0.40),
-            # gpt-5-mini - mid tier
-            ('openai', 'gpt-5-mini', 'input_tokens_1m', 0.25),
-            ('openai', 'gpt-5-mini', 'cached_input_tokens_1m', 0.025),
-            ('openai', 'gpt-5-mini', 'output_tokens_1m', 2.00),
-            # gpt-5 - flagship
-            ('openai', 'gpt-5', 'input_tokens_1m', 1.25),
-            ('openai', 'gpt-5', 'cached_input_tokens_1m', 0.125),
-            ('openai', 'gpt-5', 'output_tokens_1m', 10.00),
-        ]
-
-        for provider, model, unit, cost in skus:
-            conn.execute("""
-                INSERT OR REPLACE INTO model_pricing (provider, model, unit, cost)
-                VALUES (?, ?, ?, ?)
-            """, (provider, model, unit, cost))
-
-        logger.info("Migration v37 complete: Added GPT-5 family pricing")
+        """Migration v37: Legacy - pricing now in config/pricing.yaml."""
+        # No-op: GPT-5 pricing now loaded from config/pricing.yaml
+        pass
 
     def _migrate_v38_add_enabled_models(self, conn: sqlite3.Connection) -> None:
         """Migration v38: Add enabled_models table for model management.
@@ -1870,6 +1731,19 @@ class GamePersistence:
             logger.info("Created hand_commentary table with indices")
 
         logger.info("Migration v41 complete: hand_commentary table added")
+
+    def _migrate_v42_schema_consolidation(self, conn: sqlite3.Connection) -> None:
+        """Migration v42: Schema consolidation marker.
+
+        This migration marks the schema consolidation where:
+        - All 23 tables are now defined in _init_db()
+        - Migrations v1-v41 are now no-ops (they've already run on existing DBs)
+        - Pricing data is loaded from config/pricing.yaml via pricing_loader
+
+        For existing databases (at v41), this is a no-op marker.
+        For new databases, _init_db() creates all tables, then this runs.
+        """
+        logger.info("Migration v42 complete: Schema consolidation marker applied")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,

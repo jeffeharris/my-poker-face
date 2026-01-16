@@ -18,10 +18,11 @@ import { TemplateEditor } from './TemplateEditor';
 import './PromptPlayground.css';
 
 interface Props {
-  onBack: () => void;
+  onBack?: () => void;
+  embedded?: boolean;
 }
 
-export function PromptPlayground({ onBack }: Props) {
+export function PromptPlayground({ onBack, embedded = false }: Props) {
   // State
   const [captures, setCaptures] = useState<PlaygroundCapture[]>([]);
   const [selectedCapture, setSelectedCapture] = useState<PlaygroundCaptureDetail | null>(null);
@@ -180,13 +181,15 @@ export function PromptPlayground({ onBack }: Props) {
   };
 
   return (
-    <div className="playground-container">
+    <div className={`playground-container ${embedded ? 'playground-container--embedded' : ''}`}>
       {/* Header */}
       <div className="playground-header">
-        <button className="back-button" onClick={onBack}>
-          &larr; Back
-        </button>
-        <h1>Prompt Playground</h1>
+        {!embedded && onBack && (
+          <button className="back-button" onClick={onBack}>
+            &larr; Back
+          </button>
+        )}
+        {!embedded && <h1>Prompt Playground</h1>}
         {stats && (
           <div className="stats-summary">
             <span className="stat-badge">{stats.total} captures</span>
