@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
-SCHEMA_VERSION = 42
+# v43: Add experiments and experiment_games tables for experiment tracking
+SCHEMA_VERSION = 43
 
 
 @dataclass
@@ -83,7 +84,7 @@ class GamePersistence:
         This method creates ALL tables for fresh databases. Existing databases
         will have tables created by migrations, which are now no-ops.
 
-        Tables (23 total):
+        Tables (25 total):
         1. schema_version - Migration tracking
         2. games - Core game state
         3. game_messages - Chat log
@@ -107,6 +108,8 @@ class GamePersistence:
         21. prompt_captures - AI debugging (v18, v39)
         22. player_decision_analysis - Quality monitoring (v20-v23)
         23. tournament_tracker - Elimination history (v29)
+        24. experiments - Experiment metadata and config (v43)
+        25. experiment_games - Links games to experiments (v43)
         """
         with sqlite3.connect(self.db_path) as conn:
             # 1. Schema version tracking - must be first
@@ -537,8 +540,13 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+            # These indexes are on columns added by migrations v33 and v39
+            # Use try-except to handle older databases that haven't been migrated yet
+            try:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+            except sqlite3.OperationalError:
+                pass  # Columns don't exist yet, will be created by migrations
 
             # 22. Player decision analysis (v20, v22, v23)
             conn.execute("""
@@ -591,6 +599,43 @@ class GamePersistence:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
+
+            # 24. Experiments (v43) - experiment metadata and configuration
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS experiments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    hypothesis TEXT,
+                    tags TEXT,
+                    notes TEXT,
+                    config_json TEXT NOT NULL,
+                    status TEXT DEFAULT 'running',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    summary_json TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status)")
+
+            # 25. Experiment games (v43) - links games to experiments with variant config
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS experiment_games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER NOT NULL,
+                    game_id TEXT NOT NULL,
+                    variant TEXT,
+                    variant_config_json TEXT,
+                    tournament_number INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (experiment_id) REFERENCES experiments(id) ON DELETE CASCADE,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE,
+                    UNIQUE(experiment_id, game_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
 
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
@@ -655,6 +700,7 @@ class GamePersistence:
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
             42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
+            43: (self._migrate_v43_add_experiments, "Add experiments and experiment_games tables for experiment tracking"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1744,6 +1790,52 @@ class GamePersistence:
         For new databases, _init_db() creates all tables, then this runs.
         """
         logger.info("Migration v42 complete: Schema consolidation marker applied")
+
+    def _migrate_v43_add_experiments(self, conn: sqlite3.Connection) -> None:
+        """Migration v43: Add experiments and experiment_games tables.
+
+        These tables enable experiment tracking for AI tournaments:
+        - experiments: Stores experiment metadata, config, and summary
+        - experiment_games: Links games to experiments with variant info
+        """
+        # Create experiments table if it doesn't exist
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS experiments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                hypothesis TEXT,
+                tags TEXT,
+                notes TEXT,
+                config_json TEXT NOT NULL,
+                status TEXT DEFAULT 'running',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                summary_json TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status)")
+
+        # Create experiment_games table if it doesn't exist
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS experiment_games (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experiment_id INTEGER NOT NULL,
+                game_id TEXT NOT NULL,
+                variant TEXT,
+                variant_config_json TEXT,
+                tournament_number INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (experiment_id) REFERENCES experiments(id) ON DELETE CASCADE,
+                FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE,
+                UNIQUE(experiment_id, game_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
+
+        logger.info("Migration v43 complete: Added experiments and experiment_games tables")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4207,3 +4299,253 @@ class GamePersistence:
                 'by_quality': by_quality,
                 'by_action': by_action,
             }
+
+    # ==================== Experiment Methods ====================
+
+    def create_experiment(self, config: Dict) -> int:
+        """Create a new experiment record.
+
+        Args:
+            config: Dictionary containing experiment configuration with keys:
+                - name: Unique experiment name (required)
+                - description: Experiment description (optional)
+                - hypothesis: What we're testing (optional)
+                - tags: List of tags (optional)
+                - notes: Additional notes (optional)
+                - Additional config fields stored as config_json
+
+        Returns:
+            The experiment_id of the created record
+
+        Raises:
+            sqlite3.IntegrityError: If experiment name already exists
+        """
+        name = config.get('name')
+        if not name:
+            raise ValueError("Experiment name is required")
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                name,
+                config.get('description'),
+                config.get('hypothesis'),
+                json.dumps(config.get('tags', [])),
+                config.get('notes'),
+                json.dumps(config),
+            ))
+            conn.commit()
+            experiment_id = cursor.lastrowid
+            logger.info(f"Created experiment '{name}' with id {experiment_id}")
+            return experiment_id
+
+    def link_game_to_experiment(
+        self,
+        experiment_id: int,
+        game_id: str,
+        variant: Optional[str] = None,
+        variant_config: Optional[Dict] = None,
+        tournament_number: Optional[int] = None
+    ) -> int:
+        """Link a game to an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+            game_id: The game ID to link
+            variant: Optional variant label (e.g., 'baseline', 'treatment')
+            variant_config: Optional variant-specific configuration
+            tournament_number: Optional tournament sequence number
+
+        Returns:
+            The experiment_games record ID
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO experiment_games (experiment_id, game_id, variant, variant_config_json, tournament_number)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                experiment_id,
+                game_id,
+                variant,
+                json.dumps(variant_config) if variant_config else None,
+                tournament_number,
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def complete_experiment(self, experiment_id: int, summary: Optional[Dict] = None) -> None:
+        """Mark an experiment as completed and store summary.
+
+        Args:
+            experiment_id: The experiment ID
+            summary: Optional summary dictionary with aggregated results
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE experiments
+                SET status = 'completed',
+                    completed_at = CURRENT_TIMESTAMP,
+                    summary_json = ?
+                WHERE id = ?
+            """, (json.dumps(summary) if summary else None, experiment_id))
+            conn.commit()
+            logger.info(f"Completed experiment {experiment_id}")
+
+    def get_experiment(self, experiment_id: int) -> Optional[Dict]:
+        """Get experiment details by ID.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            Dictionary with experiment details or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT id, name, description, hypothesis, tags, notes, config_json,
+                       status, created_at, completed_at, summary_json
+                FROM experiments WHERE id = ?
+            """, (experiment_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'hypothesis': row[3],
+                'tags': json.loads(row[4]) if row[4] else [],
+                'notes': row[5],
+                'config': json.loads(row[6]) if row[6] else {},
+                'status': row[7],
+                'created_at': row[8],
+                'completed_at': row[9],
+                'summary': json.loads(row[10]) if row[10] else None,
+            }
+
+    def get_experiment_by_name(self, name: str) -> Optional[Dict]:
+        """Get experiment details by name.
+
+        Args:
+            name: The experiment name
+
+        Returns:
+            Dictionary with experiment details or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT id FROM experiments WHERE name = ?", (name,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self.get_experiment(row[0])
+
+    def get_experiment_games(self, experiment_id: int) -> List[Dict]:
+        """Get all games linked to an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of dictionaries with game link details
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
+                       eg.tournament_number, eg.created_at
+                FROM experiment_games eg
+                WHERE eg.experiment_id = ?
+                ORDER BY eg.tournament_number, eg.created_at
+            """, (experiment_id,))
+
+            return [
+                {
+                    'id': row[0],
+                    'game_id': row[1],
+                    'variant': row[2],
+                    'variant_config': json.loads(row[3]) if row[3] else None,
+                    'tournament_number': row[4],
+                    'created_at': row[5],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def get_experiment_decision_stats(
+        self,
+        experiment_id: int,
+        variant: Optional[str] = None
+    ) -> Dict:
+        """Get aggregated decision analysis stats for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+            variant: Optional variant filter
+
+        Returns:
+            Dictionary with aggregated decision statistics:
+                - total: Total decisions analyzed
+                - correct: Number of correct decisions
+                - marginal: Number of marginal decisions
+                - mistake: Number of mistakes
+                - correct_pct: Percentage of correct decisions
+                - avg_ev_lost: Average EV lost per decision
+                - by_player: Stats broken down by player
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Build query with optional variant filter
+            variant_clause = "AND eg.variant = ?" if variant else ""
+            params = [experiment_id]
+            if variant:
+                params.append(variant)
+
+            # Aggregate stats
+            cursor = conn.execute(f"""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
+                    SUM(CASE WHEN pda.decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
+                    SUM(CASE WHEN pda.decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
+                    AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+                FROM player_decision_analysis pda
+                JOIN experiment_games eg ON pda.game_id = eg.game_id
+                WHERE eg.experiment_id = ? {variant_clause}
+            """, params)
+
+            row = cursor.fetchone()
+            total = row[0] or 0
+
+            result = {
+                'total': total,
+                'correct': row[1] or 0,
+                'marginal': row[2] or 0,
+                'mistake': row[3] or 0,
+                'correct_pct': round((row[1] or 0) * 100 / total, 1) if total else 0,
+                'avg_ev_lost': round(row[4] or 0, 2),
+            }
+
+            # Stats by player
+            cursor = conn.execute(f"""
+                SELECT
+                    pda.player_name,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
+                    AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+                FROM player_decision_analysis pda
+                JOIN experiment_games eg ON pda.game_id = eg.game_id
+                WHERE eg.experiment_id = ? {variant_clause}
+                GROUP BY pda.player_name
+            """, params)
+
+            result['by_player'] = {
+                row[0]: {
+                    'total': row[1],
+                    'correct': row[2] or 0,
+                    'correct_pct': round((row[2] or 0) * 100 / row[1], 1) if row[1] else 0,
+                    'avg_ev_lost': round(row[3] or 0, 2),
+                }
+                for row in cursor.fetchall()
+            }
+
+            return result

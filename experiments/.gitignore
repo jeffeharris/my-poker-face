@@ -1,0 +1,4 @@
+# Experiment output files
+results/
+*.db
+__pycache__/

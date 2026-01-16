@@ -338,26 +338,85 @@ class AIPokerPlayer(PokerPlayer):
         """
         Get personality-specific play instructions based on trait values.
 
+        Uses a unified strategy matrix that combines aggression and bluff_tendency
+        into coherent poker archetypes (LAG, TAG, tricky, passive) rather than
+        independent modifiers that can conflict.
+
         Args:
             traits: Optional dict of current trait values. If not provided, uses static config.
         """
         if traits is None:
             # Fallback to static config
             traits = self.personality_config.get("personality_traits", {})
-        
-        modifiers = []
-        
-        if traits.get("bluff_tendency", 0.5) > 0.7:
-            modifiers.append("Remember: You love to bluff! Look for opportunities to deceive.")
-        elif traits.get("bluff_tendency", 0.5) < 0.3:
-            modifiers.append("Remember: You prefer honest play. Only bet when you have it.")
-        
-        if traits.get("aggression", 0.5) > 0.7:
-            modifiers.append("Be aggressive! Raise often and put pressure on opponents.")
-        elif traits.get("aggression", 0.5) < 0.3:
-            modifiers.append("Play cautiously. Avoid big risks unless you're certain.")
-        
-        return " ".join(modifiers)
+
+        aggression = traits.get("aggression", 0.5)
+        bluff = traits.get("bluff_tendency", 0.5)
+
+        # High aggression + high bluff = LAG (Loose-Aggressive)
+        if aggression > 0.7 and bluff > 0.6:
+            return (
+                "PLAY STYLE: Loose-Aggressive (LAG). "
+                "Raise big with premium hands to build pots and get value. "
+                "Mix in well-timed bluffs in good spots: late position, scary boards, "
+                "or when opponents show weakness. But pick your spots carefully - "
+                "don't bluff into strength or with complete trash like 2-7 offsuit. "
+                "Your unpredictability is your weapon, not reckless aggression."
+            )
+
+        # High aggression + low bluff = TAG (Tight-Aggressive)
+        elif aggression > 0.7 and bluff <= 0.4:
+            return (
+                "PLAY STYLE: Tight-Aggressive (TAG). "
+                "When you have strong hands, bet and raise relentlessly - make them pay. "
+                "You rarely bluff; your aggression comes from real strength. "
+                "This makes you feared when you bet. Fold weak hands pre-flop "
+                "and wait for premium spots to attack."
+            )
+
+        # Low aggression + high bluff = Tricky/Deceptive
+        elif aggression <= 0.4 and bluff > 0.6:
+            return (
+                "PLAY STYLE: Tricky and deceptive. "
+                "You prefer small pots and traps over big confrontations. "
+                "Slowplay your monsters to trap aggressive opponents. "
+                "Make occasional bold bluffs when the timing is perfect - "
+                "but keep them rare and well-chosen to maintain credibility."
+            )
+
+        # Low aggression + low bluff = Tight-Passive (rock)
+        elif aggression <= 0.4 and bluff <= 0.4:
+            return (
+                "PLAY STYLE: Tight and patient. "
+                "Only bet when you have a strong hand. Patience is your weapon. "
+                "Fold marginal hands and wait for premium opportunities. "
+                "When you do bet, you mean business."
+            )
+
+        # Medium aggression + high bluff = Balanced with bluff tendencies
+        elif bluff > 0.6:
+            return (
+                "PLAY STYLE: Balanced with deceptive tendencies. "
+                "Mix value bets with occasional well-timed bluffs. "
+                "Look for good bluffing spots: position, weakness, scary boards. "
+                "Don't force bluffs - wait for the right moment."
+            )
+
+        # Medium aggression + low bluff = Straightforward
+        elif bluff <= 0.4:
+            return (
+                "PLAY STYLE: Straightforward and honest. "
+                "Bet your good hands for value, check or fold your weak ones. "
+                "You rarely bluff - when you bet, you usually have it. "
+                "This predictability can be exploited, so occasionally mix it up."
+            )
+
+        # Balanced middle ground
+        else:
+            return (
+                "PLAY STYLE: Balanced and adaptive. "
+                "Bet for value with strong hands, occasionally bluff when the situation is right. "
+                "Read the table and adjust - sometimes aggressive, sometimes cautious."
+            )
 
     def get_player_response(self, message) -> Dict[str, str]:
         try:
