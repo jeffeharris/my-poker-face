@@ -1,0 +1,368 @@
+/**
+ * Model Manager - LLM Model Configuration
+ *
+ * Styles for managing LLM model availability
+ */
+
+/* ============================================
+   Container
+   ============================================ */
+
+.mm-container {
+  padding: var(--space-4);
+}
+
+.mm-container--embedded {
+  padding: 0;
+}
+
+/* ============================================
+   Alert Toast
+   ============================================ */
+
+.mm-alert {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(16px);
+  z-index: var(--z-toast);
+  animation: mmAlertSlideIn 0.4s var(--ease-out-expo);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+@keyframes mmAlertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mm-alert--success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--color-emerald);
+}
+
+.mm-alert--error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.mm-alert--info {
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  color: var(--color-gold-light);
+}
+
+.mm-alert__icon {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+}
+
+.mm-alert__message {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.mm-alert__close {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.mm-alert__close:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.mm-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-16);
+  color: var(--color-text-muted);
+}
+
+.mm-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 193, 7, 0.1);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: mmSpin 1s linear infinite;
+}
+
+@keyframes mmSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.mm-header {
+  margin-bottom: var(--space-6);
+}
+
+.mm-header__title {
+  color: var(--color-gold);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.mm-header__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* ============================================
+   Provider Groups
+   ============================================ */
+
+.mm-providers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.mm-provider {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.mm-provider__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4);
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+
+.mm-provider__header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mm-provider__chevron {
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.mm-provider__chevron--open {
+  transform: rotate(90deg);
+}
+
+.mm-provider__name {
+  flex: 1;
+  font-weight: var(--font-weight-semibold);
+  text-transform: capitalize;
+}
+
+.mm-provider__count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-3);
+  background: rgba(255, 193, 7, 0.1);
+  border-radius: var(--radius-full);
+}
+
+/* ============================================
+   Model List
+   ============================================ */
+
+.mm-provider__models {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mm-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: opacity 0.2s ease;
+}
+
+.mm-model:last-child {
+  border-bottom: none;
+}
+
+.mm-model--disabled {
+  opacity: 0.5;
+}
+
+.mm-model__info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.mm-model__name {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm-model__capabilities {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* ============================================
+   Capability Badges
+   ============================================ */
+
+.mm-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-muted);
+}
+
+.mm-cap--reasoning {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.mm-cap--json {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.mm-cap--image {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
+/* ============================================
+   Toggle Switch
+   ============================================ */
+
+.mm-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.mm-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.mm-toggle__slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-full);
+  transition: background 0.3s ease;
+}
+
+.mm-toggle__slider::before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--color-text-muted);
+  border-radius: 50%;
+  transition: transform 0.3s ease, background 0.3s ease;
+}
+
+.mm-toggle input:checked + .mm-toggle__slider {
+  background: rgba(255, 193, 7, 0.3);
+}
+
+.mm-toggle input:checked + .mm-toggle__slider::before {
+  transform: translateX(20px);
+  background: var(--color-gold);
+}
+
+/* ============================================
+   Legend
+   ============================================ */
+
+.mm-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+.mm-legend__title {
+  font-weight: var(--font-weight-medium);
+  margin-right: var(--space-2);
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  .mm-model__name {
+    max-width: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  .mm-model__name {
+    max-width: 150px;
+  }
+
+  .mm-legend {
+    font-size: var(--font-size-xs);
+    gap: var(--space-2);
+  }
+}
