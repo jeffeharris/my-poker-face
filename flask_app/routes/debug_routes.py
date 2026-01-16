@@ -217,3 +217,105 @@ def get_pressure_stats(game_id):
 
     pressure_stats = game_data['pressure_stats']
     return jsonify(pressure_stats.get_session_summary())
+
+
+@debug_bp.route('/api/game/<game_id>/psychology', methods=['GET'])
+def get_psychology_debug(game_id):
+    """Get unified psychological state for all AI players.
+
+    Returns combined view of:
+    - Elastic personality (current traits, anchor values, pressure levels)
+    - Emotional state (valence, arousal, control, focus, narrative)
+    - Tilt state (level, source, nemesis, streaks)
+    """
+    game_data = game_state_service.get_game(game_id)
+    if not game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    ai_controllers = game_data.get('ai_controllers', {})
+    if not ai_controllers:
+        return jsonify({'error': 'No AI controllers found'}), 404
+
+    psychology_data = {}
+
+    for player_name, controller in ai_controllers.items():
+        if not hasattr(controller, 'psychology') or not controller.psychology:
+            continue
+
+        psych = controller.psychology
+
+        # Build comprehensive psychology view
+        player_data = {
+            'player_name': player_name,
+            'hand_count': psych.hand_count,
+            'last_updated': psych.last_updated,
+
+            # Summary indicators
+            'mood': psych.mood,
+            'tilt_level': round(psych.tilt_level, 2),
+            'tilt_category': psych.tilt_category,
+            'is_tilted': psych.is_tilted,
+            'display_emotion': psych.get_display_emotion(),
+
+            # Current trait values
+            'traits': {k: round(v, 2) for k, v in psych.traits.items()},
+
+            # Elastic personality details
+            'elastic': None,
+
+            # Emotional state details
+            'emotional': None,
+
+            # Tilt state details
+            'tilt': None,
+        }
+
+        # Add elastic personality details
+        if psych.elastic:
+            elastic_details = {
+                'mood': psych.elastic.get_current_mood(),
+                'traits': {}
+            }
+            for trait_name, trait in psych.elastic.traits.items():
+                elastic_details['traits'][trait_name] = {
+                    'value': round(trait.value, 2),
+                    'anchor': round(trait.anchor, 2),
+                    'pressure': round(trait.pressure, 2),
+                    'delta': round(trait.value - trait.anchor, 2),
+                }
+            player_data['elastic'] = elastic_details
+
+        # Add emotional state details
+        if psych.emotional:
+            emo = psych.emotional
+            player_data['emotional'] = {
+                'valence': round(emo.valence, 2),
+                'arousal': round(emo.arousal, 2),
+                'control': round(emo.control, 2),
+                'focus': round(emo.focus, 2),
+                'valence_descriptor': emo.valence_descriptor,
+                'arousal_descriptor': emo.arousal_descriptor,
+                'narrative': emo.narrative,
+                'inner_voice': emo.inner_voice,
+                'display_emotion': emo.get_display_emotion(),
+            }
+
+        # Add tilt state details
+        if psych.tilt:
+            tilt = psych.tilt
+            player_data['tilt'] = {
+                'level': round(tilt.tilt_level, 2),
+                'category': tilt.get_tilt_category(),
+                'source': tilt.tilt_source,
+                'nemesis': tilt.nemesis,
+                'losing_streak': tilt.losing_streak,
+                'recent_losses_count': len(tilt.recent_losses) if hasattr(tilt, 'recent_losses') else 0,
+            }
+
+        psychology_data[player_name] = player_data
+
+    return jsonify({
+        'game_id': game_id,
+        'player_count': len(psychology_data),
+        'players': psychology_data
+    })

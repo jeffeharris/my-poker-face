@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../config';
 import './DebugTools.css';
 
@@ -6,11 +6,27 @@ import './DebugTools.css';
 // Types
 // ============================================
 
-type DebugTab = 'diagnostic' | 'tilt' | 'memory' | 'elasticity' | 'pressure';
+type DebugTab = 'diagnostic' | 'psychology' | 'tilt' | 'memory' | 'elasticity' | 'pressure';
 
 interface AlertState {
   type: 'success' | 'error' | 'info';
   message: string;
+}
+
+interface PlayerInfo {
+  name: string;
+  chips: number;
+  is_human: boolean;
+  is_active: boolean;
+}
+
+interface ActiveGame {
+  game_id: string;
+  owner_name: string;
+  players: PlayerInfo[];
+  phase: string | null;
+  hand_number: number | null;
+  is_active: boolean;  // true = in memory, false = saved only
 }
 
 interface DebugToolsProps {
@@ -28,14 +44,45 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
   const [result, setResult] = useState<unknown>(null);
   const [alert, setAlert] = useState<AlertState | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
+  const [loadingGames, setLoadingGames] = useState(false);
 
   const TABS: { id: DebugTab; label: string; endpoint: string }[] = [
     { id: 'diagnostic', label: 'Diagnostic', endpoint: 'diagnostic' },
+    { id: 'psychology', label: 'Psychology', endpoint: 'psychology' },
     { id: 'tilt', label: 'Tilt System', endpoint: 'tilt-debug' },
     { id: 'memory', label: 'Memory', endpoint: 'memory-debug' },
     { id: 'elasticity', label: 'Elasticity', endpoint: 'elasticity' },
     { id: 'pressure', label: 'Pressure Stats', endpoint: 'pressure-stats' },
   ];
+
+  // Fetch active games
+  const fetchActiveGames = useCallback(async () => {
+    try {
+      setLoadingGames(true);
+      const response = await fetch(`${config.API_URL}/admin/api/active-games`);
+      const data = await response.json();
+
+      if (data.success) {
+        setActiveGames(data.games);
+        // If we don't have a game selected and there are games, select the first one
+        if (!gameId && data.games.length > 0) {
+          setGameId(data.games[0].game_id);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch active games:', error);
+    } finally {
+      setLoadingGames(false);
+    }
+  }, [gameId]);
+
+  // Fetch active games on mount and periodically
+  useEffect(() => {
+    fetchActiveGames();
+    const interval = setInterval(fetchActiveGames, 10000); // Refresh every 10 seconds
+    return () => clearInterval(interval);
+  }, [fetchActiveGames]);
 
   // Fetch debug data
   const fetchData = async () => {
@@ -112,22 +159,68 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
         <p className="dt-header__subtitle">Inspect game state and AI system internals</p>
       </div>
 
-      {/* Game ID Input */}
-      <div className="dt-input-row">
-        <input
-          type="text"
-          className="dt-input"
-          value={gameId}
-          onChange={(e) => setGameId(e.target.value)}
-          placeholder="Enter Game ID..."
-          onKeyDown={(e) => e.key === 'Enter' && fetchData()}
-        />
+      {/* Game Selection */}
+      <div className="dt-game-selection">
+        {/* Active Games Dropdown */}
+        <div className="dt-select-group">
+          <label className="dt-select-label">Active Games</label>
+          <div className="dt-select-wrapper">
+            <select
+              className="dt-select"
+              value={gameId}
+              onChange={(e) => setGameId(e.target.value)}
+              disabled={loadingGames}
+            >
+              <option value="">
+                {loadingGames ? 'Loading...' : activeGames.length === 0 ? 'No active games' : 'Select a game...'}
+              </option>
+              {activeGames.map(game => {
+                const humanPlayer = game.players.find(p => p.is_human);
+                const playerName = humanPlayer?.name || game.owner_name || 'Unknown';
+                const aiCount = game.players.filter(p => !p.is_human).length;
+                const phaseLabel = game.phase ? ` - ${game.phase}` : '';
+                const statusIcon = game.is_active ? '🟢' : '💾';
+                return (
+                  <option key={game.game_id} value={game.game_id}>
+                    {statusIcon} {playerName} vs {aiCount} AI{aiCount !== 1 ? 's' : ''}{phaseLabel}
+                  </option>
+                );
+              })}
+            </select>
+            <button
+              className="dt-btn dt-btn--icon"
+              onClick={fetchActiveGames}
+              disabled={loadingGames}
+              title="Refresh game list"
+              type="button"
+            >
+              ↻
+            </button>
+          </div>
+        </div>
+
+        {/* Manual Game ID Input */}
+        <div className="dt-input-group">
+          <label className="dt-input-label">Or enter Game ID</label>
+          <input
+            type="text"
+            className="dt-input"
+            value={gameId}
+            onChange={(e) => setGameId(e.target.value)}
+            placeholder="Paste game ID..."
+            onKeyDown={(e) => e.key === 'Enter' && fetchData()}
+          />
+        </div>
+      </div>
+
+      {/* Fetch Controls */}
+      <div className="dt-controls">
         <button
           className="dt-btn dt-btn--primary"
           onClick={fetchData}
           disabled={loading || !gameId.trim()}
         >
-          {loading ? 'Loading...' : 'Fetch'}
+          {loading ? 'Loading...' : 'Fetch Data'}
         </button>
         <label className="dt-checkbox">
           <input
@@ -135,7 +228,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
             checked={autoRefresh}
             onChange={(e) => setAutoRefresh(e.target.checked)}
           />
-          <span>Auto-refresh</span>
+          <span>Auto-refresh (5s)</span>
         </label>
       </div>
 

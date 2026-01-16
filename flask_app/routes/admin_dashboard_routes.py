@@ -1275,6 +1275,414 @@ def debug_page():
     })
 
 
+# =============================================================================
+# App Settings API
+# =============================================================================
+
+@admin_dashboard_bp.route('/api/settings')
+@_dev_only
+def api_get_settings():
+    """Get all configurable app settings with current values and metadata.
+
+    Returns settings for:
+    - LLM_PROMPT_CAPTURE: Capture mode (disabled, all, all_except_decisions)
+    - LLM_PROMPT_RETENTION_DAYS: Days to keep captures (0 = unlimited)
+    """
+    from ..extensions import persistence
+    from core.llm.capture_config import (
+        get_capture_mode, get_retention_days, get_env_defaults,
+        CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
+    )
+
+    try:
+        # Get env defaults for display
+        env_defaults = get_env_defaults()
+
+        # Get current values (DB if exists, else env)
+        current_capture_mode = get_capture_mode()
+        current_retention_days = get_retention_days()
+
+        # Get DB values directly to show if overridden
+        db_settings = persistence.get_all_settings()
+
+        settings = {
+            'LLM_PROMPT_CAPTURE': {
+                'value': current_capture_mode,
+                'options': [CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS],
+                'description': 'Controls which LLM calls are captured for debugging',
+                'env_default': env_defaults['capture_mode'],
+                'is_db_override': 'LLM_PROMPT_CAPTURE' in db_settings,
+            },
+            'LLM_PROMPT_RETENTION_DAYS': {
+                'value': str(current_retention_days),
+                'type': 'number',
+                'description': 'Days to keep captures (0 = unlimited)',
+                'env_default': str(env_defaults['retention_days']),
+                'is_db_override': 'LLM_PROMPT_RETENTION_DAYS' in db_settings,
+            },
+        }
+
+        return jsonify({
+            'success': True,
+            'settings': settings,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/settings', methods=['POST'])
+@_dev_only
+def api_update_setting():
+    """Update a single app setting.
+
+    Request body:
+        key: Setting key (e.g., 'LLM_PROMPT_CAPTURE')
+        value: New value
+    """
+    from ..extensions import persistence
+    from core.llm.capture_config import CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
+
+    try:
+        data = request.get_json()
+        if not data or 'key' not in data or 'value' not in data:
+            return jsonify({'success': False, 'error': 'Missing key or value'}), 400
+
+        key = data['key']
+        value = str(data['value'])
+
+        # Validate setting key and value
+        valid_keys = {'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS'}
+        if key not in valid_keys:
+            return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
+
+        # Validate values based on key
+        if key == 'LLM_PROMPT_CAPTURE':
+            valid_modes = [CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS]
+            if value.lower() not in valid_modes:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid capture mode. Must be one of: {valid_modes}'
+                }), 400
+            value = value.lower()
+
+        elif key == 'LLM_PROMPT_RETENTION_DAYS':
+            try:
+                days = int(value)
+                if days < 0:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Retention days must be >= 0'
+                    }), 400
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Retention days must be a number'
+                }), 400
+
+        # Save the setting
+        descriptions = {
+            'LLM_PROMPT_CAPTURE': 'Controls which LLM calls are captured for debugging',
+            'LLM_PROMPT_RETENTION_DAYS': 'Days to keep captures (0 = unlimited)',
+        }
+
+        success = persistence.set_setting(key, value, descriptions.get(key))
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Setting {key} updated to {value}',
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save setting'}), 500
+
+    except Exception as e:
+        logger.error(f"Error updating setting: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/settings/reset', methods=['POST'])
+@_dev_only
+def api_reset_settings():
+    """Reset settings to environment variable defaults.
+
+    Request body (optional):
+        key: Specific setting to reset (if not provided, resets all)
+    """
+    from ..extensions import persistence
+
+    try:
+        data = request.get_json() or {}
+        key = data.get('key')
+
+        if key:
+            # Reset specific setting
+            valid_keys = {'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS'}
+            if key not in valid_keys:
+                return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
+
+            success = persistence.delete_setting(key)
+            return jsonify({
+                'success': True,
+                'message': f'Setting {key} reset to environment default',
+                'deleted': success,
+            })
+        else:
+            # Reset all settings
+            deleted_count = 0
+            for k in ['LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS']:
+                if persistence.delete_setting(k):
+                    deleted_count += 1
+
+            return jsonify({
+                'success': True,
+                'message': f'Reset {deleted_count} settings to environment defaults',
+                'deleted': deleted_count,
+            })
+
+    except Exception as e:
+        logger.error(f"Error resetting settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/active-games')
+@_dev_only
+def api_active_games():
+    """Get list of games (active in memory + recent saved games).
+
+    Returns:
+        List of games with game_id, owner_name, player names, phase, etc.
+        Active games are marked with is_active=True
+    """
+    from ..extensions import persistence
+    import json as json_module
+
+    try:
+        all_games = []
+        seen_game_ids = set()
+
+        # First, get active (in-memory) games
+        for game_id in game_state_service.list_game_ids():
+            game_data = game_state_service.get_game(game_id)
+            if not game_data:
+                continue
+
+            state_machine = game_data.get('state_machine')
+            owner_name = game_data.get('owner_name', 'Unknown')
+
+            game_info = {
+                'game_id': game_id,
+                'owner_name': owner_name,
+                'players': [],
+                'phase': None,
+                'hand_number': None,
+                'is_active': True,  # In memory = active
+            }
+
+            if state_machine:
+                game_state = state_machine.game_state
+                if game_state:
+                    game_info['phase'] = state_machine.current_phase.value if hasattr(state_machine, 'current_phase') else None
+                    game_info['hand_number'] = game_state.hand_number if hasattr(game_state, 'hand_number') else None
+
+                    # Get player names
+                    if hasattr(game_state, 'players'):
+                        for player in game_state.players:
+                            player_info = {
+                                'name': player.name,
+                                'chips': player.stack,
+                                'is_human': getattr(player, 'is_human', True),
+                                'is_active': not player.is_folded and player.stack > 0,
+                            }
+                            game_info['players'].append(player_info)
+
+            all_games.append(game_info)
+            seen_game_ids.add(game_id)
+
+        # Then, add recent saved games from database (not already in memory)
+        try:
+            saved_games = persistence.list_games(limit=20)
+            for saved_game in saved_games:
+                if saved_game.game_id in seen_game_ids:
+                    continue  # Already added from memory
+
+                game_info = {
+                    'game_id': saved_game.game_id,
+                    'owner_name': saved_game.owner_name or 'Unknown',
+                    'players': [],
+                    'phase': saved_game.phase,
+                    'hand_number': None,
+                    'is_active': False,  # Saved but not in memory
+                    'num_players': saved_game.num_players,
+                }
+
+                # Try to extract player names from saved game state
+                try:
+                    state_dict = json_module.loads(saved_game.game_state_json)
+                    if 'players' in state_dict:
+                        for p in state_dict['players']:
+                            game_info['players'].append({
+                                'name': p.get('name', 'Unknown'),
+                                'chips': p.get('stack', 0),
+                                'is_human': p.get('is_human', False),
+                                'is_active': not p.get('is_folded', False) and p.get('stack', 0) > 0,
+                            })
+                    if 'hand_number' in state_dict:
+                        game_info['hand_number'] = state_dict['hand_number']
+                except (json_module.JSONDecodeError, KeyError):
+                    pass
+
+                all_games.append(game_info)
+                seen_game_ids.add(saved_game.game_id)
+
+        except Exception as e:
+            logger.warning(f"Could not load saved games: {e}")
+
+        return jsonify({
+            'success': True,
+            'games': all_games,
+            'count': len(all_games),
+            'active_count': sum(1 for g in all_games if g.get('is_active')),
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting active games: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/settings/storage')
+@_dev_only
+def api_storage_stats():
+    """Get database storage statistics.
+
+    Returns storage breakdown by category:
+    - total: Total database size
+    - captures: prompt_captures, player_decision_analysis
+    - api_usage: api_usage table
+    - game_data: games, game_messages, hand_history, etc.
+    - ai_state: ai_player_state, controller_state, opponent_models, etc.
+    - config: personalities, enabled_models, model_pricing, etc.
+    """
+    from pathlib import Path
+
+    try:
+        db_path = _get_db_path()
+
+        # Get total DB size
+        total_bytes = Path(db_path).stat().st_size
+
+        # Define table categories
+        categories = {
+            'captures': ['prompt_captures', 'player_decision_analysis'],
+            'api_usage': ['api_usage'],
+            'game_data': [
+                'games', 'game_messages', 'hand_history', 'hand_commentary',
+                'tournament_results', 'tournament_standings', 'tournament_tracker'
+            ],
+            'ai_state': [
+                'ai_player_state', 'controller_state', 'emotional_state',
+                'opponent_models', 'memorable_hands', 'personality_snapshots',
+                'pressure_events', 'player_career_stats'
+            ],
+            'config': [
+                'personalities', 'enabled_models', 'model_pricing',
+                'app_settings', 'schema_version'
+            ],
+            'assets': ['avatar_images'],
+        }
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get row counts and estimate sizes for each table
+            table_stats = {}
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            """)
+            tables = [row['name'] for row in cursor.fetchall()]
+
+            for table in tables:
+                try:
+                    # Get row count
+                    cursor = conn.execute(f'SELECT COUNT(*) as cnt FROM "{table}"')
+                    count = cursor.fetchone()['cnt']
+
+                    # Estimate table size using page_count from dbstat if available
+                    # Fallback to rough estimate based on row count
+                    try:
+                        cursor = conn.execute(f"""
+                            SELECT SUM(pgsize) as size FROM dbstat WHERE name=?
+                        """, (table,))
+                        size_row = cursor.fetchone()
+                        size = size_row['size'] if size_row and size_row['size'] else 0
+                    except sqlite3.OperationalError:
+                        # dbstat not available, use rough estimate
+                        size = 0
+
+                    table_stats[table] = {'rows': count, 'bytes': size}
+                except sqlite3.OperationalError:
+                    table_stats[table] = {'rows': 0, 'bytes': 0}
+
+            # Aggregate by category
+            category_stats = {}
+            categorized_tables = set()
+
+            for category, table_list in categories.items():
+                rows = 0
+                bytes_est = 0
+                for table in table_list:
+                    if table in table_stats:
+                        rows += table_stats[table]['rows']
+                        bytes_est += table_stats[table]['bytes']
+                        categorized_tables.add(table)
+                category_stats[category] = {'rows': rows, 'bytes': bytes_est}
+
+            # Add 'other' category for uncategorized tables
+            other_rows = 0
+            other_bytes = 0
+            for table, stats in table_stats.items():
+                if table not in categorized_tables:
+                    other_rows += stats['rows']
+                    other_bytes += stats['bytes']
+            if other_rows > 0 or other_bytes > 0:
+                category_stats['other'] = {'rows': other_rows, 'bytes': other_bytes}
+
+            # Calculate percentages based on total bytes
+            # If dbstat not available, estimate from row proportions
+            total_tracked_bytes = sum(cat['bytes'] for cat in category_stats.values())
+            if total_tracked_bytes == 0:
+                # Estimate percentages from row counts
+                total_rows = sum(cat['rows'] for cat in category_stats.values())
+                for category in category_stats:
+                    if total_rows > 0:
+                        pct = (category_stats[category]['rows'] / total_rows) * 100
+                        category_stats[category]['bytes'] = int(total_bytes * pct / 100)
+                    category_stats[category]['percentage'] = round(
+                        (category_stats[category]['rows'] / total_rows * 100) if total_rows > 0 else 0, 1
+                    )
+            else:
+                for category in category_stats:
+                    category_stats[category]['percentage'] = round(
+                        (category_stats[category]['bytes'] / total_bytes * 100), 1
+                    )
+
+            return jsonify({
+                'success': True,
+                'storage': {
+                    'total_bytes': total_bytes,
+                    'total_mb': round(total_bytes / 1024 / 1024, 2),
+                    'categories': category_stats,
+                    'tables': table_stats,
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"Error getting storage stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # The following HTML was removed - all admin pages now use React UI
 _LEGACY_DEBUG_HTML = '''
     <!DOCTYPE html>

@@ -1,0 +1,588 @@
+/**
+ * Capture Settings - LLM Capture Configuration
+ *
+ * Styles for configuring prompt capture settings
+ */
+
+/* ============================================
+   Container
+   ============================================ */
+
+.cs-container {
+  padding: var(--space-4);
+}
+
+.cs-container--embedded {
+  padding: 0;
+}
+
+/* ============================================
+   Alert Toast
+   ============================================ */
+
+.cs-alert {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(16px);
+  z-index: var(--z-toast);
+  animation: csAlertSlideIn 0.4s var(--ease-out-expo);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+@keyframes csAlertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cs-alert--success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--color-emerald);
+}
+
+.cs-alert--error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.cs-alert--info {
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  color: var(--color-gold-light);
+}
+
+.cs-alert__icon {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+}
+
+.cs-alert__message {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.cs-alert__close {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.cs-alert__close:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.cs-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-16);
+  color: var(--color-text-muted);
+}
+
+.cs-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 193, 7, 0.1);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: csSpin 1s linear infinite;
+}
+
+@keyframes csSpin {
+  to { transform: rotate(360deg); }
+}
+
+.cs-error {
+  padding: var(--space-8);
+  text-align: center;
+  color: #ef4444;
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.cs-header {
+  margin-bottom: var(--space-6);
+}
+
+.cs-header__title {
+  color: var(--color-gold);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.cs-header__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* ============================================
+   Card
+   ============================================ */
+
+.cs-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.cs-card--info {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.15);
+}
+
+.cs-card__title {
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-4) 0;
+}
+
+/* ============================================
+   Setting
+   ============================================ */
+
+.cs-setting {
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cs-setting:last-of-type {
+  border-bottom: none;
+  margin-bottom: var(--space-4);
+  padding-bottom: 0;
+}
+
+.cs-setting__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.cs-setting__label {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.cs-setting__badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(255, 193, 7, 0.2);
+  color: var(--color-gold);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  font-weight: var(--font-weight-bold);
+}
+
+.cs-setting__description {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-3) 0;
+}
+
+/* ============================================
+   Options (Radio-style buttons)
+   ============================================ */
+
+.cs-setting__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cs-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cs-option:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--color-text);
+}
+
+.cs-option--selected {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.cs-option--selected:hover:not(:disabled) {
+  background: rgba(255, 193, 7, 0.2);
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.cs-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-option__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.cs-option__default {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+
+/* ============================================
+   Input
+   ============================================ */
+
+.cs-setting__input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cs-input {
+  width: 100px;
+  padding: var(--space-3);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+
+.cs-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.1);
+}
+
+.cs-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-input__suffix {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.cs-input__hint {
+  color: var(--color-gold);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+}
+
+/* ============================================
+   Actions
+   ============================================ */
+
+.cs-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cs-btn {
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cs-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-btn--primary {
+  background: var(--color-gold);
+  border: none;
+  color: var(--color-bg-dark);
+}
+
+.cs-btn--primary:hover:not(:disabled) {
+  background: var(--color-gold-light);
+}
+
+.cs-btn--secondary {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--color-text-muted);
+}
+
+.cs-btn--secondary:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text);
+}
+
+/* ============================================
+   Statistics
+   ============================================ */
+
+.cs-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cs-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cs-stat__value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+}
+
+.cs-stat__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.cs-stat-breakdown {
+  margin-top: var(--space-2);
+}
+
+.cs-stat-breakdown__title {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.cs-stat-breakdown__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cs-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm);
+}
+
+.cs-stat-item__label {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.cs-stat-item__value {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+/* ============================================
+   Info List
+   ============================================ */
+
+.cs-info-list {
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.cs-info-list li {
+  margin-bottom: var(--space-2);
+}
+
+.cs-info-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* ============================================
+   Storage
+   ============================================ */
+
+.cs-storage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.cs-storage__total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.cs-storage__total-value {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+}
+
+.cs-storage__total-unit {
+  font-size: var(--font-size-lg);
+  color: var(--color-gold);
+  opacity: 0.8;
+}
+
+.cs-storage__total-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-left: var(--space-2);
+}
+
+.cs-storage__breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cs-storage__category {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cs-storage__category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cs-storage__category-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+}
+
+.cs-storage__category-size {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.cs-storage__bar {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.cs-storage__bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.5s ease;
+}
+
+/* Category-specific colors */
+.cs-storage__bar-fill--assets {
+  background: linear-gradient(90deg, #f472b6, #ec4899);
+}
+
+.cs-storage__bar-fill--captures {
+  background: linear-gradient(90deg, var(--color-gold), var(--color-gold-light));
+}
+
+.cs-storage__bar-fill--api_usage {
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+}
+
+.cs-storage__bar-fill--game_data {
+  background: linear-gradient(90deg, #34d399, #10b981);
+}
+
+.cs-storage__bar-fill--ai_state {
+  background: linear-gradient(90deg, #a78bfa, #8b5cf6);
+}
+
+.cs-storage__bar-fill--config {
+  background: linear-gradient(90deg, #fbbf24, #f59e0b);
+}
+
+.cs-storage__bar-fill--other {
+  background: linear-gradient(90deg, #9ca3af, #6b7280);
+}
+
+.cs-storage__category-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  .cs-setting__options {
+    flex-direction: column;
+  }
+
+  .cs-option {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .cs-actions {
+    flex-direction: column;
+  }
+
+  .cs-btn {
+    width: 100%;
+    text-align: center;
+  }
+}

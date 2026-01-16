@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, FlaskConical, Microscope, Sliders, DollarSign, FileText, Bug } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
@@ -8,9 +8,10 @@ import { ModelManager } from './ModelManager';
 import { PricingManager } from './PricingManager';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
+import { CaptureSettings } from './CaptureSettings';
 import './AdminDashboard.css';
 
-type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'models' | 'pricing' | 'templates' | 'debug';
+type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
 
 interface TabConfig {
   id: AdminTab;
@@ -55,6 +56,12 @@ const TABS: TabConfig[] = [
     label: 'Templates',
     icon: <FileText size={18} />,
     description: 'Edit system prompt templates',
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: <Settings size={18} />,
+    description: 'Configure prompt capture and other settings',
   },
   {
     id: 'debug',
@@ -117,6 +124,9 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
         )}
         {activeTab === 'templates' && (
           <TemplateEditor embedded />
+        )}
+        {activeTab === 'settings' && (
+          <CaptureSettings embedded />
         )}
         {activeTab === 'debug' && (
           <DebugTools embedded />

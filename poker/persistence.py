@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Current schema version - increment when adding migrations
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
-SCHEMA_VERSION = 42
+# v43: Add app_settings table for dynamic configuration
+SCHEMA_VERSION = 43
 
 
 @dataclass
@@ -592,6 +593,16 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
 
+            # 24. App settings (v43) - Dynamic configuration
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with sqlite3.connect(self.db_path) as conn:
@@ -655,6 +666,7 @@ class GamePersistence:
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
             42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
+            43: (self._migrate_v43_add_app_settings, "Add app_settings table for dynamic configuration"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1744,6 +1756,22 @@ class GamePersistence:
         For new databases, _init_db() creates all tables, then this runs.
         """
         logger.info("Migration v42 complete: Schema consolidation marker applied")
+
+    def _migrate_v43_add_app_settings(self, conn: sqlite3.Connection) -> None:
+        """Migration v43: Add app_settings table for dynamic configuration.
+
+        This allows settings like LLM_PROMPT_CAPTURE and LLM_PROMPT_RETENTION_DAYS
+        to be changed from the admin dashboard without restarting the server.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("Migration v43 complete: app_settings table created")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4224,3 +4252,101 @@ class GamePersistence:
                 'by_quality': by_quality,
                 'by_action': by_action,
             }
+
+    # ========== App Settings Methods ==========
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Get an app setting by key, with optional default.
+
+        Args:
+            key: The setting key (e.g., 'LLM_PROMPT_CAPTURE')
+            default: Default value if setting doesn't exist
+
+        Returns:
+            The setting value, or default if not found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT value FROM app_settings WHERE key = ?",
+                    (key,)
+                )
+                row = cursor.fetchone()
+                return row[0] if row else default
+        except sqlite3.OperationalError:
+            # Table doesn't exist yet (e.g., during startup)
+            return default
+
+    def set_setting(self, key: str, value: str, description: Optional[str] = None) -> bool:
+        """Set an app setting.
+
+        Args:
+            key: The setting key
+            value: The setting value (stored as string)
+            description: Optional description for the setting
+
+        Returns:
+            True if successful
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO app_settings (key, value, description, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        description = COALESCE(excluded.description, app_settings.description),
+                        updated_at = CURRENT_TIMESTAMP
+                """, (key, value, description))
+                conn.commit()
+                logger.info(f"Setting '{key}' updated to '{value}'")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to set setting '{key}': {e}")
+            return False
+
+    def get_all_settings(self) -> Dict[str, Dict[str, Any]]:
+        """Get all app settings.
+
+        Returns:
+            Dict mapping setting keys to their values and metadata
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT key, value, description, updated_at
+                    FROM app_settings
+                    ORDER BY key
+                """)
+                return {
+                    row['key']: {
+                        'value': row['value'],
+                        'description': row['description'],
+                        'updated_at': row['updated_at'],
+                    }
+                    for row in cursor.fetchall()
+                }
+        except sqlite3.OperationalError:
+            return {}
+
+    def delete_setting(self, key: str) -> bool:
+        """Delete an app setting.
+
+        Args:
+            key: The setting key to delete
+
+        Returns:
+            True if the setting was deleted, False if not found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM app_settings WHERE key = ?",
+                    (key,)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to delete setting '{key}': {e}")
+            return False
