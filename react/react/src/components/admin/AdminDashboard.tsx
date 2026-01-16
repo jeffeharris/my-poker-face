@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { Users, FlaskConical, Microscope } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Sliders, DollarSign, FileText, Bug } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
+import { ModelManager } from './ModelManager';
+import { PricingManager } from './PricingManager';
+import { TemplateEditor } from './TemplateEditor';
+import { DebugTools } from './DebugTools';
 import './AdminDashboard.css';
 
-type AdminTab = 'personalities' | 'analyzer' | 'playground';
+type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'models' | 'pricing' | 'templates' | 'debug';
 
 interface TabConfig {
   id: AdminTab;
@@ -33,6 +37,30 @@ const TABS: TabConfig[] = [
     label: 'Prompt Playground',
     icon: <FlaskConical size={18} />,
     description: 'View and replay any captured LLM prompt',
+  },
+  {
+    id: 'models',
+    label: 'Models',
+    icon: <Sliders size={18} />,
+    description: 'Enable or disable LLM models by provider',
+  },
+  {
+    id: 'pricing',
+    label: 'Pricing',
+    icon: <DollarSign size={18} />,
+    description: 'View and manage LLM pricing configuration',
+  },
+  {
+    id: 'templates',
+    label: 'Templates',
+    icon: <FileText size={18} />,
+    description: 'Edit system prompt templates',
+  },
+  {
+    id: 'debug',
+    label: 'Debug',
+    icon: <Bug size={18} />,
+    description: 'Inspect game state and AI internals',
   },
 ];
 
@@ -80,6 +108,18 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
         )}
         {activeTab === 'playground' && (
           <PromptPlayground embedded />
+        )}
+        {activeTab === 'models' && (
+          <ModelManager embedded />
+        )}
+        {activeTab === 'pricing' && (
+          <PricingManager embedded />
+        )}
+        {activeTab === 'templates' && (
+          <TemplateEditor embedded />
+        )}
+        {activeTab === 'debug' && (
+          <DebugTools embedded />
         )}
       </div>
     </PageLayout>

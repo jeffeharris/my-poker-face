@@ -113,403 +113,17 @@ _dev_only = _admin_required
 
 
 # =============================================================================
-# Dashboard
+# Dashboard Root - Redirect to React Admin
 # =============================================================================
 
 @admin_dashboard_bp.route('/')
 @_dev_only
 def dashboard():
-    """Main analytics dashboard."""
-    range_param = request.args.get('range', '7d')
-    date_modifier = _get_date_modifier(range_param)
-
-    try:
-        with sqlite3.connect(_get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Summary metrics (parameterized query to prevent SQL injection)
-            cursor = conn.execute("""
-                SELECT
-                    COUNT(*) as total_calls,
-                    COALESCE(SUM(estimated_cost), 0) as total_cost,
-                    COALESCE(AVG(latency_ms), 0) as avg_latency,
-                    COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-            """, (date_modifier,))
-            summary = dict(cursor.fetchone())
-
-            # Cost by provider (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    provider,
-                    COUNT(*) as calls,
-                    COALESCE(SUM(estimated_cost), 0) as cost
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                GROUP BY provider
-                ORDER BY cost DESC
-            """, (date_modifier,))
-            cost_by_provider = [dict(row) for row in cursor.fetchall()]
-
-            # Calls by type (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    call_type,
-                    COUNT(*) as calls,
-                    COALESCE(SUM(estimated_cost), 0) as cost
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                GROUP BY call_type
-                ORDER BY calls DESC
-            """, (date_modifier,))
-            calls_by_type = [dict(row) for row in cursor.fetchall()]
-
-        return _render_dashboard(summary, cost_by_provider, calls_by_type, range_param)
-
-    except Exception as e:
-        logger.error(f"Dashboard error: {e}")
-        return _render_dashboard_error(str(e))
-
-
-def _render_dashboard(summary, cost_by_provider, calls_by_type, range_param):
-    """Render the dashboard HTML."""
-
-    # Provider colors for charts
-    provider_colors = {
-        'openai': '#10b981',
-        'anthropic': '#f59e0b',
-        'groq': '#3b82f6',
-        'deepseek': '#8b5cf6',
-        'mistral': '#ef4444',
-        'google': '#06b6d4',
-        'xai': '#ec4899',
-    }
-
-    # Build provider data for chart
-    provider_labels = [p['provider'] or 'unknown' for p in cost_by_provider]
-    provider_costs = [p['cost'] for p in cost_by_provider]
-    provider_colors_list = [provider_colors.get(p, '#6b7280') for p in provider_labels]
-
-    # Build call type data for chart
-    type_labels = [t['call_type'] or 'unknown' for t in calls_by_type]
-    type_counts = [t['calls'] for t in calls_by_type]
-
-    html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Admin Dashboard Dashboard</title>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <style>
-            * {{ box-sizing: border-box; }}
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #1a1a2e;
-                color: #eee;
-                margin: 0;
-                padding: 0;
-            }}
-            .sidebar {{
-                width: 200px;
-                background: #16213e;
-                position: fixed;
-                height: 100%;
-                padding: 20px;
-            }}
-            .sidebar h2 {{
-                color: #00d4ff;
-                margin: 0 0 30px 0;
-                font-size: 1.2em;
-            }}
-            .sidebar nav a {{
-                display: block;
-                color: #aaa;
-                text-decoration: none;
-                padding: 10px 15px;
-                margin: 5px 0;
-                border-radius: 6px;
-                transition: all 0.2s;
-            }}
-            .sidebar nav a:hover {{
-                background: #0f3460;
-                color: #eee;
-            }}
-            .sidebar nav a.active {{
-                background: #4ecca3;
-                color: #1a1a2e;
-            }}
-            .content {{
-                margin-left: 220px;
-                padding: 30px;
-            }}
-            h1 {{
-                color: #00d4ff;
-                margin: 0 0 10px 0;
-            }}
-            .subtitle {{
-                color: #888;
-                margin-bottom: 30px;
-            }}
-            .date-selector {{
-                margin-bottom: 30px;
-            }}
-            .date-selector button {{
-                background: #0f3460;
-                color: #eee;
-                border: none;
-                padding: 8px 16px;
-                margin-right: 10px;
-                border-radius: 4px;
-                cursor: pointer;
-            }}
-            .date-selector button.active {{
-                background: #4ecca3;
-                color: #1a1a2e;
-            }}
-            .metrics-grid {{
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 20px;
-                margin-bottom: 30px;
-            }}
-            .metric-card {{
-                background: #16213e;
-                padding: 20px;
-                border-radius: 8px;
-                text-align: center;
-            }}
-            .metric-value {{
-                font-size: 2em;
-                font-weight: bold;
-                color: #4ecca3;
-            }}
-            .metric-label {{
-                color: #888;
-                margin-top: 5px;
-            }}
-            .charts-row {{
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
-                margin-bottom: 30px;
-            }}
-            .chart-card {{
-                background: #16213e;
-                padding: 20px;
-                border-radius: 8px;
-            }}
-            .chart-card h3 {{
-                color: #eee;
-                margin: 0 0 15px 0;
-            }}
-            .chart-container {{
-                height: 300px;
-            }}
-            .table-card {{
-                background: #16213e;
-                padding: 20px;
-                border-radius: 8px;
-                margin-bottom: 20px;
-            }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            th, td {{
-                padding: 12px;
-                text-align: left;
-                border-bottom: 1px solid #0f3460;
-            }}
-            th {{
-                color: #888;
-                font-weight: normal;
-            }}
-            .cost {{ color: #4ecca3; }}
-            .error {{ color: #ef4444; }}
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <h2>Admin Dashboard</h2>
-            <nav>
-                <a href="/admin/" class="active">Dashboard</a>
-                <a href="/admin/costs">Cost Analysis</a>
-                <a href="/admin/performance">Performance</a>
-                <a href="/admin/prompts">Prompts</a>
-                <a href="/admin/models">Models</a>
-                <a href="/admin/pricing">Pricing</a>
-                <a href="/admin/debug">Debug Tools</a>
-            </nav>
-        </div>
-
-        <div class="content">
-            <h1>Admin Dashboard Dashboard</h1>
-            <p class="subtitle">Monitor API usage, costs, and performance across providers</p>
-
-            <div class="date-selector">
-                <button onclick="setRange('24h')" class="{'active' if range_param == '24h' else ''}">24 hours</button>
-                <button onclick="setRange('7d')" class="{'active' if range_param == '7d' else ''}">7 days</button>
-                <button onclick="setRange('30d')" class="{'active' if range_param == '30d' else ''}">30 days</button>
-                <button onclick="setRange('all')" class="{'active' if range_param == 'all' else ''}">All time</button>
-            </div>
-
-            <div class="metrics-grid">
-                <div class="metric-card">
-                    <div class="metric-value">{summary['total_calls']:,}</div>
-                    <div class="metric-label">API Calls</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value cost">${summary['total_cost']:.4f}</div>
-                    <div class="metric-label">Total Cost</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value">{summary['avg_latency']:.0f}ms</div>
-                    <div class="metric-label">Avg Latency</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value {'error' if summary['error_rate'] > 5 else ''}">{summary['error_rate']:.1f}%</div>
-                    <div class="metric-label">Error Rate</div>
-                </div>
-            </div>
-
-            <div class="charts-row">
-                <div class="chart-card">
-                    <h3>Cost by Provider</h3>
-                    <div class="chart-container">
-                        <canvas id="providerChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-card">
-                    <h3>Calls by Type</h3>
-                    <div class="chart-container">
-                        <canvas id="typeChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <div class="table-card">
-                <h3>Provider Breakdown</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Provider</th>
-                            <th>Calls</th>
-                            <th>Cost</th>
-                            <th>Avg Cost/Call</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-    '''
-
-    for p in cost_by_provider:
-        avg_cost = p['cost'] / p['calls'] if p['calls'] > 0 else 0
-        html += f'''
-                        <tr>
-                            <td>{p['provider'] or 'unknown'}</td>
-                            <td>{p['calls']:,}</td>
-                            <td class="cost">${p['cost']:.4f}</td>
-                            <td class="cost">${avg_cost:.6f}</td>
-                        </tr>
-        '''
-
-    html += f'''
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <script>
-            function setRange(range) {{
-                window.location.href = '/admin/?range=' + range;
-            }}
-
-            // Provider pie chart
-            new Chart(document.getElementById('providerChart'), {{
-                type: 'doughnut',
-                data: {{
-                    labels: {provider_labels},
-                    datasets: [{{
-                        data: {provider_costs},
-                        backgroundColor: {provider_colors_list}
-                    }}]
-                }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {{
-                        legend: {{
-                            position: 'right',
-                            labels: {{ color: '#eee' }}
-                        }},
-                        tooltip: {{
-                            callbacks: {{
-                                label: function(ctx) {{
-                                    return ctx.label + ': $' + ctx.raw.toFixed(4);
-                                }}
-                            }}
-                        }}
-                    }}
-                }}
-            }});
-
-            // Call type bar chart
-            new Chart(document.getElementById('typeChart'), {{
-                type: 'bar',
-                data: {{
-                    labels: {type_labels},
-                    datasets: [{{
-                        label: 'Calls',
-                        data: {type_counts},
-                        backgroundColor: '#4ecca3'
-                    }}]
-                }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    indexAxis: 'y',
-                    plugins: {{
-                        legend: {{ display: false }}
-                    }},
-                    scales: {{
-                        x: {{
-                            ticks: {{ color: '#888' }},
-                            grid: {{ color: '#0f3460' }}
-                        }},
-                        y: {{
-                            ticks: {{ color: '#eee' }},
-                            grid: {{ display: false }}
-                        }}
-                    }}
-                }}
-            }});
-        </script>
-    </body>
-    </html>
-    '''
-
-    return html
-
-
-def _render_dashboard_error(error: str):
-    """Render error page."""
-    return f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Admin Dashboard - Error</title>
-        <style>
-            body {{ font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 40px; }}
-            .error {{ background: #ef4444; padding: 20px; border-radius: 8px; }}
-        </style>
-    </head>
-    <body>
-        <h1>Analytics Error</h1>
-        <div class="error">{error}</div>
-        <p><a href="/admin/" style="color: #4ecca3;">Try again</a></p>
-    </body>
-    </html>
-    '''
+    """Redirect to React admin dashboard."""
+    return jsonify({
+        'message': 'Admin dashboard has moved to React UI',
+        'redirect': '/?view=admin'
+    })
 
 
 # =============================================================================
@@ -545,709 +159,59 @@ def api_summary():
 
 
 # =============================================================================
-# Cost Analysis
+# Cost Analysis - Redirect to React Admin
 # =============================================================================
 
 @admin_dashboard_bp.route('/costs')
 @_dev_only
 def costs():
-    """Cost analysis page with detailed breakdowns."""
-    range_param = request.args.get('range', '7d')
-    date_modifier = _get_date_modifier(range_param)
-
-    try:
-        with sqlite3.connect(_get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Cost by model (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    provider,
-                    model,
-                    COUNT(*) as calls,
-                    SUM(input_tokens) as input_tokens,
-                    SUM(output_tokens) as output_tokens,
-                    COALESCE(SUM(estimated_cost), 0) as cost
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                GROUP BY provider, model
-                ORDER BY cost DESC
-            """, (date_modifier,))
-            by_model = [dict(row) for row in cursor.fetchall()]
-
-            # Cost by call type (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    call_type,
-                    COUNT(*) as calls,
-                    SUM(input_tokens) as input_tokens,
-                    SUM(output_tokens) as output_tokens,
-                    COALESCE(SUM(estimated_cost), 0) as cost
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                GROUP BY call_type
-                ORDER BY cost DESC
-            """, (date_modifier,))
-            by_type = [dict(row) for row in cursor.fetchall()]
-
-            # Daily time series (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    DATE(created_at) as date,
-                    provider,
-                    COALESCE(SUM(estimated_cost), 0) as cost,
-                    COUNT(*) as calls
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                GROUP BY DATE(created_at), provider
-                ORDER BY date
-            """, (date_modifier,))
-            time_series = [dict(row) for row in cursor.fetchall()]
-
-        return _render_costs(by_model, by_type, time_series, range_param)
-
-    except Exception as e:
-        logger.error(f"Costs error: {e}")
-        return _render_dashboard_error(str(e))
-
-
-def _render_costs(by_model, by_type, time_series, range_param):
-    """Render costs page HTML."""
-
-    # Build time series data for chart
-    dates = sorted(set(t['date'] for t in time_series))
-    providers = sorted(set(t['provider'] for t in time_series if t['provider']))
-
-    provider_colors = {
-        'openai': '#10b981', 'anthropic': '#f59e0b', 'groq': '#3b82f6',
-        'deepseek': '#8b5cf6', 'mistral': '#ef4444', 'google': '#06b6d4', 'xai': '#ec4899',
-    }
-
-    # Build datasets for stacked bar chart
-    datasets_js = []
-    for provider in providers:
-        data = []
-        for date in dates:
-            match = next((t for t in time_series if t['date'] == date and t['provider'] == provider), None)
-            data.append(match['cost'] if match else 0)
-        datasets_js.append({
-            'label': provider,
-            'data': data,
-            'backgroundColor': provider_colors.get(provider, '#6b7280')
-        })
-
-    html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Cost Analysis - Admin Dashboard</title>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <style>
-            * {{ box-sizing: border-box; }}
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }}
-            .sidebar {{ width: 200px; background: #16213e; position: fixed; height: 100%; padding: 20px; }}
-            .sidebar h2 {{ color: #00d4ff; margin: 0 0 30px 0; font-size: 1.2em; }}
-            .sidebar nav a {{ display: block; color: #aaa; text-decoration: none; padding: 10px 15px; margin: 5px 0; border-radius: 6px; }}
-            .sidebar nav a:hover {{ background: #0f3460; color: #eee; }}
-            .sidebar nav a.active {{ background: #4ecca3; color: #1a1a2e; }}
-            .content {{ margin-left: 220px; padding: 30px; }}
-            h1 {{ color: #00d4ff; margin: 0 0 10px 0; }}
-            .subtitle {{ color: #888; margin-bottom: 30px; }}
-            .date-selector {{ margin-bottom: 30px; }}
-            .date-selector button {{ background: #0f3460; color: #eee; border: none; padding: 8px 16px; margin-right: 10px; border-radius: 4px; cursor: pointer; }}
-            .date-selector button.active {{ background: #4ecca3; color: #1a1a2e; }}
-            .card {{ background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-            .card h3 {{ margin: 0 0 15px 0; color: #eee; }}
-            table {{ width: 100%; border-collapse: collapse; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #0f3460; }}
-            th {{ color: #888; font-weight: normal; }}
-            .cost {{ color: #4ecca3; }}
-            .chart-container {{ height: 300px; }}
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <h2>Admin Dashboard</h2>
-            <nav>
-                <a href="/admin/">Dashboard</a>
-                <a href="/admin/costs" class="active">Cost Analysis</a>
-                <a href="/admin/performance">Performance</a>
-                <a href="/admin/prompts">Prompts</a>
-                <a href="/admin/models">Models</a>
-                <a href="/admin/pricing">Pricing</a>
-                <a href="/admin/debug">Debug Tools</a>
-            </nav>
-        </div>
-        <div class="content">
-            <h1>Cost Analysis</h1>
-            <p class="subtitle">Breakdown of API costs by model and call type</p>
-
-            <div class="date-selector">
-                <button onclick="setRange('24h')" class="{'active' if range_param == '24h' else ''}">24 hours</button>
-                <button onclick="setRange('7d')" class="{'active' if range_param == '7d' else ''}">7 days</button>
-                <button onclick="setRange('30d')" class="{'active' if range_param == '30d' else ''}">30 days</button>
-                <button onclick="setRange('all')" class="{'active' if range_param == 'all' else ''}">All time</button>
-            </div>
-
-            <div class="card">
-                <h3>Cost Over Time</h3>
-                <div class="chart-container">
-                    <canvas id="timeChart"></canvas>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>Cost by Model</h3>
-                <table>
-                    <thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost</th></tr></thead>
-                    <tbody>
-    '''
-
-    for m in by_model:
-        html += f'''
-                        <tr>
-                            <td>{m['provider'] or 'unknown'}</td>
-                            <td>{m['model'] or 'unknown'}</td>
-                            <td>{m['calls']:,}</td>
-                            <td>{(m['input_tokens'] or 0):,}</td>
-                            <td>{(m['output_tokens'] or 0):,}</td>
-                            <td class="cost">${m['cost']:.4f}</td>
-                        </tr>
-        '''
-
-    html += '''
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="card">
-                <h3>Cost by Call Type</h3>
-                <table>
-                    <thead><tr><th>Call Type</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost</th></tr></thead>
-                    <tbody>
-    '''
-
-    for t in by_type:
-        html += f'''
-                        <tr>
-                            <td>{t['call_type'] or 'unknown'}</td>
-                            <td>{t['calls']:,}</td>
-                            <td>{(t['input_tokens'] or 0):,}</td>
-                            <td>{(t['output_tokens'] or 0):,}</td>
-                            <td class="cost">${t['cost']:.4f}</td>
-                        </tr>
-        '''
-
-    html += f'''
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <script>
-            function setRange(range) {{ window.location.href = '/admin/costs?range=' + range; }}
-
-            new Chart(document.getElementById('timeChart'), {{
-                type: 'bar',
-                data: {{
-                    labels: {list(dates)},
-                    datasets: {datasets_js}
-                }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {{
-                        x: {{ stacked: true, ticks: {{ color: '#888' }}, grid: {{ color: '#0f3460' }} }},
-                        y: {{ stacked: true, ticks: {{ color: '#888', callback: v => '$' + v.toFixed(2) }}, grid: {{ color: '#0f3460' }} }}
-                    }},
-                    plugins: {{ legend: {{ labels: {{ color: '#eee' }} }} }}
-                }}
-            }});
-        </script>
-    </body>
-    </html>
-    '''
-    return html
+    """Redirect to React admin dashboard."""
+    return jsonify({
+        'message': 'Cost analysis has moved to React UI',
+        'redirect': '/?view=admin'
+    })
 
 
 # =============================================================================
-# Performance Metrics
+# Performance Metrics - Redirect to React Admin
 # =============================================================================
 
 @admin_dashboard_bp.route('/performance')
 @_dev_only
 def performance():
-    """Performance metrics page with latency and error analysis."""
-    range_param = request.args.get('range', '7d')
-    date_modifier = _get_date_modifier(range_param)
-
-    try:
-        with sqlite3.connect(_get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Latency by provider (parameterized query)
-            cursor = conn.execute("""
-                SELECT provider, latency_ms
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                  AND status = 'ok'
-                  AND latency_ms IS NOT NULL
-            """, (date_modifier,))
-            latency_data = {}
-            for row in cursor.fetchall():
-                provider = row['provider'] or 'unknown'
-                if provider not in latency_data:
-                    latency_data[provider] = []
-                latency_data[provider].append(row['latency_ms'])
-
-            # Calculate percentiles (pure Python, no numpy needed)
-            def percentile(data, p):
-                """Calculate percentile without numpy."""
-                if not data:
-                    return 0
-                sorted_data = sorted(data)
-                k = (len(sorted_data) - 1) * p / 100
-                f = int(k)
-                c = f + 1 if f + 1 < len(sorted_data) else f
-                return sorted_data[f] + (sorted_data[c] - sorted_data[f]) * (k - f)
-
-            latency_stats = []
-            for provider, latencies in latency_data.items():
-                if latencies:
-                    latency_stats.append({
-                        'provider': provider,
-                        'count': len(latencies),
-                        'p50': percentile(latencies, 50),
-                        'p90': percentile(latencies, 90),
-                        'p95': percentile(latencies, 95),
-                        'p99': percentile(latencies, 99),
-                    })
-
-            # Error rates by provider/model (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    provider,
-                    model,
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors,
-                    COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                GROUP BY provider, model
-                ORDER BY error_rate DESC
-            """, (date_modifier,))
-            error_rates = [dict(row) for row in cursor.fetchall()]
-
-            # Token efficiency (parameterized query)
-            cursor = conn.execute("""
-                SELECT
-                    provider,
-                    AVG(CAST(output_tokens AS FLOAT) / NULLIF(input_tokens, 0)) as output_ratio,
-                    SUM(cached_tokens) * 100.0 / NULLIF(SUM(input_tokens), 0) as cache_rate,
-                    COUNT(*) as calls
-                FROM api_usage
-                WHERE created_at >= datetime('now', ?)
-                  AND status = 'ok'
-                  AND input_tokens > 0
-                GROUP BY provider
-            """, (date_modifier,))
-            efficiency = [dict(row) for row in cursor.fetchall()]
-
-        return _render_performance(latency_stats, error_rates, efficiency, range_param)
-
-    except Exception as e:
-        logger.error(f"Performance error: {e}")
-        return _render_dashboard_error(str(e))
-
-
-def _render_performance(latency_stats, error_rates, efficiency, range_param):
-    """Render performance page HTML."""
-
-    html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Performance - Admin Dashboard</title>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <style>
-            * {{ box-sizing: border-box; }}
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }}
-            .sidebar {{ width: 200px; background: #16213e; position: fixed; height: 100%; padding: 20px; }}
-            .sidebar h2 {{ color: #00d4ff; margin: 0 0 30px 0; font-size: 1.2em; }}
-            .sidebar nav a {{ display: block; color: #aaa; text-decoration: none; padding: 10px 15px; margin: 5px 0; border-radius: 6px; }}
-            .sidebar nav a:hover {{ background: #0f3460; color: #eee; }}
-            .sidebar nav a.active {{ background: #4ecca3; color: #1a1a2e; }}
-            .content {{ margin-left: 220px; padding: 30px; }}
-            h1 {{ color: #00d4ff; margin: 0 0 10px 0; }}
-            .subtitle {{ color: #888; margin-bottom: 30px; }}
-            .date-selector {{ margin-bottom: 30px; }}
-            .date-selector button {{ background: #0f3460; color: #eee; border: none; padding: 8px 16px; margin-right: 10px; border-radius: 4px; cursor: pointer; }}
-            .date-selector button.active {{ background: #4ecca3; color: #1a1a2e; }}
-            .card {{ background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-            .card h3 {{ margin: 0 0 15px 0; color: #eee; }}
-            table {{ width: 100%; border-collapse: collapse; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #0f3460; }}
-            th {{ color: #888; font-weight: normal; }}
-            .good {{ color: #4ecca3; }}
-            .bad {{ color: #ef4444; }}
-            .warn {{ color: #f59e0b; }}
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <h2>Admin Dashboard</h2>
-            <nav>
-                <a href="/admin/">Dashboard</a>
-                <a href="/admin/costs">Cost Analysis</a>
-                <a href="/admin/performance" class="active">Performance</a>
-                <a href="/admin/prompts">Prompts</a>
-                <a href="/admin/models">Models</a>
-                <a href="/admin/pricing">Pricing</a>
-                <a href="/admin/debug">Debug Tools</a>
-            </nav>
-        </div>
-        <div class="content">
-            <h1>Performance Metrics</h1>
-            <p class="subtitle">Latency percentiles, error rates, and token efficiency</p>
-
-            <div class="date-selector">
-                <button onclick="setRange('24h')" class="{'active' if range_param == '24h' else ''}">24 hours</button>
-                <button onclick="setRange('7d')" class="{'active' if range_param == '7d' else ''}">7 days</button>
-                <button onclick="setRange('30d')" class="{'active' if range_param == '30d' else ''}">30 days</button>
-                <button onclick="setRange('all')" class="{'active' if range_param == 'all' else ''}">All time</button>
-            </div>
-
-            <div class="card">
-                <h3>Latency Percentiles by Provider</h3>
-                <table>
-                    <thead><tr><th>Provider</th><th>Calls</th><th>P50</th><th>P90</th><th>P95</th><th>P99</th></tr></thead>
-                    <tbody>
-    '''
-
-    for s in latency_stats:
-        html += f'''
-                        <tr>
-                            <td>{s['provider']}</td>
-                            <td>{s['count']:,}</td>
-                            <td>{s['p50']:.0f}ms</td>
-                            <td>{s['p90']:.0f}ms</td>
-                            <td class="{'warn' if s['p95'] > 10000 else ''}">{s['p95']:.0f}ms</td>
-                            <td class="{'bad' if s['p99'] > 20000 else 'warn' if s['p99'] > 10000 else ''}">{s['p99']:.0f}ms</td>
-                        </tr>
-        '''
-
-    html += '''
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="card">
-                <h3>Error Rates by Model</h3>
-                <table>
-                    <thead><tr><th>Provider</th><th>Model</th><th>Total Calls</th><th>Errors</th><th>Error Rate</th></tr></thead>
-                    <tbody>
-    '''
-
-    for e in error_rates[:20]:  # Limit to top 20
-        rate_class = 'bad' if e['error_rate'] > 5 else 'warn' if e['error_rate'] > 1 else 'good'
-        html += f'''
-                        <tr>
-                            <td>{e['provider'] or 'unknown'}</td>
-                            <td>{e['model'] or 'unknown'}</td>
-                            <td>{e['total']:,}</td>
-                            <td>{e['errors']}</td>
-                            <td class="{rate_class}">{e['error_rate']:.1f}%</td>
-                        </tr>
-        '''
-
-    html += '''
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="card">
-                <h3>Token Efficiency by Provider</h3>
-                <table>
-                    <thead><tr><th>Provider</th><th>Calls</th><th>Output/Input Ratio</th><th>Cache Hit Rate</th></tr></thead>
-                    <tbody>
-    '''
-
-    for e in efficiency:
-        cache_class = 'good' if (e['cache_rate'] or 0) > 50 else ''
-        html += f'''
-                        <tr>
-                            <td>{e['provider'] or 'unknown'}</td>
-                            <td>{e['calls']:,}</td>
-                            <td>{(e['output_ratio'] or 0):.2f}x</td>
-                            <td class="{cache_class}">{(e['cache_rate'] or 0):.1f}%</td>
-                        </tr>
-        '''
-
-    html += '''
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <script>
-            function setRange(range) { window.location.href = '/admin/performance?range=' + range; }
-        </script>
-    </body>
-    </html>
-    '''
-    return html
+    """Redirect to React admin dashboard."""
+    return jsonify({
+        'message': 'Performance metrics has moved to React UI',
+        'redirect': '/?view=admin'
+    })
 
 
 # =============================================================================
-# Prompt Viewer
+# Prompt Viewer - Redirect to React Admin
 # =============================================================================
 
 @admin_dashboard_bp.route('/prompts')
 @_dev_only
 def prompts():
-    """Prompt viewer with filtering and pagination."""
-    range_param = request.args.get('range', '7d')
-    call_type = request.args.get('call_type', '')
-    provider = request.args.get('provider', '')
-    page = int(request.args.get('page', 1))
-    per_page = 50
-
-    date_modifier = _get_date_modifier(range_param)
-
-    try:
-        with sqlite3.connect(_get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Build query with filters (all parameterized to prevent SQL injection)
-            where_clauses = ["created_at >= datetime('now', ?)"]
-            params = [date_modifier]
-
-            if call_type:
-                where_clauses.append("call_type = ?")
-                params.append(call_type)
-            if provider:
-                where_clauses.append("provider = ?")
-                params.append(provider)
-
-            where_sql = " AND ".join(where_clauses)
-
-            # Count total
-            cursor = conn.execute(f"SELECT COUNT(*) FROM api_usage WHERE {where_sql}", params)
-            total = cursor.fetchone()[0]
-
-            # Get page of results
-            offset = (page - 1) * per_page
-            cursor = conn.execute(f"""
-                SELECT
-                    id, created_at, provider, model, call_type, player_name, game_id,
-                    input_tokens, output_tokens, latency_ms, estimated_cost, status
-                FROM api_usage
-                WHERE {where_sql}
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-            """, params + [per_page, offset])
-            rows = [dict(row) for row in cursor.fetchall()]
-
-            # Get distinct call types for filter
-            cursor = conn.execute("SELECT DISTINCT call_type FROM api_usage ORDER BY call_type")
-            call_types = [r[0] for r in cursor.fetchall() if r[0]]
-
-            # Get distinct providers for filter
-            cursor = conn.execute("SELECT DISTINCT provider FROM api_usage ORDER BY provider")
-            providers = [r[0] for r in cursor.fetchall() if r[0]]
-
-        return _render_prompts(rows, total, page, per_page, call_types, providers, range_param, call_type, provider)
-
-    except Exception as e:
-        logger.error(f"Prompts error: {e}")
-        return _render_dashboard_error(str(e))
-
-
-def _render_prompts(rows, total, page, per_page, call_types, providers, range_param, selected_type, selected_provider):
-    """Render prompts page HTML."""
-    total_pages = (total + per_page - 1) // per_page
-
-    html = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Prompts - Admin Dashboard</title>
-        <style>
-            * {{ box-sizing: border-box; }}
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }}
-            .sidebar {{ width: 200px; background: #16213e; position: fixed; height: 100%; padding: 20px; }}
-            .sidebar h2 {{ color: #00d4ff; margin: 0 0 30px 0; font-size: 1.2em; }}
-            .sidebar nav a {{ display: block; color: #aaa; text-decoration: none; padding: 10px 15px; margin: 5px 0; border-radius: 6px; }}
-            .sidebar nav a:hover {{ background: #0f3460; color: #eee; }}
-            .sidebar nav a.active {{ background: #4ecca3; color: #1a1a2e; }}
-            .content {{ margin-left: 220px; padding: 30px; }}
-            h1 {{ color: #00d4ff; margin: 0 0 10px 0; }}
-            .subtitle {{ color: #888; margin-bottom: 20px; }}
-            .filters {{ margin-bottom: 20px; display: flex; gap: 15px; flex-wrap: wrap; }}
-            .filters select, .filters button {{ background: #0f3460; color: #eee; border: 1px solid #4ecca3; padding: 8px 12px; border-radius: 4px; }}
-            .card {{ background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-            table {{ width: 100%; border-collapse: collapse; font-size: 0.9em; }}
-            th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #0f3460; }}
-            th {{ color: #888; font-weight: normal; }}
-            .cost {{ color: #4ecca3; }}
-            .error {{ color: #ef4444; }}
-            .pagination {{ display: flex; gap: 10px; align-items: center; margin-top: 20px; }}
-            .pagination a, .pagination span {{ padding: 8px 12px; background: #0f3460; border-radius: 4px; text-decoration: none; color: #eee; }}
-            .pagination a:hover {{ background: #4ecca3; color: #1a1a2e; }}
-            .pagination .current {{ background: #4ecca3; color: #1a1a2e; }}
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <h2>Admin Dashboard</h2>
-            <nav>
-                <a href="/admin/">Dashboard</a>
-                <a href="/admin/costs">Cost Analysis</a>
-                <a href="/admin/performance">Performance</a>
-                <a href="/admin/prompts" class="active">Prompts</a>
-                <a href="/admin/models">Models</a>
-                <a href="/admin/pricing">Pricing</a>
-                <a href="/admin/debug">Debug Tools</a>
-            </nav>
-        </div>
-        <div class="content">
-            <h1>Prompt Viewer</h1>
-            <p class="subtitle">Browse all LLM API calls ({total:,} total)</p>
-
-            <div class="filters">
-                <select id="range" onchange="applyFilters()">
-                    <option value="24h" {'selected' if range_param == '24h' else ''}>Last 24 hours</option>
-                    <option value="7d" {'selected' if range_param == '7d' else ''}>Last 7 days</option>
-                    <option value="30d" {'selected' if range_param == '30d' else ''}>Last 30 days</option>
-                    <option value="all" {'selected' if range_param == 'all' else ''}>All time</option>
-                </select>
-                <select id="call_type" onchange="applyFilters()">
-                    <option value="">All call types</option>
-    '''
-
-    for ct in call_types:
-        html += f'<option value="{ct}" {"selected" if ct == selected_type else ""}>{ct}</option>'
-
-    html += '''
-                </select>
-                <select id="provider" onchange="applyFilters()">
-                    <option value="">All providers</option>
-    '''
-
-    for p in providers:
-        html += f'<option value="{p}" {"selected" if p == selected_provider else ""}>{p}</option>'
-
-    html += '''
-                </select>
-            </div>
-
-            <div class="card">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Provider</th>
-                            <th>Model</th>
-                            <th>Type</th>
-                            <th>Player</th>
-                            <th>In/Out Tokens</th>
-                            <th>Latency</th>
-                            <th>Cost</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-    '''
-
-    for row in rows:
-        status_class = 'error' if row['status'] == 'error' else ''
-        html += f'''
-                        <tr>
-                            <td>{row['created_at'][:19]}</td>
-                            <td>{row['provider'] or '-'}</td>
-                            <td>{row['model'] or '-'}</td>
-                            <td>{row['call_type'] or '-'}</td>
-                            <td>{row['player_name'] or '-'}</td>
-                            <td>{(row['input_tokens'] or 0):,} / {(row['output_tokens'] or 0):,}</td>
-                            <td>{(row['latency_ms'] or 0):,}ms</td>
-                            <td class="cost">${(row['estimated_cost'] or 0):.4f}</td>
-                            <td class="{status_class}">{row['status']}</td>
-                        </tr>
-        '''
-
-    html += f'''
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="pagination">
-    '''
-
-    if page > 1:
-        html += f'<a href="javascript:goPage({page - 1})">Previous</a>'
-    html += f'<span class="current">Page {page} of {total_pages}</span>'
-    if page < total_pages:
-        html += f'<a href="javascript:goPage({page + 1})">Next</a>'
-
-    html += f'''
-            </div>
-        </div>
-
-        <script>
-            function applyFilters() {{
-                const range = document.getElementById('range').value;
-                const callType = document.getElementById('call_type').value;
-                const provider = document.getElementById('provider').value;
-                let url = '/admin/prompts?range=' + range;
-                if (callType) url += '&call_type=' + encodeURIComponent(callType);
-                if (provider) url += '&provider=' + encodeURIComponent(provider);
-                window.location.href = url;
-            }}
-            function goPage(page) {{
-                const params = new URLSearchParams(window.location.search);
-                params.set('page', page);
-                window.location.href = '/admin/prompts?' + params.toString();
-            }}
-        </script>
-    </body>
-    </html>
-    '''
-    return html
+    """Redirect to React admin dashboard."""
+    return jsonify({
+        'message': 'Prompt viewer has moved to React UI',
+        'redirect': '/?view=admin'
+    })
 
 
 # =============================================================================
-# Models Manager
+# Models Manager - Redirect to React Admin
 # =============================================================================
 
 @admin_dashboard_bp.route('/models')
 @_dev_only
 def models():
-    """Model manager page - enable/disable models for game UI."""
-    try:
-        with sqlite3.connect(_get_db_path()) as conn:
-            conn.row_factory = sqlite3.Row
-
-            # Check if table exists (migration may not have run)
-            cursor = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='enabled_models'
-            """)
-            if not cursor.fetchone():
-                return _render_models_migration_needed()
-
-            cursor = conn.execute("""
-                SELECT id, provider, model, enabled, display_name, notes,
-                       supports_reasoning, supports_json_mode, supports_image_gen
-                FROM enabled_models
-                ORDER BY provider, sort_order
-            """)
-            rows = [dict(row) for row in cursor.fetchall()]
-
-        return _render_models(rows)
-
-    except Exception as e:
-        logger.error(f"Models error: {e}")
-        return _render_dashboard_error(str(e))
+    """Redirect to React admin dashboard."""
+    return jsonify({
+        'message': 'Model manager has moved to React UI',
+        'redirect': '/?view=admin'
+    })
 
 
 def _render_models_migration_needed():
@@ -1470,31 +434,44 @@ def api_toggle_model(model_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# =============================================================================
-# Pricing Manager (Placeholder - UI for existing API)
-# =============================================================================
-
-@admin_dashboard_bp.route('/pricing')
+@admin_dashboard_bp.route('/api/models', methods=['GET'])
 @_dev_only
-def pricing():
-    """Pricing manager page - UI for existing pricing API."""
+def api_list_models():
+    """List all models with their enabled status."""
     try:
         with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
+            # Check if table exists (migration may not have run)
             cursor = conn.execute("""
-                SELECT id, provider, model, unit, cost, valid_from, valid_until, notes
-                FROM model_pricing
-                WHERE valid_until IS NULL OR valid_until > datetime('now')
-                ORDER BY provider, model, unit
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='enabled_models'
             """)
-            rows = [dict(row) for row in cursor.fetchall()]
+            if not cursor.fetchone():
+                return jsonify({
+                    'success': False,
+                    'error': 'Migration required: enabled_models table does not exist'
+                }), 503
 
-        return _render_pricing(rows)
-
+            cursor = conn.execute("""
+                SELECT id, provider, model, enabled, display_name, notes,
+                       supports_reasoning, supports_json_mode, supports_image_gen,
+                       sort_order, updated_at
+                FROM enabled_models
+                ORDER BY provider, sort_order
+            """)
+            models = [dict(row) for row in cursor.fetchall()]
+            return jsonify({'success': True, 'models': models})
     except Exception as e:
-        logger.error(f"Pricing error: {e}")
-        return _render_dashboard_error(str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Pricing Manager - Redirect to React Admin
+# Note: The JSON API is at /admin/pricing with GET method (see list_pricing below)
+# =============================================================================
+
+# The route /admin/pricing with GET method returns JSON (see list_pricing function below)
 
 
 def _render_pricing(rows):
@@ -2285,23 +1262,21 @@ def list_models_for_provider(provider: str):
 
 
 # =============================================================================
-# Debug Tools
+# Debug Tools - Redirect to React Admin
 # =============================================================================
 
 @admin_dashboard_bp.route('/debug')
 @_dev_only
 def debug_page():
-    """Debug page with links to debug endpoints."""
-    active_games = game_state_service.list_game_ids()
+    """Redirect to React admin dashboard."""
+    return jsonify({
+        'message': 'Debug tools has moved to React UI',
+        'redirect': '/?view=admin'
+    })
 
-    games_html = ''
-    if active_games:
-        for game_id in active_games:
-            games_html += f'<span class="game-id">{game_id}</span> '
-    else:
-        games_html = '<em>No active games</em>'
 
-    return f'''
+# The following HTML was removed - all admin pages now use React UI
+_LEGACY_DEBUG_HTML = '''
     <!DOCTYPE html>
     <html>
     <head>
