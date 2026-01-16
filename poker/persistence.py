@@ -594,7 +594,7 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
 
-# 24. App settings (v43) - Dynamic configuration
+            # 24. App settings (v43) - Dynamic configuration
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
@@ -683,7 +683,7 @@ class GamePersistence:
             40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
             41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
             42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
-43: (self._migrate_v43_add_app_settings, "Add app_settings table for dynamic configuration"),
+            43: (self._migrate_v43_add_app_settings, "Add app_settings table for dynamic configuration"),
             44: (self._migrate_v44_add_users_table, "Add users table for Google OAuth authentication"),
         }
 

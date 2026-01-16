@@ -191,7 +191,7 @@ class AuthManager:
 
                 google_sub = user_info.get('sub')
                 email = user_info.get('email')
-                name = user_info.get('name', email.split('@')[0] if email else 'User')
+                name = user_info.get('name', email.split('@')[0] if email and '@' in email else 'User')
                 picture = user_info.get('picture')
 
                 if not google_sub or not email:
