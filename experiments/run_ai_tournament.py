@@ -26,11 +26,13 @@ import logging
 import os
 import random
 import sys
+import threading
 import time
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, asdict, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict
 
 import numpy as np
 
@@ -119,6 +121,10 @@ class ExperimentConfig:
     # A/B testing support
     control: Optional[Dict] = None  # ControlConfig as dict
     variants: Optional[List[Dict]] = None  # List of VariantConfig as dicts
+    # Parallel execution settings
+    parallel_tournaments: int = 1  # Number of concurrent tournaments (1 = sequential)
+    stagger_start_delay: float = 0.0  # Seconds between starting parallel workers
+    rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
 
     def __post_init__(self):
         """Validate control/variants structure."""
@@ -180,6 +186,186 @@ class ExperimentConfig:
         """Returns total number of tournaments across all variants."""
         num_variants = len(self.get_variant_configs())
         return self.num_tournaments * num_variants
+
+
+@dataclass
+class RateLimitState:
+    """Thread-safe shared state for rate limit coordination across parallel workers.
+
+    When any worker detects a rate limit, all workers back off using exponential
+    backoff (30s -> 60s -> 120s -> 240s max). Successful API calls reduce pressure.
+    """
+    is_rate_limited: bool = False
+    rate_limit_until: Optional[datetime] = None
+    consecutive_rate_limits: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def check_and_wait(self) -> float:
+        """Check if rate limited and return wait time.
+
+        Returns:
+            Seconds to wait (0 if not rate limited)
+        """
+        with self._lock:
+            if not self.is_rate_limited or self.rate_limit_until is None:
+                return 0.0
+
+            now = datetime.now()
+            if now >= self.rate_limit_until:
+                self.is_rate_limited = False
+                self.rate_limit_until = None
+                return 0.0
+
+            return (self.rate_limit_until - now).total_seconds()
+
+    def signal_rate_limit(self, base_backoff_seconds: float = 30.0):
+        """Signal that a rate limit was hit. Uses exponential backoff."""
+        with self._lock:
+            self.consecutive_rate_limits += 1
+            # Exponential backoff: 30s, 60s, 120s, 240s max
+            actual_backoff = min(
+                base_backoff_seconds * (2 ** (self.consecutive_rate_limits - 1)),
+                240.0
+            )
+            self.is_rate_limited = True
+            self.rate_limit_until = datetime.now() + timedelta(seconds=actual_backoff)
+            logger.warning(
+                f"Rate limit detected (#{self.consecutive_rate_limits}), "
+                f"all workers backing off for {actual_backoff:.1f}s"
+            )
+
+    def signal_success(self):
+        """Signal a successful API call, reducing rate limit pressure."""
+        with self._lock:
+            if self.consecutive_rate_limits > 0:
+                self.consecutive_rate_limits = max(0, self.consecutive_rate_limits - 1)
+
+
+@dataclass
+class TournamentTask:
+    """A tournament to be executed by a parallel worker."""
+    tournament_id: str
+    tournament_number: int  # Global sequence number across all variants
+    variant_label: Optional[str]
+    variant_config: Optional[Dict]
+
+
+@dataclass
+class TournamentOutcome:
+    """Result of a tournament execution attempt (success or failure)."""
+    task: TournamentTask
+    result: Optional[TournamentResult] = None
+    error: Optional[str] = None
+    error_type: Optional[str] = None
+    duration_seconds: float = 0.0
+
+    @property
+    def success(self) -> bool:
+        return self.result is not None and self.error is None
+
+
+class TournamentWorker:
+    """Executes a single tournament with error isolation for parallel execution.
+
+    Each worker:
+    - Creates its own AITournamentRunner instance (thread-local state)
+    - Checks rate limit coordinator before starting
+    - Reports rate limits back to coordinator
+    - Catches and encapsulates all errors without crashing other workers
+    """
+
+    def __init__(
+        self,
+        config: ExperimentConfig,
+        experiment_id: Optional[int],
+        db_path: str,
+        rate_limit_state: RateLimitState,
+    ):
+        self.config = config
+        self.experiment_id = experiment_id
+        self.db_path = db_path
+        self.rate_limit_state = rate_limit_state
+
+    def execute(self, task: TournamentTask) -> TournamentOutcome:
+        """Execute a single tournament with full error isolation.
+
+        Args:
+            task: Tournament task to execute
+
+        Returns:
+            TournamentOutcome with result or error details
+        """
+        start_time = time.time()
+
+        try:
+            # Check rate limit before starting
+            wait_time = self.rate_limit_state.check_and_wait()
+            if wait_time > 0:
+                logger.info(f"Worker waiting {wait_time:.1f}s for rate limit cooldown")
+                time.sleep(wait_time)
+
+            # Create thread-local runner instance
+            runner = AITournamentRunner(self.config, db_path=self.db_path)
+            runner.experiment_id = self.experiment_id
+
+            # Link game to experiment before running (enables live progress tracking)
+            if self.experiment_id:
+                try:
+                    runner.persistence.link_game_to_experiment(
+                        experiment_id=self.experiment_id,
+                        game_id=task.tournament_id,
+                        variant=task.variant_label,
+                        variant_config=task.variant_config,
+                        tournament_number=task.tournament_number,
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not link game to experiment: {e}")
+
+            # Run the tournament
+            result = runner.run_tournament(
+                tournament_id=task.tournament_id,
+                variant_label=task.variant_label,
+                variant_config=task.variant_config,
+            )
+
+            # Save result to JSON
+            runner._save_result(result)
+
+            # Signal success to rate limiter
+            self.rate_limit_state.signal_success()
+
+            duration = time.time() - start_time
+            logger.info(f"Tournament {task.tournament_id} completed in {duration:.1f}s")
+
+            return TournamentOutcome(
+                task=task,
+                result=result,
+                duration_seconds=duration,
+            )
+
+        except Exception as e:
+            duration = time.time() - start_time
+            error_type = type(e).__name__
+            error_msg = str(e)
+
+            # Check if rate limit error and signal coordinator
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                self.rate_limit_state.signal_rate_limit(
+                    self.config.rate_limit_backoff_seconds
+                )
+
+            logger.error(
+                f"Tournament {task.tournament_id} failed after {duration:.1f}s: "
+                f"{error_type}: {error_msg}",
+                exc_info=True
+            )
+
+            return TournamentOutcome(
+                task=task,
+                error=error_msg,
+                error_type=error_type,
+                duration_seconds=duration,
+            )
 
 
 class AITournamentRunner:
@@ -542,9 +728,11 @@ class AITournamentRunner:
 
         For A/B testing experiments (with control/variants), runs num_tournaments
         for each variant configuration. Results are tagged with variant labels.
-        """
-        results = []
 
+        Supports parallel execution when config.parallel_tournaments > 1.
+        Individual tournament failures don't crash the experiment - partial
+        results are collected and failures are tracked in the summary.
+        """
         # Get all variant configurations
         variant_configs = self.config.get_variant_configs()
         is_ab_test = self.config.control is not None
@@ -567,6 +755,9 @@ class AITournamentRunner:
             # Include A/B testing config if present
             'control': self.config.control,
             'variants': self.config.variants,
+            # Parallel execution settings
+            'parallel_tournaments': self.config.parallel_tournaments,
+            'stagger_start_delay': self.config.stagger_start_delay,
         }
 
         # Only create experiment record if not already set (e.g., from web launcher)
@@ -583,68 +774,243 @@ class AITournamentRunner:
         if is_ab_test:
             logger.info(f"Running A/B test with {len(variant_configs)} variants: {[v[0] for v in variant_configs]}")
 
-        # Track tournament number globally across all variants
-        global_tournament_num = 0
+        # Build task queue
+        tasks = self._build_task_queue(variant_configs)
+        logger.info(f"Built task queue with {len(tasks)} tournaments")
 
-        # Iterate over all variants
-        for variant_label, variant_config in variant_configs:
-            variant_info = f" [{variant_label}]" if variant_label else ""
-            logger.info(f"Running {self.config.num_tournaments} tournaments{variant_info}")
+        # Execute based on parallelism setting
+        if self.config.parallel_tournaments <= 1:
+            results, failed = self._run_sequential(tasks)
+        else:
+            results, failed = self._run_parallel(tasks)
 
-            # Run num_tournaments for each variant
-            for i in range(self.config.num_tournaments):
-                global_tournament_num += 1
-
-                # Create unique tournament ID including variant label if present
-                variant_suffix = f"_{variant_label.lower().replace(' ', '_')}" if variant_label else ""
-                tournament_id = f"exp_{self.config.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{variant_suffix}_{i+1}"
-
-                # Reset per-tournament metrics
-                self.api_calls = 0
-                self.total_latency = 0
-                self.total_cost = 0.0
-
-                # Link game to experiment BEFORE running so live_stats can track progress
-                if self.experiment_id:
-                    try:
-                        self.persistence.link_game_to_experiment(
-                            experiment_id=self.experiment_id,
-                            game_id=tournament_id,
-                            variant=variant_label,
-                            variant_config=variant_config if variant_label else None,
-                            tournament_number=global_tournament_num,
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not link game to experiment: {e}")
-
-                result = self.run_tournament(tournament_id, variant_label, variant_config)
-                results.append(result)
-
-                # Save result to file
-                self._save_result(result)
-
-        # Complete experiment with summary
+        # Complete experiment with summary (include failure info)
         if self.experiment_id:
             try:
-                summary = self._compute_experiment_summary(results)
+                summary = self._compute_experiment_summary(results, failed)
                 self.persistence.complete_experiment(self.experiment_id, summary)
             except Exception as e:
                 logger.warning(f"Could not complete experiment: {e}")
 
         return results
 
-    def _compute_experiment_summary(self, results: List[TournamentResult]) -> Dict:
+    def _build_task_queue(
+        self,
+        variant_configs: List[Tuple[Optional[str], Dict]]
+    ) -> List[TournamentTask]:
+        """Build queue of tournament tasks for execution.
+
+        Args:
+            variant_configs: List of (label, config) tuples from get_variant_configs()
+
+        Returns:
+            List of TournamentTask objects
+        """
+        tasks = []
+        global_tournament_num = 0
+        base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        for variant_label, variant_config in variant_configs:
+            for i in range(self.config.num_tournaments):
+                global_tournament_num += 1
+
+                # Create unique tournament ID including variant label if present
+                variant_suffix = f"_{variant_label.lower().replace(' ', '_')}" if variant_label else ""
+                tournament_id = f"exp_{self.config.name}_{base_timestamp}{variant_suffix}_{global_tournament_num}"
+
+                tasks.append(TournamentTask(
+                    tournament_id=tournament_id,
+                    tournament_number=global_tournament_num,
+                    variant_label=variant_label,
+                    variant_config=variant_config,
+                ))
+
+        return tasks
+
+    def _run_sequential(
+        self,
+        tasks: List[TournamentTask]
+    ) -> Tuple[List[TournamentResult], List[TournamentOutcome]]:
+        """Run tournaments sequentially (original behavior).
+
+        Args:
+            tasks: List of tournament tasks to execute
+
+        Returns:
+            Tuple of (successful_results, failed_outcomes)
+        """
+        results = []
+        failed = []
+
+        for task in tasks:
+            variant_info = f" [{task.variant_label}]" if task.variant_label else ""
+            logger.info(f"Running tournament {task.tournament_number}/{len(tasks)}{variant_info}")
+
+            # Reset per-tournament metrics
+            self.api_calls = 0
+            self.total_latency = 0
+            self.total_cost = 0.0
+
+            start_time = time.time()
+
+            try:
+                # Link game to experiment BEFORE running so live_stats can track progress
+                if self.experiment_id:
+                    try:
+                        self.persistence.link_game_to_experiment(
+                            experiment_id=self.experiment_id,
+                            game_id=task.tournament_id,
+                            variant=task.variant_label,
+                            variant_config=task.variant_config if task.variant_label else None,
+                            tournament_number=task.tournament_number,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not link game to experiment: {e}")
+
+                result = self.run_tournament(
+                    task.tournament_id,
+                    task.variant_label,
+                    task.variant_config
+                )
+                results.append(result)
+
+                # Save result to file
+                self._save_result(result)
+
+            except Exception as e:
+                duration = time.time() - start_time
+                error_type = type(e).__name__
+                error_msg = str(e)
+
+                logger.error(
+                    f"Tournament {task.tournament_id} failed: {error_type}: {error_msg}",
+                    exc_info=True
+                )
+
+                failed.append(TournamentOutcome(
+                    task=task,
+                    error=error_msg,
+                    error_type=error_type,
+                    duration_seconds=duration,
+                ))
+
+        logger.info(f"Sequential execution complete: {len(results)} succeeded, {len(failed)} failed")
+        return results, failed
+
+    def _run_parallel(
+        self,
+        tasks: List[TournamentTask]
+    ) -> Tuple[List[TournamentResult], List[TournamentOutcome]]:
+        """Run tournaments in parallel using ThreadPoolExecutor.
+
+        Args:
+            tasks: List of tournament tasks to execute
+
+        Returns:
+            Tuple of (successful_results, failed_outcomes)
+        """
+        results = []
+        failed = []
+
+        # Shared rate limit state across all workers
+        rate_limit_state = RateLimitState()
+
+        max_workers = min(self.config.parallel_tournaments, len(tasks))
+        logger.info(
+            f"Starting parallel execution with {max_workers} workers "
+            f"for {len(tasks)} tournaments"
+        )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit tasks with staggered starts
+            futures = {}
+            for i, task in enumerate(tasks):
+                # Stagger start times to reduce initial burst on LLM API
+                if i > 0 and self.config.stagger_start_delay > 0:
+                    time.sleep(self.config.stagger_start_delay)
+
+                worker = TournamentWorker(
+                    config=self.config,
+                    experiment_id=self.experiment_id,
+                    db_path=self.db_path,
+                    rate_limit_state=rate_limit_state,
+                )
+
+                future = executor.submit(worker.execute, task)
+                futures[future] = task
+
+            # Collect results as they complete
+            for future in as_completed(futures):
+                task = futures[future]
+                try:
+                    outcome = future.result()
+                    if outcome.success:
+                        results.append(outcome.result)
+                        logger.info(
+                            f"Tournament {task.tournament_id} completed "
+                            f"({len(results)}/{len(tasks)} done)"
+                        )
+                    else:
+                        failed.append(outcome)
+                        logger.warning(
+                            f"Tournament {task.tournament_id} failed: {outcome.error}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error collecting result for {task.tournament_id}: {e}"
+                    )
+                    failed.append(TournamentOutcome(
+                        task=task,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    ))
+
+        logger.info(
+            f"Parallel execution complete: {len(results)} succeeded, {len(failed)} failed"
+        )
+        return results, failed
+
+    def _compute_experiment_summary(
+        self,
+        results: List[TournamentResult],
+        failed: Optional[List[TournamentOutcome]] = None
+    ) -> Dict:
         """Compute aggregated summary for the experiment.
 
         Args:
-            results: List of tournament results
+            results: List of successful tournament results
+            failed: Optional list of failed tournament outcomes
 
         Returns:
             Summary dictionary with aggregated statistics, including per-variant
-            stats for A/B testing experiments.
+            stats for A/B testing experiments and any failure information.
         """
-        if not results:
+        failed = failed or []
+
+        if not results and not failed:
             return {}
+
+        # Handle case where all tournaments failed
+        if not results:
+            return {
+                'tournaments': 0,
+                'total_hands': 0,
+                'total_api_calls': 0,
+                'total_duration_seconds': sum(f.duration_seconds for f in failed),
+                'failed_tournaments': [
+                    {
+                        'tournament_id': f.task.tournament_id,
+                        'tournament_number': f.task.tournament_number,
+                        'variant': f.task.variant_label,
+                        'error': f.error,
+                        'error_type': f.error_type,
+                        'duration_seconds': f.duration_seconds,
+                    }
+                    for f in failed
+                ],
+                'total_failed': len(failed),
+                'success_rate': 0,
+            }
 
         # Winner distribution
         winners = {}
@@ -695,6 +1061,24 @@ class AITournamentRunner:
         variant_labels = set(r.variant for r in results if r.variant is not None)
         if variant_labels:
             summary['variants'] = self._compute_variant_summaries(results)
+
+        # Include failure information if any tournaments failed
+        if failed:
+            summary['failed_tournaments'] = [
+                {
+                    'tournament_id': f.task.tournament_id,
+                    'tournament_number': f.task.tournament_number,
+                    'variant': f.task.variant_label,
+                    'error': f.error,
+                    'error_type': f.error_type,
+                    'duration_seconds': f.duration_seconds,
+                }
+                for f in failed
+            ]
+            summary['total_failed'] = len(failed)
+            summary['success_rate'] = round(
+                len(results) * 100 / (len(results) + len(failed)), 1
+            ) if (results or failed) else 0
 
         return summary
 
@@ -890,6 +1274,26 @@ def main():
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
+    # Parallel execution options
+    parser.add_argument(
+        "--parallel", "-P",
+        type=int,
+        default=1,
+        help="Number of tournaments to run in parallel (default: 1 = sequential)"
+    )
+    parser.add_argument(
+        "--stagger-delay",
+        type=float,
+        default=0.0,
+        help="Seconds to wait between starting parallel workers (default: 0)"
+    )
+    parser.add_argument(
+        "--rate-limit-backoff",
+        type=float,
+        default=30.0,
+        help="Base backoff seconds when rate limited (default: 30)"
+    )
+
     args = parser.parse_args()
 
     if args.verbose:
@@ -920,6 +1324,9 @@ def main():
         provider=args.provider,
         personalities=personalities,
         random_seed=args.seed,
+        parallel_tournaments=args.parallel,
+        stagger_start_delay=args.stagger_delay,
+        rate_limit_backoff_seconds=args.rate_limit_backoff,
     )
 
     print(f"Running experiment: {config.name}")
@@ -927,6 +1334,10 @@ def main():
     print(f"  Tournaments: {config.num_tournaments}")
     print(f"  Max hands: {config.max_hands_per_tournament}")
     print(f"  Players: {config.num_players}")
+    if config.parallel_tournaments > 1:
+        print(f"  Parallel workers: {config.parallel_tournaments}")
+        if config.stagger_start_delay > 0:
+            print(f"  Stagger delay: {config.stagger_start_delay}s")
 
     runner = AITournamentRunner(config)
     results = runner.run_experiment()

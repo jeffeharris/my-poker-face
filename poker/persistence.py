@@ -45,8 +45,25 @@ class GamePersistence:
 
     def __init__(self, db_path: str = "poker_games.db"):
         self.db_path = db_path
+        self._enable_wal_mode()
         self._init_db()
         self._run_migrations()
+
+    def _enable_wal_mode(self):
+        """Enable WAL mode for better concurrent read/write performance.
+
+        WAL (Write-Ahead Logging) mode allows concurrent readers and writers,
+        which is important for parallel tournament execution. The 5-second
+        busy timeout prevents immediate failures on brief lock contention
+        while failing fast on real deadlocks.
+        """
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")  # 5 second timeout
+                conn.execute("PRAGMA synchronous=NORMAL")  # Good balance of safety/speed
+        except Exception as e:
+            logger.warning(f"Could not enable WAL mode: {e}")
     
     def _serialize_card(self, card) -> Dict[str, Any]:
         """Ensure card is properly serialized."""

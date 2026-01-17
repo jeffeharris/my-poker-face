@@ -47,6 +47,10 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'player_configs': None,
     'control': None,
     'variants': None,
+    # Parallel execution settings
+    'parallel_tournaments': 1,
+    'stagger_start_delay': 0.0,
+    'rate_limit_backoff_seconds': 30.0,
 }
 
 # System prompt for the experiment design assistant
@@ -417,7 +421,8 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
             'num_tournaments', 'max_hands_per_tournament', 'num_players',
             'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed', 'control', 'variants'
+            'personalities', 'random_seed', 'control', 'variants',
+            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds'
         }
         filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
 
