@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, Clock, CheckCircle, XCircle, Loader2, Pause } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
 
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
+type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
 
 interface ExperimentListProps {
   onViewExperiment: (experiment: ExperimentSummary) => void;
@@ -30,6 +30,11 @@ const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className
     icon: <XCircle size={14} />,
     className: 'status-badge--failed',
     label: 'Failed',
+  },
+  paused: {
+    icon: <Pause size={14} />,
+    className: 'status-badge--paused',
+    label: 'Paused',
   },
 };
 
@@ -120,6 +125,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
           <option value="all">All Status</option>
           <option value="pending">Pending</option>
           <option value="running">Running</option>
+          <option value="paused">Paused</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
         </select>

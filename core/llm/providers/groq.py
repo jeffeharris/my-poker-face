@@ -23,6 +23,11 @@ class GroqProvider(LLMProvider):
     open-source models like Llama 3.3, Mixtral, and Gemma.
 
     Note: Groq does not support reasoning modes or image generation.
+
+    Service Tiers:
+        - "on_demand" (default): Standard tier with occasional queue latency during peak times
+        - "flex": Higher throughput, best effort, may return over-capacity errors
+        - "auto": Automatically selects best available tier
     """
 
     def __init__(
@@ -30,6 +35,7 @@ class GroqProvider(LLMProvider):
         model: str = None,
         reasoning_effort: str = None,  # Ignored - Groq doesn't support this
         api_key: Optional[str] = None,
+        service_tier: Optional[str] = None,
     ):
         """Initialize Groq provider.
 
@@ -37,14 +43,18 @@ class GroqProvider(LLMProvider):
             model: Model to use (defaults to GROQ_DEFAULT_MODEL from config)
             reasoning_effort: Ignored - Groq doesn't have reasoning models
             api_key: Groq API key (defaults to GROQ_API_KEY env var)
+            service_tier: Groq service tier - "on_demand", "flex", or "auto"
+                         Defaults to GROQ_SERVICE_TIER env var or "auto"
         """
         self._model = model or GROQ_DEFAULT_MODEL
+        self._service_tier = service_tier or os.environ.get("GROQ_SERVICE_TIER", "auto")
         # Groq uses OpenAI-compatible API with shared HTTP client for connection reuse
         self._client = OpenAI(
             api_key=api_key or os.environ.get("GROQ_API_KEY"),
             base_url="https://api.groq.com/openai/v1",
             http_client=shared_http_client,
         )
+        logger.info(f"Groq provider initialized with service_tier={self._service_tier}")
 
     @property
     def provider_name(self) -> str:
@@ -77,6 +87,10 @@ class GroqProvider(LLMProvider):
             "max_tokens": max_tokens,  # Groq uses max_tokens, not max_completion_tokens
             "temperature": 1.0,
         }
+
+        # Add service tier for queue priority
+        if self._service_tier:
+            kwargs["extra_body"] = {"service_tier": self._service_tier}
 
         if json_format:
             kwargs["response_format"] = {"type": "json_object"}

@@ -2,7 +2,7 @@
  * TypeScript interfaces for the Experiment Designer
  */
 
-export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
 
 export type ExperimentMode = 'design' | 'list' | 'detail';
 

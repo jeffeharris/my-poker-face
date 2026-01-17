@@ -4869,7 +4869,7 @@ class GamePersistence:
             status: New status ('pending', 'running', 'completed', 'failed')
             error_message: Optional error message if status is 'failed'
         """
-        valid_statuses = {'pending', 'running', 'completed', 'failed'}
+        valid_statuses = {'pending', 'running', 'completed', 'failed', 'paused'}
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
 
@@ -4895,6 +4895,47 @@ class GamePersistence:
                 """, (status, experiment_id))
             conn.commit()
             logger.info(f"Updated experiment {experiment_id} status to {status}")
+
+    def get_incomplete_tournaments(self, experiment_id: int) -> List[Dict]:
+        """Get game_ids for tournaments that haven't completed (no tournament_results entry).
+
+        Used when resuming a paused experiment to identify which tournaments need to continue.
+
+        Args:
+            experiment_id: The experiment ID to check
+
+        Returns:
+            List of dicts with game info for incomplete tournaments:
+            [{'game_id': str, 'variant': str|None, 'variant_config': dict|None, 'tournament_number': int}]
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT eg.game_id, eg.variant, eg.variant_config, eg.tournament_number
+                FROM experiment_games eg
+                LEFT JOIN tournament_results tr ON eg.game_id = tr.game_id
+                WHERE eg.experiment_id = ?
+                AND tr.id IS NULL
+                ORDER BY eg.tournament_number
+            """, (experiment_id,))
+
+            incomplete = []
+            for row in cursor.fetchall():
+                variant_config = None
+                if row['variant_config']:
+                    try:
+                        variant_config = json.loads(row['variant_config'])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                incomplete.append({
+                    'game_id': row['game_id'],
+                    'variant': row['variant'],
+                    'variant_config': variant_config,
+                    'tournament_number': row['tournament_number'],
+                })
+
+            return incomplete
 
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.
@@ -5106,6 +5147,336 @@ class GamePersistence:
             }
 
             return result
+
+    def get_experiment_game_snapshots(self, experiment_id: int) -> List[Dict]:
+        """Load current game states for all running games in an experiment.
+
+        This method provides live game snapshots for the monitoring view,
+        including player states, community cards, pot, and psychology data.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of dictionaries with game snapshots:
+            [
+                {
+                    'game_id': str,
+                    'variant': str | None,
+                    'phase': str,
+                    'hand_number': int,
+                    'pot': int,
+                    'community_cards': [...],
+                    'players': [
+                        {
+                            'name': str,
+                            'stack': int,
+                            'bet': int,
+                            'hole_cards': [...],  # Always visible
+                            'is_folded': bool,
+                            'is_all_in': bool,
+                            'is_current': bool,
+                            'psychology': {...},
+                            'llm_debug': {...}
+                        }
+                    ]
+                }
+            ]
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get all games for this experiment
+            cursor = conn.execute("""
+                SELECT eg.game_id, eg.variant, g.game_state_json, g.phase, g.updated_at
+                FROM experiment_games eg
+                JOIN games g ON eg.game_id = g.game_id
+                WHERE eg.experiment_id = ?
+                ORDER BY g.updated_at DESC
+            """, (experiment_id,))
+
+            games = []
+            for row in cursor.fetchall():
+                game_id = row['game_id']
+                variant = row['variant']
+
+                try:
+                    state_dict = json.loads(row['game_state_json'])
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse game state for {game_id}")
+                    continue
+
+                # Extract basic game info
+                phase = row['phase']
+                pot = state_dict.get('pot', {})
+                pot_total = pot.get('total', 0) if isinstance(pot, dict) else pot
+
+                # Get community cards
+                community_cards = state_dict.get('community_cards', [])
+
+                # Get current player index
+                current_player_idx = state_dict.get('current_player_idx', 0)
+
+                # Load psychology data for all players in this game
+                psychology_data = self.load_all_controller_states(game_id)
+                emotional_data = self.load_all_emotional_states(game_id)
+
+                # Load LLM debug info from most recent api_usage records per player
+                llm_debug_cursor = conn.execute("""
+                    SELECT player_name, provider, model, reasoning_effort,
+                           COUNT(*) as total_calls,
+                           AVG(latency_ms) as avg_latency_ms,
+                           AVG(estimated_cost) as avg_cost
+                    FROM api_usage
+                    WHERE game_id = ?
+                    GROUP BY player_name
+                """, (game_id,))
+                llm_debug_by_player = {}
+                for llm_row in llm_debug_cursor.fetchall():
+                    if llm_row['player_name']:
+                        llm_debug_by_player[llm_row['player_name']] = {
+                            'provider': llm_row['provider'],
+                            'model': llm_row['model'],
+                            'reasoning_effort': llm_row['reasoning_effort'],
+                            'total_calls': llm_row['total_calls'],
+                            'avg_latency_ms': round(llm_row['avg_latency_ms'] or 0, 2),
+                            'avg_cost_per_call': round(llm_row['avg_cost'] or 0, 6),
+                        }
+
+                # Build player list
+                players = []
+                players_data = state_dict.get('players', [])
+                for idx, p in enumerate(players_data):
+                    player_name = p.get('name', f'Player_{idx}')
+
+                    # Get psychology for this player
+                    ctrl_state = psychology_data.get(player_name, {})
+                    emo_state = emotional_data.get(player_name, {})
+
+                    # Merge tilt and emotional data into psychology
+                    tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
+                    psychology = {
+                        'narrative': emo_state.get('narrative', ''),
+                        'inner_voice': emo_state.get('inner_voice', ''),
+                        'tilt_level': tilt_state.get('tilt_level', 0) if tilt_state else 0,
+                        'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
+                        'tilt_source': tilt_state.get('source', '') if tilt_state else '',
+                    }
+
+                    players.append({
+                        'name': player_name,
+                        'stack': p.get('stack', 0),
+                        'bet': p.get('bet', 0),
+                        'hole_cards': p.get('hand', []),  # Always show cards in monitoring mode
+                        'is_folded': p.get('is_folded', False),
+                        'is_all_in': p.get('is_all_in', False),
+                        'is_current': idx == current_player_idx,
+                        'psychology': psychology,
+                        'llm_debug': llm_debug_by_player.get(player_name, {}),
+                    })
+
+                # Get hand number from api_usage (most recent)
+                hand_cursor = conn.execute("""
+                    SELECT MAX(hand_number) as hand_number
+                    FROM api_usage WHERE game_id = ?
+                """, (game_id,))
+                hand_row = hand_cursor.fetchone()
+                hand_number = hand_row['hand_number'] if hand_row and hand_row['hand_number'] else 1
+
+                games.append({
+                    'game_id': game_id,
+                    'variant': variant,
+                    'phase': phase,
+                    'hand_number': hand_number,
+                    'pot': pot_total,
+                    'community_cards': community_cards,
+                    'players': players,
+                })
+
+            return games
+
+    def get_experiment_player_detail(
+        self,
+        experiment_id: int,
+        game_id: str,
+        player_name: str
+    ) -> Optional[Dict]:
+        """Get detailed player info for the drill-down panel.
+
+        Args:
+            experiment_id: The experiment ID
+            game_id: The game ID
+            player_name: The player name
+
+        Returns:
+            Dictionary with detailed player info or None if not found:
+            {
+                'player': { name, stack, cards },
+                'psychology': { narrative, inner_voice, tilt_level, tilt_category, tilt_source },
+                'llm_debug': { provider, model, reasoning_effort, total_calls, avg_latency_ms, avg_cost_per_call },
+                'play_style': { vpip, pfr, aggression_factor, summary },
+                'recent_decisions': [ { hand_number, phase, action, decision_quality, ev_lost } ]
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Verify game belongs to experiment
+            cursor = conn.execute("""
+                SELECT eg.id FROM experiment_games eg
+                WHERE eg.experiment_id = ? AND eg.game_id = ?
+            """, (experiment_id, game_id))
+            if not cursor.fetchone():
+                return None
+
+            # Load game state for player info
+            cursor = conn.execute(
+                "SELECT game_state_json FROM games WHERE game_id = ?",
+                (game_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            try:
+                state_dict = json.loads(row['game_state_json'])
+            except json.JSONDecodeError:
+                return None
+
+            # Find player in game state
+            player_data = None
+            for p in state_dict.get('players', []):
+                if p.get('name') == player_name:
+                    player_data = p
+                    break
+
+            if not player_data:
+                return None
+
+            # Get psychology data
+            ctrl_state = self.load_controller_state(game_id, player_name)
+            emo_state = self.load_emotional_state(game_id, player_name)
+
+            tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
+            psychology = {
+                'narrative': emo_state.get('narrative', '') if emo_state else '',
+                'inner_voice': emo_state.get('inner_voice', '') if emo_state else '',
+                'tilt_level': tilt_state.get('tilt_level', 0) if tilt_state else 0,
+                'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
+                'tilt_source': tilt_state.get('source', '') if tilt_state else '',
+            }
+
+            # Get LLM debug info
+            cursor = conn.execute("""
+                SELECT provider, model, reasoning_effort,
+                       COUNT(*) as total_calls,
+                       AVG(latency_ms) as avg_latency_ms,
+                       AVG(estimated_cost) as avg_cost
+                FROM api_usage
+                WHERE game_id = ? AND player_name = ?
+                GROUP BY provider, model
+            """, (game_id, player_name))
+            llm_row = cursor.fetchone()
+
+            llm_debug = {}
+            if llm_row:
+                # Also get percentile latencies
+                cursor = conn.execute("""
+                    SELECT latency_ms FROM api_usage
+                    WHERE game_id = ? AND player_name = ? AND latency_ms IS NOT NULL
+                    ORDER BY latency_ms
+                """, (game_id, player_name))
+                latencies = [r['latency_ms'] for r in cursor.fetchall()]
+
+                p95 = 0
+                p99 = 0
+                if latencies:
+                    p95 = round(float(np.percentile(latencies, 95)), 2) if len(latencies) >= 5 else max(latencies)
+                    p99 = round(float(np.percentile(latencies, 99)), 2) if len(latencies) >= 10 else max(latencies)
+
+                llm_debug = {
+                    'provider': llm_row['provider'],
+                    'model': llm_row['model'],
+                    'reasoning_effort': llm_row['reasoning_effort'],
+                    'total_calls': llm_row['total_calls'],
+                    'avg_latency_ms': round(llm_row['avg_latency_ms'] or 0, 2),
+                    'p95_latency_ms': p95,
+                    'p99_latency_ms': p99,
+                    'avg_cost_per_call': round(llm_row['avg_cost'] or 0, 6),
+                }
+
+            # Get play style from opponent models (observed by any player)
+            cursor = conn.execute("""
+                SELECT hands_observed, vpip, pfr, aggression_factor
+                FROM opponent_models
+                WHERE game_id = ? AND opponent_name = ?
+                ORDER BY hands_observed DESC
+                LIMIT 1
+            """, (game_id, player_name))
+            opp_row = cursor.fetchone()
+
+            play_style = {}
+            if opp_row:
+                vpip = round(opp_row['vpip'] * 100, 1)
+                pfr = round(opp_row['pfr'] * 100, 1)
+                af = round(opp_row['aggression_factor'], 2)
+
+                # Classify play style
+                if vpip < 25:
+                    tightness = 'tight'
+                elif vpip > 35:
+                    tightness = 'loose'
+                else:
+                    tightness = 'balanced'
+
+                if af > 2:
+                    aggression = 'aggressive'
+                elif af < 1:
+                    aggression = 'passive'
+                else:
+                    aggression = 'balanced'
+
+                summary = f'{tightness}-{aggression}'
+
+                play_style = {
+                    'vpip': vpip,
+                    'pfr': pfr,
+                    'aggression_factor': af,
+                    'hands_observed': opp_row['hands_observed'],
+                    'summary': summary,
+                }
+
+            # Get recent decisions
+            cursor = conn.execute("""
+                SELECT hand_number, phase, action_taken, decision_quality, ev_lost
+                FROM player_decision_analysis
+                WHERE game_id = ? AND player_name = ?
+                ORDER BY created_at DESC
+                LIMIT 5
+            """, (game_id, player_name))
+
+            recent_decisions = [
+                {
+                    'hand_number': r['hand_number'],
+                    'phase': r['phase'],
+                    'action': r['action_taken'],
+                    'decision_quality': r['decision_quality'],
+                    'ev_lost': round(r['ev_lost'] or 0, 2) if r['ev_lost'] else None,
+                }
+                for r in cursor.fetchall()
+            ]
+
+            return {
+                'player': {
+                    'name': player_name,
+                    'stack': player_data.get('stack', 0),
+                    'cards': player_data.get('hand', []),
+                },
+                'psychology': psychology,
+                'llm_debug': llm_debug,
+                'play_style': play_style,
+                'recent_decisions': recent_decisions,
+            }
 
     # ========== App Settings Methods ==========
 

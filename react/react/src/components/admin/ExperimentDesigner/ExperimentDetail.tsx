@@ -13,11 +13,15 @@ import {
   FlaskConical,
   Filter,
   Zap,
+  Monitor,
+  Pause,
+  Play,
 } from 'lucide-react';
+import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
 import type { VariantResultSummary, LiveStats, LatencyMetrics } from './types';
 
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
+type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
 
 interface ExperimentDetailType {
   id: number;
@@ -95,6 +99,11 @@ const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className
     className: 'status-badge--failed',
     label: 'Failed',
   },
+  paused: {
+    icon: <Pause size={16} />,
+    className: 'status-badge--paused',
+    label: 'Paused',
+  },
 };
 
 export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps) {
@@ -105,6 +114,9 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [variantFilter, setVariantFilter] = useState<string | null>(null);
+  const [showMonitor, setShowMonitor] = useState(false);
+  const [pauseLoading, setPauseLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
 
   const fetchExperiment = useCallback(async () => {
     try {
@@ -149,6 +161,48 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
     const interval = setInterval(fetchExperiment, 5000);
     return () => clearInterval(interval);
   }, [experiment?.status, fetchExperiment]);
+
+  const handlePause = async () => {
+    setPauseLoading(true);
+    try {
+      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/pause`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Refresh to get updated status
+        fetchExperiment();
+      } else {
+        setError(data.error || 'Failed to pause experiment');
+      }
+    } catch (err) {
+      console.error('Failed to pause experiment:', err);
+      setError('Failed to pause experiment');
+    } finally {
+      setPauseLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setResumeLoading(true);
+    try {
+      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/resume`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Refresh to get updated status
+        fetchExperiment();
+      } else {
+        setError(data.error || 'Failed to resume experiment');
+      }
+    } catch (err) {
+      console.error('Failed to resume experiment:', err);
+      setError('Failed to resume experiment');
+    } finally {
+      setResumeLoading(false);
+    }
+  };
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -218,6 +272,49 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
         >
           <RefreshCw size={16} />
         </button>
+        {experiment.status === 'running' && (
+          <>
+            <button
+              className="experiment-detail__monitor-btn"
+              onClick={() => setShowMonitor(true)}
+              type="button"
+              title="Open Live Monitor"
+            >
+              <Monitor size={16} />
+              Live Monitor
+            </button>
+            <button
+              className="experiment-detail__pause-btn"
+              onClick={handlePause}
+              type="button"
+              disabled={pauseLoading}
+              title="Pause Experiment"
+            >
+              {pauseLoading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Pause size={16} />
+              )}
+              {pauseLoading ? 'Pausing...' : 'Pause'}
+            </button>
+          </>
+        )}
+        {experiment.status === 'paused' && (
+          <button
+            className="experiment-detail__resume-btn"
+            onClick={handleResume}
+            type="button"
+            disabled={resumeLoading}
+            title="Resume Experiment"
+          >
+            {resumeLoading ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Play size={16} />
+            )}
+            {resumeLoading ? 'Resuming...' : 'Resume'}
+          </button>
+        )}
       </div>
 
       {/* Summary Stats */}
@@ -543,6 +640,15 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
           <span>Completed: {formatDate(experiment.completed_at)}</span>
         )}
       </div>
+
+      {/* Live Monitor Overlay */}
+      {showMonitor && (
+        <LiveMonitoringView
+          experimentId={experimentId}
+          experimentName={experiment.name}
+          onClose={() => setShowMonitor(false)}
+        />
+      )}
     </div>
   );
 }

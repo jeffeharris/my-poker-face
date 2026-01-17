@@ -54,6 +54,17 @@ from poker.persistence import GamePersistence as Persistence
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
+from experiments.pause_coordinator import PauseCoordinator
+
+
+class TournamentPausedException(Exception):
+    """Raised when a tournament is paused before completion."""
+
+    def __init__(self, tournament_id: str, hand_number: int, message: str = "Tournament paused"):
+        self.tournament_id = tournament_id
+        self.hand_number = hand_number
+        super().__init__(f"{message} at hand {hand_number}")
+
 
 # Configure logging
 logging.basicConfig(
@@ -280,11 +291,13 @@ class TournamentWorker:
         experiment_id: Optional[int],
         db_path: str,
         rate_limit_state: RateLimitState,
+        pause_coordinator: Optional[PauseCoordinator] = None,
     ):
         self.config = config
         self.experiment_id = experiment_id
         self.db_path = db_path
         self.rate_limit_state = rate_limit_state
+        self.pause_coordinator = pause_coordinator
 
     def execute(self, task: TournamentTask) -> TournamentOutcome:
         """Execute a single tournament with full error isolation.
@@ -305,7 +318,11 @@ class TournamentWorker:
                 time.sleep(wait_time)
 
             # Create thread-local runner instance
-            runner = AITournamentRunner(self.config, db_path=self.db_path)
+            runner = AITournamentRunner(
+                self.config,
+                db_path=self.db_path,
+                pause_coordinator=self.pause_coordinator
+            )
             runner.experiment_id = self.experiment_id
 
             # Link game to experiment before running (enables live progress tracking)
@@ -343,6 +360,20 @@ class TournamentWorker:
                 duration_seconds=duration,
             )
 
+        except TournamentPausedException as e:
+            # Tournament was paused - this is not an error, just an interruption
+            duration = time.time() - start_time
+            logger.info(
+                f"Tournament {task.tournament_id} paused after {duration:.1f}s "
+                f"at hand {e.hand_number}"
+            )
+            return TournamentOutcome(
+                task=task,
+                error=str(e),
+                error_type='TournamentPausedException',
+                duration_seconds=duration,
+            )
+
         except Exception as e:
             duration = time.time() - start_time
             error_type = type(e).__name__
@@ -371,8 +402,14 @@ class TournamentWorker:
 class AITournamentRunner:
     """Runs AI-only poker tournaments for experimentation."""
 
-    def __init__(self, config: ExperimentConfig, db_path: Optional[str] = None):
+    def __init__(
+        self,
+        config: ExperimentConfig,
+        db_path: Optional[str] = None,
+        pause_coordinator: Optional[PauseCoordinator] = None
+    ):
         self.config = config
+        self.pause_coordinator = pause_coordinator
         # Use main database for experiment data to enable JOINs with game data
         # Match the Flask app's database path logic
         if db_path:
@@ -482,11 +519,20 @@ class AITournamentRunner:
     def run_hand(self, state_machine: PokerStateMachine,
                  controllers: Dict[str, AIPlayerController],
                  memory_manager: AIMemoryManager,
-                 hand_number: int) -> bool:
+                 hand_number: int,
+                 tournament_id: Optional[str] = None) -> bool:
         """
         Run a single hand to completion.
 
-        Returns True if game should continue, False if tournament is over.
+        Args:
+            state_machine: The game state machine
+            controllers: Dict of player name -> AIPlayerController
+            memory_manager: Memory manager for hand tracking
+            hand_number: Current hand number
+            tournament_id: Optional game ID for per-action saves (for pause/resume)
+
+        Returns:
+            True if game should continue, False if tournament is over or paused.
         """
         # Let the state machine handle setup_hand via its INITIALIZING_HAND transition
         # Do NOT call setup_hand() directly - that would deal cards twice!
@@ -575,11 +621,50 @@ class AITournamentRunner:
                         game_state = advance_to_next_active_player(game_state)
                         state_machine.game_state = game_state  # Use property setter
 
+                        # Per-action save for resilience (enables pause/resume)
+                        if tournament_id and self.experiment_id:
+                            try:
+                                self.persistence.save_game(
+                                    tournament_id, state_machine,
+                                    f"experiment_{self.config.name}"
+                                )
+                                # Save AI conversation history for each controller
+                                for player_name, ctrl in controllers.items():
+                                    if hasattr(ctrl, 'assistant') and ctrl.assistant:
+                                        messages = ctrl.assistant.memory.get_history()
+                                        self.persistence.save_ai_player_state(
+                                            tournament_id, player_name, messages, {}
+                                        )
+                            except Exception as save_error:
+                                logger.warning(f"Per-action save failed: {save_error}")
+
+                        # Check for pause request
+                        if self.pause_coordinator and self.experiment_id:
+                            if self.pause_coordinator.should_pause(self.experiment_id):
+                                logger.info(f"Pause requested for experiment {self.experiment_id}, stopping after action")
+                                return False  # Signal tournament should stop
+
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
                         game_state = play_turn(game_state, 'fold', 0)
                         game_state = advance_to_next_active_player(game_state)
                         state_machine.game_state = game_state  # Use property setter
+
+                        # Save after fallback action too
+                        if tournament_id and self.experiment_id:
+                            try:
+                                self.persistence.save_game(
+                                    tournament_id, state_machine,
+                                    f"experiment_{self.config.name}"
+                                )
+                            except Exception as save_error:
+                                logger.warning(f"Per-action save failed: {save_error}")
+
+                        # Check for pause request
+                        if self.pause_coordinator and self.experiment_id:
+                            if self.pause_coordinator.should_pause(self.experiment_id):
+                                logger.info(f"Pause requested for experiment {self.experiment_id}, stopping after action")
+                                return False
 
                 action_count += 1
 
@@ -619,14 +704,24 @@ class AITournamentRunner:
 
         state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config)
 
+        # Save initial game state for live monitoring
+        self.persistence.save_game(tournament_id, state_machine, f"experiment_{self.config.name}")
+
         elimination_order = []
         prev_active = set(p.name for p in state_machine.game_state.players)
 
         hand_number = 0
+        paused = False
         while hand_number < self.config.max_hands_per_tournament:
             hand_number += 1
 
-            should_continue = self.run_hand(state_machine, controllers, memory_manager, hand_number)
+            should_continue = self.run_hand(
+                state_machine, controllers, memory_manager, hand_number,
+                tournament_id=tournament_id
+            )
+
+            # Save game state for live monitoring (every hand)
+            self.persistence.save_game(tournament_id, state_machine, f"experiment_{self.config.name}")
 
             # Track eliminations
             current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
@@ -637,12 +732,21 @@ class AITournamentRunner:
             prev_active = current_active
 
             if not should_continue:
+                # Check if this was due to a pause request
+                if self.pause_coordinator and self.experiment_id:
+                    if self.pause_coordinator.should_pause(self.experiment_id):
+                        paused = True
+                        logger.info(f"Tournament {tournament_id} paused at hand {hand_number}")
                 break
 
             # Log progress every 10 hands
             if hand_number % 10 == 0:
                 stacks = {p.name: p.stack for p in state_machine.game_state.players if p.stack > 0}
                 logger.info(f"Hand {hand_number}: Stacks = {stacks}")
+
+        # If paused, raise exception so caller can handle appropriately
+        if paused:
+            raise TournamentPausedException(tournament_id, hand_number)
 
         # Determine final standings
         end_time = datetime.now()
@@ -877,6 +981,22 @@ class AITournamentRunner:
                 # Save result to file
                 self._save_result(result)
 
+            except TournamentPausedException as e:
+                # Tournament was paused - stop processing remaining tasks
+                duration = time.time() - start_time
+                logger.info(
+                    f"Tournament {task.tournament_id} paused at hand {e.hand_number}, "
+                    f"stopping experiment"
+                )
+                failed.append(TournamentOutcome(
+                    task=task,
+                    error=str(e),
+                    error_type='TournamentPausedException',
+                    duration_seconds=duration,
+                ))
+                # Break out of the loop - don't process remaining tournaments
+                break
+
             except Exception as e:
                 duration = time.time() - start_time
                 error_type = type(e).__name__
@@ -934,6 +1054,7 @@ class AITournamentRunner:
                     experiment_id=self.experiment_id,
                     db_path=self.db_path,
                     rate_limit_state=rate_limit_state,
+                    pause_coordinator=self.pause_coordinator,
                 )
 
                 future = executor.submit(worker.execute, task)
