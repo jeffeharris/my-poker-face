@@ -519,10 +519,14 @@ def get_experiment(experiment_id: int):
         # Get decision stats
         decision_stats = persistence.get_experiment_decision_stats(experiment_id)
 
+        # Get real-time unified stats per variant
+        live_stats = persistence.get_experiment_live_stats(experiment_id)
+
         return jsonify({
             'success': True,
             'experiment': experiment,
             'decision_stats': decision_stats,
+            'live_stats': live_stats,
         })
 
     except Exception as e:

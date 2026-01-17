@@ -84,6 +84,56 @@ export interface ExperimentSummary {
 }
 
 /**
+ * Latency metrics for API calls.
+ */
+export interface LatencyMetrics {
+  avg_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  count: number;
+}
+
+/**
+ * Progress tracking for a variant.
+ */
+export interface VariantProgress {
+  current_hands: number;
+  max_hands: number;
+  games_count: number;
+  games_expected: number;
+  progress_pct: number;
+}
+
+/**
+ * Decision quality metrics.
+ */
+export interface DecisionQuality {
+  total: number;
+  correct: number;
+  correct_pct: number;
+  mistakes: number;
+  avg_ev_lost: number;
+}
+
+/**
+ * Live stats for a single variant during experiment execution.
+ */
+export interface VariantLiveStats {
+  latency_metrics: LatencyMetrics | null;
+  decision_quality: DecisionQuality | null;
+  progress: VariantProgress;
+}
+
+/**
+ * Unified live stats response from API.
+ */
+export interface LiveStats {
+  by_variant: Record<string, VariantLiveStats>;
+  overall: VariantLiveStats | null;
+}
+
+/**
  * Per-variant summary statistics for A/B testing experiments.
  */
 export interface VariantResultSummary {
@@ -106,6 +156,7 @@ export interface VariantResultSummary {
     mistake_pct: number;
     avg_ev_lost: number;
   };
+  latency_metrics?: LatencyMetrics;
 }
 
 export interface ExperimentResultSummary {

@@ -12,9 +12,10 @@ import {
   Gamepad2,
   FlaskConical,
   Filter,
+  Zap,
 } from 'lucide-react';
 import { config } from '../../../config';
-import type { VariantResultSummary } from './types';
+import type { VariantResultSummary, LiveStats, LatencyMetrics } from './types';
 
 type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -100,6 +101,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   const [experiment, setExperiment] = useState<ExperimentDetailType | null>(null);
   const [games, setGames] = useState<ExperimentGame[]>([]);
   const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null);
+  const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [variantFilter, setVariantFilter] = useState<string | null>(null);
@@ -117,6 +119,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
       if (expData.success) {
         setExperiment(expData.experiment);
         setDecisionStats(expData.decision_stats);
+        setLiveStats(expData.live_stats || null);
         setError(null);
       } else {
         setError(expData.error || 'Failed to load experiment');
@@ -157,6 +160,11 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
     if (seconds < 60) return `${Math.round(seconds)}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  };
+
+  const formatLatency = (ms: number) => {
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
   };
 
   if (loading) {
@@ -253,67 +261,122 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
         </div>
       )}
 
-      {/* Variant Comparison (for A/B tests) */}
-      {summary?.variants && Object.keys(summary.variants).length > 0 && (
+      {/* Live Variant Stats (for A/B tests with real-time data) */}
+      {liveStats && Object.keys(liveStats.by_variant).length > 0 && (
         <div className="experiment-detail__section">
           <h3 className="experiment-detail__section-title">
             <FlaskConical size={18} />
             Variant Comparison
+            {experiment.status === 'running' && (
+              <span className="experiment-detail__live-indicator">Live</span>
+            )}
           </h3>
           <div className="experiment-detail__variant-comparison">
-            {Object.entries(summary.variants).map(([label, variantSummary]) => (
-              <div key={label} className="experiment-detail__variant-card">
-                <div className="experiment-detail__variant-header">
-                  <h4 className="experiment-detail__variant-label">{label}</h4>
-                  <span className="experiment-detail__variant-model">
-                    {variantSummary.model_config?.provider}/{variantSummary.model_config?.model}
-                  </span>
-                </div>
-                <div className="experiment-detail__variant-stats">
-                  <div className="experiment-detail__variant-stat">
-                    <span className="experiment-detail__variant-stat-value">
-                      {variantSummary.tournaments}
-                    </span>
-                    <span className="experiment-detail__variant-stat-label">Tournaments</span>
-                  </div>
-                  <div className="experiment-detail__variant-stat">
-                    <span className="experiment-detail__variant-stat-value">
-                      {variantSummary.total_hands}
-                    </span>
-                    <span className="experiment-detail__variant-stat-label">Hands</span>
-                  </div>
-                  {variantSummary.decision_quality && (
-                    <div className="experiment-detail__variant-stat experiment-detail__variant-stat--highlight">
-                      <span className="experiment-detail__variant-stat-value">
-                        {variantSummary.decision_quality.correct_pct}%
+            {Object.entries(liveStats.by_variant).map(([label, variantLive]) => {
+              // Get model info from summary if available
+              const variantSummary = summary?.variants?.[label];
+              return (
+                <div key={label} className="experiment-detail__variant-card">
+                  <div className="experiment-detail__variant-header">
+                    <h4 className="experiment-detail__variant-label">{label}</h4>
+                    {variantSummary?.model_config && (
+                      <span className="experiment-detail__variant-model">
+                        {variantSummary.model_config.provider}/{variantSummary.model_config.model}
                       </span>
-                      <span className="experiment-detail__variant-stat-label">Correct</span>
+                    )}
+                  </div>
+
+                  {/* Progress Section */}
+                  <div className="experiment-detail__variant-section">
+                    <span className="experiment-detail__variant-section-label">Progress</span>
+                    <div className="experiment-detail__progress-bar-container">
+                      <div
+                        className="experiment-detail__progress-bar"
+                        style={{ width: `${variantLive.progress.progress_pct}%` }}
+                      />
                     </div>
-                  )}
-                  {variantSummary.decision_quality && (
-                    <div className="experiment-detail__variant-stat">
-                      <span className="experiment-detail__variant-stat-value">
-                        ${variantSummary.decision_quality.avg_ev_lost}
-                      </span>
-                      <span className="experiment-detail__variant-stat-label">Avg EV Lost</span>
-                    </div>
-                  )}
-                </div>
-                {Object.keys(variantSummary.winners).length > 0 && (
-                  <div className="experiment-detail__variant-winners">
-                    <span className="experiment-detail__variant-winners-label">Top winners:</span>
-                    {Object.entries(variantSummary.winners)
-                      .sort(([, a], [, b]) => b - a)
-                      .slice(0, 3)
-                      .map(([name, wins]) => (
-                        <span key={name} className="experiment-detail__variant-winner">
-                          {name}: {wins}
+                    <span className="experiment-detail__progress-text">
+                      {variantLive.progress.current_hands}/{variantLive.progress.max_hands} hands ({variantLive.progress.progress_pct}%)
+                    </span>
+                    <span className="experiment-detail__progress-games">
+                      {variantLive.progress.games_count}/{variantLive.progress.games_expected} tournaments
+                    </span>
+                  </div>
+
+                  {/* Decision Quality Section */}
+                  {variantLive.decision_quality && (
+                    <div className="experiment-detail__variant-section">
+                      <span className="experiment-detail__variant-section-label">Decision Quality</span>
+                      <div className="experiment-detail__decision-row">
+                        <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
+                          {variantLive.decision_quality.correct_pct}% Correct
                         </span>
-                      ))}
-                  </div>
-                )}
-              </div>
-            ))}
+                        <span className="experiment-detail__decision-metric experiment-detail__decision-metric--mistake">
+                          {variantLive.decision_quality.mistakes} Mistakes
+                        </span>
+                        <span className="experiment-detail__decision-metric">
+                          ${variantLive.decision_quality.avg_ev_lost} EV
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* API Latency Section */}
+                  {variantLive.latency_metrics && (
+                    <div className="experiment-detail__variant-section">
+                      <span className="experiment-detail__variant-section-label">
+                        <Zap size={12} />
+                        API Latency
+                      </span>
+                      <div className="experiment-detail__latency-grid">
+                        <div className="experiment-detail__latency-cell">
+                          <span className="experiment-detail__latency-label">Avg</span>
+                          <span className="experiment-detail__latency-value">
+                            {formatLatency(variantLive.latency_metrics.avg_ms)}
+                          </span>
+                        </div>
+                        <div className="experiment-detail__latency-cell">
+                          <span className="experiment-detail__latency-label">P50</span>
+                          <span className="experiment-detail__latency-value">
+                            {formatLatency(variantLive.latency_metrics.p50_ms)}
+                          </span>
+                        </div>
+                        <div className="experiment-detail__latency-cell">
+                          <span className="experiment-detail__latency-label">P95</span>
+                          <span className="experiment-detail__latency-value">
+                            {formatLatency(variantLive.latency_metrics.p95_ms)}
+                          </span>
+                        </div>
+                        <div className="experiment-detail__latency-cell">
+                          <span className="experiment-detail__latency-label">P99</span>
+                          <span className="experiment-detail__latency-value">
+                            {formatLatency(variantLive.latency_metrics.p99_ms)}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="experiment-detail__latency-count">
+                        {variantLive.latency_metrics.count.toLocaleString()} API calls
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Winners (from summary if available) */}
+                  {variantSummary && Object.keys(variantSummary.winners).length > 0 && (
+                    <div className="experiment-detail__variant-winners">
+                      <span className="experiment-detail__variant-winners-label">Top winners:</span>
+                      {Object.entries(variantSummary.winners)
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 3)
+                        .map(([name, wins]) => (
+                          <span key={name} className="experiment-detail__variant-winner">
+                            {name}: {wins}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

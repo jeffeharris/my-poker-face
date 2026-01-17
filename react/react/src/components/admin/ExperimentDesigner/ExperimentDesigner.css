@@ -983,10 +983,226 @@
   }
 }
 
+/* Variant Card Styles */
+.experiment-detail__variant-comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.experiment-detail__variant-card {
+  background: rgba(30, 30, 30, 0.5);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.experiment-detail__variant-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.experiment-detail__variant-label {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.experiment-detail__variant-model {
+  font-size: 0.75rem;
+  color: #737373;
+  font-family: monospace;
+}
+
+.experiment-detail__variant-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.experiment-detail__variant-section-label {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #737373;
+}
+
+/* Progress Bar Styles */
+.experiment-detail__progress-bar-container {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.experiment-detail__progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #059669);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.experiment-detail__progress-text {
+  font-size: 0.8125rem;
+  color: #e5e5e5;
+}
+
+.experiment-detail__progress-games {
+  font-size: 0.75rem;
+  color: #737373;
+}
+
+/* Decision Quality Row */
+.experiment-detail__decision-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.experiment-detail__decision-metric {
+  font-size: 0.875rem;
+  color: #a3a3a3;
+}
+
+.experiment-detail__decision-metric--correct {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.experiment-detail__decision-metric--mistake {
+  color: #f87171;
+}
+
+/* Latency Grid Styles */
+.experiment-detail__latency-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.experiment-detail__latency-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.experiment-detail__latency-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #737373;
+}
+
+.experiment-detail__latency-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #60a5fa;
+  font-family: monospace;
+}
+
+.experiment-detail__latency-count {
+  font-size: 0.75rem;
+  color: #737373;
+  text-align: center;
+}
+
+/* Variant Winners */
+.experiment-detail__variant-winners {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.experiment-detail__variant-winners-label {
+  font-size: 0.75rem;
+  color: #737373;
+}
+
+.experiment-detail__variant-winner {
+  font-size: 0.75rem;
+  color: #a3a3a3;
+  padding: 0.25rem 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+/* Live Indicator */
+.experiment-detail__live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  background: rgba(239, 68, 68, 0.2);
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #f87171;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Experiment List Progress Bar */
+.experiment-list__progress-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 100px;
+}
+
+.experiment-list__progress-bar-container {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.experiment-list__progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.experiment-list__progress-text {
+  font-size: 0.75rem;
+  color: #a3a3a3;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .experiment-designer__design-layout {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 1fr;
+  }
+
+  .experiment-detail__variant-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .experiment-detail__latency-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }

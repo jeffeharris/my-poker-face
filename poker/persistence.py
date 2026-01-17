@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
+import numpy as np
+
 from poker.poker_game import PokerGameState, Player
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from core.card import Card
@@ -4876,6 +4878,217 @@ class GamePersistence:
                 """, (status, experiment_id))
             conn.commit()
             logger.info(f"Updated experiment {experiment_id} status to {status}")
+
+    def get_experiment_live_stats(self, experiment_id: int) -> Dict:
+        """Get real-time unified stats per variant for running/completed experiments.
+
+        Returns all metrics per variant in one call: latency, decision quality, and progress.
+        This is designed to be called on every 5s refresh for running experiments.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            Dictionary with structure:
+            {
+                'by_variant': {
+                    'Variant Label': {
+                        'latency_metrics': { avg_ms, p50_ms, p95_ms, p99_ms, count },
+                        'decision_quality': { total, correct, correct_pct, mistakes, avg_ev_lost },
+                        'progress': { current_hands, max_hands, progress_pct }
+                    },
+                    ...
+                },
+                'overall': { ... same structure ... }
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Get experiment config for max_hands calculation
+            exp = self.get_experiment(experiment_id)
+            if not exp:
+                return {'by_variant': {}, 'overall': None}
+
+            config = exp.get('config', {})
+            max_hands = config.get('max_hands_per_tournament', 100)
+            num_tournaments = config.get('num_tournaments', 1)
+
+            # Determine number of variants from control/variants config
+            control = config.get('control')
+            variants = config.get('variants', [])
+            if control is not None:
+                # A/B testing mode: control + variants
+                num_variant_configs = 1 + len(variants or [])
+            else:
+                # Legacy mode: single variant
+                num_variant_configs = 1
+
+            result = {'by_variant': {}, 'overall': None}
+
+            # Get all variants for this experiment from actual games
+            cursor = conn.execute("""
+                SELECT DISTINCT variant FROM experiment_games
+                WHERE experiment_id = ?
+            """, (experiment_id,))
+            variant_labels = [row[0] for row in cursor.fetchall()]
+
+            # If no games yet, create placeholder entries from config
+            if not variant_labels:
+                if control is not None:
+                    variant_labels = [control.get('label', 'Control')]
+                    for v in (variants or []):
+                        variant_labels.append(v.get('label', 'Variant'))
+                else:
+                    variant_labels = [None]  # Legacy single variant
+
+            # Aggregate stats for overall calculation
+            all_latencies = []
+            overall_decision = {'total': 0, 'correct': 0, 'mistake': 0, 'ev_lost_sum': 0}
+            overall_progress = {'current_hands': 0, 'max_hands': 0}
+
+            for variant in variant_labels:
+                variant_key = variant or 'default'
+
+                # Build variant clause
+                if variant is None:
+                    variant_clause = "AND (eg.variant IS NULL OR eg.variant = '')"
+                    variant_params = []
+                else:
+                    variant_clause = "AND eg.variant = ?"
+                    variant_params = [variant]
+
+                # 1. Latency metrics from api_usage
+                cursor = conn.execute(f"""
+                    SELECT au.latency_ms FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.latency_ms IS NOT NULL
+                """, [experiment_id] + variant_params)
+                latencies = [row[0] for row in cursor.fetchall()]
+
+                if latencies:
+                    latency_metrics = {
+                        'avg_ms': round(float(np.mean(latencies)), 2),
+                        'p50_ms': round(float(np.percentile(latencies, 50)), 2),
+                        'p95_ms': round(float(np.percentile(latencies, 95)), 2),
+                        'p99_ms': round(float(np.percentile(latencies, 99)), 2),
+                        'count': len(latencies),
+                    }
+                    all_latencies.extend(latencies)
+                else:
+                    latency_metrics = None
+
+                # 2. Decision quality from player_decision_analysis
+                cursor = conn.execute(f"""
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
+                        SUM(CASE WHEN pda.decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistake,
+                        AVG(COALESCE(pda.ev_lost, 0)) as avg_ev_lost
+                    FROM player_decision_analysis pda
+                    JOIN experiment_games eg ON pda.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                row = cursor.fetchone()
+                total = row[0] or 0
+
+                if total > 0:
+                    decision_quality = {
+                        'total': total,
+                        'correct': row[1] or 0,
+                        'correct_pct': round((row[1] or 0) * 100 / total, 1),
+                        'mistakes': row[2] or 0,
+                        'avg_ev_lost': round(row[3] or 0, 2),
+                    }
+                    overall_decision['total'] += total
+                    overall_decision['correct'] += row[1] or 0
+                    overall_decision['mistake'] += row[2] or 0
+                    overall_decision['ev_lost_sum'] += (row[3] or 0) * total
+                else:
+                    decision_quality = None
+
+                # 3. Progress - count games and max hand number per variant
+                cursor = conn.execute(f"""
+                    SELECT
+                        COUNT(DISTINCT eg.game_id) as games_count,
+                        MAX(au.hand_number) as max_hand
+                    FROM experiment_games eg
+                    LEFT JOIN api_usage au ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                row = cursor.fetchone()
+                games_count = row[0] or 0
+                current_max_hand = row[1] or 0
+
+                # Calculate progress: completed games * max_hands + current hand
+                # For a variant, expected tournaments = num_tournaments
+                variant_max_hands = num_tournaments * max_hands
+                if games_count > 0:
+                    # Estimate: (completed_games - 1) * max_hands + current_max_hand
+                    # But we don't know which games are complete, so use games_count directly
+                    # Approximation: if max_hand is less than max_hands, game is in progress
+                    completed_games = max(0, games_count - 1) if current_max_hand < max_hands else games_count
+                    current_hands = completed_games * max_hands + (current_max_hand if current_max_hand < max_hands else 0)
+                    # Simpler approach: just use games_count * average hands if we have a summary
+                    # For now, use a rough estimate
+                    current_hands = min(games_count * max_hands, variant_max_hands)
+                    # Refine: if game is in progress, add current hand
+                    if current_max_hand > 0 and current_max_hand < max_hands:
+                        current_hands = (games_count - 1) * max_hands + current_max_hand
+                else:
+                    current_hands = 0
+
+                progress = {
+                    'current_hands': current_hands,
+                    'max_hands': variant_max_hands,
+                    'games_count': games_count,
+                    'games_expected': num_tournaments,
+                    'progress_pct': round(current_hands * 100 / variant_max_hands, 1) if variant_max_hands else 0,
+                }
+
+                overall_progress['current_hands'] += current_hands
+                overall_progress['max_hands'] += variant_max_hands
+
+                result['by_variant'][variant_key] = {
+                    'latency_metrics': latency_metrics,
+                    'decision_quality': decision_quality,
+                    'progress': progress,
+                }
+
+            # Compute overall stats
+            if all_latencies:
+                overall_latency = {
+                    'avg_ms': round(float(np.mean(all_latencies)), 2),
+                    'p50_ms': round(float(np.percentile(all_latencies, 50)), 2),
+                    'p95_ms': round(float(np.percentile(all_latencies, 95)), 2),
+                    'p99_ms': round(float(np.percentile(all_latencies, 99)), 2),
+                    'count': len(all_latencies),
+                }
+            else:
+                overall_latency = None
+
+            if overall_decision['total'] > 0:
+                overall_decision_quality = {
+                    'total': overall_decision['total'],
+                    'correct': overall_decision['correct'],
+                    'correct_pct': round(overall_decision['correct'] * 100 / overall_decision['total'], 1),
+                    'mistakes': overall_decision['mistake'],
+                    'avg_ev_lost': round(overall_decision['ev_lost_sum'] / overall_decision['total'], 2),
+                }
+            else:
+                overall_decision_quality = None
+
+            overall_progress_result = {
+                'current_hands': overall_progress['current_hands'],
+                'max_hands': overall_progress['max_hands'],
+                'progress_pct': round(overall_progress['current_hands'] * 100 / overall_progress['max_hands'], 1) if overall_progress['max_hands'] else 0,
+            }
+
+            result['overall'] = {
+                'latency_metrics': overall_latency,
+                'decision_quality': overall_decision_quality,
+                'progress': overall_progress_result,
+            }
+
+            return result
 
     # ========== App Settings Methods ==========
 

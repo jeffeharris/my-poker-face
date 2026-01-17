@@ -32,6 +32,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 
+import numpy as np
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -567,12 +569,16 @@ class AITournamentRunner:
             'variants': self.config.variants,
         }
 
-        try:
-            self.experiment_id = self.persistence.create_experiment(experiment_config)
-            logger.info(f"Created experiment record with id {self.experiment_id}")
-        except Exception as e:
-            logger.warning(f"Could not create experiment record: {e}")
-            self.experiment_id = None
+        # Only create experiment record if not already set (e.g., from web launcher)
+        if self.experiment_id is None:
+            try:
+                self.experiment_id = self.persistence.create_experiment(experiment_config)
+                logger.info(f"Created experiment record with id {self.experiment_id}")
+            except Exception as e:
+                logger.warning(f"Could not create experiment record: {e}")
+                self.experiment_id = None
+        else:
+            logger.info(f"Using pre-created experiment record with id {self.experiment_id}")
 
         if is_ab_test:
             logger.info(f"Running A/B test with {len(variant_configs)} variants: {[v[0] for v in variant_configs]}")
@@ -598,10 +604,7 @@ class AITournamentRunner:
                 self.total_latency = 0
                 self.total_cost = 0.0
 
-                result = self.run_tournament(tournament_id, variant_label, variant_config)
-                results.append(result)
-
-                # Link game to experiment with variant info
+                # Link game to experiment BEFORE running so live_stats can track progress
                 if self.experiment_id:
                     try:
                         self.persistence.link_game_to_experiment(
@@ -613,6 +616,9 @@ class AITournamentRunner:
                         )
                     except Exception as e:
                         logger.warning(f"Could not link game to experiment: {e}")
+
+                result = self.run_tournament(tournament_id, variant_label, variant_config)
+                results.append(result)
 
                 # Save result to file
                 self._save_result(result)
@@ -757,9 +763,51 @@ class AITournamentRunner:
                     'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
                 }
 
+            # Add latency metrics from database for this variant
+            game_ids = [r.tournament_id for r in variant_results]
+            latency_metrics = self._get_latency_metrics_for_games(game_ids)
+            if latency_metrics:
+                variant_summary['latency_metrics'] = latency_metrics
+
             variant_summaries[label] = variant_summary
 
         return variant_summaries
+
+    def _get_latency_metrics_for_games(self, game_ids: List[str]) -> Optional[Dict]:
+        """Get aggregated latency metrics for a list of games.
+
+        Args:
+            game_ids: List of game IDs to aggregate latency from
+
+        Returns:
+            Dictionary with latency metrics (avg, p50, p95, p99) or None if no data
+        """
+        if not game_ids:
+            return None
+
+        try:
+            import sqlite3
+
+            with sqlite3.connect(self.persistence.db_path) as conn:
+                placeholders = ','.join('?' * len(game_ids))
+                cursor = conn.execute(f"""
+                    SELECT latency_ms FROM api_usage
+                    WHERE game_id IN ({placeholders}) AND latency_ms IS NOT NULL
+                """, game_ids)
+                latencies = [row[0] for row in cursor.fetchall()]
+
+                if latencies:
+                    return {
+                        'avg_ms': round(float(np.mean(latencies)), 2),
+                        'p50_ms': round(float(np.percentile(latencies, 50)), 2),
+                        'p95_ms': round(float(np.percentile(latencies, 95)), 2),
+                        'p99_ms': round(float(np.percentile(latencies, 99)), 2),
+                        'count': len(latencies),
+                    }
+        except Exception as e:
+            logger.warning(f"Could not get latency metrics: {e}")
+
+        return None
 
     def _save_result(self, result: TournamentResult):
         """Save tournament result to JSON file."""

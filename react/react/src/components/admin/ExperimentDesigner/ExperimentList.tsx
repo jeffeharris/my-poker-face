@@ -93,6 +93,12 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     return `0/${experiment.num_tournaments}`;
   };
 
+  const getProgressPct = (experiment: ExperimentSummary) => {
+    const total = experiment.num_tournaments || 1;
+    const current = experiment.games_count || 0;
+    return Math.min(100, Math.round((current / total) * 100));
+  };
+
   if (loading) {
     return (
       <div className="experiment-list__loading">
@@ -180,7 +186,21 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
                       </span>
                     </td>
                     <td className="experiment-list__progress">
-                      {getProgress(experiment)}
+                      {experiment.status === 'running' ? (
+                        <div className="experiment-list__progress-wrapper">
+                          <div className="experiment-list__progress-bar-container">
+                            <div
+                              className="experiment-list__progress-bar"
+                              style={{ width: `${getProgressPct(experiment)}%` }}
+                            />
+                          </div>
+                          <span className="experiment-list__progress-text">
+                            {getProgress(experiment)}
+                          </span>
+                        </div>
+                      ) : (
+                        getProgress(experiment)
+                      )}
                     </td>
                     <td className="experiment-list__model">
                       {experiment.provider && experiment.model ? (
