@@ -34,10 +34,12 @@ GROQ_DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 # Available Groq models for UI selection
 # See: https://console.groq.com/docs/models
 GROQ_AVAILABLE_MODELS = [
-    "llama-3.3-70b-versatile",                       # Best overall, 128k context, 280 tok/s
-    "llama-3.1-8b-instant",                          # Fast, good for simple tasks, 560 tok/s
-    "meta-llama/llama-4-scout-17b-16e-instruct",    # Llama 4 Scout, 750 tok/s (preview)
-    "qwen/qwen3-32b",                                # Qwen 3 32B, 400 tok/s (preview)
+    "llama-3.3-70b-versatile",                   # Best overall, 131k context, 280 tok/s
+    "llama-3.1-8b-instant",                      # Fast, good for simple tasks, 560 tok/s
+    "openai/gpt-oss-20b",                        # GPT OSS 20B, 1000 tok/s
+    "openai/gpt-oss-120b",                       # GPT OSS 120B, 500 tok/s
+    "meta-llama/llama-4-scout-17b-16e-instruct", # Llama 4 Scout, 750 tok/s (lab)
+    "qwen/qwen3-32b",                            # Qwen3 32B, 400 tok/s (lab)
 ]
 
 # =============================================================================

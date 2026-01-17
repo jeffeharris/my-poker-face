@@ -3,9 +3,9 @@
 # Prices are per 1M tokens (USD) unless otherwise noted
 #
 # Source: Consolidated from database migrations v14, v31, v32, v36, v37
-# Last updated: 2025-01
+# Last updated: 2026-01
 
-version: "2025-01"
+version: "2026-01"
 
 providers:
   openai:
@@ -119,25 +119,40 @@ providers:
       cached_input_tokens_1m: 0.10
 
   groq:
-    # Llama 3.3 70B
-    llama-3.3-70b-versatile:
-      input_tokens_1m: 0.59
-      output_tokens_1m: 0.79
+    # GPT OSS 20B
+    openai/gpt-oss-20b:
+      input_tokens_1m: 0.075
+      output_tokens_1m: 0.30
 
-    # Llama 3.1 8B
-    llama-3.1-8b-instant:
-      input_tokens_1m: 0.05
-      output_tokens_1m: 0.08
+    # GPT OSS 120B
+    openai/gpt-oss-120b:
+      input_tokens_1m: 0.15
+      output_tokens_1m: 0.60
 
-    # Llama 4 Scout
+    # Llama Guard 4 12B
+    meta-llama/llama-guard-4-12b:
+      input_tokens_1m: 0.20
+      output_tokens_1m: 0.20
+
+    # Llama 4 Scout 17B 16E (lab)
     meta-llama/llama-4-scout-17b-16e-instruct:
       input_tokens_1m: 0.11
       output_tokens_1m: 0.34
 
-    # Qwen 3 32B
+    # Qwen3-32B (lab)
     qwen/qwen3-32b:
       input_tokens_1m: 0.29
-      output_tokens_1m: 0.39
+      output_tokens_1m: 0.59
+
+    # Llama 3.3 70B Versatile 128k
+    llama-3.3-70b-versatile:
+      input_tokens_1m: 0.59
+      output_tokens_1m: 0.79
+
+    # Llama 3.1 8B Instant 128k
+    llama-3.1-8b-instant:
+      input_tokens_1m: 0.05
+      output_tokens_1m: 0.08
 
   deepseek:
     # DeepSeek V3 Chat
