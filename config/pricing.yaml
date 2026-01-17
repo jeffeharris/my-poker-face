@@ -161,10 +161,10 @@ providers:
       output_tokens_1m: 0.42
       cached_input_tokens_1m: 0.028
 
-    # DeepSeek R1 Reasoner
+    # DeepSeek R1 Reasoner (same price as chat since 2026-01)
     deepseek-reasoner:
-      input_tokens_1m: 0.55
-      output_tokens_1m: 2.19
+      input_tokens_1m: 0.28
+      output_tokens_1m: 0.42
 
   mistral:
     # Mistral Small

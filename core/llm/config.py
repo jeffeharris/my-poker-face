@@ -61,13 +61,14 @@ ANTHROPIC_AVAILABLE_MODELS = [
 # DeepSeek Configuration
 # =============================================================================
 
-# Default DeepSeek model - V3 is extremely cheap with quality near GPT-4
-DEEPSEEK_DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+# Default DeepSeek model - unified model that auto-routes based on reasoning_effort
+DEEPSEEK_DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek")
 
 # Available DeepSeek models for UI selection
 # See: https://platform.deepseek.com/api-docs/
 DEEPSEEK_AVAILABLE_MODELS = [
-    "deepseek-chat",        # V3 - Best value, $0.28/$0.42 per M tokens
+    "deepseek",             # Unified - routes to chat or reasoner based on reasoning_effort
+    "deepseek-chat",        # V3 - Best value, $0.28/$0.42 per M tokens (no reasoning)
     "deepseek-reasoner",    # R1 - Reasoning model, $0.55/$2.19 per M tokens
 ]
 

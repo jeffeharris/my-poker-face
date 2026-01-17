@@ -2,6 +2,13 @@
 
 DeepSeek offers extremely cheap inference with quality comparable to GPT-4.
 Uses OpenAI-compatible API.
+
+Reasoning behavior:
+- deepseek: Maps to deepseek-chat or deepseek-reasoner based on effort
+  - minimal/None → deepseek-chat (no reasoning)
+  - low/medium/high → deepseek-reasoner (with reasoning)
+- deepseek-chat: Direct access to chat model (no reasoning)
+- deepseek-reasoner: Direct access to reasoning model (always reasons)
 """
 import os
 import logging
@@ -15,6 +22,12 @@ from ..config import DEFAULT_MAX_TOKENS, DEEPSEEK_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
+# Models that toggle between reasoning/non-reasoning variants
+# Maps base model → (non-reasoning variant, reasoning variant)
+TOGGLEABLE_REASONING_MODELS = {
+    "deepseek": ("deepseek-chat", "deepseek-reasoner"),
+}
+
 
 class DeepSeekProvider(LLMProvider):
     """DeepSeek API provider implementation.
@@ -22,23 +35,42 @@ class DeepSeekProvider(LLMProvider):
     DeepSeek offers some of the cheapest LLM inference available,
     with quality competitive with GPT-4o at a fraction of the cost.
     Uses OpenAI-compatible API.
+
+    The unified "deepseek" model automatically routes to deepseek-chat
+    or deepseek-reasoner based on reasoning_effort setting.
     """
 
     def __init__(
         self,
         model: str = None,
-        reasoning_effort: str = None,  # DeepSeek R1 supports reasoning
+        reasoning_effort: str = None,
         api_key: Optional[str] = None,
     ):
         """Initialize DeepSeek provider.
 
         Args:
             model: Model to use (defaults to DEEPSEEK_DEFAULT_MODEL)
-            reasoning_effort: For DeepSeek R1 reasoning model
+                - "deepseek": Auto-routes based on reasoning_effort
+                - "deepseek-chat": Direct chat model (no reasoning)
+                - "deepseek-reasoner": Direct reasoning model
+            reasoning_effort: Controls model routing for "deepseek"
+                - "minimal" or None → deepseek-chat
+                - "low"/"medium"/"high" → deepseek-reasoner
             api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY env var)
         """
-        self._model = model or DEEPSEEK_DEFAULT_MODEL
+        base_model = model or DEEPSEEK_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
+
+        # Handle toggleable models (deepseek → chat or reasoner variant)
+        if base_model in TOGGLEABLE_REASONING_MODELS:
+            non_reasoning, with_reasoning = TOGGLEABLE_REASONING_MODELS[base_model]
+            if reasoning_effort == "minimal" or reasoning_effort is None:
+                self._model = non_reasoning
+            else:
+                self._model = with_reasoning
+        else:
+            self._model = base_model
+
         self._client = OpenAI(
             api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
             base_url="https://api.deepseek.com/v1",
