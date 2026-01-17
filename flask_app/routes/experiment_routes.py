@@ -440,9 +440,8 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         logger.error(f"Experiment {experiment_id} failed: {e}")
         persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
-        # Clean up thread reference
-        if experiment_id in _active_experiments:
-            del _active_experiments[experiment_id]
+        # Clean up thread reference (use pop to avoid race condition)
+        _active_experiments.pop(experiment_id, None)
 
 
 @experiment_bp.route('/api/experiments', methods=['POST'])

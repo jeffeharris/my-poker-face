@@ -49,6 +49,7 @@ from poker.controllers import AIPlayerController
 from poker.persistence import GamePersistence as Persistence
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
+from poker.prompt_config import PromptConfig
 
 # Configure logging
 logging.basicConfig(
@@ -148,7 +149,8 @@ class ExperimentConfig:
             variant_config = {
                 'model': variant.get('model') or control_config['model'],
                 'provider': variant.get('provider') or control_config['provider'],
-                'prompt_config': variant.get('prompt_config') or control_config.get('prompt_config'),
+                # Use explicit None check - empty dict {} is a valid config
+                'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
             }
             variant_label = variant.get('label', f'Variant {len(result)}')
             result.append((variant_label, variant_config))
@@ -250,6 +252,10 @@ class AITournamentRunner:
                 'model': self.config.model,
             }
 
+        # Extract and convert prompt_config from variant
+        prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
+        prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict is not None else None
+
         controllers = {}
         for player in game_state.players:
             controller = AIPlayerController(
@@ -260,6 +266,7 @@ class AITournamentRunner:
                 owner_id=f"experiment_{self.config.name}",
                 persistence=self.persistence,
                 debug_capture=self.config.capture_prompts,
+                prompt_config=prompt_config,
             )
             controllers[player.name] = controller
             # Initialize memory manager for this player
