@@ -56,6 +56,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
         setError(data.error || 'Failed to load experiments');
       }
     } catch (err) {
+      console.error('Failed to fetch experiments:', err);
       setError('Failed to connect to server');
     } finally {
       setLoading(false);

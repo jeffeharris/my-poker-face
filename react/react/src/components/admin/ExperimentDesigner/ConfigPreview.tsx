@@ -85,7 +85,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
         const data = await response.json();
         setValidation(data);
       } catch (err) {
-        setValidation({ valid: false, errors: ['Failed to validate'], warnings: [] });
+        console.error('Validation request failed:', err);
+        setValidation({ valid: false, errors: ['Failed to validate configuration'], warnings: [] });
       } finally {
         setValidating(false);
       }
@@ -102,7 +103,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
       setJsonError(null);
       onConfigUpdate(parsed);
     } catch (e) {
-      setJsonError('Invalid JSON');
+      const errorMessage = e instanceof SyntaxError ? e.message : 'Invalid JSON';
+      setJsonError(errorMessage);
     }
   };
 

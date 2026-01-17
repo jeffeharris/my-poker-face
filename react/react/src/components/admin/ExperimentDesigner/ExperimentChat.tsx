@@ -55,7 +55,7 @@ export function ExperimentChat({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add initial welcome message
+  // Add initial welcome message (only on mount when messages is empty)
   useEffect(() => {
     if (messages.length === 0) {
       setMessages([
@@ -65,6 +65,7 @@ export function ExperimentChat({
         },
       ]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount
   }, []);
 
   const sendMessage = useCallback(async (messageText: string) => {

@@ -118,6 +118,23 @@ class ExperimentConfig:
     control: Optional[Dict] = None  # ControlConfig as dict
     variants: Optional[List[Dict]] = None  # List of VariantConfig as dicts
 
+    def __post_init__(self):
+        """Validate control/variants structure."""
+        if self.control is not None:
+            if not isinstance(self.control, dict):
+                raise ValueError("control must be a dict")
+            if not self.control.get('label'):
+                raise ValueError("control.label is required")
+
+        if self.variants is not None:
+            if not isinstance(self.variants, list):
+                raise ValueError("variants must be a list")
+            for i, v in enumerate(self.variants):
+                if not isinstance(v, dict):
+                    raise ValueError(f"variants[{i}] must be a dict")
+                if not v.get('label'):
+                    raise ValueError(f"variants[{i}].label is required")
+
     def get_variant_configs(self) -> List[Tuple[str, Dict]]:
         """
         Returns list of (label, effective_config) tuples for all variants.
@@ -371,7 +388,7 @@ class AITournamentRunner:
                         state_machine.game_state = game_state  # Use property setter
 
                     except Exception as e:
-                        logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold")
+                        logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
                         game_state = play_turn(game_state, 'fold', 0)
                         game_state = advance_to_next_active_player(game_state)
                         state_machine.game_state = game_state  # Use property setter

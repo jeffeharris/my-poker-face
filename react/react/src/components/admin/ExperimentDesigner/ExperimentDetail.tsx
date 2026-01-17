@@ -126,6 +126,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
         setGames(gamesData.games);
       }
     } catch (err) {
+      console.error('Failed to fetch experiment:', err);
       setError('Failed to connect to server');
     } finally {
       setLoading(false);
@@ -138,6 +139,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   }, [fetchExperiment]);
 
   // Auto-refresh for running experiments
+  // Note: cleanup function ensures only one interval runs at a time
   useEffect(() => {
     if (experiment?.status !== 'running') return;
 
@@ -326,20 +328,23 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
           <div className="experiment-detail__winners">
             {Object.entries(summary.winners)
               .sort(([, a], [, b]) => b - a)
-              .map(([name, wins]) => (
-                <div key={name} className="experiment-detail__winner">
-                  <span className="experiment-detail__winner-name">{name}</span>
-                  <div className="experiment-detail__winner-bar-container">
-                    <div
-                      className="experiment-detail__winner-bar"
-                      style={{ width: `${(wins / summary.tournaments) * 100}%` }}
-                    />
+              .map(([name, wins]) => {
+                const winPct = summary.tournaments > 0 ? (wins / summary.tournaments) * 100 : 0;
+                return (
+                  <div key={name} className="experiment-detail__winner">
+                    <span className="experiment-detail__winner-name">{name}</span>
+                    <div className="experiment-detail__winner-bar-container">
+                      <div
+                        className="experiment-detail__winner-bar"
+                        style={{ width: `${winPct}%` }}
+                      />
+                    </div>
+                    <span className="experiment-detail__winner-count">
+                      {wins} ({Math.round(winPct)}%)
+                    </span>
                   </div>
-                  <span className="experiment-detail__winner-count">
-                    {wins} ({Math.round((wins / summary.tournaments) * 100)}%)
-                  </span>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
       )}
