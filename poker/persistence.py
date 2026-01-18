@@ -4838,6 +4838,18 @@ class GamePersistence:
                 config = json.loads(row[8]) if row[8] else {}
                 summary = json.loads(row[9]) if row[9] else None
 
+                # Calculate total expected games accounting for A/B variants
+                num_tournaments = config.get('num_tournaments', 1)
+                variants = config.get('variants', [])
+                control = config.get('control')
+
+                # For A/B experiments, total games = num_tournaments * num_variants
+                if control and variants:
+                    num_variants = len(variants) + 1  # +1 for control
+                    total_expected = num_tournaments * num_variants
+                else:
+                    total_expected = num_tournaments
+
                 experiments.append({
                     'id': row[0],
                     'name': row[1],
@@ -4848,7 +4860,7 @@ class GamePersistence:
                     'created_at': row[6],
                     'completed_at': row[7],
                     'games_count': row[10],
-                    'num_tournaments': config.get('num_tournaments', 1),
+                    'num_tournaments': total_expected,
                     'model': config.get('model'),
                     'provider': config.get('provider'),
                     'summary': summary,
