@@ -17,12 +17,13 @@ import {
   Pause,
   Play,
   DollarSign,
+  AlertTriangle,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
 import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics } from './types';
 
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
 
 interface ExperimentDetailType {
   id: number;
@@ -104,6 +105,11 @@ const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className
     icon: <Pause size={16} />,
     className: 'status-badge--paused',
     label: 'Paused',
+  },
+  interrupted: {
+    icon: <AlertTriangle size={16} />,
+    className: 'status-badge--interrupted',
+    label: 'Interrupted',
   },
 };
 
@@ -256,75 +262,83 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
 
   return (
     <div className="experiment-detail">
-      {/* Header */}
-      <div className="experiment-detail__header">
-        <div className="experiment-detail__header-main">
+      {/* Sticky Toolbar */}
+      <div className="experiment-detail__toolbar">
+        <div className="experiment-detail__toolbar-left">
           <h2 className="experiment-detail__name">{experiment.name}</h2>
           <span className={`status-badge ${statusConfig.className}`}>
             {statusConfig.icon}
             {statusConfig.label}
           </span>
         </div>
-        {experiment.description && (
-          <p className="experiment-detail__description">{experiment.description}</p>
-        )}
-        {experiment.hypothesis && (
-          <p className="experiment-detail__hypothesis">
-            <strong>Hypothesis:</strong> {experiment.hypothesis}
-          </p>
-        )}
-        <button
-          className="experiment-detail__refresh-btn"
-          onClick={fetchExperiment}
-          type="button"
-          title="Refresh"
-        >
-          <RefreshCw size={16} />
-        </button>
-        {experiment.status === 'running' && (
-          <>
+        <div className="experiment-detail__toolbar-actions">
+          <button
+            className="experiment-detail__refresh-btn"
+            onClick={fetchExperiment}
+            type="button"
+            title="Refresh"
+          >
+            <RefreshCw size={16} />
+          </button>
+          {experiment.status === 'running' && (
+            <>
+              <button
+                className="experiment-detail__monitor-btn"
+                onClick={() => setShowMonitor(true)}
+                type="button"
+                title="Open Live Monitor"
+              >
+                <Monitor size={16} />
+                Live Monitor
+              </button>
+              <button
+                className="experiment-detail__pause-btn"
+                onClick={handlePause}
+                type="button"
+                disabled={pauseLoading}
+                title="Pause Experiment"
+              >
+                {pauseLoading ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Pause size={16} />
+                )}
+                {pauseLoading ? 'Pausing...' : 'Pause'}
+              </button>
+            </>
+          )}
+          {(experiment.status === 'paused' || experiment.status === 'interrupted') && (
             <button
-              className="experiment-detail__monitor-btn"
-              onClick={() => setShowMonitor(true)}
+              className="experiment-detail__resume-btn"
+              onClick={handleResume}
               type="button"
-              title="Open Live Monitor"
+              disabled={resumeLoading}
+              title="Resume Experiment"
             >
-              <Monitor size={16} />
-              Live Monitor
-            </button>
-            <button
-              className="experiment-detail__pause-btn"
-              onClick={handlePause}
-              type="button"
-              disabled={pauseLoading}
-              title="Pause Experiment"
-            >
-              {pauseLoading ? (
+              {resumeLoading ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (
-                <Pause size={16} />
+                <Play size={16} />
               )}
-              {pauseLoading ? 'Pausing...' : 'Pause'}
+              {resumeLoading ? 'Resuming...' : 'Resume'}
             </button>
-          </>
-        )}
-        {experiment.status === 'paused' && (
-          <button
-            className="experiment-detail__resume-btn"
-            onClick={handleResume}
-            type="button"
-            disabled={resumeLoading}
-            title="Resume Experiment"
-          >
-            {resumeLoading ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <Play size={16} />
-            )}
-            {resumeLoading ? 'Resuming...' : 'Resume'}
-          </button>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Scrollable Content */}
+      <div className="experiment-detail__content">
+        {/* Header Info */}
+        <div className="experiment-detail__header">
+          {experiment.description && (
+            <p className="experiment-detail__description">{experiment.description}</p>
+          )}
+          {experiment.hypothesis && (
+            <p className="experiment-detail__hypothesis">
+              <strong>Hypothesis:</strong> {experiment.hypothesis}
+            </p>
+          )}
+        </div>
 
       {/* Summary Stats */}
       {summary && (
@@ -691,6 +705,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
           <span>Completed: {formatDate(experiment.completed_at)}</span>
         )}
       </div>
+      </div>{/* End of experiment-detail__content */}
 
       {/* Live Monitor Overlay */}
       {showMonitor && (

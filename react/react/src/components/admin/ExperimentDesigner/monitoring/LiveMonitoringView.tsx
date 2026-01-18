@@ -6,12 +6,15 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, RefreshCw, Monitor, Loader2, XCircle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Monitor, Loader2, XCircle, LayoutGrid, Table2 } from 'lucide-react';
 import { config } from '../../../../config';
 import { GameMonitorGrid } from './GameMonitorGrid';
+import { GameMonitorTable } from './GameMonitorTable';
 import { PlayerDrilldownPanel } from './PlayerDrilldownPanel';
 import type { GameSnapshot, LiveGamesResponse, SelectedPlayer } from './types';
 import './LiveMonitoringView.css';
+
+type ViewMode = 'cards' | 'table';
 
 interface LiveMonitoringViewProps {
   experimentId: number;
@@ -30,6 +33,7 @@ export function LiveMonitoringView({
   const [error, setError] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<SelectedPlayer | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
 
   const fetchLiveGames = useCallback(async () => {
     try {
@@ -166,6 +170,24 @@ export function LiveMonitoringView({
           </div>
         </div>
         <div className="live-monitor__header-right">
+          <div className="live-monitor__view-toggle">
+            <button
+              className={`live-monitor__view-btn ${viewMode === 'cards' ? 'live-monitor__view-btn--active' : ''}`}
+              onClick={() => setViewMode('cards')}
+              type="button"
+              title="Card View"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              className={`live-monitor__view-btn ${viewMode === 'table' ? 'live-monitor__view-btn--active' : ''}`}
+              onClick={() => setViewMode('table')}
+              type="button"
+              title="Table View"
+            >
+              <Table2 size={16} />
+            </button>
+          </div>
           {getStatusIndicator()}
           <button
             className="live-monitor__refresh-btn"
@@ -194,8 +216,13 @@ export function LiveMonitoringView({
                 : 'This experiment has finished.'}
             </p>
           </div>
-        ) : (
+        ) : viewMode === 'cards' ? (
           <GameMonitorGrid
+            games={games}
+            onPlayerClick={handlePlayerClick}
+          />
+        ) : (
+          <GameMonitorTable
             games={games}
             onPlayerClick={handlePlayerClick}
           />

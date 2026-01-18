@@ -706,11 +706,49 @@
   color: #fbbf24;
 }
 
+.experiment-list .status-badge--interrupted,
+.experiment-detail .status-badge--interrupted {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
 /* ExperimentDetail */
 .experiment-detail {
-  padding: 1.5rem;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  overflow: hidden;
+}
+
+.experiment-detail__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.experiment-detail__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.experiment-detail__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.experiment-detail__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
 }
 
 .experiment-detail__loading,
@@ -729,8 +767,7 @@
 }
 
 .experiment-detail__header {
-  position: relative;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .experiment-detail__header-main {
@@ -742,9 +779,12 @@
 
 .experiment-detail__name {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 600;
   color: #e5e5e5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .experiment-detail__description,
@@ -755,9 +795,6 @@
 }
 
 .experiment-detail__refresh-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
   padding: 0.5rem;
   background: rgba(255, 255, 255, 0.1);
   border: none;
@@ -772,9 +809,6 @@
 }
 
 .experiment-detail__monitor-btn {
-  position: absolute;
-  top: 0;
-  right: 40px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -796,9 +830,6 @@
 }
 
 .experiment-detail__pause-btn {
-  position: absolute;
-  top: 0;
-  right: 160px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -827,9 +858,6 @@
 }
 
 .experiment-detail__resume-btn {
-  position: absolute;
-  top: 0;
-  right: 40px;
   display: flex;
   align-items: center;
   gap: 6px;

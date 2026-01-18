@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, CheckCircle, XCircle, Loader2, Pause } from 'lucide-react';
+import { RefreshCw, Clock, CheckCircle, XCircle, Loader2, Pause, AlertTriangle } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
 
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
 
 interface ExperimentListProps {
   onViewExperiment: (experiment: ExperimentSummary) => void;
@@ -35,6 +35,11 @@ const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className
     icon: <Pause size={14} />,
     className: 'status-badge--paused',
     label: 'Paused',
+  },
+  interrupted: {
+    icon: <AlertTriangle size={14} />,
+    className: 'status-badge--interrupted',
+    label: 'Interrupted',
   },
 };
 
