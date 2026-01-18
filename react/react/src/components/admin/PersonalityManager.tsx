@@ -1,8 +1,31 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
 import './AdminShared.css';
 import './PersonalityManager.css';
+
+// ============================================
+// Hooks
+// ============================================
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.matchMedia(query).matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+}
 
 // ============================================
 // Types
@@ -344,6 +367,103 @@ function CreateModal({ onCreateManual, onCreateWithAI, onCancel, existingNames, 
   );
 }
 
+// Shared icons
+const SearchIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M4 9L7.5 12.5L14 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const PlusIcon = ({ size = 18 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 18 18" fill="none">
+    <path d="M9 3V15M3 9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+  </svg>
+);
+
+const MenuIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+// Reusable MasterList component for desktop sidebar
+interface MasterListProps {
+  characters: string[];
+  selected: string | null;
+  onSelect: (name: string) => void;
+  onCreate: () => void;
+  search: string;
+  onSearchChange: (search: string) => void;
+}
+
+function MasterList({ characters, selected, onSelect, onCreate, search, onSearchChange }: MasterListProps) {
+  const filtered = useMemo(() =>
+    characters.filter(name =>
+      name.toLowerCase().includes(search.toLowerCase())
+    ),
+    [characters, search]
+  );
+
+  return (
+    <>
+      <div className="admin-master__header">
+        <h3 className="admin-master__title">Characters</h3>
+        <span className="admin-master__count">{characters.length}</span>
+      </div>
+      <div className="admin-master__search">
+        <div className="admin-master__search-wrap">
+          <span className="admin-master__search-icon">
+            <SearchIcon />
+          </span>
+          <input
+            type="text"
+            className="admin-master__search-input"
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="admin-master__list">
+        {filtered.map((name) => (
+          <button
+            key={name}
+            type="button"
+            className={`admin-master__item ${selected === name ? 'admin-master__item--selected' : ''}`}
+            onClick={() => onSelect(name)}
+          >
+            <span className="admin-master__item-avatar">{name.charAt(0)}</span>
+            <span className="admin-master__item-name">{name}</span>
+            {selected === name && (
+              <span className="admin-master__item-check">
+                <CheckIcon />
+              </span>
+            )}
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div className="admin-master__empty">
+            No characters found{search ? ` matching "${search}"` : ''}
+          </div>
+        )}
+      </div>
+      <div className="admin-master__footer">
+        <button type="button" className="admin-master__create" onClick={onCreate}>
+          <PlusIcon />
+          New Character
+        </button>
+      </div>
+    </>
+  );
+}
+
 interface CharacterSelectorProps {
   characters: string[];
   selected: string | null;
@@ -377,10 +497,9 @@ function CharacterSelector({ characters, selected, onSelect, onCreate, isOpen, o
           <span className="pm-sheet__count">{characters.length} personalities</span>
         </div>
         <div className="pm-sheet__search">
-          <svg className="pm-sheet__search-icon" width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/>
-            <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          <span className="pm-sheet__search-icon">
+            <SearchIcon />
+          </span>
           <input
             type="text"
             className="pm-sheet__search-input"
@@ -401,9 +520,9 @@ function CharacterSelector({ characters, selected, onSelect, onCreate, isOpen, o
               <span className="pm-sheet__item-avatar">{name.charAt(0)}</span>
               <span className="pm-sheet__item-name">{name}</span>
               {selected === name && (
-                <svg className="pm-sheet__item-check" width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <path d="M4 9L7.5 12.5L14 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <span className="pm-sheet__item-check">
+                  <CheckIcon />
+                </span>
               )}
             </button>
           ))}
@@ -414,9 +533,7 @@ function CharacterSelector({ characters, selected, onSelect, onCreate, isOpen, o
           )}
         </div>
         <button type="button" className="pm-sheet__create" onClick={onCreate}>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <path d="M9 3V15M3 9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-          </svg>
+          <PlusIcon />
           Create New Character
         </button>
       </div>
@@ -642,6 +759,11 @@ interface PersonalityManagerProps {
 }
 
 export function PersonalityManager({ onBack, embedded = false }: PersonalityManagerProps) {
+  // Responsive breakpoints
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const isTablet = useMediaQuery('(min-width: 768px)');
+  const isMobile = !isTablet;
+
   // Core state
   const [personalities, setPersonalities] = useState<Record<string, PersonalityData>>({});
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -654,6 +776,8 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const [alert, setAlert] = useState<AlertState | null>(null);
   const [modal, setModal] = useState<ModalState>({ type: null });
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [masterSearch, setMasterSearch] = useState('');
+  const [masterPanelOpen, setMasterPanelOpen] = useState(false);
 
   // Accordion state
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -951,6 +1075,224 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     }
   };
 
+  // Editor sections (scrollable content)
+  const editorSections = selectedName && formData ? (
+    <div className="pm-sections">
+        {/* Basic Info */}
+        <CollapsibleSection
+          title="Basic Info"
+          icon="📋"
+          isOpen={openSections.basic}
+          onToggle={() => toggleSection('basic')}
+        >
+          <div className="admin-form-group">
+            <label className="admin-label" htmlFor="play_style">Play Style</label>
+            <input
+              id="play_style"
+              type="text"
+              className="admin-input"
+              value={formData.play_style || ''}
+              onChange={(e) => updateFormData({ play_style: e.target.value })}
+              placeholder="e.g., aggressive and boastful"
+            />
+          </div>
+          <div className="admin-form-row">
+            <div className="admin-form-group">
+              <label className="admin-label" htmlFor="confidence">Confidence</label>
+              <input
+                id="confidence"
+                type="text"
+                className="admin-input"
+                value={formData.default_confidence || ''}
+                onChange={(e) => updateFormData({ default_confidence: e.target.value })}
+                placeholder="e.g., supreme"
+              />
+            </div>
+            <div className="admin-form-group">
+              <label className="admin-label" htmlFor="attitude">Attitude</label>
+              <input
+                id="attitude"
+                type="text"
+                className="admin-input"
+                value={formData.default_attitude || ''}
+                onChange={(e) => updateFormData({ default_attitude: e.target.value })}
+                placeholder="e.g., domineering"
+              />
+            </div>
+          </div>
+        </CollapsibleSection>
+
+        {/* Personality Traits */}
+        <CollapsibleSection
+          title="Personality Traits"
+          icon="🎭"
+          isOpen={openSections.traits}
+          onToggle={() => toggleSection('traits')}
+        >
+          <TraitSlider
+            id="bluff_tendency"
+            label="Bluff Tendency"
+            value={traits.bluff_tendency}
+            elasticity={elasticityConfig.trait_elasticity.bluff_tendency}
+            onChange={(v) => updateTraits('bluff_tendency', v)}
+            onElasticityChange={(v) => updateElasticity('bluff_tendency', v)}
+          />
+          <TraitSlider
+            id="aggression"
+            label="Aggression"
+            value={traits.aggression}
+            elasticity={elasticityConfig.trait_elasticity.aggression}
+            onChange={(v) => updateTraits('aggression', v)}
+            onElasticityChange={(v) => updateElasticity('aggression', v)}
+          />
+          <TraitSlider
+            id="chattiness"
+            label="Chattiness"
+            value={traits.chattiness}
+            elasticity={elasticityConfig.trait_elasticity.chattiness}
+            onChange={(v) => updateTraits('chattiness', v)}
+            onElasticityChange={(v) => updateElasticity('chattiness', v)}
+          />
+          <TraitSlider
+            id="emoji_usage"
+            label="Emoji Usage"
+            value={traits.emoji_usage}
+            elasticity={elasticityConfig.trait_elasticity.emoji_usage}
+            onChange={(v) => updateTraits('emoji_usage', v)}
+            onElasticityChange={(v) => updateElasticity('emoji_usage', v)}
+          />
+        </CollapsibleSection>
+
+        {/* Elasticity Settings */}
+        <CollapsibleSection
+          title="Mood & Recovery"
+          icon="🔄"
+          isOpen={openSections.elasticity}
+          onToggle={() => toggleSection('elasticity')}
+        >
+          <TraitSlider
+            id="mood_elasticity"
+            label="Mood Elasticity"
+            value={elasticityConfig.mood_elasticity}
+            elasticity={0}
+            onChange={(v) => updateMoodSettings('mood_elasticity', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <p className="admin-help-text">How reactive mood changes are to game events</p>
+          <TraitSlider
+            id="recovery_rate"
+            label="Recovery Rate"
+            value={elasticityConfig.recovery_rate}
+            elasticity={0}
+            onChange={(v) => updateMoodSettings('recovery_rate', v)}
+            onElasticityChange={() => {}}
+            showElasticity={false}
+          />
+          <p className="admin-help-text">How quickly traits return to baseline</p>
+        </CollapsibleSection>
+
+        {/* Verbal & Physical Tics */}
+        <CollapsibleSection
+          title="Quirks & Tics"
+          icon="💬"
+          isOpen={openSections.tics}
+          onToggle={() => toggleSection('tics')}
+          badge={`${(formData.verbal_tics?.length || 0) + (formData.physical_tics?.length || 0)}`}
+        >
+          <ArrayInput
+            label="Verbal Tics"
+            items={formData.verbal_tics || []}
+            onChange={(items) => updateFormData({ verbal_tics: items })}
+            placeholder="e.g., Says 'you know' frequently"
+          />
+          <ArrayInput
+            label="Physical Tics"
+            items={formData.physical_tics || []}
+            onChange={(items) => updateFormData({ physical_tics: items })}
+            placeholder="e.g., Taps chips when nervous"
+          />
+        </CollapsibleSection>
+
+        {/* Avatar Images */}
+        <CollapsibleSection
+          title="Avatar Images"
+          icon="🖼️"
+          isOpen={openSections.avatar}
+          onToggle={() => toggleSection('avatar')}
+        >
+          <AvatarImageManager
+            personalityName={selectedName}
+            avatarDescription={formData.avatar_description || ''}
+            onDescriptionChange={(desc) => updateFormData({ avatar_description: desc })}
+            onDescriptionSave={handleSaveAvatarDescription}
+          />
+        </CollapsibleSection>
+    </div>
+  ) : null;
+
+  // Action bar (fixed at bottom)
+  const actionBar = selectedName && formData ? (
+    <div className={isMobile ? "pm-actions" : "admin-detail__footer"}>
+      <div className={isMobile ? "pm-actions__secondary" : "admin-detail__footer-secondary"}>
+        <button
+          type="button"
+          className="admin-btn admin-btn--secondary"
+          onClick={() => setModal({ type: 'regenerate' })}
+          disabled={saving}
+        >
+          ✨ AI Regen
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn--danger"
+          onClick={() => setModal({ type: 'delete' })}
+          disabled={saving}
+        >
+          Delete
+        </button>
+      </div>
+      <div className={isMobile ? "pm-actions__primary" : "admin-detail__footer-primary"}>
+        {hasChanges && (
+          <button
+            type="button"
+            className="admin-btn admin-btn--secondary"
+            onClick={handleCancel}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+        )}
+        <button
+          type="button"
+          className="admin-btn admin-btn--primary"
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+        >
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  // Empty state content
+  const emptyContent = (
+    <div className={isTablet ? "admin-detail__empty" : "admin-empty"}>
+      <div className={isTablet ? "admin-detail__empty-icon" : "admin-empty__icon"} style={{ fontSize: '64px', opacity: 0.5 }}>🎭</div>
+      <h3 className={isTablet ? "admin-detail__empty-title" : "admin-empty__title"}>No Character Selected</h3>
+      <p className={isTablet ? "admin-detail__empty-description" : "admin-empty__description"}>
+        {isTablet ? 'Select a character from the list or create a new one' : 'Choose a character above or create a new one'}
+      </p>
+      <button
+        type="button"
+        className="admin-btn admin-btn--primary admin-btn--lg"
+        onClick={() => setModal({ type: 'create' })}
+      >
+        Create New Character
+      </button>
+    </div>
+  );
+
   const content = (
     <>
       {/* Alert Toast */}
@@ -974,7 +1316,74 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           <div className="admin-loading__spinner" />
           <span className="admin-loading__text">Loading personalities...</span>
         </div>
+      ) : isTablet ? (
+        /* ==========================================
+           TABLET & DESKTOP: Master-Detail Layout
+           ========================================== */
+        <div className="admin-master-detail">
+          {/* Master Panel (sidebar) */}
+          <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
+            <MasterList
+              characters={characterNames}
+              selected={selectedName}
+              onSelect={(name) => {
+                selectPersonality(name);
+                if (!isDesktop) setMasterPanelOpen(false);
+              }}
+              onCreate={() => {
+                setMasterPanelOpen(false);
+                setModal({ type: 'create' });
+              }}
+              search={masterSearch}
+              onSearchChange={setMasterSearch}
+            />
+          </aside>
+
+          {/* Detail Panel */}
+          <main className="admin-detail">
+            {/* Tablet toggle button (hidden on desktop) */}
+            {!isDesktop && (
+              <button
+                type="button"
+                className="admin-master-toggle"
+                onClick={() => setMasterPanelOpen(!masterPanelOpen)}
+              >
+                <MenuIcon />
+                <span>{selectedName || 'Select Character'}</span>
+              </button>
+            )}
+
+            {/* Detail header when character selected */}
+            {selectedName && formData && (
+              <div className="admin-detail__header">
+                <div>
+                  <h2 className="admin-detail__title">{selectedName}</h2>
+                  <p className="admin-detail__subtitle">{formData.play_style || 'No play style defined'}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Detail content (scrollable) */}
+            <div className="admin-detail__content">
+              {editorSections || emptyContent}
+            </div>
+
+            {/* Action bar (fixed at bottom) */}
+            {actionBar}
+          </main>
+
+          {/* Backdrop for tablet sidebar */}
+          {!isDesktop && masterPanelOpen && (
+            <div
+              className="pm-sheet-backdrop pm-sheet-backdrop--visible"
+              onClick={() => setMasterPanelOpen(false)}
+            />
+          )}
+        </div>
       ) : (
+        /* ==========================================
+           MOBILE: Original Bottom Sheet Layout
+           ========================================== */
         <div className="pm-container">
           {/* Character Selector Trigger */}
           <button
@@ -1014,218 +1423,14 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             onClose={() => setSelectorOpen(false)}
           />
 
-          {/* Editor */}
+          {/* Editor or Empty State */}
           {selectedName && formData ? (
             <div className="pm-editor">
-              {/* Collapsible Sections */}
-              <div className="pm-sections">
-                {/* Basic Info */}
-                <CollapsibleSection
-                  title="Basic Info"
-                  icon="📋"
-                  isOpen={openSections.basic}
-                  onToggle={() => toggleSection('basic')}
-                >
-                  <div className="admin-form-group">
-                    <label className="admin-label" htmlFor="play_style">Play Style</label>
-                    <input
-                      id="play_style"
-                      type="text"
-                      className="admin-input"
-                      value={formData.play_style || ''}
-                      onChange={(e) => updateFormData({ play_style: e.target.value })}
-                      placeholder="e.g., aggressive and boastful"
-                    />
-                  </div>
-                  <div className="admin-form-row">
-                    <div className="admin-form-group">
-                      <label className="admin-label" htmlFor="confidence">Confidence</label>
-                      <input
-                        id="confidence"
-                        type="text"
-                        className="admin-input"
-                        value={formData.default_confidence || ''}
-                        onChange={(e) => updateFormData({ default_confidence: e.target.value })}
-                        placeholder="e.g., supreme"
-                      />
-                    </div>
-                    <div className="admin-form-group">
-                      <label className="admin-label" htmlFor="attitude">Attitude</label>
-                      <input
-                        id="attitude"
-                        type="text"
-                        className="admin-input"
-                        value={formData.default_attitude || ''}
-                        onChange={(e) => updateFormData({ default_attitude: e.target.value })}
-                        placeholder="e.g., domineering"
-                      />
-                    </div>
-                  </div>
-                </CollapsibleSection>
-
-                {/* Personality Traits */}
-                <CollapsibleSection
-                  title="Personality Traits"
-                  icon="🎭"
-                  isOpen={openSections.traits}
-                  onToggle={() => toggleSection('traits')}
-                >
-                  <TraitSlider
-                    id="bluff_tendency"
-                    label="Bluff Tendency"
-                    value={traits.bluff_tendency}
-                    elasticity={elasticityConfig.trait_elasticity.bluff_tendency}
-                    onChange={(v) => updateTraits('bluff_tendency', v)}
-                    onElasticityChange={(v) => updateElasticity('bluff_tendency', v)}
-                  />
-                  <TraitSlider
-                    id="aggression"
-                    label="Aggression"
-                    value={traits.aggression}
-                    elasticity={elasticityConfig.trait_elasticity.aggression}
-                    onChange={(v) => updateTraits('aggression', v)}
-                    onElasticityChange={(v) => updateElasticity('aggression', v)}
-                  />
-                  <TraitSlider
-                    id="chattiness"
-                    label="Chattiness"
-                    value={traits.chattiness}
-                    elasticity={elasticityConfig.trait_elasticity.chattiness}
-                    onChange={(v) => updateTraits('chattiness', v)}
-                    onElasticityChange={(v) => updateElasticity('chattiness', v)}
-                  />
-                  <TraitSlider
-                    id="emoji_usage"
-                    label="Emoji Usage"
-                    value={traits.emoji_usage}
-                    elasticity={elasticityConfig.trait_elasticity.emoji_usage}
-                    onChange={(v) => updateTraits('emoji_usage', v)}
-                    onElasticityChange={(v) => updateElasticity('emoji_usage', v)}
-                  />
-                </CollapsibleSection>
-
-                {/* Elasticity Settings */}
-                <CollapsibleSection
-                  title="Mood & Recovery"
-                  icon="🔄"
-                  isOpen={openSections.elasticity}
-                  onToggle={() => toggleSection('elasticity')}
-                >
-                  <TraitSlider
-                    id="mood_elasticity"
-                    label="Mood Elasticity"
-                    value={elasticityConfig.mood_elasticity}
-                    elasticity={0}
-                    onChange={(v) => updateMoodSettings('mood_elasticity', v)}
-                    onElasticityChange={() => {}}
-                    showElasticity={false}
-                  />
-                  <p className="admin-help-text">How reactive mood changes are to game events</p>
-                  <TraitSlider
-                    id="recovery_rate"
-                    label="Recovery Rate"
-                    value={elasticityConfig.recovery_rate}
-                    elasticity={0}
-                    onChange={(v) => updateMoodSettings('recovery_rate', v)}
-                    onElasticityChange={() => {}}
-                    showElasticity={false}
-                  />
-                  <p className="admin-help-text">How quickly traits return to baseline</p>
-                </CollapsibleSection>
-
-                {/* Verbal & Physical Tics */}
-                <CollapsibleSection
-                  title="Quirks & Tics"
-                  icon="💬"
-                  isOpen={openSections.tics}
-                  onToggle={() => toggleSection('tics')}
-                  badge={`${(formData.verbal_tics?.length || 0) + (formData.physical_tics?.length || 0)}`}
-                >
-                  <ArrayInput
-                    label="Verbal Tics"
-                    items={formData.verbal_tics || []}
-                    onChange={(items) => updateFormData({ verbal_tics: items })}
-                    placeholder="e.g., Says 'you know' frequently"
-                  />
-                  <ArrayInput
-                    label="Physical Tics"
-                    items={formData.physical_tics || []}
-                    onChange={(items) => updateFormData({ physical_tics: items })}
-                    placeholder="e.g., Taps chips when nervous"
-                  />
-                </CollapsibleSection>
-
-                {/* Avatar Images */}
-                <CollapsibleSection
-                  title="Avatar Images"
-                  icon="🖼️"
-                  isOpen={openSections.avatar}
-                  onToggle={() => toggleSection('avatar')}
-                >
-                  <AvatarImageManager
-                    personalityName={selectedName}
-                    avatarDescription={formData.avatar_description || ''}
-                    onDescriptionChange={(desc) => updateFormData({ avatar_description: desc })}
-                    onDescriptionSave={handleSaveAvatarDescription}
-                  />
-                </CollapsibleSection>
-              </div>
-
-              {/* Sticky Action Bar */}
-              <div className="pm-actions">
-                <div className="pm-actions__secondary">
-                  <button
-                    type="button"
-                    className="admin-btn admin-btn--secondary"
-                    onClick={() => setModal({ type: 'regenerate' })}
-                    disabled={saving}
-                  >
-                    ✨ AI Regen
-                  </button>
-                  <button
-                    type="button"
-                    className="admin-btn admin-btn--danger"
-                    onClick={() => setModal({ type: 'delete' })}
-                    disabled={saving}
-                  >
-                    Delete
-                  </button>
-                </div>
-                <div className="pm-actions__primary">
-                  {hasChanges && (
-                    <button
-                      type="button"
-                      className="admin-btn admin-btn--secondary"
-                      onClick={handleCancel}
-                      disabled={saving}
-                    >
-                      Cancel
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="admin-btn admin-btn--primary"
-                    onClick={handleSave}
-                    disabled={saving || !hasChanges}
-                  >
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </div>
+              {editorSections}
+              {actionBar}
             </div>
           ) : (
-            <div className="admin-empty">
-              <div className="admin-empty__icon" style={{ fontSize: '64px', opacity: 0.5 }}>🎭</div>
-              <h3 className="admin-empty__title">No Character Selected</h3>
-              <p className="admin-empty__description">Choose a character above or create a new one</p>
-              <button
-                type="button"
-                className="admin-btn admin-btn--primary admin-btn--lg"
-                onClick={() => setModal({ type: 'create' })}
-              >
-                Create New Character
-              </button>
-            </div>
+            emptyContent
           )}
 
           {/* Floating Create Button */}

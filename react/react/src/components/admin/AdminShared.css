@@ -1071,3 +1071,395 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* ==========================================================================
+   Master-Detail Layout
+   ==========================================================================
+
+   A responsive side-by-side layout for admin panels:
+   - Desktop (1024px+): Master list on left (280px), detail panel on right
+   - Tablet (768-1023px): Collapsible master panel with toggle
+   - Mobile (<768px): Fallback to component-specific patterns (e.g., bottom sheet)
+
+   Usage:
+     <div className="admin-master-detail">
+       <aside className="admin-master">...</aside>
+       <main className="admin-detail">...</main>
+     </div>
+   ========================================================================== */
+
+/* Container */
+.admin-master-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 180px);
+  gap: var(--space-4);
+}
+
+/* Master Panel (left sidebar) */
+.admin-master {
+  display: none; /* Hidden on mobile by default */
+  flex-direction: column;
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+  overflow: hidden;
+}
+
+.admin-master__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--admin-card-border);
+}
+
+.admin-master__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.admin-master__count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Search area */
+.admin-master__search {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--admin-card-border);
+}
+
+.admin-master__search-wrap {
+  position: relative;
+}
+
+.admin-master__search-icon {
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.admin-master__search-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-9);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-master__search-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.1);
+}
+
+.admin-master__search-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* Scrollable list */
+.admin-master__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Individual list items */
+.admin-master__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.admin-master__item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--admin-card-border);
+}
+
+.admin-master__item--selected {
+  background: rgba(255, 193, 7, 0.08);
+  border-color: rgba(255, 193, 7, 0.3);
+}
+
+.admin-master__item-avatar {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+}
+
+.admin-master__item--selected .admin-master__item-avatar {
+  background: var(--gradient-gold, linear-gradient(135deg, #ffc107 0%, #ff9800 100%));
+  color: var(--color-bg-void);
+  border-color: var(--color-gold);
+}
+
+.admin-master__item-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-master__item-check {
+  color: var(--color-gold);
+  flex-shrink: 0;
+}
+
+/* Empty state in list */
+.admin-master__empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Footer with create button */
+.admin-master__footer {
+  padding: var(--space-3);
+  border-top: 1px solid var(--admin-card-border);
+}
+
+.admin-master__create {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px dashed var(--admin-card-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-master__create:hover {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+  background: rgba(255, 193, 7, 0.05);
+}
+
+/* Detail Panel (right content area) */
+.admin-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Prevent flex overflow */
+  min-height: 0; /* Allow flex children to shrink for scroll */
+  max-height: calc(100vh - 180px);
+}
+
+.admin-detail__header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--admin-card-border);
+  background: var(--color-bg-primary, #0a0a0e);
+  z-index: 15;
+}
+
+.admin-detail__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.admin-detail__subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-1) 0 0 0;
+}
+
+.admin-detail__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Scrollable content area */
+.admin-detail__content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0; /* Allow shrinking for scroll */
+}
+
+/* Fixed action bar at bottom of detail panel */
+.admin-detail__footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-top: 1px solid var(--admin-card-border);
+  background: var(--color-bg-elevated, #1a1a1f);
+  z-index: 20;
+}
+
+.admin-detail__footer-secondary,
+.admin-detail__footer-primary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Empty state when nothing selected */
+.admin-detail__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.admin-detail__empty-icon {
+  font-size: 64px;
+  opacity: 0.5;
+}
+
+.admin-detail__empty-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.admin-detail__empty-description {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+  max-width: 300px;
+}
+
+/* ==========================================================================
+   Master-Detail Responsive Behavior
+   ========================================================================== */
+
+/* Tablet: Collapsible master panel */
+@media (min-width: 768px) {
+  .admin-master-detail {
+    flex-direction: row;
+    position: relative;
+  }
+
+  .admin-master {
+    display: flex;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 260px;
+    z-index: 10;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .admin-master--open {
+    transform: translateX(0);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .admin-detail {
+    margin-left: 0;
+    transition: margin-left 0.3s ease;
+  }
+
+  /* Toggle button for tablet */
+  .admin-master-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--admin-card-bg);
+    border: 1px solid var(--admin-card-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: var(--space-4);
+  }
+
+  .admin-master-toggle:hover {
+    border-color: var(--color-gold);
+    color: var(--color-gold);
+  }
+}
+
+/* Desktop: Side-by-side layout */
+@media (min-width: 1024px) {
+  .admin-master-detail {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: var(--space-6);
+    align-items: start;
+  }
+
+  .admin-master {
+    position: sticky;
+    top: 0;
+    display: flex;
+    transform: none;
+    z-index: 10;
+    height: calc(100vh - 180px);
+    max-height: calc(100vh - 180px);
+  }
+
+  .admin-master--open {
+    box-shadow: none;
+  }
+
+  /* Hide toggle on desktop */
+  .admin-master-toggle {
+    display: none;
+  }
+}
+
+/* Wide desktop: Larger master panel */
+@media (min-width: 1440px) {
+  .admin-master-detail {
+    grid-template-columns: 320px 1fr;
+  }
+}
