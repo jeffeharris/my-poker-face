@@ -17,6 +17,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def recover_interrupted_experiments():
+    """Mark experiments that were running when server stopped as interrupted.
+
+    Called on startup to detect orphaned 'running' experiments and mark them
+    as 'interrupted' so users can manually resume them.
+    """
+    try:
+        from poker.persistence import GamePersistence
+        from .config import DB_PATH
+        persistence = GamePersistence(DB_PATH)
+        count = persistence.mark_running_experiments_interrupted()
+        if count > 0:
+            logger.warning(
+                f"Found {count} experiment(s) in 'running' state on startup. "
+                "Marked as 'interrupted'. Use the resume endpoint to continue them."
+            )
+    except Exception as e:
+        logger.error(f"Failed to recover interrupted experiments: {e}")
+
+
 def create_app():
     """Create and configure the Flask application."""
     app = Flask(__name__)
@@ -24,6 +44,9 @@ def create_app():
 
     # Initialize extensions
     init_extensions(app)
+
+    # Mark any experiments that were running when server stopped as interrupted
+    recover_interrupted_experiments()
 
     # Register custom error handlers
     register_error_handlers(app)

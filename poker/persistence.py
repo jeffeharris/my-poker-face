@@ -4881,7 +4881,7 @@ class GamePersistence:
             status: New status ('pending', 'running', 'completed', 'failed')
             error_message: Optional error message if status is 'failed'
         """
-        valid_statuses = {'pending', 'running', 'completed', 'failed', 'paused'}
+        valid_statuses = {'pending', 'running', 'completed', 'failed', 'paused', 'interrupted'}
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
 
@@ -4907,6 +4907,28 @@ class GamePersistence:
                 """, (status, experiment_id))
             conn.commit()
             logger.info(f"Updated experiment {experiment_id} status to {status}")
+
+    def mark_running_experiments_interrupted(self) -> int:
+        """Mark all 'running' experiments as 'interrupted'.
+
+        Called on startup to handle experiments that were running when the
+        server was stopped. Users can manually resume these experiments.
+
+        Returns:
+            Number of experiments marked as interrupted.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE experiments
+                SET status = 'interrupted',
+                    notes = COALESCE(notes || '\n', '') || 'Server restarted while experiment was running.'
+                WHERE status = 'running'
+            """)
+            count = cursor.rowcount
+            conn.commit()
+            if count > 0:
+                logger.info(f"Marked {count} running experiment(s) as interrupted")
+            return count
 
     def get_incomplete_tournaments(self, experiment_id: int) -> List[Dict]:
         """Get game_ids for tournaments that haven't completed (no tournament_results entry).

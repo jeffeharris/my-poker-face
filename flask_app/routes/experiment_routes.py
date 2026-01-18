@@ -794,9 +794,9 @@ def resume_experiment(experiment_id: int):
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        if experiment.get('status') != 'paused':
+        if experiment.get('status') not in ('paused', 'interrupted'):
             return jsonify({
-                'error': f"Cannot resume experiment with status '{experiment.get('status')}'. Only paused experiments can be resumed."
+                'error': f"Cannot resume experiment with status '{experiment.get('status')}'. Only paused or interrupted experiments can be resumed."
             }), 400
 
         # Get incomplete tournaments
