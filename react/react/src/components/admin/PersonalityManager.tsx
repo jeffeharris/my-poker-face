@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
+import './AdminShared.css';
 import './PersonalityManager.css';
 
 // ============================================
@@ -179,7 +180,7 @@ function ArrayInput({ label, items, onChange, placeholder }: ArrayInputProps) {
 
   return (
     <div className="pm-array">
-      <label className="pm-array__label">{label}</label>
+      <label className="admin-label">{label}</label>
       <div className="pm-array__items">
         {items.map((item, index) => (
           <div key={index} className="pm-array__item">
@@ -225,17 +226,21 @@ interface ConfirmModalProps {
 
 function ConfirmModal({ title, message, confirmLabel, confirmVariant = 'primary', onConfirm, onCancel, isLoading }: ConfirmModalProps) {
   return (
-    <div className="pm-modal-overlay" onClick={onCancel}>
-      <div className="pm-modal" onClick={e => e.stopPropagation()}>
-        <h3 className="pm-modal__title">{title}</h3>
-        <p className="pm-modal__message">{message}</p>
-        <div className="pm-modal__actions">
-          <button type="button" className="pm-modal__btn pm-modal__btn--cancel" onClick={onCancel} disabled={isLoading}>
+    <div className="admin-modal-overlay" onClick={onCancel}>
+      <div className="admin-modal" onClick={e => e.stopPropagation()}>
+        <div className="admin-modal__header">
+          <h3 className="admin-modal__title">{title}</h3>
+        </div>
+        <div className="admin-modal__body">
+          <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>{message}</p>
+        </div>
+        <div className="admin-modal__footer">
+          <button type="button" className="admin-btn admin-btn--secondary" onClick={onCancel} disabled={isLoading}>
             Cancel
           </button>
           <button
             type="button"
-            className={`pm-modal__btn pm-modal__btn--${confirmVariant}`}
+            className={`admin-btn admin-btn--${confirmVariant}`}
             onClick={onConfirm}
             disabled={isLoading}
           >
@@ -282,52 +287,58 @@ function CreateModal({ onCreateManual, onCreateWithAI, onCancel, existingNames, 
   };
 
   return (
-    <div className="pm-modal-overlay" onClick={onCancel}>
-      <div className="pm-modal pm-modal--create" onClick={e => e.stopPropagation()}>
-        <h3 className="pm-modal__title">Create New Personality</h3>
-        <div className="pm-modal__field">
-          <label className="pm-modal__label" htmlFor="new-personality-name">Character Name</label>
-          <input
-            ref={inputRef}
-            id="new-personality-name"
-            type="text"
-            className="pm-modal__input"
-            value={name}
-            onChange={(e) => { setName(e.target.value); setError(''); }}
-            placeholder="e.g., Batman, The Rock, Marie Curie..."
-            disabled={isLoading}
-          />
-          {error && <span className="pm-modal__error">{error}</span>}
+    <div className="admin-modal-overlay" onClick={onCancel}>
+      <div className="admin-modal pm-modal--create" onClick={e => e.stopPropagation()}>
+        <div className="admin-modal__header">
+          <h3 className="admin-modal__title">Create New Personality</h3>
         </div>
-        <div className="pm-modal__create-actions">
-          <button
-            type="button"
-            className="pm-modal__create-btn pm-modal__create-btn--ai"
-            onClick={() => handleSubmit(true)}
-            disabled={isLoading || !name.trim()}
-          >
-            <span className="pm-modal__create-icon">✨</span>
-            <span className="pm-modal__create-text">
-              <strong>Generate with AI</strong>
-              <small>Auto-create personality traits</small>
-            </span>
-          </button>
-          <button
-            type="button"
-            className="pm-modal__create-btn pm-modal__create-btn--manual"
-            onClick={() => handleSubmit(false)}
-            disabled={isLoading || !name.trim()}
-          >
-            <span className="pm-modal__create-icon">✏️</span>
-            <span className="pm-modal__create-text">
-              <strong>Create Manually</strong>
-              <small>Start with default values</small>
-            </span>
+        <div className="admin-modal__body">
+          <div className="admin-form-group">
+            <label className="admin-label" htmlFor="new-personality-name">Character Name</label>
+            <input
+              ref={inputRef}
+              id="new-personality-name"
+              type="text"
+              className={`admin-input ${error ? 'admin-input--error' : ''}`}
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError(''); }}
+              placeholder="e.g., Batman, The Rock, Marie Curie..."
+              disabled={isLoading}
+            />
+            {error && <span className="admin-text-error" style={{ fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-1)' }}>{error}</span>}
+          </div>
+          <div className="pm-modal__create-actions">
+            <button
+              type="button"
+              className="pm-modal__create-btn pm-modal__create-btn--ai"
+              onClick={() => handleSubmit(true)}
+              disabled={isLoading || !name.trim()}
+            >
+              <span className="pm-modal__create-icon">✨</span>
+              <span className="pm-modal__create-text">
+                <strong>Generate with AI</strong>
+                <small>Auto-create personality traits</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="pm-modal__create-btn pm-modal__create-btn--manual"
+              onClick={() => handleSubmit(false)}
+              disabled={isLoading || !name.trim()}
+            >
+              <span className="pm-modal__create-icon">✏️</span>
+              <span className="pm-modal__create-text">
+                <strong>Create Manually</strong>
+                <small>Start with default values</small>
+              </span>
+            </button>
+          </div>
+        </div>
+        <div className="admin-modal__footer">
+          <button type="button" className="admin-btn admin-btn--secondary" onClick={onCancel} disabled={isLoading}>
+            Cancel
           </button>
         </div>
-        <button type="button" className="pm-modal__close" onClick={onCancel} disabled={isLoading}>
-          Cancel
-        </button>
       </div>
     </div>
   );
@@ -523,9 +534,9 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
 
   if (loading) {
     return (
-      <div className="pm-avatar__loading">
-        <div className="pm-avatar__spinner" />
-        <span>Loading images...</span>
+      <div className="admin-loading">
+        <div className="admin-loading__spinner" />
+        <span className="admin-loading__text">Loading images...</span>
       </div>
     );
   }
@@ -533,13 +544,13 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
   return (
     <div className="pm-avatar">
       <div className="pm-avatar__description">
-        <label className="pm-avatar__desc-label" htmlFor="avatar-desc">
+        <label className="admin-label" htmlFor="avatar-desc" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           Image Description
-          <span className="pm-avatar__desc-hint">Used for AI image generation</span>
+          <span className="admin-help-text" style={{ margin: 0 }}>Used for AI image generation</span>
         </label>
         <textarea
           id="avatar-desc"
-          className="pm-avatar__desc-input"
+          className="admin-input admin-textarea"
           value={avatarDescription}
           onChange={(e) => onDescriptionChange(e.target.value)}
           placeholder="Describe this character's appearance for image generation..."
@@ -547,9 +558,10 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         />
         <button
           type="button"
-          className="pm-avatar__desc-save"
+          className="admin-btn admin-btn--secondary"
           onClick={handleSaveDescription}
           disabled={savingDescription}
+          style={{ marginTop: 'var(--space-2)' }}
         >
           {savingDescription ? 'Saving...' : 'Save Description'}
         </button>
@@ -572,7 +584,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
               )}
               {regenerating === emotion && (
                 <div className="pm-avatar__regenerating">
-                  <div className="pm-avatar__spinner pm-avatar__spinner--small" />
+                  <div className="admin-loading__spinner admin-loading__spinner--sm" />
                 </div>
               )}
             </div>
@@ -603,7 +615,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         >
           {regenerating === 'all' ? (
             <>
-              <div className="pm-avatar__spinner pm-avatar__spinner--small" />
+              <div className="admin-loading__spinner admin-loading__spinner--sm" />
               Generating...
             </>
           ) : (
@@ -943,22 +955,24 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     <>
       {/* Alert Toast */}
       {alert && (
-        <div className={`pm-alert pm-alert--${alert.type}`}>
-          <span className="pm-alert__icon">
-            {alert.type === 'success' && '✓'}
-            {alert.type === 'error' && '✕'}
-            {alert.type === 'info' && 'ℹ'}
-          </span>
-          <span className="pm-alert__message">{alert.message}</span>
-          <button className="pm-alert__close" onClick={() => setAlert(null)}>×</button>
+        <div className="admin-toast-container">
+          <div className={`admin-alert admin-alert--${alert.type}`}>
+            <span className="admin-alert__icon">
+              {alert.type === 'success' && '✓'}
+              {alert.type === 'error' && '✕'}
+              {alert.type === 'info' && 'ℹ'}
+            </span>
+            <span className="admin-alert__content">{alert.message}</span>
+            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>×</button>
+          </div>
         </div>
       )}
 
       {/* Loading State */}
       {loading ? (
-        <div className="pm-loading">
-          <div className="pm-loading__spinner" />
-          <span>Loading personalities...</span>
+        <div className="admin-loading">
+          <div className="admin-loading__spinner" />
+          <span className="admin-loading__text">Loading personalities...</span>
         </div>
       ) : (
         <div className="pm-container">
@@ -1012,35 +1026,35 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                   isOpen={openSections.basic}
                   onToggle={() => toggleSection('basic')}
                 >
-                  <div className="pm-field">
-                    <label className="pm-field__label" htmlFor="play_style">Play Style</label>
+                  <div className="admin-form-group">
+                    <label className="admin-label" htmlFor="play_style">Play Style</label>
                     <input
                       id="play_style"
                       type="text"
-                      className="pm-field__input"
+                      className="admin-input"
                       value={formData.play_style || ''}
                       onChange={(e) => updateFormData({ play_style: e.target.value })}
                       placeholder="e.g., aggressive and boastful"
                     />
                   </div>
-                  <div className="pm-field-row">
-                    <div className="pm-field">
-                      <label className="pm-field__label" htmlFor="confidence">Confidence</label>
+                  <div className="admin-form-row">
+                    <div className="admin-form-group">
+                      <label className="admin-label" htmlFor="confidence">Confidence</label>
                       <input
                         id="confidence"
                         type="text"
-                        className="pm-field__input"
+                        className="admin-input"
                         value={formData.default_confidence || ''}
                         onChange={(e) => updateFormData({ default_confidence: e.target.value })}
                         placeholder="e.g., supreme"
                       />
                     </div>
-                    <div className="pm-field">
-                      <label className="pm-field__label" htmlFor="attitude">Attitude</label>
+                    <div className="admin-form-group">
+                      <label className="admin-label" htmlFor="attitude">Attitude</label>
                       <input
                         id="attitude"
                         type="text"
-                        className="pm-field__input"
+                        className="admin-input"
                         value={formData.default_attitude || ''}
                         onChange={(e) => updateFormData({ default_attitude: e.target.value })}
                         placeholder="e.g., domineering"
@@ -1106,7 +1120,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                     onElasticityChange={() => {}}
                     showElasticity={false}
                   />
-                  <p className="pm-help-text">How reactive mood changes are to game events</p>
+                  <p className="admin-help-text">How reactive mood changes are to game events</p>
                   <TraitSlider
                     id="recovery_rate"
                     label="Recovery Rate"
@@ -1116,7 +1130,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                     onElasticityChange={() => {}}
                     showElasticity={false}
                   />
-                  <p className="pm-help-text">How quickly traits return to baseline</p>
+                  <p className="admin-help-text">How quickly traits return to baseline</p>
                 </CollapsibleSection>
 
                 {/* Verbal & Physical Tics */}
@@ -1162,7 +1176,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                 <div className="pm-actions__secondary">
                   <button
                     type="button"
-                    className="pm-actions__btn pm-actions__btn--ghost"
+                    className="admin-btn admin-btn--secondary"
                     onClick={() => setModal({ type: 'regenerate' })}
                     disabled={saving}
                   >
@@ -1170,7 +1184,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                   </button>
                   <button
                     type="button"
-                    className="pm-actions__btn pm-actions__btn--danger"
+                    className="admin-btn admin-btn--danger"
                     onClick={() => setModal({ type: 'delete' })}
                     disabled={saving}
                   >
@@ -1181,7 +1195,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                   {hasChanges && (
                     <button
                       type="button"
-                      className="pm-actions__btn pm-actions__btn--ghost"
+                      className="admin-btn admin-btn--secondary"
                       onClick={handleCancel}
                       disabled={saving}
                     >
@@ -1190,7 +1204,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                   )}
                   <button
                     type="button"
-                    className="pm-actions__btn pm-actions__btn--save"
+                    className="admin-btn admin-btn--primary"
                     onClick={handleSave}
                     disabled={saving || !hasChanges}
                   >
@@ -1200,13 +1214,13 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
               </div>
             </div>
           ) : (
-            <div className="pm-empty">
-              <div className="pm-empty__icon">🎭</div>
-              <h3 className="pm-empty__title">No Character Selected</h3>
-              <p className="pm-empty__text">Choose a character above or create a new one</p>
+            <div className="admin-empty">
+              <div className="admin-empty__icon" style={{ fontSize: '64px', opacity: 0.5 }}>🎭</div>
+              <h3 className="admin-empty__title">No Character Selected</h3>
+              <p className="admin-empty__description">Choose a character above or create a new one</p>
               <button
                 type="button"
-                className="pm-empty__create"
+                className="admin-btn admin-btn--primary admin-btn--lg"
                 onClick={() => setModal({ type: 'create' })}
               >
                 Create New Character
