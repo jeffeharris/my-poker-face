@@ -5105,10 +5105,66 @@ class GamePersistence:
                 overall_progress['current_hands'] += current_hands
                 overall_progress['max_hands'] += variant_max_hands
 
+                # 4. Cost metrics from api_usage
+                cursor = conn.execute(f"""
+                    SELECT
+                        COALESCE(SUM(au.estimated_cost), 0) as total_cost,
+                        COUNT(*) as total_calls,
+                        COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                cost_row = cursor.fetchone()
+
+                # Cost by model
+                cursor = conn.execute(f"""
+                    SELECT
+                        au.provider || '/' || au.model as model_key,
+                        SUM(au.estimated_cost) as cost,
+                        COUNT(*) as calls
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.estimated_cost IS NOT NULL
+                    GROUP BY au.provider, au.model
+                """, [experiment_id] + variant_params)
+                by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
+
+                # Cost per decision (player_decision call type)
+                cursor = conn.execute(f"""
+                    SELECT AVG(au.estimated_cost), COUNT(*)
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.call_type = 'player_decision'
+                """, [experiment_id] + variant_params)
+                decision_cost_row = cursor.fetchone()
+
+                # Count hands for normalized cost
+                cursor = conn.execute(f"""
+                    SELECT COUNT(DISTINCT hh.game_id || '-' || hh.hand_number) as total_hands
+                    FROM hand_history hh
+                    JOIN experiment_games eg ON hh.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                hand_row = cursor.fetchone()
+                total_hands_for_cost = hand_row[0] or 1
+
+                cost_metrics = {
+                    'total_cost': round(cost_row[0] or 0, 6),
+                    'total_calls': cost_row[1] or 0,
+                    'avg_cost_per_call': round(cost_row[2] or 0, 8),
+                    'by_model': by_model,
+                    'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8) if decision_cost_row[0] else 0,
+                    'total_decisions': decision_cost_row[1] or 0,
+                    'cost_per_hand': round((cost_row[0] or 0) / total_hands_for_cost, 6),
+                    'total_hands': total_hands_for_cost,
+                }
+
                 result['by_variant'][variant_key] = {
                     'latency_metrics': latency_metrics,
                     'decision_quality': decision_quality,
                     'progress': progress,
+                    'cost_metrics': cost_metrics,
                 }
 
             # Compute overall stats
@@ -5140,10 +5196,63 @@ class GamePersistence:
                 'progress_pct': round(overall_progress['current_hands'] * 100 / overall_progress['max_hands'], 1) if overall_progress['max_hands'] else 0,
             }
 
+            # Overall cost metrics
+            cursor = conn.execute("""
+                SELECT
+                    COALESCE(SUM(au.estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls,
+                    COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ?
+            """, (experiment_id,))
+            overall_cost_row = cursor.fetchone()
+
+            cursor = conn.execute("""
+                SELECT
+                    au.provider || '/' || au.model as model_key,
+                    SUM(au.estimated_cost) as cost,
+                    COUNT(*) as calls
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
+                GROUP BY au.provider, au.model
+            """, (experiment_id,))
+            overall_by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
+
+            cursor = conn.execute("""
+                SELECT AVG(au.estimated_cost), COUNT(*)
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.call_type = 'player_decision'
+            """, (experiment_id,))
+            overall_decision_cost_row = cursor.fetchone()
+
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT hh.game_id || '-' || hh.hand_number) as total_hands
+                FROM hand_history hh
+                JOIN experiment_games eg ON hh.game_id = eg.game_id
+                WHERE eg.experiment_id = ?
+            """, (experiment_id,))
+            overall_hand_row = cursor.fetchone()
+            overall_total_hands = overall_hand_row[0] or 1
+
+            overall_cost_metrics = {
+                'total_cost': round(overall_cost_row[0] or 0, 6),
+                'total_calls': overall_cost_row[1] or 0,
+                'avg_cost_per_call': round(overall_cost_row[2] or 0, 8),
+                'by_model': overall_by_model,
+                'avg_cost_per_decision': round(overall_decision_cost_row[0] or 0, 8) if overall_decision_cost_row[0] else 0,
+                'total_decisions': overall_decision_cost_row[1] or 0,
+                'cost_per_hand': round((overall_cost_row[0] or 0) / overall_total_hands, 6),
+                'total_hands': overall_total_hands,
+            }
+
             result['overall'] = {
                 'latency_metrics': overall_latency,
                 'decision_quality': overall_decision_quality,
                 'progress': overall_progress_result,
+                'cost_metrics': overall_cost_metrics,
             }
 
             return result

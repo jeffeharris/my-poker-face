@@ -586,6 +586,53 @@ def get_quick_prompts():
     })
 
 
+@experiment_bp.route('/api/experiments/<int:experiment_id>/cost-trends', methods=['GET'])
+def get_experiment_cost_trends(experiment_id: int):
+    """Get cost trends over time for an experiment.
+
+    Returns time-bucketed cost data for charting cost accumulation over time.
+
+    Query params:
+        bucket: Bucket size in minutes (default 5)
+    """
+    import sqlite3
+
+    try:
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            return jsonify({'error': 'Experiment not found'}), 404
+
+        bucket_minutes = request.args.get('bucket', 5, type=int)
+
+        with sqlite3.connect(persistence.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT
+                    strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
+                        printf('-%d minutes', CAST(strftime('%M', au.created_at) AS INTEGER) % ?)) as bucket,
+                    eg.variant,
+                    SUM(au.estimated_cost) as cost,
+                    COUNT(*) as calls
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
+                GROUP BY bucket, eg.variant
+                ORDER BY bucket
+            """, (bucket_minutes, experiment_id))
+
+            trends = [{'time': r[0], 'variant': r[1], 'cost': r[2], 'calls': r[3]}
+                      for r in cursor.fetchall()]
+
+        return jsonify({
+            'success': True,
+            'trends': trends,
+            'bucket_minutes': bucket_minutes,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting cost trends for experiment {experiment_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @experiment_bp.route('/api/experiments/<int:experiment_id>/live-games', methods=['GET'])
 def get_live_games(experiment_id: int):
     """Get live game snapshots for monitoring running experiments.

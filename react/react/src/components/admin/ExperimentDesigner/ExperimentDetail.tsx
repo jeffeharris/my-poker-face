@@ -16,10 +16,11 @@ import {
   Monitor,
   Pause,
   Play,
+  DollarSign,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
-import type { VariantResultSummary, LiveStats, LatencyMetrics } from './types';
+import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics } from './types';
 
 type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
 
@@ -219,6 +220,14 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   const formatLatency = (ms: number) => {
     if (ms < 1000) return `${Math.round(ms)}ms`;
     return `${(ms / 1000).toFixed(2)}s`;
+  };
+
+  const formatCost = (cost: number) => {
+    if (cost === 0) return '$0';
+    if (cost < 0.001) return `$${cost.toFixed(6)}`;
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    if (cost < 1) return `$${cost.toFixed(3)}`;
+    return `$${cost.toFixed(2)}`;
   };
 
   if (loading) {
@@ -454,6 +463,48 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
                       <span className="experiment-detail__latency-count">
                         {variantLive.latency_metrics.count.toLocaleString()} API calls
                       </span>
+                    </div>
+                  )}
+
+                  {/* Cost Metrics Section */}
+                  {variantLive.cost_metrics && variantLive.cost_metrics.total_cost > 0 && (
+                    <div className="experiment-detail__variant-section">
+                      <span className="experiment-detail__variant-section-label">
+                        <DollarSign size={12} />
+                        Cost Analytics
+                      </span>
+                      <div className="experiment-detail__cost-summary">
+                        <span className="experiment-detail__cost-total">
+                          {formatCost(variantLive.cost_metrics.total_cost)}
+                        </span>
+                        <span className="experiment-detail__cost-label">total</span>
+                      </div>
+                      <div className="experiment-detail__cost-grid">
+                        <div className="experiment-detail__cost-cell">
+                          <span className="experiment-detail__cost-metric-label">Per Hand</span>
+                          <span className="experiment-detail__cost-metric-value">
+                            {formatCost(variantLive.cost_metrics.cost_per_hand)}
+                          </span>
+                        </div>
+                        <div className="experiment-detail__cost-cell">
+                          <span className="experiment-detail__cost-metric-label">Per Decision</span>
+                          <span className="experiment-detail__cost-metric-value">
+                            {formatCost(variantLive.cost_metrics.avg_cost_per_decision)}
+                          </span>
+                        </div>
+                      </div>
+                      {Object.keys(variantLive.cost_metrics.by_model).length > 0 && (
+                        <div className="experiment-detail__cost-by-model">
+                          {Object.entries(variantLive.cost_metrics.by_model).map(([model, data]) => (
+                            <div key={model} className="experiment-detail__cost-model-row">
+                              <span className="experiment-detail__cost-model-name">{model}</span>
+                              <span className="experiment-detail__cost-model-value">
+                                {formatCost(data.cost)} ({data.calls.toLocaleString()} calls)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

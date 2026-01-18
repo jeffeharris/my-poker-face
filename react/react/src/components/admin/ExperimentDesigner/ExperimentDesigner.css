@@ -8,6 +8,9 @@
 
 .experiment-designer--embedded {
   padding: 0;
+  /* Fill the AdminLayout content area */
+  height: calc(100vh - 72px - var(--space-6) * 2);
+  min-height: 0;
 }
 
 .experiment-designer__header {
@@ -65,10 +68,17 @@
 /* Design Mode - Two Panel Layout */
 .experiment-designer__design-layout {
   display: grid;
-  grid-template-columns: 1fr 400px;
-  gap: 1rem;
+  grid-template-columns: 1fr minmax(400px, 480px);
+  gap: var(--space-6);
   height: 100%;
-  padding: 1rem;
+  padding: 0;
+}
+
+/* Wide screen: allow preview panel to grow */
+@media (min-width: 1600px) {
+  .experiment-designer__design-layout {
+    grid-template-columns: 1fr minmax(480px, 560px);
+  }
 }
 
 .experiment-designer__chat-panel,
@@ -1211,6 +1221,81 @@
   text-align: center;
 }
 
+/* Cost Metrics Styles */
+.experiment-detail__cost-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.experiment-detail__cost-total {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #10b981;
+  font-family: monospace;
+}
+
+.experiment-detail__cost-label {
+  font-size: 0.75rem;
+  color: #737373;
+}
+
+.experiment-detail__cost-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.experiment-detail__cost-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.experiment-detail__cost-metric-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #737373;
+}
+
+.experiment-detail__cost-metric-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #10b981;
+  font-family: monospace;
+}
+
+.experiment-detail__cost-by-model {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.experiment-detail__cost-model-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.experiment-detail__cost-model-name {
+  color: #a3a3a3;
+  font-family: monospace;
+}
+
+.experiment-detail__cost-model-value {
+  color: #10b981;
+  font-family: monospace;
+}
+
 /* Variant Winners */
 .experiment-detail__variant-winners {
   display: flex;
@@ -1282,11 +1367,23 @@
   color: #a3a3a3;
 }
 
-/* Responsive */
+/* Responsive - Wide screens */
+@media (min-width: 1400px) {
+  .experiment-detail__variant-comparison {
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  }
+
+  .experiment-detail__summary {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
+/* Responsive - Tablet */
 @media (max-width: 900px) {
   .experiment-designer__design-layout {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 1fr;
+    gap: var(--space-4);
   }
 
   .experiment-detail__variant-comparison {

@@ -117,12 +117,27 @@ export interface DecisionQuality {
 }
 
 /**
+ * Cost metrics for API usage tracking.
+ */
+export interface CostMetrics {
+  total_cost: number;
+  total_calls: number;
+  avg_cost_per_call: number;
+  by_model: Record<string, { cost: number; calls: number }>;
+  avg_cost_per_decision: number;
+  total_decisions: number;
+  cost_per_hand: number;
+  total_hands: number;
+}
+
+/**
  * Live stats for a single variant during experiment execution.
  */
 export interface VariantLiveStats {
   latency_metrics: LatencyMetrics | null;
   decision_quality: DecisionQuality | null;
   progress: VariantProgress;
+  cost_metrics: CostMetrics | null;
 }
 
 /**
