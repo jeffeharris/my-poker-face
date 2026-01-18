@@ -98,10 +98,14 @@ The migration script preserves these critical tables:
 | `player_career_stats` | Career statistics | varies |
 
 With `--include-optional`, also migrates:
+- `experiments` (A/B test configurations and results)
+- `experiment_games` (Links games to experiments)
 - `tournament_results`
 - `tournament_standings`
 - `users`
 - `app_settings`
+
+**Note:** The migration script automatically handles column renames (e.g., `config_json` → `config` in experiments table).
 
 ## Rollback Procedure
 
@@ -208,7 +212,28 @@ The LLM tracking module writes prompt metadata. Add these columns:
 ```sql
 ALTER TABLE api_usage ADD COLUMN prompt_template TEXT;
 ALTER TABLE api_usage ADD COLUMN prompt_version TEXT;
+ALTER TABLE api_usage ADD COLUMN max_tokens INTEGER;
 ```
+
+### 3. experiments table (required for experiment routes)
+
+The experiment routes migration added new columns to the experiments schema. If you have an existing database with the old schema, add:
+
+```sql
+-- experiments table
+ALTER TABLE experiments ADD COLUMN hypothesis TEXT;
+ALTER TABLE experiments ADD COLUMN tags TEXT;
+ALTER TABLE experiments ADD COLUMN notes TEXT;
+ALTER TABLE experiments ADD COLUMN summary_json TEXT;
+
+-- experiment_games table
+ALTER TABLE experiment_games ADD COLUMN variant TEXT;
+ALTER TABLE experiment_games ADD COLUMN variant_config_json TEXT;
+ALTER TABLE experiment_games ADD COLUMN tournament_number INTEGER;
+ALTER TABLE experiment_games ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+```
+
+**Note:** The migration script (`tools/migrate_to_new_schema.py`) handles the column rename from `config_json` to `config` automatically.
 
 ### Quick Fix Script
 
@@ -239,13 +264,35 @@ for col, typedef in om_cols:
         else:
             print(f\"Error: {e}\")
 
-for col in [\"prompt_template TEXT\", \"prompt_version TEXT\"]:
+for col in [\"prompt_template TEXT\", \"prompt_version TEXT\", \"max_tokens INTEGER\"]:
     try:
         conn.execute(f\"ALTER TABLE api_usage ADD COLUMN {col}\")
         print(f\"Added api_usage.{col.split()[0]}\")
     except Exception as e:
         if \"duplicate\" in str(e).lower():
             print(f\"Already exists: api_usage.{col.split()[0]}\")
+        else:
+            print(f\"Error: {e}\")
+
+# experiments columns
+exp_cols = [
+    (\"experiments\", \"hypothesis\", \"TEXT\"),
+    (\"experiments\", \"tags\", \"TEXT\"),
+    (\"experiments\", \"notes\", \"TEXT\"),
+    (\"experiments\", \"summary_json\", \"TEXT\"),
+    (\"experiment_games\", \"variant\", \"TEXT\"),
+    (\"experiment_games\", \"variant_config_json\", \"TEXT\"),
+    (\"experiment_games\", \"tournament_number\", \"INTEGER\"),
+    (\"experiment_games\", \"created_at\", \"TIMESTAMP DEFAULT CURRENT_TIMESTAMP\"),
+]
+
+for table, col, typedef in exp_cols:
+    try:
+        conn.execute(f\"ALTER TABLE {table} ADD COLUMN {col} {typedef}\")
+        print(f\"Added {table}.{col}\")
+    except Exception as e:
+        if \"duplicate\" in str(e).lower():
+            print(f\"Already exists: {table}.{col}\")
         else:
             print(f\"Error: {e}\")
 
@@ -283,13 +330,35 @@ for col, typedef in om_cols:
             print(f'Error: {e}')
 
 # api_usage columns
-for col in ['prompt_template TEXT', 'prompt_version TEXT']:
+for col in ['prompt_template TEXT', 'prompt_version TEXT', 'max_tokens INTEGER']:
     try:
         conn.execute(f'ALTER TABLE api_usage ADD COLUMN {col}')
         print(f'Added api_usage.{col.split()[0]}')
     except Exception as e:
         if 'duplicate' in str(e).lower():
             print(f'Already exists: api_usage.{col.split()[0]}')
+        else:
+            print(f'Error: {e}')
+
+# experiments columns
+exp_cols = [
+    ('experiments', 'hypothesis', 'TEXT'),
+    ('experiments', 'tags', 'TEXT'),
+    ('experiments', 'notes', 'TEXT'),
+    ('experiments', 'summary_json', 'TEXT'),
+    ('experiment_games', 'variant', 'TEXT'),
+    ('experiment_games', 'variant_config_json', 'TEXT'),
+    ('experiment_games', 'tournament_number', 'INTEGER'),
+    ('experiment_games', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+]
+
+for table, col, typedef in exp_cols:
+    try:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {col} {typedef}')
+        print(f'Added {table}.{col}')
+    except Exception as e:
+        if 'duplicate' in str(e).lower():
+            print(f'Already exists: {table}.{col}')
         else:
             print(f'Error: {e}')
 
@@ -322,3 +391,23 @@ The code was updated to use `repository_factory` instead of `persistence`. Ensur
 
 ### "AIMemoryManager has no attribute 'set_persistence'"
 Same fix - the memory manager now uses `set_repository_factory()`. Update `experiments/run_ai_tournament.py`.
+
+### "table api_usage has no column named max_tokens"
+The LLM tracking code writes `max_tokens` to the usage table. Run the schema fix script above to add the missing column:
+```sql
+ALTER TABLE api_usage ADD COLUMN max_tokens INTEGER;
+```
+
+### "'DecisionAnalysis' object has no attribute 'prompt_capture_id'"
+This is a code mismatch - the `DecisionAnalysis` entity in `protocols.py` may be missing the `prompt_capture_id` field. Check that the entity definition includes:
+```python
+@dataclass
+class DecisionAnalysisEntity:
+    ...
+    prompt_capture_id: Optional[int] = None  # Link to prompt_captures table
+```
+
+### "no such column: config" in experiments
+The legacy schema used `config_json`, but the new schema uses `config`. The migration script handles this automatically. If you're manually querying:
+- Old schema: `SELECT config_json FROM experiments`
+- New schema: `SELECT config FROM experiments`

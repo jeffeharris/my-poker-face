@@ -12,8 +12,17 @@ clean repository schema. It preserves important historical data like:
 - avatar_images (Generated character avatars)
 - player_career_stats (Career statistics)
 
+With --include-optional, also migrates:
+- experiments (A/B test configurations and results)
+- experiment_games (Links games to experiments)
+- tournament_results, tournament_standings
+- users, app_settings
+
+Handles column renames (e.g., experiments.config_json -> experiments.config)
+automatically via COLUMN_MAPPINGS.
+
 Usage:
-    python scripts/migrate_to_new_schema.py --source poker_games.db --target poker_games_v2.db
+    python tools/migrate_to_new_schema.py --source poker_games.db --target poker_games_v2.db
 
 After verification:
     mv poker_games.db poker_games_backup.db
@@ -53,11 +62,21 @@ PRESERVE_TABLES = [
 
 # Tables to optionally migrate (can be regenerated but nice to keep)
 OPTIONAL_TABLES = [
+    'experiments',           # Experiment configurations and results
+    'experiment_games',      # Links games to experiments (A/B testing)
     'tournament_results',
     'tournament_standings',
     'users',
     'app_settings',
 ]
+
+# Column mappings for tables with renamed columns
+# Format: {table_name: {old_column: new_column}}
+COLUMN_MAPPINGS = {
+    'experiments': {
+        'config_json': 'config',  # Legacy used config_json, new uses config
+    },
+}
 
 
 def get_table_columns(conn: sqlite3.Connection, table_name: str) -> list:
@@ -92,6 +111,7 @@ def copy_table_data(
     Copy data from old table to new table.
 
     Handles column mismatches by only copying columns that exist in both tables.
+    Also handles column renames via COLUMN_MAPPINGS.
     Returns the number of rows copied.
     """
     if not table_exists(old_conn, table_name):
@@ -107,17 +127,38 @@ def copy_table_data(
             return 0
         new_columns = set(get_table_columns(new_conn, table_name))
 
-    # Find common columns
-    common_columns = old_columns & new_columns
-    if not common_columns:
-        logger.warning(f"  No common columns between source and target for {table_name}")
+    # Get column mappings for this table (old_name -> new_name)
+    column_map = COLUMN_MAPPINGS.get(table_name, {})
+    reverse_map = {v: k for k, v in column_map.items()}  # new_name -> old_name
+
+    # Build column mapping: which old columns map to which new columns
+    # 1. Direct matches (column exists in both)
+    # 2. Mapped columns (old name maps to new name)
+    old_select_columns = []
+    new_insert_columns = []
+
+    for new_col in new_columns:
+        if new_col in old_columns:
+            # Direct match
+            old_select_columns.append(new_col)
+            new_insert_columns.append(new_col)
+        elif new_col in reverse_map and reverse_map[new_col] in old_columns:
+            # Mapped column (e.g., config_json -> config)
+            old_name = reverse_map[new_col]
+            old_select_columns.append(old_name)
+            new_insert_columns.append(new_col)
+            logger.info(f"    Column mapping: {old_name} -> {new_col}")
+
+    if not old_select_columns:
+        logger.warning(f"  No matching columns between source and target for {table_name}")
         return 0
 
-    columns_str = ', '.join(sorted(common_columns))
-    placeholders = ', '.join(['?' for _ in common_columns])
+    old_columns_str = ', '.join(old_select_columns)
+    new_columns_str = ', '.join(new_insert_columns)
+    placeholders = ', '.join(['?' for _ in new_insert_columns])
 
     # Read from old
-    cursor = old_conn.execute(f"SELECT {columns_str} FROM {table_name}")
+    cursor = old_conn.execute(f"SELECT {old_columns_str} FROM {table_name}")
     rows = cursor.fetchall()
 
     if not rows:
@@ -127,7 +168,7 @@ def copy_table_data(
     # Write to new
     with new_db.transaction() as new_conn:
         new_conn.executemany(
-            f"INSERT OR REPLACE INTO {table_name} ({columns_str}) VALUES ({placeholders})",
+            f"INSERT OR REPLACE INTO {table_name} ({new_columns_str}) VALUES ({placeholders})",
             rows
         )
 
