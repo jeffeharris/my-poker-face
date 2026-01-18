@@ -350,13 +350,18 @@ class TournamentWorker:
             # Link game to experiment before running (enables live progress tracking)
             if self.experiment_id:
                 try:
-                    runner.persistence.link_game_to_experiment(
+                    from poker.repositories.protocols import ExperimentGameEntity
+                    game_entity = ExperimentGameEntity(
                         experiment_id=self.experiment_id,
                         game_id=task.tournament_id,
+                        game_number=task.tournament_number,
                         variant=task.variant_label,
                         variant_config=task.variant_config,
                         tournament_number=task.tournament_number,
+                        status='running',
+                        started_at=datetime.now(),
                     )
+                    runner.repository_factory.experiment.add_game_to_experiment(game_entity)
                 except Exception as e:
                     logger.warning(f"Could not link game to experiment: {e}")
 
@@ -366,6 +371,15 @@ class TournamentWorker:
                 variant_label=task.variant_label,
                 variant_config=task.variant_config,
             )
+
+            # Update game status to completed
+            if self.experiment_id:
+                try:
+                    runner.repository_factory.experiment.update_experiment_game_status(
+                        self.experiment_id, task.tournament_id, 'completed'
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not update game status: {e}")
 
             # Save result to JSON
             runner._save_result(result)
@@ -1167,13 +1181,18 @@ class AITournamentRunner:
                 # Link game to experiment BEFORE running so live_stats can track progress
                 if self.experiment_id:
                     try:
-                        self.persistence.link_game_to_experiment(
+                        from poker.repositories.protocols import ExperimentGameEntity
+                        game_entity = ExperimentGameEntity(
                             experiment_id=self.experiment_id,
                             game_id=task.tournament_id,
+                            game_number=task.tournament_number,
                             variant=task.variant_label,
                             variant_config=task.variant_config if task.variant_label else None,
                             tournament_number=task.tournament_number,
+                            status='running',
+                            started_at=datetime.now(),
                         )
+                        self.repository_factory.experiment.add_game_to_experiment(game_entity)
                     except Exception as e:
                         logger.warning(f"Could not link game to experiment: {e}")
 
@@ -1183,6 +1202,15 @@ class AITournamentRunner:
                     task.variant_config
                 )
                 results.append(result)
+
+                # Update game status to completed
+                if self.experiment_id:
+                    try:
+                        self.repository_factory.experiment.update_experiment_game_status(
+                            self.experiment_id, task.tournament_id, 'completed'
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not update game status: {e}")
 
                 # Save result to file
                 self._save_result(result)

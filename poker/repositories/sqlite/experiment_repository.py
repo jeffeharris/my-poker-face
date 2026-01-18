@@ -189,6 +189,30 @@ class SQLiteExperimentRepository:
                 ),
             )
 
+    def update_experiment_game_status(
+        self, experiment_id: int, game_id: str, status: str
+    ) -> None:
+        """Update the status of an experiment game."""
+        with self._db.transaction() as conn:
+            if status == 'completed':
+                conn.execute(
+                    """
+                    UPDATE experiment_games SET
+                        status = ?,
+                        completed_at = CURRENT_TIMESTAMP
+                    WHERE experiment_id = ? AND game_id = ?
+                    """,
+                    (status, experiment_id, game_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE experiment_games SET status = ?
+                    WHERE experiment_id = ? AND game_id = ?
+                    """,
+                    (status, experiment_id, game_id),
+                )
+
     def get_experiment_stats(self, experiment_id: int) -> Dict[str, Any]:
         """Get aggregated statistics for an experiment."""
         # Get game counts by status

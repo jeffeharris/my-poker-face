@@ -778,6 +778,12 @@ class ExperimentRepositoryProtocol(Protocol):
         """Update an experiment game record."""
         ...
 
+    def update_experiment_game_status(
+        self, experiment_id: int, game_id: str, status: str
+    ) -> None:
+        """Update the status of an experiment game."""
+        ...
+
     def get_experiment_stats(self, experiment_id: int) -> Dict[str, Any]:
         """Get aggregated statistics for an experiment."""
         ...
