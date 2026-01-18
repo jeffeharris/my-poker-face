@@ -1,0 +1,142 @@
+/**
+ * Stadium Layout - 3-column desktop poker layout
+ *
+ * Layout structure:
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │  [Header]                                                          [gear]│
+ * ├────────────┬────────────────────────────────────────────┬────────────────┤
+ * │  STATS     │              TABLE AREA                    │  ACTIVITY      │
+ * │            │                                            │                │
+ * │  (left)    │       [opponents in top arc]              │  (right)       │
+ * │            │                                            │                │
+ * │            │              [community]                   │                │
+ * │            │                 POT                        │                │
+ * │            │                                            │                │
+ * │            │       [PlayerCommandCenter]                │                │
+ * └────────────┴────────────────────────────────────────────┴────────────────┘
+ */
+
+.stadium-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 280px;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas:
+    "header header header"
+    "left   table  right";
+  height: 100vh;
+  width: 100vw;
+  background: var(--gradient-bg-main);
+  overflow: hidden;
+}
+
+/* Header - spans full width */
+.stadium-layout__header {
+  grid-area: header;
+  z-index: var(--z-sticky);
+}
+
+/* Left sidebar - Stats Panel */
+.stadium-layout__left {
+  grid-area: left;
+  background: var(--color-bg-elevated);
+  border-right: 1px solid var(--color-border-default);
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+/* Main table area */
+.stadium-layout__table {
+  grid-area: table;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: var(--space-4);
+}
+
+.stadium-layout__table-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Command center at bottom of table area */
+.stadium-layout__command-center {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-dropdown);
+  width: 100%;
+  max-width: 600px;
+  padding: 0 var(--space-4);
+}
+
+/* Right sidebar - Activity Feed */
+.stadium-layout__right {
+  grid-area: right;
+  background: var(--color-bg-elevated);
+  border-left: 1px solid var(--color-border-default);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===========================================
+   RESPONSIVE BREAKPOINTS
+   =========================================== */
+
+/* Large desktop: 1200-1400px - hide left panel */
+@media (max-width: 1400px) and (min-width: 1200px) {
+  .stadium-layout {
+    grid-template-columns: 1fr 280px;
+    grid-template-areas:
+      "header header"
+      "table  right";
+  }
+
+  .stadium-layout__left {
+    display: none;
+  }
+}
+
+/* Medium screens: < 1200px - hide both sidebars, single column */
+@media (max-width: 1199px) {
+  .stadium-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas:
+      "header"
+      "table";
+  }
+
+  .stadium-layout__left,
+  .stadium-layout__right {
+    display: none;
+  }
+
+  .stadium-layout__command-center {
+    max-width: 100%;
+  }
+}
+
+/* Hide header on small screens if needed */
+@media (max-width: 900px) {
+  .stadium-layout {
+    grid-template-rows: 48px 1fr;
+  }
+
+  .stadium-layout__table {
+    padding: var(--space-2);
+  }
+
+  .stadium-layout__command-center {
+    bottom: var(--space-2);
+    padding: 0 var(--space-2);
+  }
+}

@@ -1,0 +1,131 @@
+/**
+ * GameHeader - Top info bar for stadium layout
+ */
+
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+/* Left section - Back button */
+.game-header__left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.game-header__back-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.game-header__back-btn .back-arrow {
+  font-size: var(--font-size-lg);
+}
+
+.game-header__back-btn .back-text {
+  font-size: var(--font-size-sm);
+}
+
+/* Center section - Game info */
+.game-header__center {
+  flex: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  font-family: var(--font-display);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.game-header__info-item {
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.game-header__separator {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.game-header__phase-badge {
+  background: var(--color-gold-muted);
+  color: var(--color-gold-light);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-xs);
+  letter-spacing: var(--letter-spacing-wider);
+  text-transform: uppercase;
+  border: 1px solid var(--color-border-gold);
+}
+
+/* Right section - Settings */
+.game-header__right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.game-header__settings-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+}
+
+.game-header__settings-btn .settings-icon {
+  font-size: var(--font-size-xl);
+}
+
+.game-header__settings-btn:hover {
+  transform: rotate(45deg);
+}
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+
+@media (max-width: 900px) {
+  .game-header {
+    height: 48px;
+    padding: 0 var(--space-3);
+  }
+
+  .game-header__center {
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+  }
+
+  .game-header__back-btn .back-text {
+    display: none;
+  }
+
+  .game-header__phase-badge {
+    padding: var(--space-1) var(--space-2);
+  }
+}
+
+@media (max-width: 600px) {
+  .game-header__center {
+    flex-wrap: wrap;
+  }
+
+  .game-header__separator:first-of-type {
+    display: none;
+  }
+
+  .game-header__info-item:first-child {
+    display: none;
+  }
+}

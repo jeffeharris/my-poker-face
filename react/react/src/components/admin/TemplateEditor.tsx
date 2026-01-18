@@ -1,30 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { config } from '../../config';
+import { useViewport } from '../../hooks/useViewport';
 import './AdminShared.css';
 import './TemplateEditor.css';
-
-// ============================================
-// Hooks
-// ============================================
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.matchMedia(query).matches;
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
-  }, [query]);
-
-  return matches;
-}
 
 // ============================================
 // Types
@@ -154,8 +132,7 @@ function MasterList({ templates, selected, onSelect, search, onSearchChange }: M
 
 export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   // Responsive breakpoints
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const isTablet = useMediaQuery('(min-width: 768px)');
+  const { isDesktop, isTablet } = useViewport();
 
   // Core state
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);

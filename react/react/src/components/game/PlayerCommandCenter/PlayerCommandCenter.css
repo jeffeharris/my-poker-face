@@ -1,0 +1,280 @@
+/**
+ * PlayerCommandCenter - Human player's integrated seat + action buttons
+ *
+ * Layout:
+ * ┌─────────────────────────────────────────────────────┐
+ * │  [Card1][Card2]   [Avatar]  Stack: $2,150   [D][SB] │
+ * │                             To call: $50           │
+ * ├─────────────────────────────────────────────────────┤
+ * │  [FOLD]    [CHECK/CALL $50]    [RAISE ▼]  [ALL-IN] │
+ * └─────────────────────────────────────────────────────┘
+ */
+
+.player-command-center {
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  transition: var(--transition-all-slow);
+}
+
+/* Active state - gold glow when it's your turn */
+.player-command-center.is-active {
+  border-color: var(--color-border-gold);
+  box-shadow: var(--glow-gold-strong), var(--shadow-xl);
+  animation: commandCenterPulse 2s ease-in-out infinite;
+}
+
+@keyframes commandCenterPulse {
+  0%, 100% {
+    box-shadow: var(--glow-gold), var(--shadow-lg);
+  }
+  50% {
+    box-shadow: var(--glow-gold-strong), var(--shadow-xl);
+  }
+}
+
+/* Folded state */
+.player-command-center.is-folded {
+  opacity: 0.5;
+  filter: grayscale(0.5);
+}
+
+/* All-in state */
+.player-command-center.is-all-in {
+  border-color: var(--color-amethyst);
+  box-shadow: var(--glow-amethyst);
+}
+
+/* ===========================================
+   TOP SECTION - Cards + Info
+   =========================================== */
+
+.command-center__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-bg-surface);
+}
+
+/* Cards display */
+.command-center__cards {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.command-center__cards .command-card {
+  transform: scale(1.2);
+}
+
+.command-center__cards .placeholder {
+  width: 60px;
+  height: 84px;
+  background: var(--color-bg-tertiary);
+  border: 2px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+/* Avatar */
+.command-center__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--color-bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 2px solid var(--color-border-default);
+}
+
+.command-center__avatar .avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.command-center__avatar .avatar-initial {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+/* Player info */
+.command-center__info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.command-center__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.command-center__name {
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-center__stack {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.command-center__stack .stack-label {
+  color: var(--color-text-muted);
+}
+
+.command-center__stack .stack-value {
+  color: var(--color-gold-light);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+}
+
+.command-center__current-bet {
+  font-size: var(--font-size-xs);
+  color: var(--color-emerald);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+}
+
+.command-center__to-call {
+  font-size: var(--font-size-xs);
+  color: var(--color-amber);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Position chips */
+.command-center__positions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.position-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  font-family: var(--font-display);
+}
+
+.position-chip.dealer {
+  background: var(--color-gold);
+  color: var(--color-bg-void);
+}
+
+.position-chip.small-blind {
+  background: var(--color-sapphire);
+  color: white;
+}
+
+.position-chip.big-blind {
+  background: var(--color-emerald);
+  color: white;
+}
+
+/* Status badges */
+.command-center__status {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.status-badge {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+}
+
+.status-badge.folded {
+  background: var(--color-ruby-muted);
+  color: var(--color-ruby);
+  border: 1px solid var(--color-ruby);
+}
+
+.status-badge.all-in {
+  background: var(--color-amethyst-muted);
+  color: var(--color-amethyst);
+  border: 1px solid var(--color-amethyst);
+  animation: allInPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes allInPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ===========================================
+   BOTTOM SECTION - Action Buttons
+   =========================================== */
+
+.command-center__actions {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-tertiary);
+  border-top: 1px solid var(--color-border-default);
+}
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+
+@media (max-width: 900px) {
+  .command-center__top {
+    padding: var(--space-3) var(--space-4);
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .command-center__cards .command-card {
+    transform: scale(1);
+  }
+
+  .command-center__avatar {
+    width: 40px;
+    height: 40px;
+  }
+
+  .command-center__name {
+    font-size: var(--font-size-sm);
+  }
+}
+
+@media (max-width: 600px) {
+  .command-center__top {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .command-center__info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .command-center__actions {
+    padding: var(--space-2) var(--space-3);
+  }
+}

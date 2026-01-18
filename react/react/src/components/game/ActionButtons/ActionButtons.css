@@ -7,29 +7,49 @@
   background: rgba(0, 0, 0, 0.95);
   border: 2px solid #333;
   border-radius: 12px;
-  padding: 20px;
+  padding: 12px 20px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   z-index: 1000;
-  min-width: 450px;
-  max-width: 600px;
+}
+
+/* Inline mode - embedded in PlayerCommandCenter */
+.action-panel.inline {
+  position: static;
+  transform: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  z-index: auto;
+}
+
+.action-panel.inline .action-buttons {
+  justify-content: center;
+}
+
+.action-panel.inline.betting-interface {
+  min-width: 100%;
+  max-width: 100%;
+  animation: none;
 }
 
 .action-buttons {
   display: flex;
-  gap: 15px;
+  gap: 10px;
   justify-content: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .action-button {
-  padding: 18px 32px;
+  padding: 12px 20px;
   border: none;
-  border-radius: 10px;
-  font-size: 18px;
+  border-radius: 8px;
+  font-size: 15px;
   font-weight: bold;
   cursor: pointer;
   transition: all 0.3s ease;
-  min-width: 120px;
+  white-space: nowrap;
   position: relative;
   overflow: hidden;
 }
