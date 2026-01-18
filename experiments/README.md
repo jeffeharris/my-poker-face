@@ -9,6 +9,7 @@ This module provides tools for running AI-only poker tournaments to test differe
 - [Configuration Reference](#configuration-reference)
 - [A/B Testing](#ab-testing)
 - [Parallel Execution](#parallel-execution)
+- [Hand-Based Experiments](#hand-based-experiments)
 - [Psychology Systems](#psychology-systems)
 - [Best Practices](#best-practices)
 - [Limitations & Gotchas](#limitations--gotchas)
@@ -102,6 +103,8 @@ The assistant understands these requests:
 | `num_players` | int | 4 | Players per tournament (2-8) |
 | `starting_stack` | int | 10000 | Starting chips |
 | `big_blind` | int | 100 | Big blind amount |
+| `target_hands` | int | null | Run exactly N hands, resetting stacks as needed |
+| `reset_on_elimination` | bool | false | Reset stacks when one player remains |
 
 ### LLM Configuration
 
@@ -275,6 +278,71 @@ Run multiple tournaments concurrently to speed up experiments.
 
 ---
 
+## Hand-Based Experiments
+
+For experiments requiring equal hand counts across variants (useful for fair A/B comparisons), use `target_hands` or `reset_on_elimination`.
+
+### The Problem
+
+Default tournament behavior ends when one player has all chips. This creates unequal hand counts between experiments, making comparisons difficult.
+
+### Solution 1: target_hands
+
+Run exactly N hands, automatically resetting stacks when one player remains:
+
+```json
+{
+  "name": "fair_comparison_test",
+  "target_hands": 200,
+  "num_players": 4,
+  "control": { "label": "Model A" },
+  "variants": [{ "label": "Model B" }]
+}
+```
+
+**Behavior**:
+- Runs exactly 200 hands per variant
+- When one player eliminates others, all stacks reset to `starting_stack`
+- Tracks "round winners" (who had most chips at each reset)
+- `num_tournaments` is ignored (treated as 1 session)
+
+### Solution 2: reset_on_elimination
+
+Keep tournament structure but reset stacks within each tournament:
+
+```json
+{
+  "name": "extended_tournament",
+  "num_tournaments": 3,
+  "max_hands_per_tournament": 100,
+  "reset_on_elimination": true,
+  "num_players": 4
+}
+```
+
+**Behavior**:
+- Runs 3 tournaments of exactly 100 hands each
+- When one player remains, stacks reset and play continues
+- Each tournament plays full `max_hands_per_tournament`
+- Tracks round winners for analysis
+
+### When to Use Each
+
+| Scenario | Recommendation |
+|----------|----------------|
+| A/B testing model quality | `target_hands: 200` |
+| Equal data points per variant | `target_hands` |
+| Traditional tournament with safety | `reset_on_elimination: true` |
+| Default (quick elimination = end) | Neither (default behavior) |
+
+### Results Tracking
+
+With either option, results include:
+- `round_winners`: List of players who had most chips at each reset
+- `total_resets`: How many times stacks were reset
+
+---
+
 ## Psychology Systems
 
 Enable psychological feedback systems for richer AI behavior.
@@ -393,7 +461,7 @@ With psychology enabled, each hand makes ~8 additional LLM calls (4 players × 2
 
 5. **"Results seem random"**: Poker has variance. Run more tournaments. 3 is minimum, 10+ for confidence.
 
-6. **"Tournament ended early"**: Players eliminated (reached 0 chips). This is normal. Check `total_hands` vs `max_hands_per_tournament`.
+6. **"Tournament ended early"**: Players eliminated (reached 0 chips). This is normal. Check `total_hands` vs `max_hands_per_tournament`. Use `target_hands` or `reset_on_elimination: true` to run full hand counts.
 
 ### Database Column Names
 

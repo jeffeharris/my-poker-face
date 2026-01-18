@@ -52,6 +52,9 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'parallel_tournaments': 1,
     'stagger_start_delay': 0.0,
     'rate_limit_backoff_seconds': 30.0,
+    # Tournament reset behavior options
+    'target_hands': None,
+    'reset_on_elimination': False,
 }
 
 # System prompt for the experiment design assistant
@@ -64,6 +67,8 @@ You help configure experiments with these parameters:
 - tags: Categories for filtering (e.g., ["model_comparison", "prompt_testing"])
 - num_tournaments: How many tournaments to run PER VARIANT (1-20)
 - max_hands_per_tournament: Maximum hands per tournament (20-500)
+- target_hands: Run until this many total hands, resetting stacks when one player remains (overrides tournament-based thinking)
+- reset_on_elimination: If true, reset all stacks when one player is eliminated (default false)
 - num_players: Players per tournament (2-8)
 - starting_stack: Chips per player (1000-100000)
 - big_blind: Big blind amount (10-1000)
@@ -146,6 +151,36 @@ Example A/B test for psychology systems (testing if emotional state improves dec
 This tests whether tilt tracking and emotional state generation improves AI decision quality.
 Note: enable_psychology adds ~4 LLM calls per hand (one per player for emotional state).
 
+## Hand-Based vs Tournament-Based Experiments
+
+For experiments where you want to ensure equal hand counts (useful for fair A/B comparisons):
+
+Example using target_hands (run exactly N hands, resetting stacks as needed):
+{
+  "name": "hand_count_test",
+  "target_hands": 200,
+  "num_players": 4,
+  "control": { "label": "GPT-5" }
+}
+
+Example using reset_on_elimination (tournaments continue through resets):
+{
+  "name": "fair_tournament",
+  "num_tournaments": 3,
+  "max_hands_per_tournament": 100,
+  "reset_on_elimination": true
+}
+
+When target_hands is set:
+- Runs until exactly that many hands are played
+- Automatically resets all stacks when one player remains
+- Ignores num_tournaments (treated as 1 session)
+
+When reset_on_elimination is true:
+- Runs num_tournaments of max_hands_per_tournament each
+- Resets stacks when one player wins, continues until max_hands reached
+- Tracks round winners for analysis
+
 Available prompt_config options (all boolean, default true):
 - pot_odds: Include pot odds and equity calculations
 - hand_strength: Include hand strength evaluation
@@ -174,6 +209,8 @@ Common experiment scenarios:
 5. Baseline measurement: Simple default config to establish baseline metrics
 6. Psychology impact: Test if enable_psychology improves decision quality (tilt + emotional state)
 7. Commentary impact: Test if enable_commentary affects player behavior
+8. Hand-based experiments: Use target_hands for equal hand counts across variants (fair A/B comparisons)
+9. Extended tournaments: Use reset_on_elimination for longer tournaments with stack resets
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
@@ -448,7 +485,8 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             'num_tournaments', 'max_hands_per_tournament', 'num_players',
             'starting_stack', 'big_blind', 'model', 'provider',
             'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds'
+            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
+            'target_hands', 'reset_on_elimination'
         }
         filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
 
@@ -821,7 +859,8 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
             'num_tournaments', 'max_hands_per_tournament', 'num_players',
             'starting_stack', 'big_blind', 'model', 'provider',
             'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds'
+            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
+            'target_hands', 'reset_on_elimination'
         }
         filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
         exp_config = ExperimentConfig(**filtered_config)

@@ -73,6 +73,11 @@ export interface ExperimentConfig {
   // A/B testing support
   control: ControlConfig | null;
   variants: VariantConfig[] | null;
+  // Tournament reset behavior options
+  /** Run until this many total hands, resetting stacks when one player remains */
+  target_hands?: number | null;
+  /** If true, reset all stacks when one player is eliminated (default false) */
+  reset_on_elimination?: boolean;
 }
 
 export interface ExperimentSummary {
@@ -276,6 +281,8 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   player_configs: null,
   control: null,
   variants: null,
+  target_hands: null,
+  reset_on_elimination: false,
 };
 
 export const DEFAULT_PROMPT_CONFIG: PromptConfig = {

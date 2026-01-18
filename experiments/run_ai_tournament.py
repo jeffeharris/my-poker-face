@@ -94,6 +94,8 @@ class TournamentResult:
     avg_latency_ms: float
     decision_stats: Dict
     variant: Optional[str] = None  # Variant label for A/B testing
+    round_winners: List[str] = field(default_factory=list)  # Winners of each "round" before reset
+    total_resets: int = 0  # How many times stacks were reset
 
 
 @dataclass
@@ -144,6 +146,9 @@ class ExperimentConfig:
     parallel_tournaments: int = 1  # Number of concurrent tournaments (1 = sequential)
     stagger_start_delay: float = 0.0  # Seconds between starting parallel workers
     rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
+    # Tournament reset behavior options
+    target_hands: Optional[int] = None  # If set, run until this many hands (resets stacks as needed)
+    reset_on_elimination: bool = False  # If true, reset all stacks when 1 player remains
 
     def __post_init__(self):
         """Validate control/variants structure."""
@@ -615,7 +620,7 @@ class AITournamentRunner:
                  memory_manager: AIMemoryManager,
                  hand_number: int,
                  tournament_id: Optional[str] = None,
-                 variant_config: Optional[Dict] = None) -> bool:
+                 variant_config: Optional[Dict] = None):
         """
         Run a single hand to completion.
 
@@ -628,7 +633,8 @@ class AITournamentRunner:
             variant_config: Optional variant-specific config with enable_psychology/enable_commentary flags
 
         Returns:
-            True if game should continue, False if tournament is over or paused.
+            True if game should continue, False if tournament is paused,
+            or "reset_needed" if only one player remains with chips.
         """
         # Let the state machine handle setup_hand via its INITIALIZING_HAND transition
         # Do NOT call setup_hand() directly - that would deal cards twice!
@@ -803,7 +809,9 @@ class AITournamentRunner:
 
         # Check if tournament should continue
         active_players = [p for p in game_state.players if p.stack > 0]
-        return len(active_players) > 1
+        if len(active_players) <= 1:
+            return "reset_needed"
+        return True
 
     def run_tournament(
         self,
@@ -830,12 +838,26 @@ class AITournamentRunner:
         elimination_order = []
         prev_active = set(p.name for p in state_machine.game_state.players)
 
+        # Determine target hands and reset behavior
+        # target_hands mode: run until exactly that many hands, resetting as needed
+        # reset_on_elimination mode: reset when 1 player remains within normal tournament structure
+        if self.config.target_hands:
+            max_hands = self.config.target_hands
+            should_reset = True
+        else:
+            max_hands = self.config.max_hands_per_tournament
+            should_reset = self.config.reset_on_elimination
+
+        # Track round winners (for reset scenarios)
+        round_winners: List[str] = []
+        total_resets = 0
+
         hand_number = 0
         paused = False
-        while hand_number < self.config.max_hands_per_tournament:
+        while hand_number < max_hands:
             hand_number += 1
 
-            should_continue = self.run_hand(
+            hand_result = self.run_hand(
                 state_machine, controllers, memory_manager, hand_number,
                 tournament_id=tournament_id,
                 variant_config=variant_config
@@ -852,8 +874,32 @@ class AITournamentRunner:
                 logger.info(f"  Eliminated: {name}")
             prev_active = current_active
 
-            if not should_continue:
-                # Check if this was due to a pause request
+            # Handle different return values from run_hand
+            if hand_result == "reset_needed":
+                if should_reset:
+                    # Record round winner (player with most chips) and reset
+                    game_state = state_machine.game_state
+                    winner = max(game_state.players, key=lambda p: p.stack)
+                    round_winners.append(winner.name)
+                    total_resets += 1
+                    logger.info(f"Round {total_resets}: {winner.name} wins. Resetting stacks.")
+
+                    # Reset all player stacks
+                    reset_players = tuple(
+                        player.update(stack=self.config.starting_stack, is_folded=False)
+                        for player in game_state.players
+                    )
+                    game_state = game_state.update(players=reset_players)
+                    state_machine.game_state = game_state
+
+                    # Reset elimination tracking for next round
+                    prev_active = set(p.name for p in game_state.players)
+                    continue
+                else:
+                    # No reset - tournament ends when one player wins
+                    break
+            elif not hand_result:
+                # False means paused
                 if self.pause_coordinator and self.experiment_id:
                     if self.pause_coordinator.should_pause(self.experiment_id):
                         paused = True
@@ -863,7 +909,8 @@ class AITournamentRunner:
             # Log progress every 10 hands
             if hand_number % 10 == 0:
                 stacks = {p.name: p.stack for p in state_machine.game_state.players if p.stack > 0}
-                logger.info(f"Hand {hand_number}: Stacks = {stacks}")
+                resets_info = f" (resets: {total_resets})" if total_resets > 0 else ""
+                logger.info(f"Hand {hand_number}: Stacks = {stacks}{resets_info}")
 
         # If paused, raise exception so caller can handle appropriately
         if paused:
@@ -909,10 +956,13 @@ class AITournamentRunner:
             avg_latency_ms=avg_latency,
             decision_stats=self._get_decision_stats(tournament_id),
             variant=variant_label,
+            round_winners=round_winners,
+            total_resets=total_resets,
         )
 
         variant_info = f" [{variant_label}]" if variant_label else ""
-        logger.info(f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}")
+        resets_info = f", Resets = {total_resets}" if total_resets > 0 else ""
+        logger.info(f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}{resets_info}")
         return result
 
     def _get_decision_stats(self, game_id: str) -> Dict:
