@@ -1,5 +1,5 @@
 name: decision
-version: 1.1.0
+version: 1.2.0
 sections:
   base: |-
     {message}
@@ -7,6 +7,12 @@ sections:
     CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.
     Example: If you say 'I raise by $500', then adding_to_pot should be 500.
     Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.
+
+    PRE-FLOP RAISING DISCIPLINE:
+    - RAISING requires hand strength. Do NOT raise with "Below average" or "Bottom 25%" hands.
+    - CALLING can be correct with pot odds, even with weaker hands.
+    - Your personality influences HOW you bet, not WHETHER you have cards worth betting.
+    - Aggressive players are selective about WHEN to be aggressive - they don't raise garbage.
 
   mind_games: |-
     MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? Trying to tilt you or bait you into a bad call? Use their words to read their hand - excessive trash talk often means weakness, while silence or short responses may signal strength. Let their table talk influence your decision.
