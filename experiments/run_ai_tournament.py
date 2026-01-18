@@ -450,6 +450,27 @@ class AITournamentRunner:
         self.total_latency = 0
         self.total_cost = 0.0
 
+    @property
+    def _owner_id(self) -> str:
+        """Return the owner ID for this experiment."""
+        return f"experiment_{self.config.name}"
+
+    def _check_pause_requested(self) -> bool:
+        """Check if experiment should pause. Returns True if pause requested."""
+        if self.pause_coordinator and self.experiment_id:
+            if self.pause_coordinator.should_pause(self.experiment_id):
+                logger.info(f"Pause requested for experiment {self.experiment_id}")
+                return True
+        return False
+
+    def _save_checkpoint(self, tournament_id: str, state_machine) -> None:
+        """Save game checkpoint for resume capability."""
+        if tournament_id and self.experiment_id:
+            try:
+                self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+            except Exception as e:
+                logger.warning(f"Checkpoint save failed: {e}")
+
     def select_personalities(self) -> List[str]:
         """Select personalities for the tournament."""
         if self.config.personalities:
@@ -501,7 +522,7 @@ class AITournamentRunner:
         memory_manager = AIMemoryManager(
             game_id=tournament_id,
             db_path=self.db_path,
-            owner_id=f"experiment_{self.config.name}",
+            owner_id=self._owner_id,
             commentary_enabled=commentary_enabled
         )
         memory_manager.set_persistence(self.persistence)
@@ -532,7 +553,7 @@ class AITournamentRunner:
                 state_machine=state_machine,
                 llm_config=llm_config,
                 game_id=tournament_id,
-                owner_id=f"experiment_{self.config.name}",
+                owner_id=self._owner_id,
                 persistence=self.persistence,
                 debug_capture=self.config.capture_prompts,
                 prompt_config=prompt_config,
@@ -748,7 +769,7 @@ class AITournamentRunner:
                             try:
                                 self.persistence.save_game(
                                     tournament_id, state_machine,
-                                    f"experiment_{self.config.name}"
+                                    self._owner_id
                                 )
                                 # Save AI conversation history for each controller
                                 for player_name, ctrl in controllers.items():
@@ -761,10 +782,8 @@ class AITournamentRunner:
                                 logger.warning(f"Per-action save failed: {save_error}")
 
                         # Check for pause request
-                        if self.pause_coordinator and self.experiment_id:
-                            if self.pause_coordinator.should_pause(self.experiment_id):
-                                logger.info(f"Pause requested for experiment {self.experiment_id}, stopping after action")
-                                return False  # Signal tournament should stop
+                        if self._check_pause_requested():
+                            return False  # Signal tournament should stop
 
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
@@ -773,20 +792,11 @@ class AITournamentRunner:
                         state_machine.game_state = game_state  # Use property setter
 
                         # Save after fallback action too
-                        if tournament_id and self.experiment_id:
-                            try:
-                                self.persistence.save_game(
-                                    tournament_id, state_machine,
-                                    f"experiment_{self.config.name}"
-                                )
-                            except Exception as save_error:
-                                logger.warning(f"Per-action save failed: {save_error}")
+                        self._save_checkpoint(tournament_id, state_machine)
 
                         # Check for pause request
-                        if self.pause_coordinator and self.experiment_id:
-                            if self.pause_coordinator.should_pause(self.experiment_id):
-                                logger.info(f"Pause requested for experiment {self.experiment_id}, stopping after action")
-                                return False
+                        if self._check_pause_requested():
+                            return False
 
                 action_count += 1
 
@@ -857,7 +867,7 @@ class AITournamentRunner:
         original_players = state_machine.game_state.players
 
         # Save initial game state for live monitoring
-        self.persistence.save_game(tournament_id, state_machine, f"experiment_{self.config.name}")
+        self.persistence.save_game(tournament_id, state_machine, self._owner_id)
 
         elimination_order = []
         prev_active = set(p.name for p in state_machine.game_state.players)
@@ -888,7 +898,7 @@ class AITournamentRunner:
             )
 
             # Save game state for live monitoring (every hand)
-            self.persistence.save_game(tournament_id, state_machine, f"experiment_{self.config.name}")
+            self.persistence.save_game(tournament_id, state_machine, self._owner_id)
 
             # Track eliminations
             current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
@@ -925,10 +935,8 @@ class AITournamentRunner:
                     break
             elif not hand_result:
                 # False means paused
-                if self.pause_coordinator and self.experiment_id:
-                    if self.pause_coordinator.should_pause(self.experiment_id):
-                        paused = True
-                        logger.info(f"Tournament {tournament_id} paused at hand {hand_number}")
+                if self._check_pause_requested():
+                    paused = True
                 break
 
             # Log progress every 10 hands

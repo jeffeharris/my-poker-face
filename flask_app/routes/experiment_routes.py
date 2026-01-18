@@ -5,7 +5,6 @@ import logging
 import re
 import threading
 import uuid
-from dataclasses import asdict
 from typing import Dict, Any, Optional, List
 
 from flask import Blueprint, jsonify, request
@@ -27,6 +26,16 @@ _active_experiments: Dict[int, threading.Thread] = {}
 
 # Store chat sessions for experiment design
 _chat_sessions: Dict[str, List[Dict[str, str]]] = {}
+
+# Fields accepted in ExperimentConfig (used for filtering unknown keys)
+EXPERIMENT_CONFIG_FIELDS = {
+    'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
+    'num_tournaments', 'max_hands_per_tournament', 'num_players',
+    'starting_stack', 'big_blind', 'model', 'provider',
+    'personalities', 'random_seed', 'control', 'variants',
+    'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
+    'target_hands', 'reset_on_elimination'
+}
 
 # Default experiment config values
 DEFAULT_EXPERIMENT_CONFIG = {
@@ -478,17 +487,8 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         # Update status to running
         persistence.update_experiment_status(experiment_id, 'running')
 
-        # Build ExperimentConfig from dict
-        # Filter to only known fields
-        known_fields = {
-            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'max_hands_per_tournament', 'num_players',
-            'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'target_hands', 'reset_on_elimination'
-        }
-        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
+        # Build ExperimentConfig from dict (filter to known fields)
+        filtered_config = {k: v for k, v in config_dict.items() if k in EXPERIMENT_CONFIG_FIELDS and v is not None}
 
         exp_config = ExperimentConfig(**filtered_config)
 
@@ -853,19 +853,10 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
     from poker.prompt_config import PromptConfig
 
     try:
-        # Build ExperimentConfig
-        known_fields = {
-            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'max_hands_per_tournament', 'num_players',
-            'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'target_hands', 'reset_on_elimination'
-        }
-        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
+        # Build ExperimentConfig (filter to known fields)
+        filtered_config = {k: v for k, v in config_dict.items() if k in EXPERIMENT_CONFIG_FIELDS and v is not None}
         exp_config = ExperimentConfig(**filtered_config)
 
-        results = []
         paused_again = False
 
         for tournament_info in incomplete_tournaments:
@@ -901,11 +892,10 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                 prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
                 prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict else None
 
-                # Recreate controllers for all players
-                controllers = {}
-                for player in state_machine.game_state.players:
-                    controller = AIPlayerController(
-                        player_name=player.name,
+                # Helper to create AI controller with consistent settings
+                def _create_ai_controller(player_name: str) -> AIPlayerController:
+                    return AIPlayerController(
+                        player_name=player_name,
                         state_machine=state_machine,
                         llm_config=llm_config,
                         game_id=game_id,
@@ -914,6 +904,11 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                         debug_capture=exp_config.capture_prompts,
                         prompt_config=prompt_config,
                     )
+
+                # Recreate controllers for all players
+                controllers = {}
+                for player in state_machine.game_state.players:
+                    controller = _create_ai_controller(player.name)
 
                     # Restore conversation history if available
                     if player.name in ai_states:
@@ -982,16 +977,7 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                             # Recreate controllers for any players that were eliminated
                             for name in original_player_names:
                                 if name not in controllers:
-                                    controllers[name] = AIPlayerController(
-                                        player_name=name,
-                                        state_machine=state_machine,
-                                        llm_config=llm_config,
-                                        game_id=game_id,
-                                        owner_id=f"experiment_{exp_config.name}",
-                                        persistence=persistence,
-                                        debug_capture=exp_config.capture_prompts,
-                                        prompt_config=prompt_config,
-                                    )
+                                    controllers[name] = _create_ai_controller(name)
                                     memory_manager.initialize_for_player(name)
                             continue
                         else:
