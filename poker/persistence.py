@@ -5001,7 +5001,7 @@ class GamePersistence:
                 return {'by_variant': {}, 'overall': None}
 
             config = exp.get('config', {})
-            max_hands = config.get('max_hands_per_tournament', 100)
+            max_hands = config.get('target_hands') or config.get('max_hands_per_tournament', 100)
             num_tournaments = config.get('num_tournaments', 1)
 
             # Determine number of variants from control/variants config
@@ -5401,7 +5401,8 @@ class GamePersistence:
                     psychology = {
                         'narrative': emo_state.get('narrative', ''),
                         'inner_voice': emo_state.get('inner_voice', ''),
-                        'tilt_level': tilt_state.get('tilt_level', 0) if tilt_state else 0,
+                        # Convert tilt_level from 0.0-1.0 to 0-100 percentage
+                        'tilt_level': round((tilt_state.get('tilt_level', 0) if tilt_state else 0) * 100),
                         'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
                         'tilt_source': tilt_state.get('source', '') if tilt_state else '',
                     }
@@ -5464,13 +5465,23 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Verify game belongs to experiment
+            # Verify game belongs to experiment and get variant config
             cursor = conn.execute("""
-                SELECT eg.id FROM experiment_games eg
+                SELECT eg.id, eg.variant_config_json FROM experiment_games eg
                 WHERE eg.experiment_id = ? AND eg.game_id = ?
             """, (experiment_id, game_id))
-            if not cursor.fetchone():
+            eg_row = cursor.fetchone()
+            if not eg_row:
                 return None
+
+            # Check if psychology is enabled for this variant
+            variant_config = {}
+            if eg_row['variant_config_json']:
+                try:
+                    variant_config = json.loads(eg_row['variant_config_json'])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            psychology_enabled = variant_config.get('enable_psychology', False)
 
             # Load game state for player info
             cursor = conn.execute(
@@ -5504,7 +5515,8 @@ class GamePersistence:
             psychology = {
                 'narrative': emo_state.get('narrative', '') if emo_state else '',
                 'inner_voice': emo_state.get('inner_voice', '') if emo_state else '',
-                'tilt_level': tilt_state.get('tilt_level', 0) if tilt_state else 0,
+                # Convert tilt_level from 0.0-1.0 to 0-100 percentage
+                'tilt_level': round((tilt_state.get('tilt_level', 0) if tilt_state else 0) * 100),
                 'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
                 'tilt_source': tilt_state.get('source', '') if tilt_state else '',
             }
@@ -5616,6 +5628,7 @@ class GamePersistence:
                     'cards': player_data.get('hand', []),
                 },
                 'psychology': psychology,
+                'psychology_enabled': psychology_enabled,
                 'llm_debug': llm_debug,
                 'play_style': play_style,
                 'recent_decisions': recent_decisions,

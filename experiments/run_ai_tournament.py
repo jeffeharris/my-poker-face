@@ -549,7 +549,8 @@ class AITournamentRunner:
         controllers: Dict[str, AIPlayerController],
         winner_info: Dict,
         winner_names: List[str],
-        hand_number: int
+        hand_number: int,
+        game_id: str
     ) -> None:
         """Process psychology updates (tilt + emotional state) for all AI players.
 
@@ -561,6 +562,7 @@ class AITournamentRunner:
             winner_info: Winner determination info with pot_breakdown
             winner_names: List of winning player names
             hand_number: Current hand number
+            game_id: Game ID for persisting state
         """
         # Calculate pot size from winner_info
         pot_size = 0
@@ -612,6 +614,24 @@ class AITournamentRunner:
                     f"Psychology update for {player.name}: "
                     f"tilt={controller.psychology.tilt_level:.2f}, outcome={outcome}"
                 )
+
+                # Save psychology state to database for live monitoring
+                psychology_dict = controller.psychology.to_dict()
+                prompt_config_dict = controller.prompt_config.to_dict() if hasattr(controller, 'prompt_config') and controller.prompt_config else None
+                self.persistence.save_controller_state(
+                    game_id,
+                    player.name,
+                    psychology=psychology_dict,
+                    prompt_config=prompt_config_dict
+                )
+
+                # Save emotional state if available
+                if controller.psychology.emotional:
+                    self.persistence.save_emotional_state(
+                        game_id,
+                        player.name,
+                        controller.psychology.emotional
+                    )
             except Exception as e:
                 logger.warning(f"Psychology state update failed for {player.name}: {e}")
 
@@ -785,7 +805,8 @@ class AITournamentRunner:
 
             if enable_psychology:
                 self._process_psychology(
-                    game_state, controllers, winner_info, winner_names, hand_number
+                    game_state, controllers, winner_info, winner_names, hand_number,
+                    game_id=tournament_id
                 )
 
             if enable_commentary:

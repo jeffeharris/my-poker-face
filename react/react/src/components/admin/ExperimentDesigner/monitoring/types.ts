@@ -105,6 +105,7 @@ export interface PlayerDetail {
     cards: MonitoringCard[];
   };
   psychology: PlayerPsychology;
+  psychology_enabled: boolean;
   llm_debug: PlayerLLMDebug;
   play_style: PlayStyle;
   recent_decisions: RecentDecision[];

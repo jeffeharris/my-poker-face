@@ -132,57 +132,73 @@ export function PlayerDrilldownPanel({
               Stack: ${playerDetail.player.stack.toLocaleString()}
             </div>
 
-            {/* Emotional State Section */}
-            <section className="player-drilldown__section">
-              <h3 className="player-drilldown__section-title">
-                <Brain size={16} />
-                Emotional State
-              </h3>
-              {playerDetail.psychology.narrative ? (
-                <p className="player-drilldown__narrative">
-                  {playerDetail.psychology.narrative}
+            {/* Psychology Section - shows disabled message if not enabled */}
+            {!playerDetail.psychology_enabled ? (
+              <section className="player-drilldown__section">
+                <h3 className="player-drilldown__section-title">
+                  <Brain size={16} />
+                  Psychology
+                </h3>
+                <p className="player-drilldown__disabled">
+                  Psychology tracking is disabled for this experiment variant.
+                  Enable <code>enable_psychology: true</code> in the experiment config to track emotional state and tilt.
                 </p>
-              ) : (
-                <p className="player-drilldown__empty">No emotional narrative available</p>
-              )}
-              {playerDetail.psychology.inner_voice && (
-                <blockquote className="player-drilldown__inner-voice">
-                  "{playerDetail.psychology.inner_voice}"
-                </blockquote>
-              )}
-            </section>
+              </section>
+            ) : (
+              <>
+                {/* Emotional State Section */}
+                <section className="player-drilldown__section">
+                  <h3 className="player-drilldown__section-title">
+                    <Brain size={16} />
+                    Emotional State
+                  </h3>
+                  {playerDetail.psychology.narrative ? (
+                    <p className="player-drilldown__narrative">
+                      {playerDetail.psychology.narrative}
+                    </p>
+                  ) : (
+                    <p className="player-drilldown__empty">No emotional narrative available</p>
+                  )}
+                  {playerDetail.psychology.inner_voice && (
+                    <blockquote className="player-drilldown__inner-voice">
+                      "{playerDetail.psychology.inner_voice}"
+                    </blockquote>
+                  )}
+                </section>
 
-            {/* Tilt Section */}
-            <section className="player-drilldown__section">
-              <h3 className="player-drilldown__section-title">
-                <Flame size={16} />
-                Tilt Level
-              </h3>
-              <div className="player-drilldown__tilt">
-                <div className="player-drilldown__tilt-bar">
-                  <div
-                    className="player-drilldown__tilt-fill"
-                    style={{
-                      width: `${playerDetail.psychology.tilt_level}%`,
-                      backgroundColor: getTiltColor(playerDetail.psychology.tilt_level),
-                    }}
-                  />
-                </div>
-                <div className="player-drilldown__tilt-info">
-                  <span className="player-drilldown__tilt-percentage">
-                    {playerDetail.psychology.tilt_level}%
-                  </span>
-                  <span className="player-drilldown__tilt-category">
-                    ({getTiltLabel(playerDetail.psychology.tilt_category)})
-                  </span>
-                </div>
-                {playerDetail.psychology.tilt_source && (
-                  <span className="player-drilldown__tilt-source">
-                    Source: {playerDetail.psychology.tilt_source.replace(/_/g, ' ')}
-                  </span>
-                )}
-              </div>
-            </section>
+                {/* Tilt Section */}
+                <section className="player-drilldown__section">
+                  <h3 className="player-drilldown__section-title">
+                    <Flame size={16} />
+                    Tilt Level
+                  </h3>
+                  <div className="player-drilldown__tilt">
+                    <div className="player-drilldown__tilt-bar">
+                      <div
+                        className="player-drilldown__tilt-fill"
+                        style={{
+                          width: `${playerDetail.psychology.tilt_level}%`,
+                          backgroundColor: getTiltColor(playerDetail.psychology.tilt_level),
+                        }}
+                      />
+                    </div>
+                    <div className="player-drilldown__tilt-info">
+                      <span className="player-drilldown__tilt-percentage">
+                        {playerDetail.psychology.tilt_level}%
+                      </span>
+                      <span className="player-drilldown__tilt-category">
+                        ({getTiltLabel(playerDetail.psychology.tilt_category)})
+                      </span>
+                    </div>
+                    {playerDetail.psychology.tilt_source && (
+                      <span className="player-drilldown__tilt-source">
+                        Source: {playerDetail.psychology.tilt_source.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
 
             {/* Play Style Section */}
             {playerDetail.play_style && playerDetail.play_style.hands_observed > 0 && (

@@ -178,6 +178,42 @@
   color: var(--monitor-text-secondary);
 }
 
+/* View Toggle */
+.live-monitor__view-toggle {
+  display: flex;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.live-monitor__view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--monitor-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.live-monitor__view-btn:hover {
+  color: var(--monitor-text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.live-monitor__view-btn--active {
+  background: var(--color-info);
+  color: white;
+}
+
+.live-monitor__view-btn--active:hover {
+  background: var(--color-info);
+  color: white;
+}
+
 /* ========== Main Content ========== */
 
 .live-monitor__content {
@@ -236,8 +272,8 @@
 
 .game-monitor-grid__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
 
 /* ========== Game Monitor Card ========== */
@@ -638,6 +674,24 @@
   font-style: italic;
 }
 
+.player-drilldown__disabled {
+  color: var(--monitor-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.player-drilldown__disabled code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--color-info);
+}
+
 .player-drilldown__inner-voice {
   margin: 12px 0 0;
   padding: 10px 14px;
@@ -828,16 +882,149 @@
   to { transform: rotate(360deg); }
 }
 
+/* ========== Game Monitor Table ========== */
+
+.game-monitor-table {
+  width: 100%;
+}
+
+.game-monitor-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--monitor-card-bg);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.game-monitor-table__table thead {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.game-monitor-table__table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--monitor-text-secondary);
+  border-bottom: 1px solid var(--monitor-border);
+}
+
+.game-monitor-table__table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--monitor-border);
+  color: var(--monitor-text);
+  vertical-align: middle;
+}
+
+.game-monitor-table__row:last-child td {
+  border-bottom: none;
+}
+
+.game-monitor-table__row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.game-monitor-table__variant {
+  display: inline-block;
+  padding: 4px 10px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.game-monitor-table__hand {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.game-monitor-table__phase {
+  display: inline-block;
+  padding: 4px 10px;
+  background: rgba(234, 179, 8, 0.2);
+  color: #fde047;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.game-monitor-table__pot {
+  color: var(--color-success);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.game-monitor-table__players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.game-monitor-table__player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--monitor-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 80px;
+}
+
+.game-monitor-table__player:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: var(--color-info);
+  transform: translateY(-1px);
+}
+
+.game-monitor-table__player--current {
+  border-color: var(--color-success);
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.game-monitor-table__player--folded {
+  opacity: 0.4;
+}
+
+.game-monitor-table__player--all-in {
+  border-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.game-monitor-table__player-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--monitor-text);
+}
+
+.game-monitor-table__player-stack {
+  font-size: 10px;
+  color: var(--color-success);
+  font-weight: 500;
+}
+
 /* Responsive adjustments */
 @media (max-width: 1200px) {
   .game-monitor-grid__cards {
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   }
 }
 
 @media (max-width: 800px) {
   .game-monitor-grid__cards {
     grid-template-columns: 1fr;
+  }
+
+  .game-monitor-table__table th,
+  .game-monitor-table__table td {
+    padding: 8px 10px;
   }
 
   .player-drilldown {
