@@ -1,20 +1,49 @@
 -- Prompt captures for AI debugging (IMPORTANT: preserve this data during migration)
 CREATE TABLE IF NOT EXISTS prompt_captures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    game_id TEXT,  -- Allow NULL for legacy data
-    hand_number INTEGER,  -- Allow NULL for legacy data
-    player_name TEXT,  -- Allow NULL for legacy data
-    action_taken TEXT,
+    -- Identity
+    game_id TEXT,  -- Allow NULL for non-game captures
+    hand_number INTEGER,
+    player_name TEXT,
+    -- Game state context
+    phase TEXT,  -- PRE_FLOP, FLOP, TURN, RIVER
+    pot_total INTEGER,
+    cost_to_call INTEGER,
+    pot_odds REAL,
+    player_stack INTEGER,
+    community_cards TEXT,  -- JSON array of cards
+    player_hand TEXT,  -- JSON array of cards
+    valid_actions TEXT,  -- JSON array of valid actions
+    -- Prompt data
     system_prompt TEXT NOT NULL,
-    user_prompt TEXT,  -- Allow NULL for legacy data (was user_message)
-    raw_response TEXT,
-    parsed_response TEXT,
-    model_used TEXT,  -- Allow NULL for legacy data (was model)
-    temperature REAL DEFAULT 0.7,
+    user_message TEXT,  -- The user/game prompt sent to the model
+    ai_response TEXT,  -- The AI's response text
+    conversation_history TEXT,  -- JSON array of previous messages
+    raw_api_response TEXT,  -- Full JSON API response
+    -- Decision
+    action_taken TEXT,
+    raise_amount INTEGER,
+    -- Model info
+    provider TEXT,  -- openai, anthropic, etc.
+    model TEXT,
+    reasoning_effort TEXT,  -- For reasoning models
+    input_tokens INTEGER,
+    output_tokens INTEGER,
     latency_ms INTEGER DEFAULT 0,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    source TEXT DEFAULT 'game',
+    -- Tracking
+    call_type TEXT,  -- PLAYER_DECISION, COMMENTARY, etc.
+    original_request_id TEXT,
     experiment_id INTEGER,
+    source TEXT DEFAULT 'game',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Legacy columns (kept for backward compatibility)
+    user_prompt TEXT,  -- Alias for user_message
+    raw_response TEXT,  -- Alias for raw_api_response
+    parsed_response TEXT,
+    model_used TEXT,  -- Alias for model
+    temperature REAL DEFAULT 0.7,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    request_id TEXT,
     FOREIGN KEY (game_id) REFERENCES games(game_id)
 );
 
@@ -23,6 +52,12 @@ CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_
 CREATE INDEX IF NOT EXISTS idx_prompt_captures_timestamp ON prompt_captures(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_prompt_captures_source ON prompt_captures(source);
 CREATE INDEX IF NOT EXISTS idx_prompt_captures_experiment ON prompt_captures(experiment_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken);
+CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds);
+CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase);
+CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type);
+CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider);
 
 -- Player decision quality analysis (IMPORTANT: preserve this data during migration)
 CREATE TABLE IF NOT EXISTS player_decision_analysis (

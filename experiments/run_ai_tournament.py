@@ -52,6 +52,7 @@ from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
 from poker.persistence import GamePersistence as Persistence
 from poker.memory.memory_manager import AIMemoryManager
+from poker.repositories.factory import RepositoryFactory
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
@@ -440,6 +441,7 @@ class AITournamentRunner:
         else:
             self.db_path = str(project_root / "poker_games.db")
         self.persistence = Persistence(self.db_path)
+        self.repository_factory = RepositoryFactory(self.db_path, initialize_schema=False)
         self.all_personalities = get_celebrities()
 
         # Experiment tracking
@@ -525,7 +527,7 @@ class AITournamentRunner:
             owner_id=self._owner_id,
             commentary_enabled=commentary_enabled
         )
-        memory_manager.set_persistence(self.persistence)
+        memory_manager.set_repository_factory(self.repository_factory)
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:
@@ -554,7 +556,7 @@ class AITournamentRunner:
                 llm_config=llm_config,
                 game_id=tournament_id,
                 owner_id=self._owner_id,
-                persistence=self.persistence,
+                repository_factory=self.repository_factory,
                 debug_capture=self.config.capture_prompts,
                 prompt_config=prompt_config,
             )

@@ -181,6 +181,125 @@ factory.llm_tracking.save_usage(usage_entity)
 captures = factory.debug.list_prompt_captures(game_id="abc123")
 ```
 
+## Pre-Deployment Schema Fixes
+
+**IMPORTANT:** Before deploying the repository migration to production, run these SQL statements to add missing columns that the new code expects but weren't in the original schema.
+
+### 1. opponent_models table (required for experiment runner)
+
+The experiment runner queries `opponent_models` with explicit column names. Add these columns:
+
+```sql
+-- Run these in production before deployment
+ALTER TABLE opponent_models ADD COLUMN hands_observed INTEGER DEFAULT 0;
+ALTER TABLE opponent_models ADD COLUMN vpip REAL DEFAULT 0.5;
+ALTER TABLE opponent_models ADD COLUMN pfr REAL DEFAULT 0.5;
+ALTER TABLE opponent_models ADD COLUMN aggression_factor REAL DEFAULT 1.0;
+ALTER TABLE opponent_models ADD COLUMN fold_to_cbet REAL DEFAULT 0.5;
+ALTER TABLE opponent_models ADD COLUMN bluff_frequency REAL DEFAULT 0.3;
+ALTER TABLE opponent_models ADD COLUMN showdown_win_rate REAL DEFAULT 0.5;
+ALTER TABLE opponent_models ADD COLUMN recent_trend TEXT;
+```
+
+### 2. api_usage table (required for LLM tracking)
+
+The LLM tracking module writes prompt metadata. Add these columns:
+
+```sql
+ALTER TABLE api_usage ADD COLUMN prompt_template TEXT;
+ALTER TABLE api_usage ADD COLUMN prompt_version TEXT;
+```
+
+### Quick Fix Script
+
+#### Production (run BEFORE deploying new code)
+```bash
+ssh root@178.156.202.136 "cd /opt/poker && docker compose -f docker-compose.prod.yml exec backend python -c '
+import sqlite3
+conn = sqlite3.connect(\"/app/data/poker_games.db\")
+
+om_cols = [
+    (\"hands_observed\", \"INTEGER DEFAULT 0\"),
+    (\"vpip\", \"REAL DEFAULT 0.5\"),
+    (\"pfr\", \"REAL DEFAULT 0.5\"),
+    (\"aggression_factor\", \"REAL DEFAULT 1.0\"),
+    (\"fold_to_cbet\", \"REAL DEFAULT 0.5\"),
+    (\"bluff_frequency\", \"REAL DEFAULT 0.3\"),
+    (\"showdown_win_rate\", \"REAL DEFAULT 0.5\"),
+    (\"recent_trend\", \"TEXT\"),
+]
+
+for col, typedef in om_cols:
+    try:
+        conn.execute(f\"ALTER TABLE opponent_models ADD COLUMN {col} {typedef}\")
+        print(f\"Added opponent_models.{col}\")
+    except Exception as e:
+        if \"duplicate\" in str(e).lower():
+            print(f\"Already exists: opponent_models.{col}\")
+        else:
+            print(f\"Error: {e}\")
+
+for col in [\"prompt_template TEXT\", \"prompt_version TEXT\"]:
+    try:
+        conn.execute(f\"ALTER TABLE api_usage ADD COLUMN {col}\")
+        print(f\"Added api_usage.{col.split()[0]}\")
+    except Exception as e:
+        if \"duplicate\" in str(e).lower():
+            print(f\"Already exists: api_usage.{col.split()[0]}\")
+        else:
+            print(f\"Error: {e}\")
+
+conn.commit()
+print(\"Schema fixes complete\")
+'"
+```
+
+#### Development
+```bash
+docker compose exec backend python -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/poker_games.db')
+
+# opponent_models columns
+om_cols = [
+    ('hands_observed', 'INTEGER DEFAULT 0'),
+    ('vpip', 'REAL DEFAULT 0.5'),
+    ('pfr', 'REAL DEFAULT 0.5'),
+    ('aggression_factor', 'REAL DEFAULT 1.0'),
+    ('fold_to_cbet', 'REAL DEFAULT 0.5'),
+    ('bluff_frequency', 'REAL DEFAULT 0.3'),
+    ('showdown_win_rate', 'REAL DEFAULT 0.5'),
+    ('recent_trend', 'TEXT'),
+]
+
+for col, typedef in om_cols:
+    try:
+        conn.execute(f'ALTER TABLE opponent_models ADD COLUMN {col} {typedef}')
+        print(f'Added opponent_models.{col}')
+    except Exception as e:
+        if 'duplicate' in str(e).lower():
+            print(f'Already exists: opponent_models.{col}')
+        else:
+            print(f'Error: {e}')
+
+# api_usage columns
+for col in ['prompt_template TEXT', 'prompt_version TEXT']:
+    try:
+        conn.execute(f'ALTER TABLE api_usage ADD COLUMN {col}')
+        print(f'Added api_usage.{col.split()[0]}')
+    except Exception as e:
+        if 'duplicate' in str(e).lower():
+            print(f'Already exists: api_usage.{col.split()[0]}')
+        else:
+            print(f'Error: {e}')
+
+conn.commit()
+print('Schema fixes complete')
+"
+```
+
+---
+
 ## Troubleshooting
 
 ### "Table does not exist" errors
@@ -194,3 +313,12 @@ Check if columns differ between old and new schemas. The migration only copies c
 
 ### Import errors
 Ensure numpy is installed: `pip install numpy`
+
+### "no such column: hands_observed" in experiments
+Run the schema fix script above. The experiment runner's debug queries expect explicit columns on `opponent_models`.
+
+### "AIPlayerController got unexpected keyword argument 'persistence'"
+The code was updated to use `repository_factory` instead of `persistence`. Ensure you have the latest `experiments/run_ai_tournament.py`.
+
+### "AIMemoryManager has no attribute 'set_persistence'"
+Same fix - the memory manager now uses `set_repository_factory()`. Update `experiments/run_ai_tournament.py`.
