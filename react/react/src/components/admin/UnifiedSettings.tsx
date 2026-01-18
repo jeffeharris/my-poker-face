@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
 import { config } from '../../config';
+import { useAdminResource, useAdminMutation } from '../../hooks/useAdminResource';
 import './AdminShared.css';
 import './UnifiedSettings.css';
 
@@ -127,9 +128,15 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('models');
   const [alert, setAlert] = useState<AlertState | null>(null);
 
-  // Models state
-  const [models, setModels] = useState<Model[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  // Models state - using hook
+  const {
+    data: models,
+    loading: modelsLoading,
+    refresh: refreshModels
+  } = useAdminResource<Model[]>('/admin/api/models', {
+    transform: (result) => (result as { models: Model[] }).models,
+    onError: (err) => showAlert('error', err),
+  });
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
   // Capture state
