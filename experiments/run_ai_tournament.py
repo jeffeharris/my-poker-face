@@ -105,6 +105,7 @@ class ControlConfig:
     prompt_config: Optional[Dict] = None
     enable_psychology: bool = False  # Enable tilt + emotional state generation
     enable_commentary: bool = False  # Enable commentary generation
+    reasoning_effort: Optional[str] = None  # 'minimal', 'low', 'medium', 'high'
 
 
 @dataclass
@@ -116,6 +117,7 @@ class VariantConfig:
     prompt_config: Optional[Dict] = None
     enable_psychology: bool = False  # Enable tilt + emotional state generation
     enable_commentary: bool = False  # Enable commentary generation
+    reasoning_effort: Optional[str] = None  # Inherits from control if None
 
 
 @dataclass
@@ -184,6 +186,7 @@ class ExperimentConfig:
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
             'enable_commentary': self.control.get('enable_commentary', False),
+            'reasoning_effort': self.control.get('reasoning_effort'),
         }
         control_label = self.control.get('label', 'Control')
         result.append((control_label, control_config))
@@ -198,6 +201,8 @@ class ExperimentConfig:
                 # Psychology flags - inherit from control if not specified
                 'enable_psychology': variant.get('enable_psychology', control_config.get('enable_psychology', False)),
                 'enable_commentary': variant.get('enable_commentary', control_config.get('enable_commentary', False)),
+                # Reasoning effort - inherit from control if not specified
+                'reasoning_effort': variant.get('reasoning_effort') if 'reasoning_effort' in variant else control_config.get('reasoning_effort'),
             }
             variant_label = variant.get('label', f'Variant {len(result)}')
             result.append((variant_label, variant_config))
@@ -502,6 +507,9 @@ class AITournamentRunner:
                 'provider': variant_config.get('provider') or self.config.provider,
                 'model': variant_config.get('model') or self.config.model,
             }
+            # Add reasoning_effort if specified
+            if variant_config.get('reasoning_effort'):
+                llm_config['reasoning_effort'] = variant_config['reasoning_effort']
         else:
             llm_config = {
                 'provider': self.config.provider,

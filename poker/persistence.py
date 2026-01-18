@@ -4911,7 +4911,7 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT eg.game_id, eg.variant, eg.variant_config, eg.tournament_number
+                SELECT eg.game_id, eg.variant, eg.variant_config_json, eg.tournament_number
                 FROM experiment_games eg
                 LEFT JOIN tournament_results tr ON eg.game_id = tr.game_id
                 WHERE eg.experiment_id = ?
@@ -4922,9 +4922,9 @@ class GamePersistence:
             incomplete = []
             for row in cursor.fetchall():
                 variant_config = None
-                if row['variant_config']:
+                if row['variant_config_json']:
                     try:
-                        variant_config = json.loads(row['variant_config'])
+                        variant_config = json.loads(row['variant_config_json'])
                     except (json.JSONDecodeError, TypeError):
                         pass
 
