@@ -46,12 +46,12 @@ export function ActivityFeed({
     return amount ? `${verb} $${amount}` : verb;
   };
 
-  // Filter and transform messages for activity feed
+  // Transform messages for activity feed (include all types)
   const activityItems = messages
-    .filter(msg => msg.type === 'action' || msg.type === 'system')
     .slice(-50) // Keep last 50 for performance
     .map(msg => {
-      const parsed = msg.type === 'action' ? parseActionMessage(msg.message) : null;
+      // Try to parse action from table messages (e.g., "Batman chose to raise by $100")
+      const parsed = msg.type === 'table' ? parseActionMessage(msg.message) : null;
       return {
         ...msg,
         parsed,
@@ -93,8 +93,8 @@ export function ActivityFeed({
           </div>
         ) : (
           activityItems.map((item, idx) => {
+            // Parsed action from table message
             if (item.parsed) {
-              // Action message
               return (
                 <div key={item.id || idx} className="activity-item action">
                   <span className="activity-item__player">{item.parsed.player}</span>
@@ -104,6 +104,36 @@ export function ActivityFeed({
                 </div>
               );
             }
+
+            // Player chat message
+            if (item.type === 'player') {
+              return (
+                <div key={item.id || idx} className="activity-item chat player-chat">
+                  <span className="activity-item__sender">{item.sender}:</span>
+                  <span className="activity-item__message">{item.message}</span>
+                </div>
+              );
+            }
+
+            // AI chat message
+            if (item.type === 'ai') {
+              return (
+                <div key={item.id || idx} className="activity-item chat ai-chat">
+                  <span className="activity-item__sender">{item.sender}:</span>
+                  <span className="activity-item__message">{item.message}</span>
+                </div>
+              );
+            }
+
+            // Table announcement (non-action)
+            if (item.type === 'table') {
+              return (
+                <div key={item.id || idx} className="activity-item table">
+                  <span className="activity-item__message">{item.message}</span>
+                </div>
+              );
+            }
+
             // System message
             return (
               <div key={item.id || idx} className="activity-item system">
