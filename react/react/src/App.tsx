@@ -6,7 +6,7 @@ import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
 import { AdminDashboard } from './components/admin/AdminDashboard'
-import { GameMenu } from './components/menus/GameMenu'
+import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
@@ -167,15 +167,24 @@ function App() {
     }
   };
 
-  const handleQuickPlay = async () => {
+  const handleQuickPlay = async (quickPlayConfig: QuickPlayConfig) => {
     try {
+      // Calculate starting stack based on big blinds
+      const bigBlind = 50;
+      const startingStack = quickPlayConfig.startingBB * bigBlind;
+
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ playerName }),
+        body: JSON.stringify({
+          playerName,
+          starting_stack: startingStack,
+          big_blind: bigBlind,
+          opponent_count: quickPlayConfig.opponents,
+        }),
       });
 
       const data = await response.json();
@@ -328,7 +337,6 @@ function App() {
           onCustomGame={handleCustomGame}
           onThemedGame={handleThemedGame}
           onContinueGame={handleContinueGame}
-          onManagePersonalities={() => setCurrentView('personalities')}
           onViewStats={() => setCurrentView('stats')}
           onPromptDebugger={() => setCurrentView('prompt-debugger')}
           onPromptPlayground={() => setCurrentView('prompt-playground')}

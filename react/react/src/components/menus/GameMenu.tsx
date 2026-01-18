@@ -1,16 +1,190 @@
-import { useState } from 'react';
-import { Dices, Settings, Sparkles, FolderOpen, Theater, BarChart3, Microscope, FlaskConical, ChevronRight, LayoutDashboard } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, Microscope, FlaskConical, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { config } from '../../config';
+import { useCareerStats } from '../../hooks/useCareerStats';
 import './GameMenu.css';
+
+// ============================================
+// Hooks
+// ============================================
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.matchMedia(query).matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+}
+
+// ============================================
+// Stats Sidebar Component
+// ============================================
+
+interface StatsSidebarProps {
+  onViewFullStats?: () => void;
+}
+
+function StatsSidebar({ onViewFullStats }: StatsSidebarProps) {
+  const { stats, tournaments, eliminatedPersonalities, loading } = useCareerStats();
+
+  if (loading) {
+    return (
+      <aside className="game-menu__sidebar">
+        <div className="sidebar__section">
+          <div className="sidebar__loading">
+            <div className="sidebar__loading-spinner" />
+            <span>Loading stats...</span>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
+  // Get top nemesis (most eliminated)
+  const topNemesis = eliminatedPersonalities.length > 0
+    ? eliminatedPersonalities.reduce((a, b) => a.times_eliminated > b.times_eliminated ? a : b)
+    : null;
+
+  // Get last game result
+  const lastGame = tournaments.length > 0 ? tournaments[0] : null;
+
+  return (
+    <aside className="game-menu__sidebar">
+      {/* Quick Stats */}
+      <div className="sidebar__section">
+        <h3 className="sidebar__title">
+          <BarChart3 size={18} />
+          Quick Stats
+        </h3>
+        {stats ? (
+          <div className="sidebar__stats-grid">
+            <div className="sidebar__stat">
+              <span className="sidebar__stat-value">{stats.games_played}</span>
+              <span className="sidebar__stat-label">Games</span>
+            </div>
+            <div className="sidebar__stat sidebar__stat--highlight">
+              <span className="sidebar__stat-value">{Math.round(stats.win_rate * 100)}%</span>
+              <span className="sidebar__stat-label">Win Rate</span>
+            </div>
+            <div className="sidebar__stat">
+              <span className="sidebar__stat-value">{stats.games_won}</span>
+              <span className="sidebar__stat-label">Wins</span>
+            </div>
+            <div className="sidebar__stat">
+              <span className="sidebar__stat-value">{stats.total_eliminations}</span>
+              <span className="sidebar__stat-label">KOs</span>
+            </div>
+          </div>
+        ) : (
+          <p className="sidebar__empty">Play your first game to see stats!</p>
+        )}
+      </div>
+
+      {/* Recent Game */}
+      {lastGame && (
+        <div className="sidebar__section">
+          <h3 className="sidebar__title">
+            <Trophy size={18} />
+            Last Game
+          </h3>
+          <div className="sidebar__recent-game">
+            <div className="sidebar__game-result">
+              <span className={`sidebar__position sidebar__position--${lastGame.your_position === 1 ? 'win' : lastGame.your_position <= 2 ? 'top' : 'other'}`}>
+                {lastGame.your_position === 1 ? '1st' : lastGame.your_position === 2 ? '2nd' : lastGame.your_position === 3 ? '3rd' : `${lastGame.your_position}th`}
+              </span>
+              <span className="sidebar__game-meta">
+                of {lastGame.player_count} players
+              </span>
+            </div>
+            {lastGame.your_position === 1 ? (
+              <p className="sidebar__game-detail sidebar__game-detail--win">Victory!</p>
+            ) : lastGame.eliminated_by ? (
+              <p className="sidebar__game-detail">Eliminated by {lastGame.eliminated_by}</p>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Top Nemesis */}
+      {topNemesis && topNemesis.times_eliminated >= 2 && (
+        <div className="sidebar__section">
+          <h3 className="sidebar__title">
+            <Target size={18} />
+            Nemesis
+          </h3>
+          <div className="sidebar__nemesis">
+            <span className="sidebar__nemesis-name">{topNemesis.name}</span>
+            <span className="sidebar__nemesis-count">
+              <Flame size={14} />
+              {topNemesis.times_eliminated} eliminations
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Streak / Achievements placeholder */}
+      {stats && stats.games_won > 0 && (
+        <div className="sidebar__section">
+          <h3 className="sidebar__title">
+            <TrendingUp size={18} />
+            Highlights
+          </h3>
+          <div className="sidebar__highlights">
+            {stats.biggest_pot_ever > 0 && (
+              <div className="sidebar__highlight">
+                <span className="sidebar__highlight-label">Biggest Pot</span>
+                <span className="sidebar__highlight-value">${stats.biggest_pot_ever.toLocaleString()}</span>
+              </div>
+            )}
+            {stats.best_finish === 1 && (
+              <div className="sidebar__highlight sidebar__highlight--gold">
+                <span className="sidebar__highlight-label">Best Finish</span>
+                <span className="sidebar__highlight-value">1st Place</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* View Full Stats Link */}
+      {onViewFullStats && (
+        <button className="sidebar__view-all" onClick={onViewFullStats}>
+          View Full Stats
+          <ChevronRight size={16} />
+        </button>
+      )}
+    </aside>
+  );
+}
+
+// ============================================
+// Main Component
+// ============================================
+
+export interface QuickPlayConfig {
+  mode: 'lightning' | '1v1' | 'random';
+  opponents: number;
+  startingBB: number;
+}
 
 interface GameMenuProps {
   playerName: string;
-  onQuickPlay: () => void;
+  onQuickPlay: (config: QuickPlayConfig) => void;
   onCustomGame: () => void;
   onThemedGame: () => void;
   onContinueGame: () => void;
-  onManagePersonalities: () => void;
   onViewStats?: () => void;
   onPromptDebugger?: () => void;
   onPromptPlayground?: () => void;
@@ -24,7 +198,6 @@ export function GameMenu({
   onCustomGame,
   onThemedGame,
   onContinueGame,
-  onManagePersonalities,
   onViewStats,
   onPromptDebugger,
   onPromptPlayground,
@@ -32,31 +205,59 @@ export function GameMenu({
   savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
 
   return (
-    <PageLayout variant="centered" glowColor="gold" maxWidth="md">
+    <PageLayout variant="centered" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'}>
       <PageHeader
         title={`Welcome, ${playerName}!`}
         subtitle="Choose how you'd like to play"
         titleVariant="primary"
       />
 
+      <div className={`game-menu__layout ${isDesktop ? 'game-menu__layout--split' : ''}`}>
+        {/* Main Menu Options */}
         <div className="game-menu__options">
-          <button 
-            className="menu-option quick-play"
-            onClick={onQuickPlay}
-            onMouseEnter={() => setHoveredOption('quick')}
-            onMouseLeave={() => setHoveredOption(null)}
-          >
-            <Dices className="option-icon" size={24} />
-            <div className="option-content">
-              <h3>Quick Play</h3>
-              <p>Jump into a random game with 3 AI opponents</p>
-            </div>
-            <ChevronRight className="option-arrow" size={20} />
-          </button>
+          {/* Quick Play Variants */}
+          <div className="quick-play-section">
+            <h4 className="quick-play-section__title">Quick Play</h4>
+            <div className="quick-play-section__buttons">
+              <button
+                className="quick-play-btn quick-play-btn--lightning"
+                onClick={() => onQuickPlay({ mode: 'lightning', opponents: 5, startingBB: 10 })}
+                onMouseEnter={() => setHoveredOption('lightning')}
+                onMouseLeave={() => setHoveredOption(null)}
+              >
+                <Zap className="quick-play-btn__icon" size={22} />
+                <span className="quick-play-btn__label">Lightning</span>
+                <span className="quick-play-btn__meta">10BB • 5 players</span>
+              </button>
 
-          <button 
+              <button
+                className="quick-play-btn quick-play-btn--1v1"
+                onClick={() => onQuickPlay({ mode: '1v1', opponents: 1, startingBB: 20 })}
+                onMouseEnter={() => setHoveredOption('1v1')}
+                onMouseLeave={() => setHoveredOption(null)}
+              >
+                <Users className="quick-play-btn__icon" size={22} />
+                <span className="quick-play-btn__label">1v1</span>
+                <span className="quick-play-btn__meta">Heads up</span>
+              </button>
+
+              <button
+                className="quick-play-btn quick-play-btn--random"
+                onClick={() => onQuickPlay({ mode: 'random', opponents: 4, startingBB: 20 })}
+                onMouseEnter={() => setHoveredOption('random')}
+                onMouseLeave={() => setHoveredOption(null)}
+              >
+                <Shuffle className="quick-play-btn__icon" size={22} />
+                <span className="quick-play-btn__label">Classic</span>
+                <span className="quick-play-btn__meta">20BB • 4 players</span>
+              </button>
+            </div>
+          </div>
+
+          <button
             className="menu-option custom-game"
             onClick={onCustomGame}
             onMouseEnter={() => setHoveredOption('custom')}
@@ -70,7 +271,7 @@ export function GameMenu({
             <ChevronRight className="option-arrow" size={20} />
           </button>
 
-          <button 
+          <button
             className="menu-option themed-game"
             onClick={onThemedGame}
             onMouseEnter={() => setHoveredOption('themed')}
@@ -102,17 +303,18 @@ export function GameMenu({
             {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
-          {playerName.toLowerCase() === 'jeff' && (
+          {/* My Stats - only show on mobile, desktop has sidebar */}
+          {!isDesktop && onViewStats && (
             <button
-              className="menu-option manage-personalities"
-              onClick={onManagePersonalities}
-              onMouseEnter={() => setHoveredOption('personalities')}
+              className="menu-option view-stats"
+              onClick={onViewStats}
+              onMouseEnter={() => setHoveredOption('stats')}
               onMouseLeave={() => setHoveredOption(null)}
             >
-              <Theater className="option-icon" size={24} />
+              <BarChart3 className="option-icon" size={24} />
               <div className="option-content">
-                <h3>Manage Personalities</h3>
-                <p>Create and edit AI opponents</p>
+                <h3>My Stats</h3>
+                <p>View your career statistics and history</p>
               </div>
               <ChevronRight className="option-arrow" size={20} />
             </button>
@@ -129,22 +331,6 @@ export function GameMenu({
               <div className="option-content">
                 <h3>Admin Dashboard</h3>
                 <p>Personalities, decision analysis, and prompt tools</p>
-              </div>
-              <ChevronRight className="option-arrow" size={20} />
-            </button>
-          )}
-
-          {onViewStats && (
-            <button
-              className="menu-option view-stats"
-              onClick={onViewStats}
-              onMouseEnter={() => setHoveredOption('stats')}
-              onMouseLeave={() => setHoveredOption(null)}
-            >
-              <BarChart3 className="option-icon" size={24} />
-              <div className="option-content">
-                <h3>My Stats</h3>
-                <p>View your career statistics and history</p>
               </div>
               <ChevronRight className="option-arrow" size={20} />
             </button>
@@ -183,13 +369,20 @@ export function GameMenu({
           )}
         </div>
 
+        {/* Stats Sidebar - Desktop only */}
+        {isDesktop && (
+          <StatsSidebar onViewFullStats={onViewStats} />
+        )}
+      </div>
+
       <div className="game-menu__footer">
         <p className="tip">
-          {hoveredOption === 'quick' && "Perfect for a quick session! Games typically last 20-30 minutes."}
+          {hoveredOption === 'lightning' && "Fast and furious! Short stacks mean quick decisions and big swings."}
+          {hoveredOption === '1v1' && "Test your skills head-to-head against a single AI opponent."}
+          {hoveredOption === 'random' && "The classic experience with a comfortable stack and 4 opponents."}
           {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
           {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
           {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-          {hoveredOption === 'personalities' && "Design unique AI opponents with custom traits and play styles."}
           {hoveredOption === 'admin' && "All admin tools in one place: personalities, decision analysis, and prompts."}
           {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
           {hoveredOption === 'debugger' && "Debug AI decisions by viewing and replaying captured prompts."}
