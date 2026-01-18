@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { config } from '../../config';
+import { adminAPI } from '../../utils/api';
 import './ModelManager.css';
 
 // ============================================
@@ -43,7 +43,7 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
   const fetchModels = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/api/models`);
+      const response = await adminAPI.fetch('/admin/api/models');
       const data = await response.json();
 
       if (data.success) {
@@ -68,9 +68,8 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
   // Toggle model enabled status
   const toggleModel = async (modelId: number, enabled: boolean) => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
+      const response = await adminAPI.fetch(`/admin/api/models/${modelId}/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
       });
 

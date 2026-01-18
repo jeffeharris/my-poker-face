@@ -2,7 +2,7 @@
  * Template Editor component for viewing and editing prompt templates.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { config } from '../../../config';
+import { adminAPI } from '../../../utils/api';
 import type { TemplateSummary, PromptTemplate, PlaygroundCapture, ReplayResponse } from './types';
 
 interface Props {
@@ -51,7 +51,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
     setError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates`);
+      const response = await adminAPI.fetch('/admin/api/prompts/templates');
       const data = await response.json();
 
       if (data.success) {
@@ -69,7 +69,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
   // Fetch single template
   const fetchTemplate = async (name: string) => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates/${name}`);
+      const response = await adminAPI.fetch(`/admin/api/prompts/templates/${name}`);
       const data = await response.json();
 
       if (data.success) {
@@ -103,8 +103,8 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
       // Fetch captures for each call type
       const allCaptures: PlaygroundCapture[] = [];
       for (const callType of callTypes) {
-        const response = await fetch(
-          `${config.API_URL}/admin/api/playground/captures?call_type=${callType}&limit=10`
+        const response = await adminAPI.fetch(
+          `/admin/api/playground/captures?call_type=${callType}&limit=10`
         );
         const data = await response.json();
         if (data.success && data.captures) {
@@ -131,11 +131,10 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
     setShowTestResults(true);
 
     try {
-      const response = await fetch(
-        `${config.API_URL}/admin/api/playground/captures/${captureId}/replay`,
+      const response = await adminAPI.fetch(
+        `/admin/api/playground/captures/${captureId}/replay`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             use_history: true,
           }),
@@ -169,11 +168,10 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
     setSuccessMessage(null);
 
     try {
-      const response = await fetch(
-        `${config.API_URL}/admin/api/prompts/templates/${selectedTemplate.name}`,
+      const response = await adminAPI.fetch(
+        `/admin/api/prompts/templates/${selectedTemplate.name}`,
         {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sections: editedSections }),
         }
       );

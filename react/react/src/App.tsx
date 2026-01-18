@@ -49,10 +49,18 @@ function App() {
   const storedUser = localStorage.getItem('currentUser');
 
   // Determine initial view:
-  // 1. If there's an active game AND a stored user, go straight to table
-  // 2. If there's an active game but no user, go to login (auth effect will restore game after login)
-  // 3. Otherwise use saved view (but not 'table' without an active game)
+  // 1. Check URL params for deep linking (view=admin, etc.)
+  // 2. If there's an active game AND a stored user, go straight to table
+  // 3. If there's an active game but no user, go to login (auth effect will restore game after login)
+  // 4. Otherwise use saved view (but not 'table' without an active game)
   const getInitialView = (): ViewType => {
+    // Check URL params for deep linking
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewParam = urlParams.get('view');
+    if (viewParam === 'admin') {
+      return 'admin-dashboard';
+    }
+
     if (activeGameId && storedUser) {
       console.log('[App] Restoring to table with active game:', activeGameId);
       return 'table';

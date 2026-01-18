@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { config } from '../../config';
+import { adminAPI } from '../../utils/api';
 import './CaptureSettings.css';
 
 // ============================================
@@ -71,9 +71,9 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
 
       // Fetch settings, stats, and storage in parallel
       const [settingsRes, statsRes, storageRes] = await Promise.all([
-        fetch(`${config.API_URL}/admin/api/settings`),
-        fetch(`${config.API_URL}/admin/api/playground/stats`),
-        fetch(`${config.API_URL}/admin/api/settings/storage`),
+        adminAPI.fetch('/admin/api/settings'),
+        adminAPI.fetch('/admin/api/playground/stats'),
+        adminAPI.fetch('/admin/api/settings/storage'),
       ]);
 
       const settingsData = await settingsRes.json();
@@ -110,9 +110,8 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
   const saveSetting = async (key: string, value: string) => {
     try {
       setSaving(true);
-      const response = await fetch(`${config.API_URL}/admin/api/settings`, {
+      const response = await adminAPI.fetch('/admin/api/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value }),
       });
 
@@ -145,9 +144,8 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
   const resetSettings = async () => {
     try {
       setSaving(true);
-      const response = await fetch(`${config.API_URL}/admin/api/settings/reset`, {
+      const response = await adminAPI.fetch('/admin/api/settings/reset', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
       });
 
       const data = await response.json();

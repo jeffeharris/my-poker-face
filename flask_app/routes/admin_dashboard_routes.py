@@ -76,29 +76,38 @@ def _check_admin_auth() -> tuple[bool, str]:
 
 
 def _admin_required(f):
-    """Decorator to restrict admin endpoints to development mode.
+    """Decorator to restrict admin endpoints with authentication.
 
     Security:
-    - Admin endpoints are ONLY accessible in development mode (FLASK_ENV=development)
-    - In production, returns 403 Forbidden regardless of authentication
-    - Optional ADMIN_TOKEN can add extra protection even in development
+    - In production: ADMIN_TOKEN is REQUIRED for access
+    - In development: Access allowed by default, optionally require token with ADMIN_REQUIRE_TOKEN=true
+    - Token can be provided via Authorization header or query parameter
     """
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Primary security: development mode only
-        if not config.is_development:
-            return jsonify({'error': 'Admin dashboard only available in development mode'}), 403
-
-        # Optional secondary check: ADMIN_TOKEN (only enforced if explicitly set)
-        # This is for users who want extra protection even in development
         admin_token = os.environ.get('ADMIN_TOKEN')
-        require_token = os.environ.get('ADMIN_REQUIRE_TOKEN', 'false').lower() == 'true'
 
+        # In production: ADMIN_TOKEN is required
+        if not config.is_development:
+            if not admin_token:
+                return jsonify({
+                    'error': 'Admin dashboard requires ADMIN_TOKEN to be configured in production'
+                }), 403
+
+            is_authenticated, error_msg = _check_admin_auth()
+            if not is_authenticated:
+                return jsonify({
+                    'error': error_msg,
+                    'hint': 'Set Authorization: Bearer YOUR_TOKEN header'
+                }), 401
+
+            return f(*args, **kwargs)
+
+        # In development: optionally require token
+        require_token = os.environ.get('ADMIN_REQUIRE_TOKEN', 'false').lower() == 'true'
         if admin_token and require_token:
             is_authenticated, error_msg = _check_admin_auth()
             if not is_authenticated:
-                if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
-                    return jsonify({'error': error_msg}), 401
                 return jsonify({
                     'error': error_msg,
                     'hint': 'Add ?admin_token=YOUR_TOKEN to the URL or set Authorization: Bearer YOUR_TOKEN header'

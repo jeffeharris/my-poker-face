@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../config';
+import { adminAPI } from '../../utils/api';
 import './DebugTools.css';
 
 // ============================================
@@ -60,7 +61,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
   const fetchActiveGames = useCallback(async () => {
     try {
       setLoadingGames(true);
-      const response = await fetch(`${config.API_URL}/admin/api/active-games`);
+      const response = await adminAPI.fetch('/admin/api/active-games');
       const data = await response.json();
 
       if (data.success) {

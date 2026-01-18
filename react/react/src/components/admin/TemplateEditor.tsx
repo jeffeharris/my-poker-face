@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { config } from '../../config';
+import { adminAPI } from '../../utils/api';
 import './TemplateEditor.css';
 
 // ============================================
@@ -51,7 +51,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   const fetchTemplates = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates`);
+      const response = await adminAPI.fetch('/admin/api/prompts/templates');
       const data = await response.json();
 
       if (data.success) {
@@ -77,7 +77,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
     }
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates/${name}`);
+      const response = await adminAPI.fetch(`/admin/api/prompts/templates/${name}`);
       const data = await response.json();
 
       if (data.success) {
@@ -107,9 +107,8 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
     try {
       setSaving(true);
-      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates/${selectedTemplate.name}`, {
+      const response = await adminAPI.fetch(`/admin/api/prompts/templates/${selectedTemplate.name}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sections: editedSections,
         }),
@@ -138,9 +137,8 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
     if (!selectedTemplate) return;
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/prompts/templates/${selectedTemplate.name}/preview`, {
+      const response = await adminAPI.fetch(`/admin/api/prompts/templates/${selectedTemplate.name}/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sections: editedSections,
           variables: previewVariables,

@@ -31,6 +31,7 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis

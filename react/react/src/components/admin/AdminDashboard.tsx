@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Users, FlaskConical, Microscope, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { PersonalityManager } from './PersonalityManager';
@@ -75,8 +75,38 @@ interface AdminDashboardProps {
   onBack: () => void;
 }
 
+// Get initial tab from URL or default to 'personalities'
+function getInitialTab(): AdminTab {
+  const urlParams = new URLSearchParams(window.location.search);
+  const tabParam = urlParams.get('tab');
+  const validTabs = TABS.map(t => t.id);
+  if (tabParam && validTabs.includes(tabParam as AdminTab)) {
+    return tabParam as AdminTab;
+  }
+  return 'personalities';
+}
+
+// Update URL with current tab without page reload
+function updateUrlTab(tab: AdminTab) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', 'admin');
+  url.searchParams.set('tab', tab);
+  window.history.replaceState({}, '', url.toString());
+}
+
 export function AdminDashboard({ onBack }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AdminTab>('personalities');
+  const [activeTab, setActiveTab] = useState<AdminTab>(getInitialTab);
+
+  // Update URL when tab changes
+  const handleTabChange = useCallback((tab: AdminTab) => {
+    setActiveTab(tab);
+    updateUrlTab(tab);
+  }, []);
+
+  // Set initial URL on mount
+  useEffect(() => {
+    updateUrlTab(activeTab);
+  }, []);
 
   // Find active tab config for subtitle
   const activeTabConfig = TABS.find(t => t.id === activeTab);
@@ -96,7 +126,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
           <button
             key={tab.id}
             className={`admin-tab ${activeTab === tab.id ? 'admin-tab--active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             type="button"
           >
             <span className="admin-tab__icon">{tab.icon}</span>

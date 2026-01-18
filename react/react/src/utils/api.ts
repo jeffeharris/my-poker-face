@@ -6,6 +6,31 @@ const fetchOptions: RequestInit = {
   credentials: 'include',
 };
 
+// Admin API authentication - reads token from URL query param
+export const adminAPI = {
+  getToken: (): string | null => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('admin_token');
+  },
+
+  fetch: async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
+    const token = adminAPI.getToken();
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string>),
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    return fetch(`${config.API_URL}${endpoint}`, {
+      ...fetchOptions,
+      ...options,
+      headers,
+    });
+  },
+};
+
 export const gameAPI = {
   createGame: async (playerName: string) => {
     const response = await fetch(`${config.API_URL}/api/new-game`, {
