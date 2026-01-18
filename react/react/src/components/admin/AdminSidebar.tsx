@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import './AdminSidebar.css';
 
-export type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'experiments' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
+export type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'experiments' | 'templates' | 'settings' | 'debug';
 
 export interface SidebarItem {
   id: AdminTab;

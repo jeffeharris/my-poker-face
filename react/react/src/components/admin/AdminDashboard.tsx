@@ -1,15 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, FlaskConical, Microscope, Beaker, Sliders, DollarSign, FileText, Bug, Settings, ArrowLeft } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft } from 'lucide-react';
 import { AdminSidebar, type AdminTab, type SidebarItem } from './AdminSidebar';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
 import { ExperimentDesigner } from './ExperimentDesigner';
-import { ModelManager } from './ModelManager';
-import { PricingManager } from './PricingManager';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
-import { CaptureSettings } from './CaptureSettings';
+import { UnifiedSettings } from './UnifiedSettings';
 import './AdminDashboard.css';
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -38,18 +36,6 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     description: 'Design and run AI tournament experiments',
   },
   {
-    id: 'models',
-    label: 'Models',
-    icon: <Sliders size={20} />,
-    description: 'Enable or disable LLM models by provider',
-  },
-  {
-    id: 'pricing',
-    label: 'Pricing',
-    icon: <DollarSign size={20} />,
-    description: 'View and manage LLM pricing configuration',
-  },
-  {
     id: 'templates',
     label: 'Templates',
     icon: <FileText size={20} />,
@@ -59,7 +45,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     id: 'settings',
     label: 'Settings',
     icon: <Settings size={20} />,
-    description: 'Configure prompt capture and other settings',
+    description: 'Models, capture, storage, and pricing',
   },
   {
     id: 'debug',
@@ -135,17 +121,11 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
           {activeTab === 'experiments' && (
             <ExperimentDesigner embedded />
           )}
-          {activeTab === 'models' && (
-            <ModelManager embedded />
-          )}
-          {activeTab === 'pricing' && (
-            <PricingManager embedded />
-          )}
           {activeTab === 'templates' && (
             <TemplateEditor embedded />
           )}
           {activeTab === 'settings' && (
-            <CaptureSettings embedded />
+            <UnifiedSettings embedded />
           )}
           {activeTab === 'debug' && (
             <DebugTools embedded />
