@@ -147,6 +147,13 @@
   font-family: var(--font-mono);
 }
 
+.command-center__current-bet {
+  font-size: var(--font-size-xs);
+  color: var(--color-emerald);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+}
+
 .command-center__to-call {
   font-size: var(--font-size-xs);
   color: var(--color-amber);

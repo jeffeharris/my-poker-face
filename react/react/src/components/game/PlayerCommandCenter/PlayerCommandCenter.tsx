@@ -77,6 +77,11 @@ export function PlayerCommandCenter({
               <span className="stack-label">Stack:</span>
               <span className="stack-value">${player.stack.toLocaleString()}</span>
             </div>
+            {player.bet > 0 && (
+              <div className="command-center__current-bet">
+                Bet: ${player.bet}
+              </div>
+            )}
             {costToCall > 0 && !player.is_folded && (
               <div className="command-center__to-call">
                 To call: ${costToCall}

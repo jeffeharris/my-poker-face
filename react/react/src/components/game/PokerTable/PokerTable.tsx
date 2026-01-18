@@ -436,6 +436,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                       <div className="player-details">
                         <div className="player-name">{player.name}</div>
                         <div className="player-stack">${player.stack}</div>
+                        {player.bet > 0 && <div className="player-bet">Bet: ${player.bet}</div>}
                         {player.is_folded && <div className="status">FOLDED</div>}
                         {player.is_all_in && <div className="status">ALL-IN</div>}
                       </div>
@@ -463,34 +464,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
               })}
             </div>
 
-            {/* Bet chips for opponents */}
-            <div className="betting-area">
-              {opponents.map((player, opponentIndex) => (
-                player.bet > 0 ? (
-                  <div
-                    key={player.name}
-                    className="bet-chips"
-                    style={getStadiumBetChipStyle(opponentIndex, opponents.length)}
-                  >
-                    {renderBetChips(player.bet)}
-                  </div>
-                ) : null
-              ))}
-              {/* Human player bet chip - positioned at bottom center */}
-              {humanPlayer && humanPlayer.bet > 0 && (
-                <div
-                  className="bet-chips"
-                  style={{
-                    position: 'absolute',
-                    left: '50%',
-                    bottom: '25%',
-                    transform: 'translate(-50%, 50%)',
-                  }}
-                >
-                  {renderBetChips(humanPlayer.bet)}
-                </div>
-              )}
-            </div>
+            {/* Bet chips hidden in stadium view - bets shown in player seats */}
           </div>
         </div>
       </StadiumLayout>

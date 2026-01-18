@@ -627,6 +627,13 @@
     font-family: var(--font-mono, monospace);
 }
 
+.stadium-view .player-bet {
+    font-size: 11px;
+    color: var(--color-amber, #f59e0b);
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+}
+
 .stadium-view .player-seat.folded {
     opacity: 0.4;
     filter: grayscale(0.5);
