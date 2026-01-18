@@ -4781,6 +4781,102 @@ class GamePersistence:
 
             return result
 
+    def list_experiments(
+        self,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict]:
+        """List experiments with optional status filter.
+
+        Args:
+            status: Optional status filter ('pending', 'running', 'completed', 'failed')
+            limit: Maximum number of experiments to return
+            offset: Number of experiments to skip for pagination
+
+        Returns:
+            List of experiment dictionaries with basic info and progress
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Build query with optional status filter
+            where_clause = "WHERE status = ?" if status else ""
+            params = [status] if status else []
+
+            cursor = conn.execute(f"""
+                SELECT
+                    e.id, e.name, e.description, e.hypothesis,
+                    e.tags, e.status, e.created_at, e.completed_at,
+                    e.config_json, e.summary_json,
+                    (SELECT COUNT(*) FROM experiment_games WHERE experiment_id = e.id) as games_count
+                FROM experiments e
+                {where_clause}
+                ORDER BY e.created_at DESC
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+
+            experiments = []
+            for row in cursor.fetchall():
+                config = json.loads(row[8]) if row[8] else {}
+                summary = json.loads(row[9]) if row[9] else None
+
+                experiments.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'description': row[2],
+                    'hypothesis': row[3],
+                    'tags': json.loads(row[4]) if row[4] else [],
+                    'status': row[5],
+                    'created_at': row[6],
+                    'completed_at': row[7],
+                    'games_count': row[10],
+                    'num_tournaments': config.get('num_tournaments', 1),
+                    'model': config.get('model'),
+                    'provider': config.get('provider'),
+                    'summary': summary,
+                })
+
+            return experiments
+
+    def update_experiment_status(
+        self,
+        experiment_id: int,
+        status: str,
+        error_message: Optional[str] = None
+    ) -> None:
+        """Update experiment status.
+
+        Args:
+            experiment_id: The experiment ID
+            status: New status ('pending', 'running', 'completed', 'failed')
+            error_message: Optional error message if status is 'failed'
+        """
+        valid_statuses = {'pending', 'running', 'completed', 'failed'}
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
+
+        with sqlite3.connect(self.db_path) as conn:
+            if status == 'completed':
+                conn.execute("""
+                    UPDATE experiments
+                    SET status = ?, completed_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (status, experiment_id))
+            elif status == 'failed' and error_message:
+                # Store error in notes field
+                conn.execute("""
+                    UPDATE experiments
+                    SET status = ?, notes = COALESCE(notes || '\n', '') || ?
+                    WHERE id = ?
+                """, (status, f"Error: {error_message}", experiment_id))
+            else:
+                conn.execute("""
+                    UPDATE experiments
+                    SET status = ?
+                    WHERE id = ?
+                """, (status, experiment_id))
+            conn.commit()
+            logger.info(f"Updated experiment {experiment_id} status to {status}")
+
     # ========== App Settings Methods ==========
 
     def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:

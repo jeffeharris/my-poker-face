@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Users, FlaskConical, Microscope, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
+import { ExperimentDesigner } from './ExperimentDesigner';
 import { ModelManager } from './ModelManager';
 import { PricingManager } from './PricingManager';
 import { TemplateEditor } from './TemplateEditor';
@@ -11,7 +12,7 @@ import { DebugTools } from './DebugTools';
 import { CaptureSettings } from './CaptureSettings';
 import './AdminDashboard.css';
 
-type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
+type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'experiments' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
 
 interface TabConfig {
   id: AdminTab;
@@ -38,6 +39,12 @@ const TABS: TabConfig[] = [
     label: 'Prompt Playground',
     icon: <FlaskConical size={18} />,
     description: 'View and replay any captured LLM prompt',
+  },
+  {
+    id: 'experiments',
+    label: 'Experiments',
+    icon: <Beaker size={18} />,
+    description: 'Design and run AI tournament experiments',
   },
   {
     id: 'models',
@@ -115,6 +122,9 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
         )}
         {activeTab === 'playground' && (
           <PromptPlayground embedded />
+        )}
+        {activeTab === 'experiments' && (
+          <ExperimentDesigner embedded />
         )}
         {activeTab === 'models' && (
           <ModelManager embedded />

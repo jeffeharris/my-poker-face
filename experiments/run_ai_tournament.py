@@ -49,6 +49,7 @@ from poker.controllers import AIPlayerController
 from poker.persistence import GamePersistence as Persistence
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
+from poker.prompt_config import PromptConfig
 
 # Configure logging
 logging.basicConfig(
@@ -75,6 +76,25 @@ class TournamentResult:
     total_cost: float
     avg_latency_ms: float
     decision_stats: Dict
+    variant: Optional[str] = None  # Variant label for A/B testing
+
+
+@dataclass
+class ControlConfig:
+    """Control (baseline) configuration for A/B testing."""
+    label: str
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    prompt_config: Optional[Dict] = None
+
+
+@dataclass
+class VariantConfig:
+    """Variant configuration that overrides control for A/B testing."""
+    label: str
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    prompt_config: Optional[Dict] = None
 
 
 @dataclass
@@ -94,6 +114,70 @@ class ExperimentConfig:
     provider: str = "openai"
     personalities: Optional[List[str]] = None
     random_seed: Optional[int] = None
+    # A/B testing support
+    control: Optional[Dict] = None  # ControlConfig as dict
+    variants: Optional[List[Dict]] = None  # List of VariantConfig as dicts
+
+    def __post_init__(self):
+        """Validate control/variants structure."""
+        if self.control is not None:
+            if not isinstance(self.control, dict):
+                raise ValueError("control must be a dict")
+            if not self.control.get('label'):
+                raise ValueError("control.label is required")
+
+        if self.variants is not None:
+            if not isinstance(self.variants, list):
+                raise ValueError("variants must be a list")
+            for i, v in enumerate(self.variants):
+                if not isinstance(v, dict):
+                    raise ValueError(f"variants[{i}] must be a dict")
+                if not v.get('label'):
+                    raise ValueError(f"variants[{i}].label is required")
+
+    def get_variant_configs(self) -> List[Tuple[str, Dict]]:
+        """
+        Returns list of (label, effective_config) tuples for all variants.
+
+        If control is None, returns a single entry with legacy flat fields.
+        If control is set, returns control + all variants with inherited fields.
+        """
+        # Legacy mode: no control/variants defined
+        if self.control is None:
+            return [(None, {
+                'model': self.model,
+                'provider': self.provider,
+            })]
+
+        # A/B testing mode: control + variants
+        result = []
+
+        # Control is always first
+        control_config = {
+            'model': self.control.get('model') or self.model,
+            'provider': self.control.get('provider') or self.provider,
+            'prompt_config': self.control.get('prompt_config'),
+        }
+        control_label = self.control.get('label', 'Control')
+        result.append((control_label, control_config))
+
+        # Add variants (inherit from control, override specified fields)
+        for variant in (self.variants or []):
+            variant_config = {
+                'model': variant.get('model') or control_config['model'],
+                'provider': variant.get('provider') or control_config['provider'],
+                # Use explicit None check - empty dict {} is a valid config
+                'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
+            }
+            variant_label = variant.get('label', f'Variant {len(result)}')
+            result.append((variant_label, variant_config))
+
+        return result
+
+    def get_total_tournaments(self) -> int:
+        """Returns total number of tournaments across all variants."""
+        num_variants = len(self.get_variant_configs())
+        return self.num_tournaments * num_variants
 
 
 class AITournamentRunner:
@@ -132,8 +216,16 @@ class AITournamentRunner:
             random.seed(self.config.random_seed)
         return random.sample(available, min(self.config.num_players, len(available)))
 
-    def create_game(self, tournament_id: str) -> Tuple[PokerStateMachine, Dict[str, AIPlayerController], AIMemoryManager]:
+    def create_game(
+        self,
+        tournament_id: str,
+        variant_config: Optional[Dict] = None
+    ) -> Tuple[PokerStateMachine, Dict[str, AIPlayerController], AIMemoryManager]:
         """Create a new game with AI players only.
+
+        Args:
+            tournament_id: Unique identifier for this tournament
+            variant_config: Optional variant-specific config (model, provider, prompt_config)
 
         Returns:
             Tuple of (state_machine, controllers, memory_manager)
@@ -165,11 +257,21 @@ class AITournamentRunner:
         )
         memory_manager.set_persistence(self.persistence)
 
-        # Create AI controllers for each player
-        llm_config = {
-            'provider': self.config.provider,
-            'model': self.config.model,
-        }
+        # Determine LLM config: use variant_config if provided, else use experiment defaults
+        if variant_config:
+            llm_config = {
+                'provider': variant_config.get('provider') or self.config.provider,
+                'model': variant_config.get('model') or self.config.model,
+            }
+        else:
+            llm_config = {
+                'provider': self.config.provider,
+                'model': self.config.model,
+            }
+
+        # Extract and convert prompt_config from variant
+        prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
+        prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict is not None else None
 
         controllers = {}
         for player in game_state.players:
@@ -181,6 +283,7 @@ class AITournamentRunner:
                 owner_id=f"experiment_{self.config.name}",
                 persistence=self.persistence,
                 debug_capture=self.config.capture_prompts,
+                prompt_config=prompt_config,
             )
             controllers[player.name] = controller
             # Initialize memory manager for this player
@@ -285,7 +388,7 @@ class AITournamentRunner:
                         state_machine.game_state = game_state  # Use property setter
 
                     except Exception as e:
-                        logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold")
+                        logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
                         game_state = play_turn(game_state, 'fold', 0)
                         game_state = advance_to_next_active_player(game_state)
                         state_machine.game_state = game_state  # Use property setter
@@ -309,12 +412,24 @@ class AITournamentRunner:
         active_players = [p for p in game_state.players if p.stack > 0]
         return len(active_players) > 1
 
-    def run_tournament(self, tournament_id: str) -> TournamentResult:
-        """Run a complete tournament to conclusion."""
-        start_time = datetime.now()
-        logger.info(f"Starting tournament {tournament_id}")
+    def run_tournament(
+        self,
+        tournament_id: str,
+        variant_label: Optional[str] = None,
+        variant_config: Optional[Dict] = None
+    ) -> TournamentResult:
+        """Run a complete tournament to conclusion.
 
-        state_machine, controllers, memory_manager = self.create_game(tournament_id)
+        Args:
+            tournament_id: Unique identifier for this tournament
+            variant_label: Optional variant label for A/B testing
+            variant_config: Optional variant-specific config (model, provider, prompt_config)
+        """
+        start_time = datetime.now()
+        variant_info = f" [{variant_label}]" if variant_label else ""
+        logger.info(f"Starting tournament {tournament_id}{variant_info}")
+
+        state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config)
 
         elimination_order = []
         prev_active = set(p.name for p in state_machine.game_state.players)
@@ -353,6 +468,18 @@ class AITournamentRunner:
         # Calculate stats
         avg_latency = self.total_latency / max(self.api_calls, 1)
 
+        # Use variant_config for model_config if provided, else use experiment defaults
+        if variant_config:
+            model_config = {
+                "provider": variant_config.get('provider') or self.config.provider,
+                "model": variant_config.get('model') or self.config.model,
+            }
+        else:
+            model_config = {
+                "provider": self.config.provider,
+                "model": self.config.model,
+            }
+
         result = TournamentResult(
             experiment_name=self.config.name,
             tournament_id=tournament_id,
@@ -363,17 +490,16 @@ class AITournamentRunner:
             winner=winner,
             final_standings=final_standings,
             elimination_order=elimination_order,
-            model_config={
-                "provider": self.config.provider,
-                "model": self.config.model,
-            },
+            model_config=model_config,
             total_api_calls=self.api_calls,
             total_cost=self.total_cost,
             avg_latency_ms=avg_latency,
             decision_stats=self._get_decision_stats(tournament_id),
+            variant=variant_label,
         )
 
-        logger.info(f"Tournament {tournament_id} complete: Winner = {winner}, Hands = {hand_number}")
+        variant_info = f" [{variant_label}]" if variant_label else ""
+        logger.info(f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}")
         return result
 
     def _get_decision_stats(self, game_id: str) -> Dict:
@@ -410,8 +536,16 @@ class AITournamentRunner:
         return {}
 
     def run_experiment(self) -> List[TournamentResult]:
-        """Run the full experiment (multiple tournaments)."""
+        """Run the full experiment (multiple tournaments).
+
+        For A/B testing experiments (with control/variants), runs num_tournaments
+        for each variant configuration. Results are tagged with variant labels.
+        """
         results = []
+
+        # Get all variant configurations
+        variant_configs = self.config.get_variant_configs()
+        is_ab_test = self.config.control is not None
 
         # Create experiment record at start
         experiment_config = {
@@ -428,6 +562,9 @@ class AITournamentRunner:
             'provider': self.config.provider,
             'personalities': self.config.personalities,
             'capture_prompts': self.config.capture_prompts,
+            # Include A/B testing config if present
+            'control': self.config.control,
+            'variants': self.config.variants,
         }
 
         try:
@@ -437,32 +574,48 @@ class AITournamentRunner:
             logger.warning(f"Could not create experiment record: {e}")
             self.experiment_id = None
 
-        for i in range(self.config.num_tournaments):
-            tournament_id = f"exp_{self.config.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i+1}"
+        if is_ab_test:
+            logger.info(f"Running A/B test with {len(variant_configs)} variants: {[v[0] for v in variant_configs]}")
 
-            # Reset per-tournament metrics
-            self.api_calls = 0
-            self.total_latency = 0
-            self.total_cost = 0.0
+        # Track tournament number globally across all variants
+        global_tournament_num = 0
 
-            result = self.run_tournament(tournament_id)
-            results.append(result)
+        # Iterate over all variants
+        for variant_label, variant_config in variant_configs:
+            variant_info = f" [{variant_label}]" if variant_label else ""
+            logger.info(f"Running {self.config.num_tournaments} tournaments{variant_info}")
 
-            # Link game to experiment
-            if self.experiment_id:
-                try:
-                    self.persistence.link_game_to_experiment(
-                        experiment_id=self.experiment_id,
-                        game_id=tournament_id,
-                        variant=None,  # Can be extended for A/B testing
-                        variant_config=None,
-                        tournament_number=i + 1,
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not link game to experiment: {e}")
+            # Run num_tournaments for each variant
+            for i in range(self.config.num_tournaments):
+                global_tournament_num += 1
 
-            # Save result to file
-            self._save_result(result)
+                # Create unique tournament ID including variant label if present
+                variant_suffix = f"_{variant_label.lower().replace(' ', '_')}" if variant_label else ""
+                tournament_id = f"exp_{self.config.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{variant_suffix}_{i+1}"
+
+                # Reset per-tournament metrics
+                self.api_calls = 0
+                self.total_latency = 0
+                self.total_cost = 0.0
+
+                result = self.run_tournament(tournament_id, variant_label, variant_config)
+                results.append(result)
+
+                # Link game to experiment with variant info
+                if self.experiment_id:
+                    try:
+                        self.persistence.link_game_to_experiment(
+                            experiment_id=self.experiment_id,
+                            game_id=tournament_id,
+                            variant=variant_label,
+                            variant_config=variant_config if variant_label else None,
+                            tournament_number=global_tournament_num,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not link game to experiment: {e}")
+
+                # Save result to file
+                self._save_result(result)
 
         # Complete experiment with summary
         if self.experiment_id:
@@ -481,7 +634,8 @@ class AITournamentRunner:
             results: List of tournament results
 
         Returns:
-            Summary dictionary with aggregated statistics
+            Summary dictionary with aggregated statistics, including per-variant
+            stats for A/B testing experiments.
         """
         if not results:
             return {}
@@ -531,7 +685,81 @@ class AITournamentRunner:
                 'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
             }
 
+        # Compute per-variant stats for A/B testing experiments
+        variant_labels = set(r.variant for r in results if r.variant is not None)
+        if variant_labels:
+            summary['variants'] = self._compute_variant_summaries(results)
+
         return summary
+
+    def _compute_variant_summaries(self, results: List[TournamentResult]) -> Dict[str, Dict]:
+        """Compute per-variant statistics for A/B testing experiments.
+
+        Args:
+            results: List of tournament results (may include multiple variants)
+
+        Returns:
+            Dictionary mapping variant labels to their summary stats
+        """
+        # Group results by variant
+        by_variant: Dict[str, List[TournamentResult]] = {}
+        for r in results:
+            label = r.variant or 'default'
+            if label not in by_variant:
+                by_variant[label] = []
+            by_variant[label].append(r)
+
+        variant_summaries = {}
+        for label, variant_results in by_variant.items():
+            # Winner distribution for this variant
+            winners = {}
+            for r in variant_results:
+                winners[r.winner] = winners.get(r.winner, 0) + 1
+
+            # Aggregate stats for this variant
+            total_hands = sum(r.hands_played for r in variant_results)
+            total_api_calls = sum(r.total_api_calls for r in variant_results)
+            total_duration = sum(r.duration_seconds for r in variant_results)
+
+            # Decision quality for this variant
+            total_decisions = 0
+            total_correct = 0
+            total_mistakes = 0
+            total_marginal = 0
+            total_ev_lost = 0.0
+
+            for r in variant_results:
+                if r.decision_stats:
+                    total_decisions += r.decision_stats.get('total', 0)
+                    total_correct += r.decision_stats.get('correct', 0)
+                    total_mistakes += r.decision_stats.get('mistake', 0)
+                    total_marginal += r.decision_stats.get('marginal', 0)
+                    total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+
+            variant_summary = {
+                'tournaments': len(variant_results),
+                'total_hands': total_hands,
+                'total_api_calls': total_api_calls,
+                'total_duration_seconds': total_duration,
+                'avg_hands_per_tournament': round(total_hands / len(variant_results), 1) if variant_results else 0,
+                'winners': winners,
+                'model_config': variant_results[0].model_config if variant_results else {},
+            }
+
+            if total_decisions > 0:
+                variant_summary['decision_quality'] = {
+                    'total_decisions': total_decisions,
+                    'correct': total_correct,
+                    'marginal': total_marginal,
+                    'mistakes': total_mistakes,
+                    'correct_pct': round(total_correct * 100 / total_decisions, 1),
+                    'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
+                    'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
+                }
+
+            variant_summaries[label] = variant_summary
+
+        return variant_summaries
 
     def _save_result(self, result: TournamentResult):
         """Save tournament result to JSON file."""
