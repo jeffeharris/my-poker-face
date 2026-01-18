@@ -5139,12 +5139,12 @@ class GamePersistence:
                 """, [experiment_id] + variant_params)
                 decision_cost_row = cursor.fetchone()
 
-                # Count hands for normalized cost
+                # Count hands for normalized cost (use api_usage since hand_history may be empty)
                 cursor = conn.execute(f"""
-                    SELECT COUNT(DISTINCT hh.game_id || '-' || hh.hand_number) as total_hands
-                    FROM hand_history hh
-                    JOIN experiment_games eg ON hh.game_id = eg.game_id
-                    WHERE eg.experiment_id = ? {variant_clause}
+                    SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.hand_number IS NOT NULL
                 """, [experiment_id] + variant_params)
                 hand_row = cursor.fetchone()
                 total_hands_for_cost = hand_row[0] or 1
@@ -5229,10 +5229,10 @@ class GamePersistence:
             overall_decision_cost_row = cursor.fetchone()
 
             cursor = conn.execute("""
-                SELECT COUNT(DISTINCT hh.game_id || '-' || hh.hand_number) as total_hands
-                FROM hand_history hh
-                JOIN experiment_games eg ON hh.game_id = eg.game_id
-                WHERE eg.experiment_id = ?
+                SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.hand_number IS NOT NULL
             """, (experiment_id,))
             overall_hand_row = cursor.fetchone()
             overall_total_hands = overall_hand_row[0] or 1
