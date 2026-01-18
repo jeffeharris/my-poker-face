@@ -574,8 +574,27 @@
 }
 
 .experiment-list__table {
+  display: table;
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
+}
+
+.experiment-list__table thead {
+  display: table-header-group;
+}
+
+.experiment-list__table tbody {
+  display: table-row-group;
+}
+
+.experiment-list__table tr {
+  display: table-row;
+}
+
+.experiment-list__table th,
+.experiment-list__table td {
+  display: table-cell;
 }
 
 .experiment-list__table th {
@@ -594,6 +613,8 @@
   font-size: 0.875rem;
   color: #e5e5e5;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+  vertical-align: middle;
 }
 
 .experiment-list__row {
@@ -605,9 +626,9 @@
   background: rgba(255, 255, 255, 0.05);
 }
 
-.experiment-list__name-cell {
-  display: flex;
-  flex-direction: column;
+.experiment-list__name-cell .experiment-list__name,
+.experiment-list__name-cell .experiment-list__description {
+  display: block;
 }
 
 .experiment-list__name {
@@ -639,8 +660,9 @@
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* Status Badges */
-.status-badge {
+/* Status Badges - scoped to experiment list to avoid conflict with MobilePokerTable */
+.experiment-list .status-badge,
+.experiment-detail .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
@@ -648,29 +670,38 @@
   border-radius: 20px;
   font-size: 0.75rem;
   font-weight: 500;
+  position: static;
+  transform: none;
+  top: auto;
+  left: auto;
 }
 
-.status-badge--pending {
+.experiment-list .status-badge--pending,
+.experiment-detail .status-badge--pending {
   background: rgba(115, 115, 115, 0.2);
   color: #a3a3a3;
 }
 
-.status-badge--running {
+.experiment-list .status-badge--running,
+.experiment-detail .status-badge--running {
   background: rgba(59, 130, 246, 0.2);
   color: #60a5fa;
 }
 
-.status-badge--completed {
+.experiment-list .status-badge--completed,
+.experiment-detail .status-badge--completed {
   background: rgba(16, 185, 129, 0.2);
   color: #34d399;
 }
 
-.status-badge--failed {
+.experiment-list .status-badge--failed,
+.experiment-detail .status-badge--failed {
   background: rgba(239, 68, 68, 0.2);
   color: #f87171;
 }
 
-.status-badge--paused {
+.experiment-list .status-badge--paused,
+.experiment-detail .status-badge--paused {
   background: rgba(245, 158, 11, 0.2);
   color: #fbbf24;
 }
