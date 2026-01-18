@@ -1,18 +1,25 @@
--- Tournament results
+-- Tournament results (columns support both old and new schema for backward compatibility)
 CREATE TABLE IF NOT EXISTS tournament_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     game_id TEXT NOT NULL UNIQUE,
-    tournament_type TEXT NOT NULL,
-    starting_players INTEGER NOT NULL,
-    final_standings TEXT NOT NULL,
-    total_hands INTEGER NOT NULL,
-    started_at TIMESTAMP NOT NULL,
-    ended_at TIMESTAMP NOT NULL,
+    tournament_type TEXT,  -- New
+    starting_players INTEGER,  -- New
+    final_standings TEXT,  -- New
+    total_hands INTEGER DEFAULT 0,
+    started_at TIMESTAMP,
+    ended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Legacy columns
+    winner_name TEXT,
+    biggest_pot INTEGER DEFAULT 0,
+    starting_player_count INTEGER,
+    human_player_name TEXT,
+    human_finishing_position INTEGER,
     FOREIGN KEY (game_id) REFERENCES games(game_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tournament_results_game ON tournament_results(game_id);
 CREATE INDEX IF NOT EXISTS idx_tournament_results_ended ON tournament_results(ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tournament_results_winner ON tournament_results(winner_name);
 
 -- Tournament standings per player
 CREATE TABLE IF NOT EXISTS tournament_standings (

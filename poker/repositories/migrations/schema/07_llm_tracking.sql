@@ -43,13 +43,19 @@ CREATE INDEX IF NOT EXISTS idx_model_pricing_model ON model_pricing(model, provi
 -- Enabled models configuration (IMPORTANT: preserve this data during migration)
 CREATE TABLE IF NOT EXISTS enabled_models (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    model_id TEXT NOT NULL,
+    model TEXT NOT NULL,  -- Match old schema column name
     provider TEXT NOT NULL,
-    display_name TEXT NOT NULL,
-    is_default BOOLEAN DEFAULT 0,
-    enabled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(model_id, provider)
+    display_name TEXT,  -- Allow NULL for legacy data
+    enabled INTEGER DEFAULT 1,  -- Match old schema
+    notes TEXT,
+    supports_reasoning INTEGER DEFAULT 0,
+    supports_json_mode INTEGER DEFAULT 1,
+    supports_image_gen INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(model, provider)
 );
 
 CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider);
-CREATE INDEX IF NOT EXISTS idx_enabled_models_default ON enabled_models(is_default);
+CREATE INDEX IF NOT EXISTS idx_enabled_models_model ON enabled_models(model);

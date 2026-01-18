@@ -14,13 +14,15 @@ In Docker:
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from poker.persistence import GamePersistence
+from poker.repositories.factory import RepositoryFactory
+from poker.repositories.protocols import PersonalityEntity
 
 
 def get_db_path() -> str:
@@ -62,12 +64,13 @@ def seed_personalities(force: bool = False) -> dict:
     personalities = json_data.get('personalities', {})
     print(f"Found {len(personalities)} personalities in JSON file")
 
-    # Initialize persistence
-    persistence = GamePersistence(db_path)
+    # Initialize repository factory
+    factory = RepositoryFactory(db_path)
+    personality_repo = factory.personality
 
     # Check current count
-    existing = persistence.list_personalities(limit=200)
-    existing_names = {p['name'] for p in existing}
+    existing = personality_repo.find_all(limit=200)
+    existing_names = {p.name for p in existing}
     print(f"Found {len(existing_names)} personalities in database")
     print()
 
@@ -79,19 +82,31 @@ def seed_personalities(force: bool = False) -> dict:
         if name in existing_names:
             if force:
                 # Update existing personality
-                persistence.save_personality(name, config, source='json_import')
+                entity = PersonalityEntity(
+                    name=name,
+                    config=config,
+                    source='json_import',
+                    created_at=datetime.now(),
+                )
+                personality_repo.save(entity)
                 updated += 1
                 print(f"  Updated: {name}")
             else:
                 skipped += 1
         else:
             # Add new personality
-            persistence.save_personality(name, config, source='json_import')
+            entity = PersonalityEntity(
+                name=name,
+                config=config,
+                source='json_import',
+                created_at=datetime.now(),
+            )
+            personality_repo.save(entity)
             added += 1
             print(f"  Added: {name}")
 
     # Final count
-    final = persistence.list_personalities(limit=200)
+    final = personality_repo.find_all(limit=200)
 
     print()
     print("=" * 50)
@@ -137,8 +152,8 @@ def main():
             json_data = json.load(f)
         json_count = len(json_data.get('personalities', {}))
 
-        persistence = GamePersistence(db_path)
-        db_count = len(persistence.list_personalities(limit=200))
+        factory = RepositoryFactory(db_path)
+        db_count = len(factory.personality.find_all(limit=200))
 
         print(f"JSON file: {json_count} personalities")
         print(f"Database:  {db_count} personalities")

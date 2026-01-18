@@ -1,17 +1,17 @@
 -- Prompt captures for AI debugging (IMPORTANT: preserve this data during migration)
 CREATE TABLE IF NOT EXISTS prompt_captures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    game_id TEXT NOT NULL,
-    hand_number INTEGER NOT NULL,
-    player_name TEXT NOT NULL,
+    game_id TEXT,  -- Allow NULL for legacy data
+    hand_number INTEGER,  -- Allow NULL for legacy data
+    player_name TEXT,  -- Allow NULL for legacy data
     action_taken TEXT,
     system_prompt TEXT NOT NULL,
-    user_prompt TEXT NOT NULL,
+    user_prompt TEXT,  -- Allow NULL for legacy data (was user_message)
     raw_response TEXT,
     parsed_response TEXT,
-    model_used TEXT NOT NULL,
-    temperature REAL NOT NULL DEFAULT 0.7,
-    latency_ms INTEGER NOT NULL DEFAULT 0,
+    model_used TEXT,  -- Allow NULL for legacy data (was model)
+    temperature REAL DEFAULT 0.7,
+    latency_ms INTEGER DEFAULT 0,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     source TEXT DEFAULT 'game',
     experiment_id INTEGER,
@@ -27,10 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_prompt_captures_experiment ON prompt_captures(exp
 -- Player decision quality analysis (IMPORTANT: preserve this data during migration)
 CREATE TABLE IF NOT EXISTS player_decision_analysis (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    prompt_capture_id INTEGER NOT NULL,
+    prompt_capture_id INTEGER,  -- Allow NULL for legacy data (was capture_id)
     game_id TEXT NOT NULL,
     player_name TEXT NOT NULL,
-    request_id TEXT NOT NULL UNIQUE,
+    request_id TEXT,  -- Allow NULL for legacy data
     hand_number INTEGER NOT NULL,
     ev_analysis TEXT,
     gto_deviation TEXT,
