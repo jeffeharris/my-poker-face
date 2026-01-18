@@ -16,11 +16,8 @@ export interface PageLayoutProps {
   glowColor?: 'gold' | 'emerald' | 'sapphire' | 'amethyst' | 'amber' | 'none';
   /**
    * Maximum width of the content container
-   * - 'full': No width constraint (ideal for admin/data-dense pages)
-   * - '2xl': 1400px (wide but bounded)
-   * - 'xl': 1100px (default for most pages)
    */
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl';
   /**
    * Additional class name for the outer container
    */

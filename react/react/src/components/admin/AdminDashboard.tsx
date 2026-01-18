@@ -1,16 +1,6 @@
 import { useState } from 'react';
-import {
-  Users,
-  FlaskConical,
-  Microscope,
-  Beaker,
-  Sliders,
-  DollarSign,
-  FileText,
-  Bug,
-  Settings,
-} from 'lucide-react';
-import { AdminLayout, type AdminNavItem } from './AdminLayout';
+import { Users, FlaskConical, Microscope, Beaker, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
+import { PageLayout, PageHeader } from '../shared';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
@@ -20,19 +10,18 @@ import { PricingManager } from './PricingManager';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { CaptureSettings } from './CaptureSettings';
+import './AdminDashboard.css';
 
-type AdminTab =
-  | 'personalities'
-  | 'analyzer'
-  | 'playground'
-  | 'experiments'
-  | 'models'
-  | 'pricing'
-  | 'templates'
-  | 'settings'
-  | 'debug';
+type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'experiments' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
 
-const NAV_ITEMS: AdminNavItem[] = [
+interface TabConfig {
+  id: AdminTab;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+}
+
+const TABS: TabConfig[] = [
   {
     id: 'personalities',
     label: 'Personalities',
@@ -96,42 +85,64 @@ interface AdminDashboardProps {
 export function AdminDashboard({ onBack }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>('personalities');
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'personalities':
-        return <PersonalityManager embedded />;
-      case 'analyzer':
-        return <DecisionAnalyzer embedded />;
-      case 'playground':
-        return <PromptPlayground embedded />;
-      case 'experiments':
-        return <ExperimentDesigner embedded />;
-      case 'models':
-        return <ModelManager embedded />;
-      case 'pricing':
-        return <PricingManager embedded />;
-      case 'templates':
-        return <TemplateEditor embedded />;
-      case 'settings':
-        return <CaptureSettings embedded />;
-      case 'debug':
-        return <DebugTools embedded />;
-      default:
-        return null;
-    }
-  };
+  // Find active tab config for subtitle
+  const activeTabConfig = TABS.find(t => t.id === activeTab);
 
   return (
-    <AdminLayout
-      navItems={NAV_ITEMS}
-      activeItem={activeTab}
-      onNavChange={(id) => setActiveTab(id as AdminTab)}
-      title="Admin Dashboard"
-      subtitle="Manage your poker game"
-      onBack={onBack}
-    >
-      {renderContent()}
-    </AdminLayout>
+    <PageLayout variant="top" glowColor="gold" maxWidth="xl">
+      <PageHeader
+        title="Admin Dashboard"
+        subtitle={activeTabConfig?.description || 'Manage your poker game'}
+        onBack={onBack}
+        titleVariant="primary"
+      />
+
+      {/* Tab Navigation */}
+      <div className="admin-tabs">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`admin-tab ${activeTab === tab.id ? 'admin-tab--active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+            type="button"
+          >
+            <span className="admin-tab__icon">{tab.icon}</span>
+            <span className="admin-tab__label">{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="admin-content">
+        {activeTab === 'personalities' && (
+          <PersonalityManager embedded />
+        )}
+        {activeTab === 'analyzer' && (
+          <DecisionAnalyzer embedded />
+        )}
+        {activeTab === 'playground' && (
+          <PromptPlayground embedded />
+        )}
+        {activeTab === 'experiments' && (
+          <ExperimentDesigner embedded />
+        )}
+        {activeTab === 'models' && (
+          <ModelManager embedded />
+        )}
+        {activeTab === 'pricing' && (
+          <PricingManager embedded />
+        )}
+        {activeTab === 'templates' && (
+          <TemplateEditor embedded />
+        )}
+        {activeTab === 'settings' && (
+          <CaptureSettings embedded />
+        )}
+        {activeTab === 'debug' && (
+          <DebugTools embedded />
+        )}
+      </div>
+    </PageLayout>
   );
 }
 

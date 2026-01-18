@@ -78,14 +78,6 @@
   max-width: var(--container-xl);
 }
 
-.page-layout__content--2xl {
-  max-width: var(--container-2xl);
-}
-
-.page-layout__content--full {
-  max-width: var(--container-full);
-}
-
 /* Add top margin for 'top' variant to give breathing room */
 .page-layout--top .page-layout__content {
   margin-top: var(--space-4);

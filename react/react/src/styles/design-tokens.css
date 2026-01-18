@@ -310,11 +310,6 @@
   --container-lg: 900px;
   --container-xl: 1100px;
   --container-2xl: 1400px;
-  --container-full: 100%;
-
-  /* Admin-specific widths */
-  --admin-sidebar-width: 240px;
-  --admin-sidebar-collapsed: 64px;
 
   /* ===========================================
      BREAKPOINTS (for reference in JS)
