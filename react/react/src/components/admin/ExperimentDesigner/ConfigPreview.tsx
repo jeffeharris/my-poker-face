@@ -41,23 +41,6 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
   const [launching, setLaunching] = useState(false);
   const [promptConfigExpanded, setPromptConfigExpanded] = useState(false);
   const [abTestingExpanded, setAbTestingExpanded] = useState(false);
-  const [personalities, setPersonalities] = useState<string[]>([]);
-
-  // Fetch available personalities
-  useEffect(() => {
-    const fetchPersonalities = async () => {
-      try {
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/personalities`);
-        const data = await response.json();
-        if (data.success) {
-          setPersonalities(data.personalities);
-        }
-      } catch (err) {
-        console.error('Failed to load personalities:', err);
-      }
-    };
-    fetchPersonalities();
-  }, []);
 
   // Sync JSON text when config changes (if in form mode)
   useEffect(() => {

@@ -387,7 +387,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           <ActivityFeed
             messages={messages}
             onSendMessage={handleSendMessage}
-            players={gameState?.players ?? []}
             playerName={playerName}
           />
         }
