@@ -80,7 +80,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
   }, [handleKeyDown]);
 
   return (
-    <div className="admin-dashboard">
+    <div className="admin-dashboard-layout">
       {/* Sidebar Navigation */}
       <AdminSidebar
         items={SIDEBAR_ITEMS}
