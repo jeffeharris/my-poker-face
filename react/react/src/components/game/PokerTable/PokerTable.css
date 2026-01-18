@@ -560,24 +560,49 @@
     min-height: 400px;
 }
 
-/* Larger community cards for stadium view */
-.stadium-view .community-cards {
-    gap: 12px;
-    margin-bottom: 24px;
+/* Move community area down for stadium view */
+.stadium-view .community-area {
+    top: 60%;
+    transform: translate(-50%, -50%);
 }
 
-/* Larger pot for visibility */
+/* Community cards with more spacing */
+.stadium-view .community-cards {
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+/* Compact inline pot display */
+.stadium-view .pot-area {
+    margin-top: 8px;
+}
+
 .stadium-view .pot {
-    width: 140px;
-    height: 140px;
+    width: auto;
+    height: auto;
+    border-radius: var(--radius-full, 9999px);
+    padding: 8px 20px;
+    flex-direction: row;
+    gap: 8px;
+    animation: none;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid var(--color-gold, #d4a574);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .stadium-view .pot-label {
-    font-size: 14px;
+    font-size: 11px;
+    color: var(--color-text-muted, #888);
+    margin-bottom: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .stadium-view .pot-amount {
-    font-size: 22px;
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--color-gold-light, #e8c9a0);
+    font-family: var(--font-mono, monospace);
 }
 
 /* Player seats with premium styling */
