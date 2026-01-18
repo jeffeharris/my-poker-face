@@ -16,6 +16,7 @@ from authlib.integrations.flask_client import OAuth
 
 from poker.persistence import GamePersistence
 from poker.repositories.sqlite_repositories import PressureEventRepository
+from poker.repositories.factory import RepositoryFactory
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
 from poker.pricing_loader import sync_pricing_from_yaml
@@ -30,9 +31,12 @@ socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
 # Limiter instance - will be initialized with app
 limiter = None
 
-# Persistence instances
+# Persistence instances (legacy - kept for backward compatibility)
 persistence = None
 event_repository = None
+
+# New repository factory (preferred for new code)
+repository_factory = None
 
 # Auth manager - will be set after app creation
 auth_manager = None
@@ -109,13 +113,27 @@ def init_limiter(app: Flask) -> Limiter:
 
 def init_persistence() -> tuple:
     """Initialize persistence layer."""
-    global persistence, event_repository
+    global persistence, event_repository, repository_factory
 
     db_path = config.DB_PATH
+
+    # Legacy persistence (kept for backward compatibility during migration)
     persistence = GamePersistence(db_path)
     event_repository = PressureEventRepository(db_path)
 
+    # New repository factory (preferred for new code)
+    # Note: Does not initialize schema as the existing database already has tables
+    repository_factory = RepositoryFactory(db_path, initialize_schema=False)
+
     return persistence, event_repository
+
+
+def get_repository_factory() -> RepositoryFactory:
+    """Get the repository factory, initializing if needed."""
+    global repository_factory
+    if repository_factory is None:
+        init_persistence()
+    return repository_factory
 
 
 def init_personality_generator() -> PersonalityGenerator:
