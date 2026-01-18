@@ -1,9 +1,11 @@
 """Flask application factory."""
 
 import logging
+import os
 from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import SECRET_KEY
 from .extensions import init_extensions, socketio
@@ -41,6 +43,12 @@ def create_app():
     """Create and configure the Flask application."""
     app = Flask(__name__)
     app.secret_key = SECRET_KEY
+
+    # In production behind a reverse proxy (Caddy), trust X-Forwarded headers
+    # This ensures url_for generates https:// URLs for OAuth callbacks
+    if os.environ.get('FLASK_ENV') == 'production':
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+        app.config['PREFERRED_URL_SCHEME'] = 'https'
 
     # Initialize extensions
     init_extensions(app)

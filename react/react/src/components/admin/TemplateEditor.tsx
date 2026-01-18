@@ -1,6 +1,30 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { config } from '../../config';
+import './AdminShared.css';
 import './TemplateEditor.css';
+
+// ============================================
+// Hooks
+// ============================================
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.matchMedia(query).matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [query]);
+
+  return matches;
+}
 
 // ============================================
 // Types
@@ -32,10 +56,108 @@ interface TemplateEditorProps {
 }
 
 // ============================================
+// Icons
+// ============================================
+
+const SearchIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M4 9L7.5 12.5L14 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const MenuIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+    <path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+// ============================================
+// Sub-components
+// ============================================
+
+interface MasterListProps {
+  templates: TemplateSummary[];
+  selected: string | null;
+  onSelect: (name: string) => void;
+  search: string;
+  onSearchChange: (search: string) => void;
+}
+
+function MasterList({ templates, selected, onSelect, search, onSearchChange }: MasterListProps) {
+  const filtered = useMemo(() =>
+    templates.filter(t =>
+      t.name.toLowerCase().includes(search.toLowerCase())
+    ),
+    [templates, search]
+  );
+
+  return (
+    <>
+      <div className="admin-master__header">
+        <h3 className="admin-master__title">Templates</h3>
+        <span className="admin-master__count">{templates.length}</span>
+      </div>
+      <div className="admin-master__search">
+        <div className="admin-master__search-wrap">
+          <span className="admin-master__search-icon">
+            <SearchIcon />
+          </span>
+          <input
+            type="text"
+            className="admin-master__search-input"
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="admin-master__list">
+        {filtered.map((t) => (
+          <button
+            key={t.name}
+            type="button"
+            className={`admin-master__item ${selected === t.name ? 'admin-master__item--selected' : ''}`}
+            onClick={() => onSelect(t.name)}
+          >
+            <span className="admin-master__item-avatar">{t.name.charAt(0).toUpperCase()}</span>
+            <div className="admin-master__item-content">
+              <span className="admin-master__item-name">{t.name}</span>
+              <span className="te-master__item-meta">v{t.version} • {t.section_count} sections</span>
+            </div>
+            {selected === t.name && (
+              <span className="admin-master__item-check">
+                <CheckIcon />
+              </span>
+            )}
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div className="admin-master__empty">
+            No templates found{search ? ` matching "${search}"` : ''}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ============================================
 // Main Component
 // ============================================
 
 export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
+  // Responsive breakpoints
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const isTablet = useMediaQuery('(min-width: 768px)');
+
+  // Core state
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,6 +168,10 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   const [previewResult, setPreviewResult] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
+
+  // UI state for master-detail
+  const [masterSearch, setMasterSearch] = useState('');
+  const [masterPanelOpen, setMasterPanelOpen] = useState(false);
 
   // Fetch template list
   const fetchTemplates = useCallback(async () => {
@@ -59,7 +185,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to load templates' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setLoading(false);
@@ -87,10 +213,14 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
         setPreviewVariables({});
         setPreviewResult(null);
         setIsDirty(false);
+        // Close master panel on tablet after selection
+        if (!isDesktop) {
+          setMasterPanelOpen(false);
+        }
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to load template' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     }
   };
@@ -126,7 +256,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to save template' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setSaving(false);
@@ -157,7 +287,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to preview template' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     }
   };
@@ -170,141 +300,193 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
     }
   }, [alert]);
 
+  // Loading state
   if (loading) {
     return (
-      <div className="te-loading">
-        <div className="te-loading__spinner" />
-        <span>Loading templates...</span>
+      <div className="admin-loading">
+        <div className="admin-loading__spinner" />
+        <span className="admin-loading__text">Loading templates...</span>
       </div>
     );
   }
+
+  // Editor content (scrollable)
+  const editorContent = selectedTemplate ? (
+    <>
+      {/* Section Tabs */}
+      <div className="te-tabs">
+        {Object.keys(editedSections).map(section => (
+          <button
+            key={section}
+            className={`te-tab ${activeSection === section ? 'te-tab--active' : ''}`}
+            onClick={() => setActiveSection(section)}
+            type="button"
+          >
+            {section}
+          </button>
+        ))}
+      </div>
+
+      {/* Editor Content */}
+      <div className="te-editor-content">
+        <textarea
+          className="te-textarea"
+          value={editedSections[activeSection] || ''}
+          onChange={(e) => updateSection(activeSection, e.target.value)}
+          spellCheck={false}
+        />
+      </div>
+
+      {/* Variables */}
+      {selectedTemplate.variables.length > 0 && (
+        <div className="te-variables">
+          <div className="te-variables__header">Preview Variables</div>
+          <div className="te-variables__grid">
+            {selectedTemplate.variables.map(v => (
+              <div key={v} className="te-variables__item">
+                <label>{v}</label>
+                <input
+                  type="text"
+                  className="admin-input"
+                  value={previewVariables[v] || ''}
+                  onChange={(e) => setPreviewVariables(prev => ({ ...prev, [v]: e.target.value }))}
+                  placeholder={`{${v}}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Preview Result */}
+      {previewResult && (
+        <div className="te-preview">
+          <div className="te-preview__header">
+            Preview Output
+            <button
+              className="te-preview__close"
+              onClick={() => setPreviewResult(null)}
+            >
+              ×
+            </button>
+          </div>
+          <pre className="te-preview__content">{previewResult}</pre>
+        </div>
+      )}
+    </>
+  ) : null;
+
+  // Empty state content
+  const emptyContent = (
+    <div className="admin-detail__empty">
+      <div className="admin-detail__empty-icon">📝</div>
+      <h3 className="admin-detail__empty-title">No Template Selected</h3>
+      <p className="admin-detail__empty-description">
+        Select a template from the list to edit its sections
+      </p>
+    </div>
+  );
 
   return (
     <div className={`te-container ${embedded ? 'te-container--embedded' : ''}`}>
       {/* Alert Toast */}
       {alert && (
-        <div className={`te-alert te-alert--${alert.type}`}>
-          <span className="te-alert__icon">
-            {alert.type === 'success' ? '✓' : alert.type === 'error' ? '✕' : 'i'}
-          </span>
-          <span className="te-alert__message">{alert.message}</span>
-          <button className="te-alert__close" onClick={() => setAlert(null)}>×</button>
+        <div className="admin-toast-container">
+          <div className={`admin-alert admin-alert--${alert.type}`}>
+            <span className="admin-alert__icon">
+              {alert.type === 'success' && '✓'}
+              {alert.type === 'error' && '✕'}
+              {alert.type === 'info' && 'ℹ'}
+            </span>
+            <span className="admin-alert__content">{alert.message}</span>
+            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>×</button>
+          </div>
         </div>
       )}
 
-      {/* Header */}
-      <div className="te-header">
-        <h2 className="te-header__title">Prompt Templates</h2>
-        <p className="te-header__subtitle">Edit system prompt templates for AI players</p>
-      </div>
-
-      <div className="te-layout">
-        {/* Template List */}
-        <div className="te-sidebar">
-          <div className="te-sidebar__header">Templates</div>
-          <div className="te-sidebar__list">
-            {templates.map(t => (
-              <button
-                key={t.name}
-                className={`te-sidebar__item ${selectedTemplate?.name === t.name ? 'te-sidebar__item--active' : ''}`}
-                onClick={() => fetchTemplate(t.name)}
-                type="button"
-              >
-                <span className="te-sidebar__item-name">{t.name}</span>
-                <span className="te-sidebar__item-meta">v{t.version} • {t.section_count} sections</span>
-              </button>
-            ))}
-          </div>
+      {/* Header - only show when not embedded */}
+      {!embedded && (
+        <div className="admin-header">
+          <h2 className="admin-header__title">Prompt Templates</h2>
+          <p className="admin-header__subtitle">Edit system prompt templates for AI players</p>
         </div>
+      )}
 
-        {/* Editor */}
-        <div className="te-editor">
-          {selectedTemplate ? (
-            <>
-              {/* Section Tabs */}
-              <div className="te-editor__tabs">
-                {Object.keys(editedSections).map(section => (
-                  <button
-                    key={section}
-                    className={`te-editor__tab ${activeSection === section ? 'te-editor__tab--active' : ''}`}
-                    onClick={() => setActiveSection(section)}
-                    type="button"
-                  >
-                    {section}
-                  </button>
-                ))}
+      {/* Master-Detail Layout */}
+      <div className="admin-master-detail">
+        {/* Master Panel (sidebar) */}
+        <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
+          <MasterList
+            templates={templates}
+            selected={selectedTemplate?.name || null}
+            onSelect={fetchTemplate}
+            search={masterSearch}
+            onSearchChange={setMasterSearch}
+          />
+        </aside>
+
+        {/* Detail Panel */}
+        <main className="admin-detail">
+          {/* Tablet toggle button (hidden on desktop) */}
+          {isTablet && !isDesktop && (
+            <button
+              type="button"
+              className="admin-master-toggle"
+              onClick={() => setMasterPanelOpen(!masterPanelOpen)}
+            >
+              <MenuIcon />
+              <span>{selectedTemplate?.name || 'Select Template'}</span>
+            </button>
+          )}
+
+          {/* Detail header when template selected */}
+          {selectedTemplate && (
+            <div className="admin-detail__header">
+              <div>
+                <h2 className="admin-detail__title">{selectedTemplate.name}</h2>
+                <p className="admin-detail__subtitle">
+                  v{selectedTemplate.version} • {Object.keys(selectedTemplate.sections).length} sections
+                </p>
               </div>
+            </div>
+          )}
 
-              {/* Editor Content */}
-              <div className="te-editor__content">
-                <textarea
-                  className="te-editor__textarea"
-                  value={editedSections[activeSection] || ''}
-                  onChange={(e) => updateSection(activeSection, e.target.value)}
-                  spellCheck={false}
-                />
-              </div>
+          {/* Detail content (scrollable) */}
+          <div className="admin-detail__content">
+            {editorContent || emptyContent}
+          </div>
 
-              {/* Variables */}
-              {selectedTemplate.variables.length > 0 && (
-                <div className="te-variables">
-                  <div className="te-variables__header">Preview Variables</div>
-                  <div className="te-variables__grid">
-                    {selectedTemplate.variables.map(v => (
-                      <div key={v} className="te-variables__item">
-                        <label>{v}</label>
-                        <input
-                          type="text"
-                          className="te-input"
-                          value={previewVariables[v] || ''}
-                          onChange={(e) => setPreviewVariables(prev => ({ ...prev, [v]: e.target.value }))}
-                          placeholder={`{${v}}`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="te-editor__actions">
+          {/* Action bar (fixed at bottom) */}
+          {selectedTemplate && (
+            <div className="admin-detail__footer">
+              <div className="admin-detail__footer-secondary">
                 <button
-                  className="te-btn te-btn--ghost"
+                  className="admin-btn admin-btn--secondary"
                   onClick={previewTemplate}
                 >
                   Preview
                 </button>
+              </div>
+              <div className="admin-detail__footer-primary">
                 <button
-                  className="te-btn te-btn--primary"
+                  className="admin-btn admin-btn--primary"
                   onClick={saveTemplate}
                   disabled={!isDirty || saving}
                 >
                   {saving ? 'Saving...' : isDirty ? 'Save Changes' : 'Saved'}
                 </button>
               </div>
-
-              {/* Preview Result */}
-              {previewResult && (
-                <div className="te-preview">
-                  <div className="te-preview__header">
-                    Preview Output
-                    <button
-                      className="te-preview__close"
-                      onClick={() => setPreviewResult(null)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <pre className="te-preview__content">{previewResult}</pre>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="te-editor__empty">
-              Select a template to edit
             </div>
           )}
-        </div>
+        </main>
+
+        {/* Backdrop for tablet sidebar */}
+        {isTablet && !isDesktop && masterPanelOpen && (
+          <div
+            className="te-backdrop"
+            onClick={() => setMasterPanelOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

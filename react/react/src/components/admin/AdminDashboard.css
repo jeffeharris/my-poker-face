@@ -1,84 +1,140 @@
-/* Admin Dashboard Tabs */
-.admin-tabs {
+/* Admin Dashboard - Sidebar Layout */
+
+.admin-dashboard-layout {
   display: flex;
-  gap: 0.5rem;
-  padding: 0 1rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 1rem;
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(
+    135deg,
+    rgba(10, 10, 14, 1) 0%,
+    rgba(18, 18, 26, 1) 50%,
+    rgba(12, 12, 18, 1) 100%
+  );
+  overflow: hidden;
 }
 
-.admin-tab {
+/* Main Content Area */
+.admin-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Main Header */
+.admin-main__header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.95rem;
-  font-weight: 500;
+  gap: 1rem;
+  padding: 1.25rem 2rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
-.admin-tab:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.admin-tab--active {
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.2) 0%, rgba(255, 152, 0, 0.15) 100%);
-  border-color: rgba(255, 193, 7, 0.5);
-  color: #ffc107;
-}
-
-.admin-tab--active:hover {
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.25) 0%, rgba(255, 152, 0, 0.2) 100%);
-  border-color: rgba(255, 193, 7, 0.6);
-}
-
-.admin-tab__icon {
-  display: flex;
+.admin-main__back {
+  display: flex !important;
   align-items: center;
   justify-content: center;
-  opacity: 0.8;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  background: rgba(255, 193, 7, 0.15) !important;
+  border: 1px solid rgba(255, 193, 7, 0.4) !important;
+  border-radius: 10px;
+  color: #ffc107;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.admin-tab--active .admin-tab__icon {
-  opacity: 1;
+.admin-main__back:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 1);
 }
 
-.admin-tab__label {
-  white-space: nowrap;
+.admin-main__header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-/* Admin Content Area */
-.admin-content {
-  padding: 0 1rem;
+.admin-main__title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0;
+  line-height: 1.2;
 }
 
-/* Responsive */
+.admin-main__subtitle {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+  line-height: 1.3;
+}
+
+/* Main Content */
+.admin-main__content {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Scrollbar styling for main content */
+.admin-main__content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.admin-main__content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.admin-main__content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.admin-main__content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Animation for content transitions */
+.admin-main__content > * {
+  animation: contentFadeIn 0.3s ease-out;
+}
+
+@keyframes contentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive - Hide sidebar on mobile (future enhancement) */
 @media (max-width: 768px) {
-  .admin-tabs {
-    flex-direction: column;
-    gap: 0.5rem;
+  .admin-main__header {
+    padding: 1rem 1.25rem;
   }
 
-  .admin-tab {
-    justify-content: center;
-    padding: 1rem;
+  .admin-main__content {
+    padding: 1rem 1.25rem;
   }
-}
 
-@media (max-width: 480px) {
-  .admin-tab__label {
+  .admin-main__title {
+    font-size: 1.25rem;
+  }
+
+  .admin-main__subtitle {
     font-size: 0.85rem;
-  }
-
-  .admin-tab {
-    padding: 0.65rem 1rem;
   }
 }

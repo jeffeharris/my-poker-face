@@ -1,79 +1,56 @@
-import { useState } from 'react';
-import { Users, FlaskConical, Microscope, Beaker, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
-import { PageLayout, PageHeader } from '../shared';
+import { useState, useEffect, useCallback } from 'react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft } from 'lucide-react';
+import { AdminSidebar, type AdminTab, type SidebarItem } from './AdminSidebar';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
 import { ExperimentDesigner } from './ExperimentDesigner';
-import { ModelManager } from './ModelManager';
-import { PricingManager } from './PricingManager';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
-import { CaptureSettings } from './CaptureSettings';
+import { UnifiedSettings } from './UnifiedSettings';
 import './AdminDashboard.css';
 
-type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'experiments' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
-
-interface TabConfig {
-  id: AdminTab;
-  label: string;
-  icon: React.ReactNode;
-  description: string;
-}
-
-const TABS: TabConfig[] = [
+const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     id: 'personalities',
     label: 'Personalities',
-    icon: <Users size={18} />,
+    icon: <Users size={20} />,
     description: 'Create and customize AI opponents',
   },
   {
     id: 'analyzer',
     label: 'Decision Analyzer',
-    icon: <Microscope size={18} />,
+    icon: <Microscope size={20} />,
     description: 'Analyze and replay AI decision prompts',
   },
   {
     id: 'playground',
     label: 'Prompt Playground',
-    icon: <FlaskConical size={18} />,
+    icon: <FlaskConical size={20} />,
     description: 'View and replay any captured LLM prompt',
   },
   {
     id: 'experiments',
     label: 'Experiments',
-    icon: <Beaker size={18} />,
+    icon: <Beaker size={20} />,
     description: 'Design and run AI tournament experiments',
-  },
-  {
-    id: 'models',
-    label: 'Models',
-    icon: <Sliders size={18} />,
-    description: 'Enable or disable LLM models by provider',
-  },
-  {
-    id: 'pricing',
-    label: 'Pricing',
-    icon: <DollarSign size={18} />,
-    description: 'View and manage LLM pricing configuration',
   },
   {
     id: 'templates',
     label: 'Templates',
-    icon: <FileText size={18} />,
+    icon: <FileText size={20} />,
     description: 'Edit system prompt templates',
   },
   {
     id: 'settings',
     label: 'Settings',
-    icon: <Settings size={18} />,
-    description: 'Configure prompt capture and other settings',
+    icon: <Settings size={20} />,
+    description: 'Models, capture, storage, and pricing',
   },
   {
     id: 'debug',
     label: 'Debug',
-    icon: <Bug size={18} />,
+    icon: <Bug size={20} />,
     description: 'Inspect game state and AI internals',
   },
 ];
@@ -84,65 +61,78 @@ interface AdminDashboardProps {
 
 export function AdminDashboard({ onBack }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>('personalities');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Find active tab config for subtitle
-  const activeTabConfig = TABS.find(t => t.id === activeTab);
+  // Find active tab config for header
+  const activeTabConfig = SIDEBAR_ITEMS.find(t => t.id === activeTab);
+
+  // Keyboard shortcut to toggle sidebar
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      setSidebarCollapsed(prev => !prev);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   return (
-    <PageLayout variant="top" glowColor="gold" maxWidth="xl">
-      <PageHeader
-        title="Admin Dashboard"
-        subtitle={activeTabConfig?.description || 'Manage your poker game'}
-        onBack={onBack}
-        titleVariant="primary"
+    <div className="admin-dashboard-layout">
+      {/* Sidebar Navigation */}
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
       />
 
-      {/* Tab Navigation */}
-      <div className="admin-tabs">
-        {TABS.map(tab => (
+      {/* Main Content Area */}
+      <main className="admin-main">
+        {/* Content Header */}
+        <header className="admin-main__header">
           <button
-            key={tab.id}
-            className={`admin-tab ${activeTab === tab.id ? 'admin-tab--active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-            type="button"
+            className="admin-main__back"
+            onClick={onBack}
+            aria-label="Go back"
           >
-            <span className="admin-tab__icon">{tab.icon}</span>
-            <span className="admin-tab__label">{tab.label}</span>
+            <ArrowLeft size={20} />
           </button>
-        ))}
-      </div>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">{activeTabConfig?.label || 'Admin'}</h1>
+            <p className="admin-main__subtitle">{activeTabConfig?.description}</p>
+          </div>
+        </header>
 
-      {/* Tab Content */}
-      <div className="admin-content">
-        {activeTab === 'personalities' && (
-          <PersonalityManager embedded />
-        )}
-        {activeTab === 'analyzer' && (
-          <DecisionAnalyzer embedded />
-        )}
-        {activeTab === 'playground' && (
-          <PromptPlayground embedded />
-        )}
-        {activeTab === 'experiments' && (
-          <ExperimentDesigner embedded />
-        )}
-        {activeTab === 'models' && (
-          <ModelManager embedded />
-        )}
-        {activeTab === 'pricing' && (
-          <PricingManager embedded />
-        )}
-        {activeTab === 'templates' && (
-          <TemplateEditor embedded />
-        )}
-        {activeTab === 'settings' && (
-          <CaptureSettings embedded />
-        )}
-        {activeTab === 'debug' && (
-          <DebugTools embedded />
-        )}
-      </div>
-    </PageLayout>
+        {/* Tab Content */}
+        <div className="admin-main__content">
+          {activeTab === 'personalities' && (
+            <PersonalityManager embedded />
+          )}
+          {activeTab === 'analyzer' && (
+            <DecisionAnalyzer embedded />
+          )}
+          {activeTab === 'playground' && (
+            <PromptPlayground embedded />
+          )}
+          {activeTab === 'experiments' && (
+            <ExperimentDesigner embedded />
+          )}
+          {activeTab === 'templates' && (
+            <TemplateEditor embedded />
+          )}
+          {activeTab === 'settings' && (
+            <UnifiedSettings embedded />
+          )}
+          {activeTab === 'debug' && (
+            <DebugTools embedded />
+          )}
+        </div>
+      </main>
+    </div>
   );
 }
 
