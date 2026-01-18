@@ -941,16 +941,22 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                 runner.experiment_id = experiment_id
                 runner.persistence = persistence
 
-                # Determine current hand number from game state
-                # We'll continue from hand 1 and let the game state guide us
-                hand_number = 0
-                max_hands = exp_config.max_hands_per_tournament
+                # Get original player names from experiment config for reset scenarios
+                original_player_names = exp_config.personalities or []
+                if not original_player_names:
+                    # Fall back to current players if personalities not configured
+                    original_player_names = [p.name for p in state_machine.game_state.players]
+
+                # Determine reset behavior
+                should_reset = bool(exp_config.target_hands) or exp_config.reset_on_elimination
+                max_hands = exp_config.target_hands or exp_config.max_hands_per_tournament
 
                 # Continue the tournament from saved state
+                hand_number = 0
                 while hand_number < max_hands:
                     hand_number += 1
 
-                    should_continue = runner.run_hand(
+                    hand_result = runner.run_hand(
                         state_machine, controllers, memory_manager, hand_number,
                         tournament_id=game_id,
                         variant_config=variant_config
@@ -959,8 +965,40 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     # Save game state for live monitoring
                     persistence.save_game(game_id, state_machine, f"experiment_{exp_config.name}")
 
-                    if not should_continue:
-                        # Check if paused
+                    # Handle reset_needed - restore all original players
+                    if hand_result == "reset_needed":
+                        if should_reset:
+                            from poker.poker_game import Player
+                            logger.info(f"Resetting all players for {game_id}")
+
+                            # Recreate all original players with full stacks
+                            reset_players = tuple(
+                                Player(name=name, stack=exp_config.starting_stack, is_human=False)
+                                for name in original_player_names
+                            )
+                            game_state = state_machine.game_state.update(players=reset_players)
+                            state_machine.game_state = game_state
+
+                            # Recreate controllers for any players that were eliminated
+                            for name in original_player_names:
+                                if name not in controllers:
+                                    controllers[name] = AIPlayerController(
+                                        player_name=name,
+                                        state_machine=state_machine,
+                                        llm_config=llm_config,
+                                        game_id=game_id,
+                                        owner_id=f"experiment_{exp_config.name}",
+                                        persistence=persistence,
+                                        debug_capture=exp_config.capture_prompts,
+                                        prompt_config=prompt_config,
+                                    )
+                                    memory_manager.initialize_for_player(name)
+                            continue
+                        else:
+                            # No reset - tournament ends
+                            break
+                    elif not hand_result:
+                        # False means paused
                         if pause_coordinator.should_pause(experiment_id):
                             paused_again = True
                             logger.info(f"Tournament {game_id} paused again")

@@ -832,6 +832,9 @@ class AITournamentRunner:
 
         state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config)
 
+        # Store original players for reset scenarios (before any eliminations)
+        original_players = state_machine.game_state.players
+
         # Save initial game state for live monitoring
         self.persistence.save_game(tournament_id, state_machine, f"experiment_{self.config.name}")
 
@@ -884,16 +887,17 @@ class AITournamentRunner:
                     total_resets += 1
                     logger.info(f"Round {total_resets}: {winner.name} wins. Resetting stacks.")
 
-                    # Reset all player stacks
+                    # Reset ALL original players (not just remaining ones)
                     reset_players = tuple(
-                        player.update(stack=self.config.starting_stack, is_folded=False)
-                        for player in game_state.players
+                        player.update(stack=self.config.starting_stack, is_folded=False, is_all_in=False)
+                        for player in original_players
                     )
                     game_state = game_state.update(players=reset_players)
                     state_machine.game_state = game_state
 
-                    # Reset elimination tracking for next round
-                    prev_active = set(p.name for p in game_state.players)
+                    # Reset elimination tracking for next round (all players back)
+                    prev_active = set(p.name for p in original_players)
+                    elimination_order = []  # Clear elimination order for new round
                     continue
                 else:
                     # No reset - tournament ends when one player wins
