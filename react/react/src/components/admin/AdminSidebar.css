@@ -1,0 +1,341 @@
+/* Admin Sidebar - Premium Poker Aesthetic */
+
+.admin-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(18, 18, 24, 0.98) 0%,
+    rgba(12, 12, 16, 0.99) 100%
+  );
+  border-right: 1px solid rgba(255, 193, 7, 0.12);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.admin-sidebar--collapsed {
+  width: 72px;
+}
+
+/* Ambient glow effect on the right edge */
+.admin-sidebar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(255, 193, 7, 0.3) 30%,
+    rgba(255, 193, 7, 0.4) 50%,
+    rgba(255, 193, 7, 0.3) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Header */
+.admin-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  height: 64px;
+}
+
+.admin-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.admin-sidebar__brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, rgba(255, 152, 0, 0.1) 100%);
+  border: 1px solid rgba(255, 193, 7, 0.25);
+  border-radius: 8px;
+  color: #ffc107;
+}
+
+.admin-sidebar__brand-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-sidebar__brand-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hide brand text when collapsed */
+.admin-sidebar--collapsed .admin-sidebar__brand-text {
+  display: none;
+}
+
+/* Toggle Button */
+.admin-sidebar__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-sidebar__toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Navigation */
+.admin-sidebar__nav {
+  flex: 1;
+  padding: 1rem 0.75rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.admin-sidebar--collapsed .admin-sidebar__nav {
+  padding: 1rem 0.5rem;
+}
+
+.admin-sidebar__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.admin-sidebar__item {
+  margin: 0;
+}
+
+/* Navigation Links */
+.admin-sidebar__link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  /* Fixed padding - icon area is 40px wide, centered in collapsed 72px sidebar */
+  /* (72 - 2*0.75rem nav padding) = ~48px item width when collapsed */
+  /* Icon container is 40px, so ~4px on each side */
+  padding: 0.625rem;
+  padding-left: 0.625rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  text-align: left;
+  overflow: hidden;
+}
+
+.admin-sidebar__link:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.admin-sidebar__link--active {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 193, 7, 0.12) 0%,
+    rgba(255, 152, 0, 0.08) 100%
+  );
+  border-color: rgba(255, 193, 7, 0.25);
+  color: #ffc107;
+}
+
+.admin-sidebar__link--active:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 193, 7, 0.16) 0%,
+    rgba(255, 152, 0, 0.12) 100%
+  );
+  border-color: rgba(255, 193, 7, 0.35);
+}
+
+/* Active indicator line */
+.admin-sidebar__link-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 24px;
+  background: linear-gradient(180deg, #ffc107 0%, #ff9800 100%);
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 12px rgba(255, 193, 7, 0.5);
+}
+
+/* Icon - Fixed size container that stays centered */
+.admin-sidebar__link-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Fixed width container - same as header brand icon */
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.admin-sidebar__link:hover .admin-sidebar__link-icon {
+  opacity: 1;
+}
+
+.admin-sidebar__link--active .admin-sidebar__link-icon {
+  opacity: 1;
+}
+
+/* Text */
+.admin-sidebar__link-text {
+  font-size: 0.925rem;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.2s ease 0.1s;
+  overflow: hidden;
+}
+
+.admin-sidebar--collapsed .admin-sidebar__link-text {
+  opacity: 0;
+  width: 0;
+  transition: opacity 0.1s ease;
+}
+
+/* Collapsed state - center icon with minimal padding */
+.admin-sidebar--collapsed .admin-sidebar__link {
+  padding: 0.5rem;
+  justify-content: center;
+}
+
+.admin-sidebar--collapsed .admin-sidebar__link-icon {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+}
+
+/* Footer */
+.admin-sidebar__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.admin-sidebar__footer-hint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  font-family: ui-monospace, 'SF Mono', Monaco, monospace;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Tooltip */
+.admin-sidebar__tooltip {
+  position: fixed;
+  left: 80px;
+  transform: translateY(-50%);
+  z-index: 1000;
+  pointer-events: none;
+  animation: tooltipFadeIn 0.15s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
+.admin-sidebar__tooltip-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(30, 30, 38, 0.98);
+  border: 1px solid rgba(255, 193, 7, 0.2);
+  border-radius: 8px;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+}
+
+.admin-sidebar__tooltip-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+}
+
+.admin-sidebar__tooltip-desc {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+
+/* Scrollbar styling */
+.admin-sidebar__nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.admin-sidebar__nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-sidebar__nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.admin-sidebar__nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Keyboard shortcut support */
+@media (hover: hover) {
+  .admin-sidebar__link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.4);
+  }
+}
