@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, Brain, Flame, Target, Cpu, History } from 'lucide-react';
 import { config } from '../../../../config';
+import { formatLatency } from '../../../../utils/formatters';
 import type { PlayerDetail, PlayerDetailResponse } from './types';
 
 interface PlayerDrilldownPanelProps {
@@ -87,12 +88,6 @@ export function PlayerDrilldownPanel({
       default:
         return 'var(--color-text-secondary)';
     }
-  };
-
-  // Format latency
-  const formatLatency = (ms: number): string => {
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
   };
 
   return (

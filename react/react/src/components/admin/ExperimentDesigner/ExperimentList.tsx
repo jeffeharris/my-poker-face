@@ -1,47 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, CheckCircle, XCircle, Loader2, Pause, AlertTriangle } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
-
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
+import { formatDate } from '../../../utils/formatters';
+import { STATUS_CONFIG_SMALL as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
 
 interface ExperimentListProps {
   onViewExperiment: (experiment: ExperimentSummary) => void;
   onNewExperiment: () => void;
 }
-
-const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className: string; label: string }> = {
-  pending: {
-    icon: <Clock size={14} />,
-    className: 'status-badge--pending',
-    label: 'Pending',
-  },
-  running: {
-    icon: <Loader2 size={14} className="animate-spin" />,
-    className: 'status-badge--running',
-    label: 'Running',
-  },
-  completed: {
-    icon: <CheckCircle size={14} />,
-    className: 'status-badge--completed',
-    label: 'Completed',
-  },
-  failed: {
-    icon: <XCircle size={14} />,
-    className: 'status-badge--failed',
-    label: 'Failed',
-  },
-  paused: {
-    icon: <Pause size={14} />,
-    className: 'status-badge--paused',
-    label: 'Paused',
-  },
-  interrupted: {
-    icon: <AlertTriangle size={14} />,
-    className: 'status-badge--interrupted',
-    label: 'Interrupted',
-  },
-};
 
 export function ExperimentList({ onViewExperiment, onNewExperiment }: ExperimentListProps) {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
@@ -86,12 +53,6 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     const interval = setInterval(fetchExperiments, 5000);
     return () => clearInterval(interval);
   }, [experiments, fetchExperiments]);
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
 
   const getProgress = (experiment: ExperimentSummary) => {
     if (experiment.status === 'completed' || experiment.status === 'failed') {

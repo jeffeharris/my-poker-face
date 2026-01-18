@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw,
-  Clock,
-  CheckCircle,
-  XCircle,
   Loader2,
   Trophy,
   Target,
@@ -14,16 +11,14 @@ import {
   Filter,
   Zap,
   Monitor,
-  Pause,
   Play,
   DollarSign,
-  AlertTriangle,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
+import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
+import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
 import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics } from './types';
-
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
 
 interface ExperimentDetailType {
   id: number;
@@ -79,39 +74,6 @@ interface ExperimentDetailProps {
   experimentId: number;
   onBack: () => void;
 }
-
-const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className: string; label: string }> = {
-  pending: {
-    icon: <Clock size={16} />,
-    className: 'status-badge--pending',
-    label: 'Pending',
-  },
-  running: {
-    icon: <Loader2 size={16} className="animate-spin" />,
-    className: 'status-badge--running',
-    label: 'Running',
-  },
-  completed: {
-    icon: <CheckCircle size={16} />,
-    className: 'status-badge--completed',
-    label: 'Completed',
-  },
-  failed: {
-    icon: <XCircle size={16} />,
-    className: 'status-badge--failed',
-    label: 'Failed',
-  },
-  paused: {
-    icon: <Pause size={16} />,
-    className: 'status-badge--paused',
-    label: 'Paused',
-  },
-  interrupted: {
-    icon: <AlertTriangle size={16} />,
-    className: 'status-badge--interrupted',
-    label: 'Interrupted',
-  },
-};
 
 export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps) {
   const [experiment, setExperiment] = useState<ExperimentDetailType | null>(null);
@@ -211,29 +173,10 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${Math.round(seconds)}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-  };
-
-  const formatLatency = (ms: number) => {
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-  };
-
-  const formatCost = (cost: number) => {
-    if (cost === 0) return '$0';
-    if (cost < 0.001) return `$${cost.toFixed(6)}`;
-    if (cost < 0.01) return `$${cost.toFixed(4)}`;
-    if (cost < 1) return `$${cost.toFixed(3)}`;
-    return `$${cost.toFixed(2)}`;
   };
 
   if (loading) {

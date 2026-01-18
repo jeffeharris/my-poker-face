@@ -1463,3 +1463,53 @@
     grid-template-columns: 320px 1fr;
   }
 }
+
+/* ==========================================================================
+   Status Badges
+   ========================================================================== */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.status-badge--pending {
+  background: rgba(115, 115, 115, 0.2);
+  color: #a3a3a3;
+}
+
+.status-badge--running {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.status-badge--completed {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.status-badge--failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.status-badge--paused {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.status-badge--interrupted {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
+/* Animate spinning icon in running badge */
+.status-badge--running svg {
+  animation: adminSpin 1s linear infinite;
+}

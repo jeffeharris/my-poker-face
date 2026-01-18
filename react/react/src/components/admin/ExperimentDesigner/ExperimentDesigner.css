@@ -1129,18 +1129,9 @@
   color: #737373;
 }
 
-/* Animation */
+/* Animation - uses shared adminSpin from AdminShared.css */
 .animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  animation: adminSpin 1s linear infinite;
 }
 
 /* Variant Card Styles */

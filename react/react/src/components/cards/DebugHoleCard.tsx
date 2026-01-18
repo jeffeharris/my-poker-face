@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { LLMDebugInfo } from '../../types/player';
+import { formatCost, formatLatency, truncate } from '../../utils/formatters';
 import './DebugHoleCard.css';
 
 interface DebugHoleCardProps {
@@ -24,26 +25,6 @@ export function DebugHoleCard({ debugInfo, className = '' }: DebugHoleCardProps)
     e.stopPropagation();
     setIsFlipped(false);
   }, []);
-
-  // Format cost with appropriate precision
-  const formatCost = (cost: number) => {
-    if (cost === 0) return '$0.00';
-    if (cost < 0.0001) return `$${cost.toExponential(1)}`;
-    if (cost < 0.01) return `$${cost.toFixed(4)}`;
-    return `$${cost.toFixed(3)}`;
-  };
-
-  // Format latency
-  const formatLatency = (ms: number) => {
-    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${Math.round(ms)}ms`;
-  };
-
-  // Truncate long model names
-  const truncateModel = (model: string, maxLen: number = 14) => {
-    if (model.length <= maxLen) return model;
-    return model.slice(0, maxLen - 2) + '..';
-  };
 
   return (
     <>
@@ -93,7 +74,7 @@ export function DebugHoleCard({ debugInfo, className = '' }: DebugHoleCardProps)
                   <div className="stat-row" style={{ animationDelay: '50ms' }}>
                     <span className="stat-label">MDL</span>
                     <span className="stat-value" title={debugInfo.model}>
-                      {truncateModel(debugInfo.model)}
+                      {truncate(debugInfo.model, 14)}
                     </span>
                   </div>
                   {debugInfo.reasoning_effort && (

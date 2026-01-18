@@ -110,13 +110,9 @@
   cursor: not-allowed;
 }
 
+/* Uses shared adminSpin from AdminShared.css */
 .debugger-filters .refresh-button .spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  animation: adminSpin 1s linear infinite;
 }
 
 /* Error */
