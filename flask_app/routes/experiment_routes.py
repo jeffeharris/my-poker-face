@@ -5,15 +5,16 @@ import logging
 import re
 import threading
 import uuid
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType
-from poker.persistence import GamePersistence
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
-from ..extensions import persistence, limiter
+from poker.repositories.protocols import ExperimentEntity, ExperimentGameEntity
+from ..extensions import get_repository_factory, limiter
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 
@@ -236,6 +237,41 @@ QUICK_PROMPTS = {
 }
 
 
+def experiment_entity_to_dict(entity: ExperimentEntity) -> Dict[str, Any]:
+    """Convert ExperimentEntity to dict for JSON response."""
+    return {
+        'id': entity.id,
+        'name': entity.name,
+        'description': entity.description,
+        'hypothesis': entity.hypothesis,
+        'tags': entity.tags or [],
+        'notes': entity.notes,
+        'config': entity.config,
+        'status': entity.status,
+        'created_at': entity.created_at.isoformat() if entity.created_at else None,
+        'started_at': entity.started_at.isoformat() if entity.started_at else None,
+        'completed_at': entity.completed_at.isoformat() if entity.completed_at else None,
+        'summary': entity.summary,
+    }
+
+
+def experiment_game_entity_to_dict(entity: ExperimentGameEntity) -> Dict[str, Any]:
+    """Convert ExperimentGameEntity to dict for JSON response."""
+    return {
+        'id': entity.id,
+        'experiment_id': entity.experiment_id,
+        'game_id': entity.game_id,
+        'game_number': entity.game_number,
+        'variant': entity.variant,
+        'variant_config': entity.variant_config,
+        'tournament_number': entity.tournament_number,
+        'status': entity.status,
+        'started_at': entity.started_at.isoformat() if entity.started_at else None,
+        'completed_at': entity.completed_at.isoformat() if entity.completed_at else None,
+        'created_at': entity.created_at.isoformat() if entity.created_at else None,
+    }
+
+
 def extract_config_updates(response_text: str) -> Optional[Dict[str, Any]]:
     """Extract config updates from AI response if present."""
     pattern = r'<config_updates>(.*?)</config_updates>'
@@ -399,7 +435,8 @@ def validate_experiment_config():
 
         # Check for duplicate name
         if config_data.get('name'):
-            existing = persistence.get_experiment_by_name(config_data['name'])
+            repo = get_repository_factory()
+            existing = repo.experiment.get_experiment_by_name(config_data['name'])
             if existing:
                 errors.append(f"Experiment with name '{config_data['name']}' already exists")
 
@@ -483,9 +520,12 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
     """Run experiment in background thread."""
     from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
 
+    # Get fresh repository instance for this thread (thread-safe)
+    repo = get_repository_factory()
+
     try:
         # Update status to running
-        persistence.update_experiment_status(experiment_id, 'running')
+        repo.experiment.update_experiment_status(experiment_id, 'running')
 
         # Build ExperimentConfig from dict (filter to known fields)
         filtered_config = {k: v for k, v in config_dict.items() if k in EXPERIMENT_CONFIG_FIELDS and v is not None}
@@ -501,23 +541,23 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         # Check if paused (via pause coordinator flag still set)
         if pause_coordinator.should_pause(experiment_id):
             logger.info(f"Experiment {experiment_id} paused")
-            persistence.update_experiment_status(experiment_id, 'paused')
+            repo.experiment.update_experiment_status(experiment_id, 'paused')
         elif results:
             # Complete the experiment (runner already does this, but ensure it's done)
             summary = runner._compute_experiment_summary(results)
-            persistence.complete_experiment(experiment_id, summary)
+            repo.experiment.complete_experiment(experiment_id, summary)
             logger.info(f"Experiment {experiment_id} completed successfully")
         else:
             logger.info(f"Experiment {experiment_id} completed with no results")
-            persistence.update_experiment_status(experiment_id, 'completed')
+            repo.experiment.update_experiment_status(experiment_id, 'completed')
 
     except Exception as e:
         logger.error(f"Experiment {experiment_id} failed: {e}")
         # Check if this was due to pause
         if pause_coordinator.should_pause(experiment_id):
-            persistence.update_experiment_status(experiment_id, 'paused')
+            repo.experiment.update_experiment_status(experiment_id, 'paused')
         else:
-            persistence.update_experiment_status(experiment_id, 'failed', str(e))
+            repo.experiment.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
         # Clean up thread reference (use pop to avoid race condition)
         _active_experiments.pop(experiment_id, None)
@@ -534,13 +574,27 @@ def create_experiment():
         if not config_data.get('name'):
             return jsonify({'error': 'Experiment name is required'}), 400
 
+        repo = get_repository_factory()
+
         # Check for duplicate
-        existing = persistence.get_experiment_by_name(config_data['name'])
+        existing = repo.experiment.get_experiment_by_name(config_data['name'])
         if existing:
             return jsonify({'error': f"Experiment '{config_data['name']}' already exists"}), 400
 
+        # Create ExperimentEntity
+        experiment = ExperimentEntity(
+            name=config_data['name'],
+            description=config_data.get('description', ''),
+            hypothesis=config_data.get('hypothesis'),
+            tags=config_data.get('tags'),
+            notes=config_data.get('notes'),
+            config=config_data,
+            status='pending',
+            created_at=datetime.now(),
+        )
+
         # Create experiment record
-        experiment_id = persistence.create_experiment(config_data)
+        experiment_id = repo.experiment.create_experiment(experiment)
 
         # Launch in background
         thread = threading.Thread(
@@ -571,15 +625,19 @@ def list_experiments():
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
 
-        experiments = persistence.list_experiments(
+        repo = get_repository_factory()
+        experiments = repo.experiment.list_experiments(
             status=status,
             limit=limit,
             offset=offset
         )
 
+        # Convert entities to dicts
+        experiments_list = [experiment_entity_to_dict(exp) for exp in experiments]
+
         return jsonify({
             'success': True,
-            'experiments': experiments,
+            'experiments': experiments_list,
         })
 
     except Exception as e:
@@ -591,19 +649,20 @@ def list_experiments():
 def get_experiment(experiment_id: int):
     """Get experiment details by ID."""
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
         # Get decision stats
-        decision_stats = persistence.get_experiment_decision_stats(experiment_id)
+        decision_stats = repo.experiment.get_experiment_decision_stats(experiment_id)
 
         # Get real-time unified stats per variant
-        live_stats = persistence.get_experiment_live_stats(experiment_id)
+        live_stats = repo.experiment.get_experiment_live_stats(experiment_id)
 
         return jsonify({
             'success': True,
-            'experiment': experiment,
+            'experiment': experiment_entity_to_dict(experiment),
             'decision_stats': decision_stats,
             'live_stats': live_stats,
         })
@@ -617,15 +676,19 @@ def get_experiment(experiment_id: int):
 def get_experiment_games(experiment_id: int):
     """Get games linked to an experiment."""
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        games = persistence.get_experiment_games(experiment_id)
+        games = repo.experiment.get_experiment_games(experiment_id)
+
+        # Convert entities to dicts
+        games_list = [experiment_game_entity_to_dict(g) for g in games]
 
         return jsonify({
             'success': True,
-            'games': games,
+            'games': games_list,
         })
 
     except Exception as e:
@@ -658,32 +721,36 @@ def get_experiment_cost_trends(experiment_id: int):
     Query params:
         bucket: Bucket size in minutes (default 5)
     """
-    import sqlite3
-
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
         bucket_minutes = request.args.get('bucket', 5, type=int)
 
-        with sqlite3.connect(persistence.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT
-                    strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
-                        printf('-%d minutes', CAST(strftime('%M', au.created_at) AS INTEGER) % ?)) as bucket,
-                    eg.variant,
-                    SUM(au.estimated_cost) as cost,
-                    COUNT(*) as calls
-                FROM api_usage au
-                JOIN experiment_games eg ON au.game_id = eg.game_id
-                WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
-                GROUP BY bucket, eg.variant
-                ORDER BY bucket
-            """, (bucket_minutes, experiment_id))
+        # Use the repository's database context for the query
+        rows = repo.experiment._db.fetch_all(
+            """
+            SELECT
+                strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
+                    printf('-%d minutes', CAST(strftime('%M', au.created_at) AS INTEGER) % ?)) as bucket,
+                eg.variant,
+                SUM(au.estimated_cost) as cost,
+                COUNT(*) as calls
+            FROM api_usage au
+            JOIN experiment_games eg ON au.game_id = eg.game_id
+            WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
+            GROUP BY bucket, eg.variant
+            ORDER BY bucket
+            """,
+            (bucket_minutes, experiment_id),
+        )
 
-            trends = [{'time': r[0], 'variant': r[1], 'cost': r[2], 'calls': r[3]}
-                      for r in cursor.fetchall()]
+        trends = [
+            {'time': r['bucket'], 'variant': r['variant'], 'cost': r['cost'], 'calls': r['calls']}
+            for r in rows
+        ]
 
         return jsonify({
             'success': True,
@@ -704,16 +771,19 @@ def get_live_games(experiment_id: int):
     Designed to be polled every 5 seconds for live monitoring view.
     """
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        games = persistence.get_experiment_game_snapshots(experiment_id)
+        games = repo.experiment.get_experiment_game_snapshots(
+            experiment_id, debug_repo=repo.debug
+        )
 
         return jsonify({
             'success': True,
             'games': games,
-            'experiment_status': experiment.get('status'),
+            'experiment_status': experiment.status,
         })
 
     except Exception as e:
@@ -729,12 +799,13 @@ def get_player_detail(experiment_id: int, game_id: str, player_name: str):
     play style analysis, and recent decisions.
     """
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        player_detail = persistence.get_experiment_player_detail(
-            experiment_id, game_id, player_name
+        player_detail = repo.experiment.get_experiment_player_detail(
+            experiment_id, game_id, player_name, debug_repo=repo.debug
         )
 
         if not player_detail:
@@ -758,13 +829,14 @@ def pause_experiment(experiment_id: int):
     The experiment will stop after the current action completes.
     """
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        if experiment.get('status') != 'running':
+        if experiment.status != 'running':
             return jsonify({
-                'error': f"Cannot pause experiment with status '{experiment.get('status')}'. Only running experiments can be paused."
+                'error': f"Cannot pause experiment with status '{experiment.status}'. Only running experiments can be paused."
             }), 400
 
         # Set the pause flag - workers will check this after each action
@@ -790,22 +862,23 @@ def resume_experiment(experiment_id: int):
     Finds incomplete tournaments and continues them from their saved state.
     """
     try:
-        experiment = persistence.get_experiment(experiment_id)
+        repo = get_repository_factory()
+        experiment = repo.experiment.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        if experiment.get('status') not in ('paused', 'interrupted'):
+        if experiment.status not in ('paused', 'interrupted'):
             return jsonify({
-                'error': f"Cannot resume experiment with status '{experiment.get('status')}'. Only paused or interrupted experiments can be resumed."
+                'error': f"Cannot resume experiment with status '{experiment.status}'. Only paused or interrupted experiments can be resumed."
             }), 400
 
         # Get incomplete tournaments
-        incomplete = persistence.get_incomplete_tournaments(experiment_id)
+        incomplete = repo.experiment.get_incomplete_tournaments(experiment_id)
 
         if not incomplete:
             # No incomplete tournaments - mark as completed
             logger.info(f"No incomplete tournaments for experiment {experiment_id}, marking as completed")
-            persistence.update_experiment_status(experiment_id, 'completed')
+            repo.experiment.update_experiment_status(experiment_id, 'completed')
             return jsonify({
                 'success': True,
                 'message': 'No incomplete tournaments found. Experiment marked as completed.',
@@ -816,10 +889,10 @@ def resume_experiment(experiment_id: int):
         pause_coordinator.clear_pause(experiment_id)
 
         # Update status to running
-        persistence.update_experiment_status(experiment_id, 'running')
+        repo.experiment.update_experiment_status(experiment_id, 'running')
 
         # Get experiment config
-        config_dict = experiment.get('config', {})
+        config_dict = experiment.config or {}
 
         # Launch background resume thread
         thread = threading.Thread(
@@ -844,13 +917,20 @@ def resume_experiment(experiment_id: int):
         return jsonify({'error': str(e)}), 500
 
 
-def resume_experiment_background(experiment_id: int, incomplete_tournaments: List[Dict], config_dict: Dict[str, Any]):
+def resume_experiment_background(
+    experiment_id: int,
+    incomplete_tournaments: List[ExperimentGameEntity],
+    config_dict: Dict[str, Any]
+):
     """Resume incomplete tournaments in background thread."""
     from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
     from poker.poker_state_machine import PokerStateMachine
     from poker.controllers import AIPlayerController
     from poker.memory.memory_manager import AIMemoryManager
     from poker.prompt_config import PromptConfig
+
+    # Get fresh repository instance for this thread (thread-safe)
+    repo = get_repository_factory()
 
     try:
         # Build ExperimentConfig (filter to known fields)
@@ -859,22 +939,32 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
 
         paused_again = False
 
-        for tournament_info in incomplete_tournaments:
-            game_id = tournament_info['game_id']
-            variant = tournament_info.get('variant')
-            variant_config = tournament_info.get('variant_config')
+        for tournament in incomplete_tournaments:
+            game_id = tournament.game_id
+            variant = tournament.variant
+            variant_config = tournament.variant_config
 
             logger.info(f"Resuming tournament {game_id}")
 
             try:
-                # Load saved game state
-                state_machine = persistence.load_game(game_id)
-                if not state_machine:
+                # Load saved game state using repository
+                game_entity = repo.game.find_by_id(game_id)
+                if not game_entity:
                     logger.warning(f"Could not load game state for {game_id}, skipping")
                     continue
 
-                # Load AI player states (conversation history)
-                ai_states = persistence.load_ai_player_states(game_id)
+                state_machine = game_entity.state_machine
+
+                # Load AI player states (conversation history) using repository
+                ai_states_entities = repo.ai_memory.load_player_states(game_id)
+                # Convert entities to dict format expected by the code
+                ai_states = {
+                    name: {
+                        'messages': entity.conversation_history,
+                        'personality_state': entity.personality_state,
+                    }
+                    for name, entity in ai_states_entities.items()
+                }
 
                 # Determine LLM config
                 if variant_config:
@@ -900,7 +990,7 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                         llm_config=llm_config,
                         game_id=game_id,
                         owner_id=f"experiment_{exp_config.name}",
-                        persistence=persistence,
+                        repository_factory=repo,
                         debug_capture=exp_config.capture_prompts,
                         prompt_config=prompt_config,
                     )
@@ -919,13 +1009,12 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
 
                     controllers[player.name] = controller
 
-                # Create memory manager
+                # Create memory manager using repository
                 memory_manager = AIMemoryManager(
                     game_id=game_id,
-                    db_path=persistence.db_path,
+                    repository_factory=repo,
                     owner_id=f"experiment_{exp_config.name}"
                 )
-                memory_manager.set_persistence(persistence)
 
                 # Initialize memory manager for players
                 for player in state_machine.game_state.players:
@@ -934,7 +1023,6 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                 # Create a runner instance for the tournament logic
                 runner = AITournamentRunner(exp_config, pause_coordinator=pause_coordinator)
                 runner.experiment_id = experiment_id
-                runner.persistence = persistence
 
                 # Get original player names from experiment config for reset scenarios
                 original_player_names = exp_config.personalities or []
@@ -957,8 +1045,16 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                         variant_config=variant_config
                     )
 
-                    # Save game state for live monitoring
-                    persistence.save_game(game_id, state_machine, f"experiment_{exp_config.name}")
+                    # Save game state for live monitoring using repository
+                    from poker.repositories.protocols import GameEntity
+                    game_entity_updated = GameEntity(
+                        id=game_id,
+                        state_machine=state_machine,
+                        created_at=game_entity.created_at,
+                        updated_at=datetime.now(),
+                        owner_id=f"experiment_{exp_config.name}",
+                    )
+                    repo.game.save(game_entity_updated)
 
                     # Handle reset_needed - restore all original players
                     if hand_result == "reset_needed":
@@ -1005,17 +1101,17 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
 
         # Update final status
         if paused_again or pause_coordinator.should_pause(experiment_id):
-            persistence.update_experiment_status(experiment_id, 'paused')
+            repo.experiment.update_experiment_status(experiment_id, 'paused')
             logger.info(f"Experiment {experiment_id} paused again")
         else:
-            persistence.update_experiment_status(experiment_id, 'completed')
+            repo.experiment.update_experiment_status(experiment_id, 'completed')
             logger.info(f"Experiment {experiment_id} resume completed")
 
     except Exception as e:
         logger.error(f"Error in resume_experiment_background for {experiment_id}: {e}", exc_info=True)
         if pause_coordinator.should_pause(experiment_id):
-            persistence.update_experiment_status(experiment_id, 'paused')
+            repo.experiment.update_experiment_status(experiment_id, 'paused')
         else:
-            persistence.update_experiment_status(experiment_id, 'failed', str(e))
+            repo.experiment.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
         _active_experiments.pop(experiment_id, None)

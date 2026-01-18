@@ -32,10 +32,6 @@ limiter = None
 # Repository factory (new architecture)
 repository_factory = None
 
-# Legacy persistence (for backwards compatibility with experiment_routes)
-# TODO: Remove once experiment_routes is migrated to repository pattern
-persistence = None
-
 # Auth manager - will be set after app creation
 auth_manager = None
 
@@ -111,19 +107,10 @@ def init_limiter(app: Flask) -> Limiter:
 
 def init_persistence() -> RepositoryFactory:
     """Initialize repository factory."""
-    global repository_factory, persistence
+    global repository_factory
 
     db_path = config.DB_PATH
     repository_factory = RepositoryFactory(db_path, initialize_schema=False)
-
-    # Initialize legacy persistence for backwards compatibility
-    # TODO: Remove once experiment_routes is migrated
-    try:
-        from poker.persistence import GamePersistence
-        persistence = GamePersistence(db_path)
-    except Exception as e:
-        logger.warning(f"Could not initialize legacy persistence (experiment routes may not work): {e}")
-        persistence = None
 
     return repository_factory
 

@@ -296,8 +296,12 @@ class ExperimentEntity:
     name: str
     description: str
     config: Dict[str, Any]
-    status: str  # 'pending', 'running', 'completed', 'failed'
+    status: str  # 'pending', 'running', 'completed', 'failed', 'paused', 'interrupted'
     created_at: datetime
+    hypothesis: Optional[str] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     id: Optional[int] = None
@@ -310,8 +314,12 @@ class ExperimentGameEntity:
     game_id: str
     game_number: int
     status: str  # 'pending', 'running', 'completed', 'failed'
+    variant: Optional[str] = None  # Variant label (e.g., 'baseline', 'treatment')
+    variant_config: Optional[Dict[str, Any]] = None  # Variant-specific configuration
+    tournament_number: Optional[int] = None  # Tournament sequence number
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
     id: Optional[int] = None
 
 
@@ -711,6 +719,26 @@ class DebugRepositoryProtocol(Protocol):
         """List decision analyses with optional filters."""
         ...
 
+    def get_game_snapshot(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Get a live game snapshot for monitoring.
+
+        Returns:
+            Dictionary with game state including players, cards, pot, psychology data,
+            and LLM debug info, or None if game not found.
+        """
+        ...
+
+    def get_player_detail(
+        self, game_id: str, player_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get detailed player info for drill-down panel.
+
+        Returns:
+            Dictionary with player info, psychology, LLM debug, play style,
+            and recent decisions, or None if not found.
+        """
+        ...
+
 
 @runtime_checkable
 class ExperimentRepositoryProtocol(Protocol):
@@ -733,7 +761,7 @@ class ExperimentRepositoryProtocol(Protocol):
         ...
 
     def list_experiments(
-        self, status: Optional[str] = None, limit: int = 50
+        self, status: Optional[str] = None, limit: int = 50, offset: int = 0
     ) -> List[ExperimentEntity]:
         """List experiments with optional status filter."""
         ...
@@ -752,6 +780,46 @@ class ExperimentRepositoryProtocol(Protocol):
 
     def get_experiment_stats(self, experiment_id: int) -> Dict[str, Any]:
         """Get aggregated statistics for an experiment."""
+        ...
+
+    def update_experiment_status(
+        self, experiment_id: int, status: str, error_message: Optional[str] = None
+    ) -> None:
+        """Update experiment status."""
+        ...
+
+    def complete_experiment(
+        self, experiment_id: int, summary: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Mark an experiment as completed and store summary."""
+        ...
+
+    def get_incomplete_tournaments(self, experiment_id: int) -> List[ExperimentGameEntity]:
+        """Get games for tournaments that haven't completed (no tournament_results entry)."""
+        ...
+
+    def get_experiment_decision_stats(
+        self, experiment_id: int, variant: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get aggregated decision analysis stats for an experiment."""
+        ...
+
+    def get_experiment_live_stats(self, experiment_id: int) -> Dict[str, Any]:
+        """Get real-time unified stats per variant for running/completed experiments."""
+        ...
+
+    def mark_running_experiments_interrupted(self) -> int:
+        """Mark all 'running' experiments as 'interrupted'. Returns count affected."""
+        ...
+
+    def get_experiment_game_snapshots(self, experiment_id: int) -> List[Dict[str, Any]]:
+        """Get live game snapshots for monitoring running experiments."""
+        ...
+
+    def get_experiment_player_detail(
+        self, experiment_id: int, game_id: str, player_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get detailed player info for the drill-down panel."""
         ...
 
 

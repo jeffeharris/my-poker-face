@@ -566,3 +566,318 @@ class SQLiteDebugRepository:
             analysis_metadata=from_json(row["analysis_metadata"]) or {},
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+    def get_game_snapshot(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Get a live game snapshot for monitoring.
+
+        Returns:
+            Dictionary with game state including players, cards, pot, psychology data,
+            and LLM debug info, or None if game not found.
+        """
+        # Load game state
+        game_row = self._db.fetch_one(
+            "SELECT game_state_json, phase, updated_at FROM games WHERE game_id = ?",
+            (game_id,),
+        )
+        if not game_row:
+            return None
+
+        try:
+            state_dict = from_json(game_row["game_state_json"]) or {}
+        except Exception:
+            return None
+
+        # Extract basic game info
+        phase = game_row["phase"]
+        pot = state_dict.get('pot', {})
+        pot_total = pot.get('total', 0) if isinstance(pot, dict) else pot
+        community_cards = state_dict.get('community_cards', [])
+        current_player_idx = state_dict.get('current_player_idx', 0)
+
+        # Load psychology data for all players
+        psychology_data = self._load_all_controller_states(game_id)
+        emotional_data = self._load_all_emotional_states(game_id)
+
+        # Load LLM debug info from api_usage records per player
+        llm_debug_rows = self._db.fetch_all(
+            """
+            SELECT player_name, provider, model, reasoning_effort,
+                   COUNT(*) as total_calls,
+                   AVG(latency_ms) as avg_latency_ms,
+                   AVG(estimated_cost) as avg_cost
+            FROM api_usage
+            WHERE game_id = ?
+            GROUP BY player_name
+            """,
+            (game_id,),
+        )
+        llm_debug_by_player = {}
+        for row in llm_debug_rows:
+            if row["player_name"]:
+                llm_debug_by_player[row["player_name"]] = {
+                    'provider': row["provider"],
+                    'model': row["model"],
+                    'reasoning_effort': row.get("reasoning_effort"),
+                    'total_calls': row["total_calls"],
+                    'avg_latency_ms': round(row["avg_latency_ms"] or 0, 2),
+                    'avg_cost_per_call': round(row["avg_cost"] or 0, 6),
+                }
+
+        # Build player list
+        players = []
+        players_data = state_dict.get('players', [])
+        for idx, p in enumerate(players_data):
+            player_name = p.get('name', f'Player_{idx}')
+
+            # Get psychology for this player
+            ctrl_state = psychology_data.get(player_name, {})
+            emo_state = emotional_data.get(player_name, {})
+
+            # Merge tilt and emotional data into psychology
+            tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
+            psychology = {
+                'narrative': emo_state.get('narrative', ''),
+                'inner_voice': emo_state.get('inner_voice', ''),
+                'tilt_level': round((tilt_state.get('tilt_level', 0) if tilt_state else 0) * 100),
+                'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
+                'tilt_source': tilt_state.get('source', '') if tilt_state else '',
+            }
+
+            players.append({
+                'name': player_name,
+                'stack': p.get('stack', 0),
+                'bet': p.get('bet', 0),
+                'hole_cards': p.get('hand', []),  # Always show cards in monitoring mode
+                'is_folded': p.get('is_folded', False),
+                'is_all_in': p.get('is_all_in', False),
+                'is_current': idx == current_player_idx,
+                'psychology': psychology,
+                'llm_debug': llm_debug_by_player.get(player_name, {}),
+            })
+
+        # Get hand number from api_usage (most recent)
+        hand_row = self._db.fetch_one(
+            "SELECT MAX(hand_number) as hand_number FROM api_usage WHERE game_id = ?",
+            (game_id,),
+        )
+        hand_number = hand_row["hand_number"] if hand_row and hand_row["hand_number"] else 1
+
+        return {
+            'game_id': game_id,
+            'phase': phase,
+            'hand_number': hand_number,
+            'pot': pot_total,
+            'community_cards': community_cards,
+            'players': players,
+        }
+
+    def get_player_detail(
+        self, game_id: str, player_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get detailed player info for drill-down panel.
+
+        Returns:
+            Dictionary with player info, psychology, LLM debug, play style,
+            and recent decisions, or None if not found.
+        """
+        # Load game state for player info
+        game_row = self._db.fetch_one(
+            "SELECT game_state_json FROM games WHERE game_id = ?",
+            (game_id,),
+        )
+        if not game_row:
+            return None
+
+        try:
+            state_dict = from_json(game_row["game_state_json"]) or {}
+        except Exception:
+            return None
+
+        # Find player in game state
+        player_data = None
+        for p in state_dict.get('players', []):
+            if p.get('name') == player_name:
+                player_data = p
+                break
+
+        if not player_data:
+            return None
+
+        # Get psychology data
+        ctrl_state = self._load_controller_state(game_id, player_name)
+        emo_state = self._load_emotional_state(game_id, player_name)
+
+        tilt_state = ctrl_state.get('tilt_state', {}) if ctrl_state else {}
+        psychology = {
+            'narrative': emo_state.get('narrative', '') if emo_state else '',
+            'inner_voice': emo_state.get('inner_voice', '') if emo_state else '',
+            'tilt_level': round((tilt_state.get('tilt_level', 0) if tilt_state else 0) * 100),
+            'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
+            'tilt_source': tilt_state.get('source', '') if tilt_state else '',
+        }
+
+        # Get LLM debug info
+        llm_row = self._db.fetch_one(
+            """
+            SELECT provider, model, reasoning_effort,
+                   COUNT(*) as total_calls,
+                   AVG(latency_ms) as avg_latency_ms,
+                   AVG(estimated_cost) as avg_cost
+            FROM api_usage
+            WHERE game_id = ? AND player_name = ?
+            GROUP BY provider, model
+            """,
+            (game_id, player_name),
+        )
+
+        llm_debug = {}
+        if llm_row:
+            # Also get percentile latencies
+            latency_rows = self._db.fetch_all(
+                """
+                SELECT latency_ms FROM api_usage
+                WHERE game_id = ? AND player_name = ? AND latency_ms IS NOT NULL
+                ORDER BY latency_ms
+                """,
+                (game_id, player_name),
+            )
+            latencies = [r["latency_ms"] for r in latency_rows]
+
+            p95 = 0
+            p99 = 0
+            if latencies:
+                try:
+                    import numpy as np
+                    p95 = round(float(np.percentile(latencies, 95)), 2) if len(latencies) >= 5 else max(latencies)
+                    p99 = round(float(np.percentile(latencies, 99)), 2) if len(latencies) >= 10 else max(latencies)
+                except ImportError:
+                    sorted_lat = sorted(latencies)
+                    p95 = round(sorted_lat[int(len(sorted_lat) * 0.95)], 2) if len(sorted_lat) >= 5 else max(latencies)
+                    p99 = round(sorted_lat[int(len(sorted_lat) * 0.99)], 2) if len(sorted_lat) >= 10 else max(latencies)
+
+            llm_debug = {
+                'provider': llm_row["provider"],
+                'model': llm_row["model"],
+                'reasoning_effort': llm_row.get("reasoning_effort"),
+                'total_calls': llm_row["total_calls"],
+                'avg_latency_ms': round(llm_row["avg_latency_ms"] or 0, 2),
+                'p95_latency_ms': p95,
+                'p99_latency_ms': p99,
+                'avg_cost_per_call': round(llm_row["avg_cost"] or 0, 6),
+            }
+
+        # Get play style from opponent models
+        opp_row = self._db.fetch_one(
+            """
+            SELECT hands_observed, vpip, pfr, aggression_factor
+            FROM opponent_models
+            WHERE game_id = ? AND opponent_name = ?
+            ORDER BY hands_observed DESC
+            LIMIT 1
+            """,
+            (game_id, player_name),
+        )
+
+        play_style = {}
+        if opp_row:
+            vpip = round((opp_row["vpip"] or 0) * 100, 1)
+            pfr = round((opp_row["pfr"] or 0) * 100, 1)
+            af = round(opp_row["aggression_factor"] or 0, 2)
+
+            # Classify play style
+            if vpip < 25:
+                tightness = 'tight'
+            elif vpip > 35:
+                tightness = 'loose'
+            else:
+                tightness = 'balanced'
+
+            if af > 2:
+                aggression = 'aggressive'
+            elif af < 1:
+                aggression = 'passive'
+            else:
+                aggression = 'balanced'
+
+            summary = f'{tightness}-{aggression}'
+
+            play_style = {
+                'vpip': vpip,
+                'pfr': pfr,
+                'aggression_factor': af,
+                'hands_observed': opp_row["hands_observed"],
+                'summary': summary,
+            }
+
+        # Get recent decisions
+        decision_rows = self._db.fetch_all(
+            """
+            SELECT hand_number, phase, action_taken, decision_quality, ev_lost
+            FROM player_decision_analysis
+            WHERE game_id = ? AND player_name = ?
+            ORDER BY created_at DESC
+            LIMIT 5
+            """,
+            (game_id, player_name),
+        )
+
+        recent_decisions = [
+            {
+                'hand_number': r["hand_number"],
+                'phase': r["phase"],
+                'action': r["action_taken"],
+                'decision_quality': r["decision_quality"],
+                'ev_lost': round(r["ev_lost"] or 0, 2) if r["ev_lost"] else None,
+            }
+            for r in decision_rows
+        ]
+
+        return {
+            'player': {
+                'name': player_name,
+                'stack': player_data.get('stack', 0),
+                'cards': player_data.get('hand', []),
+            },
+            'psychology': psychology,
+            'llm_debug': llm_debug,
+            'play_style': play_style,
+            'recent_decisions': recent_decisions,
+        }
+
+    def _load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
+        """Load all controller states for a game."""
+        rows = self._db.fetch_all(
+            "SELECT player_name, state_data FROM ai_controller_states WHERE game_id = ?",
+            (game_id,),
+        )
+        return {
+            row["player_name"]: from_json(row["state_data"]) or {}
+            for row in rows
+        }
+
+    def _load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
+        """Load all emotional states for a game."""
+        rows = self._db.fetch_all(
+            "SELECT player_name, state_data FROM ai_emotional_states WHERE game_id = ?",
+            (game_id,),
+        )
+        return {
+            row["player_name"]: from_json(row["state_data"]) or {}
+            for row in rows
+        }
+
+    def _load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+        """Load controller state for a specific player."""
+        row = self._db.fetch_one(
+            "SELECT state_data FROM ai_controller_states WHERE game_id = ? AND player_name = ?",
+            (game_id, player_name),
+        )
+        return from_json(row["state_data"]) if row else None
+
+    def _load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
+        """Load emotional state for a specific player."""
+        row = self._db.fetch_one(
+            "SELECT state_data FROM ai_emotional_states WHERE game_id = ? AND player_name = ?",
+            (game_id, player_name),
+        )
+        return from_json(row["state_data"]) if row else None
