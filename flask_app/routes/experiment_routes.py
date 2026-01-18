@@ -82,10 +82,12 @@ For comparing models, prompts, or other configurations, use the control/variants
   - model: Model to use (optional, defaults to experiment's model)
   - provider: Provider to use (optional, defaults to experiment's provider)
   - prompt_config: Prompt settings for control (optional)
+  - enable_psychology: Enable tilt/emotional state generation (default false, ~4 LLM calls/hand)
+  - enable_commentary: Enable commentary generation (default false, ~4 LLM calls/hand)
 
 - variants: List of variations to compare against control
   - Each variant inherits from control and only needs to specify what's different
-  - Same structure as control: label, model, provider, prompt_config
+  - Same structure as control: label, model, provider, prompt_config, enable_psychology, enable_commentary
 
 Example A/B test structure for model comparison:
 {
@@ -123,6 +125,27 @@ Example A/B test for prompt ablation:
   ]
 }
 
+Example A/B test for psychology systems (testing if emotional state improves decisions):
+{
+  "name": "psychology_impact_test",
+  "num_tournaments": 5,
+  "control": {
+    "label": "No Psychology",
+    "enable_psychology": false,
+    "enable_commentary": false
+  },
+  "variants": [
+    {
+      "label": "With Psychology",
+      "enable_psychology": true,
+      "enable_commentary": false
+    }
+  ]
+}
+
+This tests whether tilt tracking and emotional state generation improves AI decision quality.
+Note: enable_psychology adds ~4 LLM calls per hand (one per player for emotional state).
+
 Available prompt_config options (all boolean, default true):
 - pot_odds: Include pot odds and equity calculations
 - hand_strength: Include hand strength evaluation
@@ -149,6 +172,8 @@ Common experiment scenarios:
 3. Prompt ablation: Use control + variants with different prompt_config settings
 4. Minimal vs full prompts: Compare stripped-down prompts to full prompts
 5. Baseline measurement: Simple default config to establish baseline metrics
+6. Psychology impact: Test if enable_psychology improves decision quality (tilt + emotional state)
+7. Commentary impact: Test if enable_commentary affects player behavior
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
@@ -888,7 +913,8 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
 
                     should_continue = runner.run_hand(
                         state_machine, controllers, memory_manager, hand_number,
-                        tournament_id=game_id
+                        tournament_id=game_id,
+                        variant_config=variant_config
                     )
 
                     # Save game state for live monitoring

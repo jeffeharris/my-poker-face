@@ -139,7 +139,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     }
   };
 
-  const handleControlUpdate = (field: keyof ControlConfig, value: string) => {
+  const handleControlUpdate = (field: keyof ControlConfig, value: string | boolean) => {
     if (!config.control) return;
     onConfigUpdate({
       control: { ...config.control, [field]: value },
@@ -156,7 +156,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     onConfigUpdate({ variants: [...variants, newVariant] });
   };
 
-  const handleVariantUpdate = (index: number, field: keyof VariantConfig, value: string) => {
+  const handleVariantUpdate = (index: number, field: keyof VariantConfig, value: string | boolean | undefined) => {
     const variants = [...(config.variants || [])];
     variants[index] = { ...variants[index], [field]: value };
     onConfigUpdate({ variants });
@@ -451,6 +451,24 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                               />
                             </label>
                           </div>
+                          <div className="config-preview__row config-preview__row--toggles">
+                            <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation (~4 LLM calls/hand)">
+                              <input
+                                type="checkbox"
+                                checked={config.control?.enable_psychology ?? false}
+                                onChange={(e) => handleControlUpdate('enable_psychology', e.target.checked)}
+                              />
+                              Psychology
+                            </label>
+                            <label className="config-preview__toggle-label" title="Enable commentary generation (~4 LLM calls/hand)">
+                              <input
+                                type="checkbox"
+                                checked={config.control?.enable_commentary ?? false}
+                                onChange={(e) => handleControlUpdate('enable_commentary', e.target.checked)}
+                              />
+                              Commentary
+                            </label>
+                          </div>
                         </div>
                       </div>
 
@@ -502,6 +520,24 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                                   onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
                                   placeholder="Inherit from Control"
                                 />
+                              </label>
+                            </div>
+                            <div className="config-preview__row config-preview__row--toggles">
+                              <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation. Inherits from control if not set.">
+                                <input
+                                  type="checkbox"
+                                  checked={variant.enable_psychology ?? config.control?.enable_psychology ?? false}
+                                  onChange={(e) => handleVariantUpdate(index, 'enable_psychology', e.target.checked)}
+                                />
+                                Psychology
+                              </label>
+                              <label className="config-preview__toggle-label" title="Enable commentary generation. Inherits from control if not set.">
+                                <input
+                                  type="checkbox"
+                                  checked={variant.enable_commentary ?? config.control?.enable_commentary ?? false}
+                                  onChange={(e) => handleVariantUpdate(index, 'enable_commentary', e.target.checked)}
+                                />
+                                Commentary
                               </label>
                             </div>
                           </div>

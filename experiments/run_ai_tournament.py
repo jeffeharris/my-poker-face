@@ -54,6 +54,8 @@ from poker.persistence import GamePersistence as Persistence
 from poker.memory.memory_manager import AIMemoryManager
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
+from poker.pressure_detector import PressureEventDetector
+from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
 
 
@@ -101,6 +103,8 @@ class ControlConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     prompt_config: Optional[Dict] = None
+    enable_psychology: bool = False  # Enable tilt + emotional state generation
+    enable_commentary: bool = False  # Enable commentary generation
 
 
 @dataclass
@@ -110,6 +114,8 @@ class VariantConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     prompt_config: Optional[Dict] = None
+    enable_psychology: bool = False  # Enable tilt + emotional state generation
+    enable_commentary: bool = False  # Enable commentary generation
 
 
 @dataclass
@@ -176,6 +182,8 @@ class ExperimentConfig:
             'model': self.control.get('model') or self.model,
             'provider': self.control.get('provider') or self.provider,
             'prompt_config': self.control.get('prompt_config'),
+            'enable_psychology': self.control.get('enable_psychology', False),
+            'enable_commentary': self.control.get('enable_commentary', False),
         }
         control_label = self.control.get('label', 'Control')
         result.append((control_label, control_config))
@@ -187,6 +195,9 @@ class ExperimentConfig:
                 'provider': variant.get('provider') or control_config['provider'],
                 # Use explicit None check - empty dict {} is a valid config
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
+                # Psychology flags - inherit from control if not specified
+                'enable_psychology': variant.get('enable_psychology', control_config.get('enable_psychology', False)),
+                'enable_commentary': variant.get('enable_commentary', control_config.get('enable_commentary', False)),
             }
             variant_label = variant.get('label', f'Variant {len(result)}')
             result.append((variant_label, variant_config))
@@ -475,10 +486,13 @@ class AITournamentRunner:
         state_machine = PokerStateMachine(game_state)
 
         # Create memory manager for hand tracking
+        # Pass commentary_enabled from variant config (defaults to False for experiments)
+        commentary_enabled = variant_config.get('enable_commentary', False) if variant_config else False
         memory_manager = AIMemoryManager(
             game_id=tournament_id,
             db_path=self.db_path,
-            owner_id=f"experiment_{self.config.name}"
+            owner_id=f"experiment_{self.config.name}",
+            commentary_enabled=commentary_enabled
         )
         memory_manager.set_persistence(self.persistence)
 
@@ -516,11 +530,84 @@ class AITournamentRunner:
 
         return state_machine, controllers, memory_manager
 
+    def _process_psychology(
+        self,
+        game_state,
+        controllers: Dict[str, AIPlayerController],
+        winner_info: Dict,
+        winner_names: List[str],
+        hand_number: int
+    ) -> None:
+        """Process psychology updates (tilt + emotional state) for all AI players.
+
+        This mirrors the logic in game_handler.py's update_tilt_states() for experiments.
+
+        Args:
+            game_state: Current game state after pot awarded
+            controllers: Dict of player name -> AIPlayerController
+            winner_info: Winner determination info with pot_breakdown
+            winner_names: List of winning player names
+            hand_number: Current hand number
+        """
+        # Calculate pot size from winner_info
+        pot_size = 0
+        for pot in winner_info.get('pot_breakdown', []):
+            for winner in pot.get('winners', []):
+                pot_size += winner.get('amount', 0)
+
+        # Calculate winnings per player from pot_breakdown
+        winnings_by_player = {}
+        for pot in winner_info.get('pot_breakdown', []):
+            for winner in pot['winners']:
+                winnings_by_player[winner['name']] = winnings_by_player.get(winner['name'], 0) + winner['amount']
+
+        for player in game_state.players:
+            if player.name not in controllers:
+                continue
+
+            controller = controllers[player.name]
+
+            # Skip if controller doesn't have psychology
+            if not hasattr(controller, 'psychology'):
+                continue
+
+            player_won = player.name in winner_names
+            amount = winnings_by_player.get(player.name, 0) if player_won else -pot_size
+
+            # Detect bad beat (strong hand loses at showdown)
+            was_bad_beat = False
+            if not player_won and not player.is_folded:
+                hand_rank = winner_info.get('hand_rank', 0)
+                was_bad_beat = hand_rank >= 2  # Two pair or better lost
+
+            nemesis = winner_names[0] if not player_won and winner_names else None
+            outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
+            key_moment = 'bad_beat' if was_bad_beat else None
+
+            # Call psychology update
+            try:
+                controller.psychology.on_hand_complete(
+                    outcome=outcome,
+                    amount=amount,
+                    opponent=nemesis,
+                    was_bad_beat=was_bad_beat,
+                    was_bluff_called=False,
+                    session_context={},
+                    key_moment=key_moment
+                )
+                logger.debug(
+                    f"Psychology update for {player.name}: "
+                    f"tilt={controller.psychology.tilt_level:.2f}, outcome={outcome}"
+                )
+            except Exception as e:
+                logger.warning(f"Psychology state update failed for {player.name}: {e}")
+
     def run_hand(self, state_machine: PokerStateMachine,
                  controllers: Dict[str, AIPlayerController],
                  memory_manager: AIMemoryManager,
                  hand_number: int,
-                 tournament_id: Optional[str] = None) -> bool:
+                 tournament_id: Optional[str] = None,
+                 variant_config: Optional[Dict] = None) -> bool:
         """
         Run a single hand to completion.
 
@@ -530,6 +617,7 @@ class AITournamentRunner:
             memory_manager: Memory manager for hand tracking
             hand_number: Current hand number
             tournament_id: Optional game ID for per-action saves (for pause/resume)
+            variant_config: Optional variant-specific config with enable_psychology/enable_commentary flags
 
         Returns:
             True if game should continue, False if tournament is over or paused.
@@ -674,7 +762,31 @@ class AITournamentRunner:
             game_state = award_pot_winnings(game_state, winner_info)
 
             winners = winner_info.get('pot_breakdown', [{}])[0].get('winners', [])
+            winner_names = [w.get('name') for w in winners if w.get('name')]
             logger.debug(f"Hand {hand_number}: Winners = {winners}")
+
+            # Post-hand psychological processing (if enabled)
+            enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+            enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
+
+            if enable_psychology:
+                self._process_psychology(
+                    game_state, controllers, winner_info, winner_names, hand_number
+                )
+
+            if enable_commentary:
+                # Build AI players context for commentary generation
+                ai_players_context = {}
+                for player in game_state.players:
+                    if player.name in controllers:
+                        controller = controllers[player.name]
+                        ai_players_context[player.name] = {
+                            'ai_player': controller,
+                            'is_eliminated': player.stack == 0,
+                            'spectator_context': None,
+                        }
+                # Generate commentary (uses memory_manager's instance-level commentary_enabled)
+                memory_manager.generate_commentary_for_hand(ai_players_context)
 
         # Reset for next hand
         game_state = reset_game_state_for_new_hand(game_state)
@@ -717,7 +829,8 @@ class AITournamentRunner:
 
             should_continue = self.run_hand(
                 state_machine, controllers, memory_manager, hand_number,
-                tournament_id=tournament_id
+                tournament_id=tournament_id,
+                variant_config=variant_config
             )
 
             # Save game state for live monitoring (every hand)

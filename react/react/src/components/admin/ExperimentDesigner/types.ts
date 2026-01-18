@@ -33,6 +33,10 @@ export interface ControlConfig {
   model?: string;
   provider?: string;
   prompt_config?: Partial<PromptConfig>;
+  /** Enable tilt + emotional state generation (~4 LLM calls/hand). Default: false */
+  enable_psychology?: boolean;
+  /** Enable commentary generation (~4 LLM calls/hand). Default: false */
+  enable_commentary?: boolean;
 }
 
 /**
@@ -43,6 +47,10 @@ export interface VariantConfig {
   model?: string;
   provider?: string;
   prompt_config?: Partial<PromptConfig>;
+  /** Enable tilt + emotional state generation. Inherits from control if not set. */
+  enable_psychology?: boolean;
+  /** Enable commentary generation. Inherits from control if not set. */
+  enable_commentary?: boolean;
 }
 
 export interface ExperimentConfig {
