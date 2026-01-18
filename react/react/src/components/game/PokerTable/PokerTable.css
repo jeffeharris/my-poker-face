@@ -544,6 +544,80 @@
     }
 }
 
+/* ===========================================
+   STADIUM VIEW - Widescreen Desktop Layout
+   =========================================== */
+
+.poker-table.stadium-view {
+    padding-bottom: 160px; /* Space for PlayerCommandCenter */
+}
+
+.stadium-view .table-felt {
+    width: 90%;
+    max-width: 1000px;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    min-height: 400px;
+}
+
+/* Larger community cards for stadium view */
+.stadium-view .community-cards {
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+/* Larger pot for visibility */
+.stadium-view .pot {
+    width: 140px;
+    height: 140px;
+}
+
+.stadium-view .pot-label {
+    font-size: 14px;
+}
+
+.stadium-view .pot-amount {
+    font-size: 22px;
+}
+
+/* Player seats with premium styling */
+.stadium-view .player-seat {
+    background: var(--gradient-card, rgba(20, 22, 30, 0.9));
+    border: 1px solid var(--color-border-default, rgba(255, 255, 255, 0.1));
+    color: var(--color-text-primary, #f8fafc);
+    box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.6));
+}
+
+.stadium-view .player-seat.current-player {
+    border-color: var(--color-gold, #d4a574);
+    box-shadow: var(--glow-gold, 0 0 20px rgba(212, 165, 116, 0.25));
+}
+
+.stadium-view .player-name {
+    color: var(--color-text-primary, #f8fafc);
+}
+
+.stadium-view .player-stack {
+    color: var(--color-gold-light, #e8c9a0);
+    font-family: var(--font-mono, monospace);
+}
+
+.stadium-view .player-seat.folded {
+    opacity: 0.4;
+    filter: grayscale(0.5);
+    background: var(--color-bg-tertiary, #151820);
+}
+
+.stadium-view .player-seat.all-in {
+    border-color: var(--color-amethyst, #a855f7);
+    box-shadow: var(--glow-amethyst, 0 0 20px rgba(168, 85, 247, 0.3));
+}
+
+.stadium-view .status {
+    font-size: 9px;
+    padding: 2px 4px;
+}
+
 /* Responsive adjustments */
 @media (max-width: 900px) {
     .table-felt {

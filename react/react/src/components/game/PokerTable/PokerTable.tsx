@@ -1,18 +1,19 @@
 import { useEffect, useState, useCallback } from 'react';
-import { BarChart3 } from 'lucide-react';
 import { Card, CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import { ChatSidebar } from '../../chat/ChatSidebar';
-import { LoadingIndicator } from '../LoadingIndicator';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
 import { TournamentComplete } from '../TournamentComplete';
-import { ElasticityDebugPanel } from '../../debug/ElasticityDebugPanel';
-import { PressureStats } from '../../stats';
 import { PokerTableLayout } from '../PokerTableLayout';
-import { DebugPanel } from '../../debug/DebugPanel';
+import { StadiumLayout } from '../StadiumLayout';
+import { GameHeader } from '../GameHeader';
+import { PlayerCommandCenter } from '../PlayerCommandCenter';
+import { StatsPanel } from '../StatsPanel';
+import { ActivityFeed } from '../ActivityFeed';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import { useViewport } from '../../../hooks/useViewport';
 import type { Player } from '../../../types/player';
 import './PokerTable.css';
 
@@ -22,7 +23,14 @@ interface PokerTableProps {
   onGameCreated?: (gameId: string) => void;
 }
 
+// Breakpoint for stadium view (3-column layout)
+const STADIUM_BREAKPOINT = 1400;
+
 export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
+  // Viewport detection for responsive layout
+  const { width: viewportWidth } = useViewport();
+  const useStadiumView = viewportWidth >= STADIUM_BREAKPOINT;
+
   // Use the shared hook for all socket/state management
   const {
     gameState,
@@ -62,13 +70,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     window.location.href = '/';
   }, [gameId, clearTournamentResult]);
 
-  // Desktop-specific state
-  const [useOverlayLoading] = useState(false);
+  // Track fixed visual positions for players
   const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
-  const [debugMode, setDebugMode] = useState<boolean>(config.ENABLE_DEBUG);
-  const [showStats, setShowStats] = useState<boolean>(true);
-  const [showElasticityPanel, setShowElasticityPanel] = useState<boolean>(false);
-  const [pollIntervalRef, setPollIntervalRef] = useState<ReturnType<typeof setInterval> | null>(null);
 
   // Calculate seat position around the table based on player count
   // Position 0 is always at bottom center (human player)
@@ -88,6 +91,54 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     // Calculate position on ellipse
     const left = 50 + radiusX * Math.cos(angle);
     const top = 50 + radiusY * Math.sin(angle);
+
+    return {
+      position: 'absolute' as const,
+      left: `${left}%`,
+      top: `${top}%`,
+      transform: 'translate(-50%, -50%)',
+    };
+  };
+
+  // Stadium view: Opponents in top 180 arc (human player shown in PlayerCommandCenter)
+  const getStadiumSeatStyle = (opponentIndex: number, totalOpponents: number) => {
+    // Distribute opponents from left (180) to right (0) across top arc
+    // Angles: 150 (top-left) to 30 (top-right)
+    const startAngle = 150; // degrees, left side
+    const endAngle = 30;    // degrees, right side
+    const angleRange = startAngle - endAngle; // 120 degrees of arc
+    const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
+    const angle = (startAngle - opponentIndex * angleStep) * (Math.PI / 180);
+
+    // Wider ellipse for stadium view
+    const radiusX = 48; // Horizontal radius as percentage
+    const radiusY = 40; // Vertical radius as percentage
+
+    // Calculate position on ellipse
+    const left = 50 + radiusX * Math.cos(angle);
+    const top = 50 - radiusY * Math.sin(angle); // Subtract to move up (top of screen)
+
+    return {
+      position: 'absolute' as const,
+      left: `${left}%`,
+      top: `${top}%`,
+      transform: 'translate(-50%, -50%)',
+    };
+  };
+
+  // Stadium view: Bet chips positioned closer to center
+  const getStadiumBetChipStyle = (opponentIndex: number, totalOpponents: number) => {
+    const startAngle = 150;
+    const endAngle = 30;
+    const angleRange = startAngle - endAngle;
+    const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
+    const angle = (startAngle - opponentIndex * angleStep) * (Math.PI / 180);
+
+    const radiusX = 28;
+    const radiusY = 22;
+
+    const left = 50 + radiusX * Math.cos(angle);
+    const top = 50 - radiusY * Math.sin(angle);
 
     return {
       position: 'absolute' as const,
@@ -140,49 +191,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     }
   }, [gameState, playerPositions.size]);
 
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef) {
-        clearInterval(pollIntervalRef);
-      }
-    };
-  }, [pollIntervalRef]);
-
-  // Polling function (kept for fallback if WebSocket fails)
-  // @ts-expect-error Kept for fallback if WebSocket fails
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _startPolling = (gId: string) => {
-    if (pollIntervalRef) {
-      clearInterval(pollIntervalRef);
-    }
-
-    const pollInterval = setInterval(async () => {
-      try {
-        console.log('Polling for updates...');
-        const gameResponse = await fetch(`${config.API_URL}/api/game-state/${gId}`, {
-          credentials: 'include',
-        });
-        const data = await gameResponse.json();
-
-        const currentPlayer = data.players[data.current_player_idx];
-        console.log('Current player:', currentPlayer.name, 'Is human:', currentPlayer.is_human);
-
-        if (currentPlayer.is_human || data.phase === 'GAME_OVER') {
-          console.log('Stopping polling - human turn or game over');
-          clearInterval(pollInterval);
-          setPollIntervalRef(null);
-        } else {
-          console.log('AI still thinking...');
-        }
-      } catch (error) {
-        console.error('Polling error:', error);
-      }
-    }, 1000);
-
-    setPollIntervalRef(pollInterval);
-  };
-
   // Check if current player is human and it's their turn
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const showActionButtons = currentPlayer?.is_human &&
@@ -190,6 +198,15 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                            gameState?.player_options &&
                            gameState.player_options.length > 0 &&
                            !aiThinking;
+
+  // Stadium view helpers
+  const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
+  const humanPlayerIndex = gameState?.players.findIndex((p: Player) => p.is_human) ?? -1;
+  const opponents = gameState?.players.filter((p: Player) => !p.is_human) ?? [];
+  const isHumanDealer = humanPlayerIndex === gameState?.current_dealer_idx;
+  const isHumanSmallBlind = humanPlayerIndex === gameState?.small_blind_idx;
+  const isHumanBigBlind = humanPlayerIndex === gameState?.big_blind_idx;
+  const isHumanCurrentPlayer = humanPlayerIndex === gameState?.current_player_idx;
 
   // Debug logging
   if (currentPlayer?.is_human) {
@@ -248,82 +265,243 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
   if (!gameState) return <div className="error">No game state available</div>;
 
-  return (
+  // Shared table content - community cards, pot, and overlays
+  const renderTableCore = () => (
     <>
-      {/* Control buttons - bottom left */}
-      <div style={{
-        position: 'fixed',
-        bottom: '10px',
-        left: '10px',
-        zIndex: 1001,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px'
-      }}>
-        {/* Stats toggle button */}
-        <button
-          className="stats-toggle"
-          onClick={() => setShowStats(!showStats)}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: showStats ? '#ff9800' : '#666',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-            transition: 'all 0.3s ease'
-          }}
-        >
-          <BarChart3 size={16} style={{ marginRight: 6 }} />{showStats ? 'Hide Stats' : 'Show Stats'}
-        </button>
+      {/* Community Cards Area */}
+      <div className="community-area">
+        <div className="community-cards">
+          {gameState.community_cards.map((card, i) => (
+            <CommunityCard key={i} card={card} revealed={true} />
+          ))}
+          {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
+            <CommunityCard key={`placeholder-${i}`} revealed={false} />
+          ))}
+        </div>
 
-        {/* Show Debug button (original elasticity panel) */}
-        <button
-          onClick={() => setShowElasticityPanel(!showElasticityPanel)}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: showElasticityPanel ? '#4caf50' : '#666',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-            transition: 'all 0.3s ease'
-          }}
-        >
-          {showElasticityPanel ? 'Hide Debug' : 'Show Debug'}
-        </button>
-
-        {/* Debug toggle button - only show if debug is enabled in config */}
-        {config.ENABLE_DEBUG && (
-          <button
-            className="debug-toggle"
-            onClick={() => setDebugMode(!debugMode)}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: debugMode ? '#4caf50' : '#666',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-              transition: 'all 0.3s ease'
-            }}
-          >
-            {debugMode ? '🐛 Hide Debug' : '🐛 Show Debug'}
-          </button>
-        )}
-
+        <div className="pot-area">
+          <div className="pot">
+            <div className="pot-label">POT</div>
+            <div className="pot-amount">${gameState.pot.total}</div>
+          </div>
+        </div>
       </div>
 
+      {/* Winner Announcement */}
+      <WinnerAnnouncement
+        winnerInfo={winnerInfo}
+        onComplete={clearWinnerInfo}
+      />
 
-      {/* Pressure Stats Panel - positioned as overlay */}
-      <PressureStats gameId={gameId} isOpen={showStats} socket={socketRef.current} />
+      {/* Tournament Complete */}
+      {!(winnerInfo?.is_final_hand) && (
+        <TournamentComplete
+          result={tournamentResult}
+          onComplete={handleTournamentComplete}
+        />
+      )}
+    </>
+  );
 
+  // Render chip for a bet
+  const renderBetChips = (bet: number) => {
+    let chipValue: number, chipColor: string, numChips: number;
+    if (bet >= 100) {
+      chipValue = 100;
+      chipColor = 'black';
+      numChips = Math.min(Math.ceil(bet / 100), 4);
+    } else if (bet >= 25) {
+      chipValue = 25;
+      chipColor = bet >= 50 ? 'green' : 'blue';
+      numChips = Math.min(Math.ceil(bet / 25), 4);
+    } else {
+      chipValue = 5;
+      chipColor = 'red';
+      numChips = Math.min(Math.ceil(bet / 5), 4);
+    }
+
+    return (
+      <>
+        <div className="chip-stack">
+          {Array.from({ length: numChips }).map((_, chipIndex) => (
+            <div
+              key={chipIndex}
+              className={`poker-chip ${chipColor}`}
+              style={{
+                transform: `translateY(-${chipIndex * 2}px)`,
+                zIndex: chipIndex
+              }}
+            >
+              ${chipValue}
+            </div>
+          ))}
+        </div>
+        <div className="bet-amount">${bet}</div>
+      </>
+    );
+  };
+
+  // ==========================================
+  // STADIUM VIEW (Desktop >= 1400px)
+  // ==========================================
+  if (useStadiumView) {
+    return (
+      <StadiumLayout
+        header={
+          <GameHeader
+            handNumber={gameState.hand_number}
+            blinds={{ small: gameState.small_blind, big: gameState.big_blind }}
+            phase={gameState.phase}
+            onBackClick={() => { window.location.href = '/'; }}
+          />
+        }
+        leftPanel={
+          humanPlayer && (
+            <StatsPanel
+              humanPlayer={humanPlayer}
+              players={gameState.players}
+              potTotal={gameState.pot.total}
+              handNumber={gameState.hand_number}
+            />
+          )
+        }
+        bottomCenter={
+          humanPlayer && (
+            <PlayerCommandCenter
+              player={humanPlayer}
+              isCurrentPlayer={isHumanCurrentPlayer}
+              showActions={showActionButtons ?? false}
+              playerOptions={gameState.player_options ?? []}
+              highestBet={gameState.highest_bet}
+              minRaise={gameState.min_raise}
+              bigBlind={gameState.big_blind}
+              potSize={gameState.pot.total}
+              onAction={handlePlayerAction}
+              isDealer={isHumanDealer}
+              isSmallBlind={isHumanSmallBlind}
+              isBigBlind={isHumanBigBlind}
+            />
+          )
+        }
+        rightPanel={
+          <ActivityFeed
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            players={gameState?.players ?? []}
+            playerName={playerName}
+          />
+        }
+      >
+        <div className="poker-table stadium-view">
+          <div className="table-felt">
+            {renderTableCore()}
+
+            {/* Opponents in top arc */}
+            <div className="players-area">
+              {opponents.map((player, opponentIndex) => {
+                const currentIndex = gameState.players.findIndex(p => p.name === player.name);
+                const isDealer = currentIndex === gameState.current_dealer_idx;
+                const isSmallBlind = currentIndex === gameState.small_blind_idx;
+                const isBigBlind = currentIndex === gameState.big_blind_idx;
+                const isCurrentPlayer = currentIndex === gameState.current_player_idx;
+
+                return (
+                  <div
+                    key={player.name}
+                    className={`player-seat ${
+                      isCurrentPlayer ? 'current-player' : ''
+                    } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
+                      isCurrentPlayer && aiThinking ? 'thinking' : ''
+                    }`}
+                    style={getStadiumSeatStyle(opponentIndex, opponents.length)}
+                  >
+                    <div className="position-indicators">
+                      {isDealer && <div className="position-chip dealer-button" title="Dealer">D</div>}
+                      {isSmallBlind && <div className="position-chip small-blind" title="Small Blind">SB</div>}
+                      {isBigBlind && <div className="position-chip big-blind" title="Big Blind">BB</div>}
+                    </div>
+
+                    <div className="player-info">
+                      <div className="player-avatar">
+                        {player.avatar_url ? (
+                          <img
+                            src={`${config.API_URL}${player.avatar_url}`}
+                            alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
+                            className="avatar-image"
+                          />
+                        ) : (
+                          <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <div className="player-details">
+                        <div className="player-name">{player.name}</div>
+                        <div className="player-stack">${player.stack}</div>
+                        {player.is_folded && <div className="status">FOLDED</div>}
+                        {player.is_all_in && <div className="status">ALL-IN</div>}
+                      </div>
+                    </div>
+
+                    <div className="player-cards">
+                      {config.ENABLE_AI_DEBUG ? (
+                        <>
+                          <DebugHoleCard debugInfo={player.llm_debug} />
+                          <DebugHoleCard debugInfo={player.llm_debug} />
+                        </>
+                      ) : (
+                        <>
+                          <HoleCard visible={false} />
+                          <HoleCard visible={false} />
+                        </>
+                      )}
+                    </div>
+
+                    {isCurrentPlayer && aiThinking && (
+                      <PlayerThinking playerName={player.name} position={opponentIndex} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Bet chips for opponents */}
+            <div className="betting-area">
+              {opponents.map((player, opponentIndex) => (
+                player.bet > 0 ? (
+                  <div
+                    key={player.name}
+                    className="bet-chips"
+                    style={getStadiumBetChipStyle(opponentIndex, opponents.length)}
+                  >
+                    {renderBetChips(player.bet)}
+                  </div>
+                ) : null
+              ))}
+              {/* Human player bet chip - positioned at bottom center */}
+              {humanPlayer && humanPlayer.bet > 0 && (
+                <div
+                  className="bet-chips"
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    bottom: '25%',
+                    transform: 'translate(-50%, 50%)',
+                  }}
+                >
+                  {renderBetChips(humanPlayer.bet)}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </StadiumLayout>
+    );
+  }
+
+  // ==========================================
+  // LEGACY VIEW (Tablet/Mobile < 1400px)
+  // ==========================================
+  return (
+    <>
       <PokerTableLayout
         chatPanel={
           <ChatSidebar
@@ -332,12 +510,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             playerName={playerName}
             gameId={gameId ?? undefined}
             players={gameState?.players ?? []}
-          />
-        }
-        debugPanel={
-          <DebugPanel
-            gameId={gameId}
-            socket={socketRef.current}
           />
         }
         actionButtons={
@@ -354,214 +526,110 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
             />
           )
         }
-        showDebug={debugMode}
       >
         <div className="poker-table">
-      <div className="table-felt">
-        {/* Community Cards Area */}
-        <div className="community-area">
-          <div className="community-cards">
-            {/* Show revealed community cards */}
-            {gameState.community_cards.map((card, i) => (
-              <CommunityCard key={i} card={card} revealed={true} />
-            ))}
-            {/* Show placeholder cards for remaining community cards */}
-            {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
-              <CommunityCard key={`placeholder-${i}`} revealed={false} />
-            ))}
-          </div>
+          <div className="table-felt">
+            {renderTableCore()}
 
-          <div className="pot-area">
-            <div className="pot">
-              <div className="pot-label">POT</div>
-              <div className="pot-amount">${gameState.pot.total}</div>
+            {/* Player seats around ellipse */}
+            <div className="players-area">
+              {[...gameState.players]
+                .sort((a, b) => {
+                  const posA = playerPositions.get(a.name) ?? 0;
+                  const posB = playerPositions.get(b.name) ?? 0;
+                  return posA - posB;
+                })
+                .map((player) => {
+                  const currentIndex = gameState.players.findIndex(p => p.name === player.name);
+                  const visualPosition = playerPositions.get(player.name) ?? 0;
+                  const isDealer = currentIndex === gameState.current_dealer_idx;
+                  const isSmallBlind = currentIndex === gameState.small_blind_idx;
+                  const isBigBlind = currentIndex === gameState.big_blind_idx;
+                  const isCurrentPlayer = currentIndex === gameState.current_player_idx;
+                  const totalPlayers = gameState.players.length;
+
+                  return (
+                    <div
+                      key={player.name}
+                      className={`player-seat ${
+                        isCurrentPlayer ? 'current-player' : ''
+                      } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
+                        isCurrentPlayer && !player.is_human && aiThinking ? 'thinking' : ''
+                      }`}
+                      style={getSeatStyle(visualPosition, totalPlayers)}
+                    >
+                      <div className="position-indicators">
+                        {isDealer && <div className="position-chip dealer-button" title="Dealer">D</div>}
+                        {isSmallBlind && <div className="position-chip small-blind" title="Small Blind">SB</div>}
+                        {isBigBlind && <div className="position-chip big-blind" title="Big Blind">BB</div>}
+                      </div>
+
+                      <div className="player-info">
+                        <div className="player-avatar">
+                          {player.avatar_url ? (
+                            <img
+                              src={`${config.API_URL}${player.avatar_url}`}
+                              alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
+                              className="avatar-image"
+                            />
+                          ) : (
+                            <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="player-details">
+                          <div className="player-name">{player.name}</div>
+                          <div className="player-stack">${player.stack}</div>
+                          {player.is_folded && <div className="status">FOLDED</div>}
+                          {player.is_all_in && <div className="status">ALL-IN</div>}
+                        </div>
+                      </div>
+
+                      <div className="player-cards">
+                        {player.is_human && player.hand ? (
+                          <>
+                            <Card card={player.hand[0]} faceDown={false} size="large" className="hole-card" />
+                            <Card card={player.hand[1]} faceDown={false} size="large" className="hole-card" />
+                          </>
+                        ) : config.ENABLE_AI_DEBUG ? (
+                          <>
+                            <DebugHoleCard debugInfo={player.llm_debug} />
+                            <DebugHoleCard debugInfo={player.llm_debug} />
+                          </>
+                        ) : (
+                          <>
+                            <HoleCard visible={false} />
+                            <HoleCard visible={false} />
+                          </>
+                        )}
+                      </div>
+
+                      {isCurrentPlayer && !player.is_human && aiThinking && (
+                        <PlayerThinking playerName={player.name} position={visualPosition} />
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Bet chips */}
+            <div className="betting-area">
+              {gameState.players.map((player) => {
+                const visualPosition = playerPositions.get(player.name) ?? 0;
+                const totalPlayers = gameState.players.length;
+                return player.bet > 0 ? (
+                  <div
+                    key={player.name}
+                    className="bet-chips"
+                    style={getBetChipStyle(visualPosition, totalPlayers)}
+                  >
+                    {renderBetChips(player.bet)}
+                  </div>
+                ) : null;
+              })}
             </div>
           </div>
         </div>
-
-        {/* Player seats (moved further from table) */}
-        <div className="players-area">
-          {/* Sort players by their fixed positions */}
-          {[...gameState.players]
-            .sort((a, b) => {
-              const posA = playerPositions.get(a.name) ?? 0;
-              const posB = playerPositions.get(b.name) ?? 0;
-              return posA - posB;
-            })
-            .map((player) => {
-              // Get the player's current index in the original array for game logic
-              const currentIndex = gameState.players.findIndex(p => p.name === player.name);
-              // Get the player's fixed visual position
-              const visualPosition = playerPositions.get(player.name) ?? 0;
-
-              // Use current index for game logic checks
-              const isDealer = currentIndex === gameState.current_dealer_idx;
-              const isSmallBlind = currentIndex === gameState.small_blind_idx;
-              const isBigBlind = currentIndex === gameState.big_blind_idx;
-              const isCurrentPlayer = currentIndex === gameState.current_player_idx;
-
-              const totalPlayers = gameState.players.length;
-
-              return (
-                <div
-                  key={player.name}
-                  className={`player-seat ${
-                    isCurrentPlayer ? 'current-player' : ''
-                  } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
-                    isCurrentPlayer && !player.is_human && aiThinking ? 'thinking' : ''
-                  }`}
-                  style={getSeatStyle(visualPosition, totalPlayers)}
-                >
-                {/* Position indicators */}
-                <div className="position-indicators">
-                  {isDealer && (
-                    <div className="position-chip dealer-button" title="Dealer">
-                      D
-                    </div>
-                  )}
-                  {isSmallBlind && (
-                    <div className="position-chip small-blind" title="Small Blind">
-                      SB
-                    </div>
-                  )}
-                  {isBigBlind && (
-                    <div className="position-chip big-blind" title="Big Blind">
-                      BB
-                    </div>
-                  )}
-                </div>
-
-                <div className="player-info">
-                  <div className="player-avatar">
-                    {player.avatar_url ? (
-                      <img
-                        src={`${config.API_URL}${player.avatar_url}`}
-                        alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
-                        className="avatar-image"
-                      />
-                    ) : (
-                      <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
-                    )}
-                  </div>
-                  <div className="player-details">
-                    <div className="player-name">{player.name}</div>
-                    <div className="player-stack">${player.stack}</div>
-                    {player.is_folded && <div className="status">FOLDED</div>}
-                    {player.is_all_in && <div className="status">ALL-IN</div>}
-                  </div>
-                </div>
-
-                {/* Player cards */}
-                <div className="player-cards">
-                  {player.is_human && player.hand ? (
-                    // Show actual cards for human player (large size)
-                    <>
-                      <Card card={player.hand[0]} faceDown={false} size="large" className="hole-card" />
-                      <Card card={player.hand[1]} faceDown={false} size="large" className="hole-card" />
-                    </>
-                  ) : config.ENABLE_AI_DEBUG ? (
-                    // Show debug-enabled cards for AI players (can flip to reveal LLM info)
-                    <>
-                      <DebugHoleCard debugInfo={player.llm_debug} />
-                      <DebugHoleCard debugInfo={player.llm_debug} />
-                    </>
-                  ) : (
-                    // Show standard face-down cards for AI players
-                    <>
-                      <HoleCard visible={false} />
-                      <HoleCard visible={false} />
-                    </>
-                  )}
-                </div>
-
-                {/* Show thinking indicator for current AI player */}
-                {isCurrentPlayer && !player.is_human && aiThinking && (
-                  <PlayerThinking playerName={player.name} position={visualPosition} />
-                )}
-              </div>
-              );
-            })}
-        </div>
-
-        {/* Bet chips on the table (separate from player boxes) */}
-        <div className="betting-area">
-          {gameState.players.map((player) => {
-            const visualPosition = playerPositions.get(player.name) ?? 0;
-            const totalPlayers = gameState.players.length;
-            return player.bet > 0 ? (
-              <div key={player.name} className="bet-chips" style={getBetChipStyle(visualPosition, totalPlayers)}>
-                <div className="chip-stack">
-                  {(() => {
-                    // Determine chip denomination and color based on bet amount
-                    let chipValue, chipColor, numChips;
-                    if (player.bet >= 100) {
-                      chipValue = 100;
-                      chipColor = 'black';
-                      numChips = Math.min(Math.ceil(player.bet / 100), 4);
-                    } else if (player.bet >= 25) {
-                      chipValue = 25;
-                      chipColor = player.bet >= 50 ? 'green' : 'blue';
-                      numChips = Math.min(Math.ceil(player.bet / 25), 4);
-                    } else {
-                      chipValue = 5;
-                      chipColor = 'red';
-                      numChips = Math.min(Math.ceil(player.bet / 5), 4);
-                    }
-
-                    return Array.from({ length: numChips }).map((_, chipIndex) => (
-                      <div
-                        key={chipIndex}
-                        className={`poker-chip ${chipColor}`}
-                        style={{
-                          transform: `translateY(-${chipIndex * 2}px)`,
-                          zIndex: chipIndex
-                        }}
-                      >
-                        ${chipValue}
-                      </div>
-                    ));
-                  })()}
-                </div>
-                <div className="bet-amount">${player.bet}</div>
-              </div>
-            ) : null;
-          })}
-        </div>
-
-
-        {/* AI Thinking Indicator - Full screen overlay (optional) */}
-        {aiThinking && currentPlayer && !currentPlayer.is_human && useOverlayLoading && (
-          <LoadingIndicator
-            currentPlayerName={currentPlayer.name}
-            playerIndex={gameState.current_player_idx}
-            totalPlayers={gameState.players.filter(p => !p.is_folded).length}
-          />
-        )}
-      </div>
-
-        {/* Winner Announcement */}
-        <WinnerAnnouncement
-          winnerInfo={winnerInfo}
-          onComplete={clearWinnerInfo}
-        />
-
-        {/* Tournament Complete - only show when no final hand winner announcement is active */}
-        {/* This prevents the tournament screen from covering the hand results */}
-        {!(winnerInfo?.is_final_hand) && (
-          <TournamentComplete
-            result={tournamentResult}
-            onComplete={handleTournamentComplete}
-          />
-        )}
-      </div>
       </PokerTableLayout>
-
-      {/* Original Elasticity Debug Panel for comparison */}
-      <ElasticityDebugPanel
-        gameId={gameId}
-        isOpen={showElasticityPanel}
-        socket={socketRef.current}
-      />
     </>
   );
 }
