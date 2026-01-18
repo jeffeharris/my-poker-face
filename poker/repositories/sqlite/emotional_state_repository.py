@@ -2,7 +2,7 @@
 SQLite implementation of emotional state repository.
 """
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 from ..database import DatabaseContext
 from ..protocols import (
@@ -204,3 +204,31 @@ class SQLiteEmotionalStateRepository:
             tables = ["emotional_state", "controller_state", "pressure_events"]
             for table in tables:
                 conn.execute(f"DELETE FROM {table} WHERE game_id = ?", (game_id,))
+
+    def save_controller_state_from_args(
+        self,
+        game_id: str,
+        player_name: str,
+        psychology: Dict[str, Any],
+        prompt_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Save controller state from args (convenience method).
+
+        Args:
+            game_id: The game identifier
+            player_name: The player's name
+            psychology: Dict from PlayerPsychology.to_dict()
+            prompt_config: Dict from PromptConfig.to_dict() (optional)
+        """
+        state_data = {
+            'psychology': psychology,
+            'prompt_config': prompt_config,
+        }
+        entity = ControllerStateEntity(
+            game_id=game_id,
+            player_name=player_name,
+            state_type='unified',
+            state_data=state_data,
+            last_updated=datetime.now(),
+        )
+        self.save_controller_state(entity)

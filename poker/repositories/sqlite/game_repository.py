@@ -132,6 +132,14 @@ class SQLiteGameRepository:
         )
         return row is not None
 
+    def count_by_owner(self, owner_id: str) -> int:
+        """Count games owned by a specific user."""
+        row = self._db.fetch_one(
+            "SELECT COUNT(*) as count FROM games WHERE owner_id = ?",
+            (owner_id,),
+        )
+        return row["count"] if row else 0
+
     def save_llm_configs(self, game_id: str, configs: Dict[str, Any]) -> None:
         """Save LLM configurations for a game."""
         self._db.execute(
@@ -166,6 +174,41 @@ class SQLiteGameRepository:
             if row["llm_configs_json"]
             else None,
         )
+
+    def save_from_state_machine(
+        self,
+        game_id: str,
+        state_machine,
+        owner_id: Optional[str] = None,
+        owner_name: Optional[str] = None,
+        llm_configs: Optional[Dict[str, Any]] = None,
+        debug_capture_enabled: bool = False,
+    ) -> None:
+        """Save a game from a state machine (convenience method).
+
+        Args:
+            game_id: The game identifier
+            state_machine: The game's state machine
+            owner_id: The owner/user ID
+            owner_name: The owner's display name
+            llm_configs: Dict with LLM configs
+            debug_capture_enabled: Whether debug capture is enabled
+        """
+        # Check if game exists to preserve created_at
+        existing = self.find_by_id(game_id)
+        created_at = existing.created_at if existing else datetime.now()
+
+        entity = GameEntity(
+            id=game_id,
+            state_machine=state_machine,
+            created_at=created_at,
+            updated_at=datetime.now(),
+            owner_id=owner_id,
+            owner_name=owner_name,
+            debug_capture_enabled=debug_capture_enabled,
+            llm_configs=llm_configs,
+        )
+        self.save(entity)
 
 
 class SQLiteMessageRepository:

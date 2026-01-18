@@ -5,8 +5,9 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from ..extensions import socketio, persistence
+from ..extensions import socketio, get_repository_factory
 from ..services import game_state_service
+from poker.repositories.protocols import MessageEntity
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,13 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
     game_state_service.set_game(game_id, game_data)
 
     # Save message to database
-    persistence.save_message(game_id, message_type, f"{sender}: {content}")
+    repo = get_repository_factory()
+    repo.messages.save(MessageEntity(
+        game_id=game_id,
+        message_type=message_type,
+        message_text=f"{sender}: {content}",
+        timestamp=datetime.now()
+    ))
 
     # Emit only the new message to reduce payload size
     socketio.emit('new_message', {'message': new_message}, to=game_id)

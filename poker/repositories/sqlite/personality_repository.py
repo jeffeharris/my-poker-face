@@ -161,6 +161,42 @@ class SQLitePersonalityRepository:
             (datetime.now().isoformat(), name),
         )
 
+    def get_avatar_stats(self) -> dict:
+        """Get statistics about avatar images in the database."""
+        # Total count
+        row = self._db.fetch_one("SELECT COUNT(*) as count FROM avatar_images")
+        total_count = row['count'] if row else 0
+
+        # Total size (if file_size column exists)
+        try:
+            row = self._db.fetch_one("SELECT SUM(file_size) as total_size FROM avatar_images")
+            total_size = row['total_size'] if row and row['total_size'] else 0
+        except Exception:
+            # file_size column may not exist
+            total_size = 0
+
+        # Unique personalities
+        row = self._db.fetch_one("SELECT COUNT(DISTINCT personality_name) as count FROM avatar_images")
+        personality_count = row['count'] if row else 0
+
+        # Personalities with all 6 emotions
+        row = self._db.fetch_one("""
+            SELECT COUNT(*) as count FROM (
+                SELECT personality_name FROM avatar_images
+                GROUP BY personality_name
+                HAVING COUNT(DISTINCT emotion) = 6
+            )
+        """)
+        complete_count = row['count'] if row else 0
+
+        return {
+            'total_images': total_count,
+            'total_size_bytes': total_size,
+            'total_size_mb': round(total_size / (1024 * 1024), 2) if total_size else 0,
+            'unique_personalities': personality_count,
+            'complete_personalities': complete_count,
+        }
+
     def _row_to_entity(self, row) -> PersonalityEntity:
         """Convert a database row to a PersonalityEntity."""
         return PersonalityEntity(

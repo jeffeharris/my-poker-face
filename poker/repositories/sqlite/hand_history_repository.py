@@ -65,6 +65,19 @@ class SQLiteHandHistoryRepository:
 
         return [self._row_to_entity(row) for row in rows]
 
+    def find_by_hand_number(self, game_id: str, hand_number: int) -> Optional[HandHistoryEntity]:
+        """Find a specific hand by game_id and hand_number."""
+        row = self._db.fetch_one(
+            """
+            SELECT * FROM hand_history
+            WHERE game_id = ? AND hand_number = ?
+            """,
+            (game_id, hand_number),
+        )
+        if not row:
+            return None
+        return self._row_to_entity(row)
+
     def get_hand_count(self, game_id: str) -> int:
         """Get the number of hands played in a game."""
         row = self._db.fetch_one(

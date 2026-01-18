@@ -18,19 +18,13 @@ from poker.character_images import (
     get_character_image_service,
     EMOTIONS,
 )
-from poker.persistence import GamePersistence
+from ..extensions import get_repository_factory
 
 logger = logging.getLogger(__name__)
 
 image_bp = Blueprint('image', __name__)
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
-
-# Initialize persistence for avatar lookups
-def _get_persistence() -> GamePersistence:
-    """Get persistence instance for avatar operations."""
-    db_path = Path('/app/data/poker_games.db') if Path('/app/data').exists() else Path(__file__).parent.parent.parent / 'poker_games.db'
-    return GamePersistence(str(db_path))
 
 
 @image_bp.route('/api/character-images', methods=['GET'])
@@ -336,8 +330,7 @@ def regenerate_avatar(personality_name: str):
 def get_avatar_stats():
     """Get statistics about avatar images in the database."""
     try:
-        persistence = _get_persistence()
-        stats = persistence.get_avatar_stats()
+        stats = get_repository_factory().personality.get_avatar_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error getting avatar stats: {e}")

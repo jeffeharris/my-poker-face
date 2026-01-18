@@ -133,21 +133,21 @@ class SessionMemory:
         self.context = SessionContext()
         self.recent_reflections: List[str] = []  # Strategic insights from past hands
 
-        # DB-backed mode (set via set_persistence)
-        self._persistence = None
+        # DB-backed mode (set via set_repository_factory)
+        self._repo = None
         self._game_id: str = None
 
-    def set_persistence(self, persistence, game_id: str) -> None:
+    def set_repository_factory(self, repo, game_id: str) -> None:
         """Enable DB-backed mode for session stats.
 
         When enabled, get_context_for_prompt() will query hand_history
         instead of using in-memory tracking.
 
         Args:
-            persistence: GamePersistence instance
+            repo: RepositoryFactory instance
             game_id: The game identifier
         """
-        self._persistence = persistence
+        self._repo = repo
         self._game_id = game_id
 
     def record_hand_outcome(self, hand_number: int, outcome: str, pot_size: int,
@@ -281,11 +281,17 @@ class SessionMemory:
         Returns:
             Formatted string with session context
         """
-        # Use DB-backed stats if persistence is available
-        if self._persistence and self._game_id:
-            return self._persistence.get_session_context_for_prompt(
-                self._game_id, self.player_name, max_recent=3
-            )
+        # Use DB-backed stats if repository is available
+        if self._repo and self._game_id:
+            stats = self._repo.hand_history.get_session_stats(self._game_id, self.player_name)
+            if stats and stats.get('hands_played', 0) > 0:
+                parts = []
+                win_rate = stats['hands_won'] / stats['hands_played'] * 100
+                parts.append(f"Session: {stats['hands_played']} hands, {win_rate:.0f}% win rate")
+                if stats.get('biggest_pot_won', 0) > 0:
+                    parts.append(f"Biggest win: {stats['biggest_pot_won']}")
+                return " | ".join(parts)
+            return ""
 
         # Fallback to in-memory tracking (legacy mode)
         parts = []

@@ -208,3 +208,61 @@ class SQLiteAIMemoryRepository:
             ]
             for table in tables:
                 conn.execute(f"DELETE FROM {table} WHERE game_id = ?", (game_id,))
+
+    def save_player_state_from_args(
+        self,
+        game_id: str,
+        player_name: str,
+        messages: List[Dict[str, str]],
+        personality_state: Dict[str, Any],
+    ) -> None:
+        """Save AI player state from args (convenience method).
+
+        Args:
+            game_id: The game identifier
+            player_name: The AI player name
+            messages: Conversation history
+            personality_state: Personality state dict
+        """
+        entity = AIPlayerStateEntity(
+            game_id=game_id,
+            player_name=player_name,
+            conversation_history=messages,
+            personality_state=personality_state,
+            last_updated=datetime.now(),
+        )
+        self.save_player_state(entity)
+
+    def save_hand_commentary_from_args(
+        self,
+        game_id: str,
+        hand_number: int,
+        player_name: str,
+        commentary,
+    ) -> None:
+        """Save hand commentary from a commentary object (convenience method).
+
+        Args:
+            game_id: The game identifier
+            hand_number: The hand number
+            player_name: The AI player name
+            commentary: Commentary object with table_comment/strategic_reflection attributes
+        """
+        # Combine relevant commentary fields
+        commentary_text = ""
+        if hasattr(commentary, 'table_comment') and commentary.table_comment:
+            commentary_text = commentary.table_comment
+        if hasattr(commentary, 'strategic_reflection') and commentary.strategic_reflection:
+            if commentary_text:
+                commentary_text += "\n\n"
+            commentary_text += commentary.strategic_reflection
+
+        entity = HandCommentaryEntity(
+            game_id=game_id,
+            hand_number=hand_number,
+            player_name=player_name,
+            commentary=commentary_text,
+            reflection_type='post_hand',
+            created_at=datetime.now(),
+        )
+        self.save_hand_commentary(entity)

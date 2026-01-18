@@ -9,6 +9,8 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from collections import defaultdict
 
+from poker.repositories.protocols import PressureEventEntity
+
 
 @dataclass
 class PressureEvent:
@@ -203,9 +205,14 @@ class PressureStatsTracker:
             # Save to database if repository is available
             if self.event_repository and self.game_id:
                 try:
-                    self.event_repository.save_event(
-                        self.game_id, player_name, event_type, details
+                    entity = PressureEventEntity(
+                        game_id=self.game_id,
+                        player_name=player_name,
+                        event_type=event_type,
+                        details=details,
+                        timestamp=datetime.now(),
                     )
+                    self.event_repository.save_pressure_event(entity)
                 except Exception as e:
                     # Log error but don't fail - maintain backward compatibility
                     print(f"Failed to save pressure event to database: {e}")
@@ -298,32 +305,32 @@ class PressureStatsTracker:
         """Load existing events from database and rebuild stats."""
         if not self.event_repository or not self.game_id:
             return
-            
+
         try:
-            events = self.event_repository.get_events_for_game(self.game_id)
-            
-            for event_data in events:
-                player_name = event_data['player_name']
-                
+            events = self.event_repository.get_pressure_events(self.game_id)
+
+            for event_entity in events:
+                player_name = event_entity.player_name
+
                 # Ensure player stats exist
                 if player_name not in self.player_stats:
                     self.player_stats[player_name] = PlayerPressureStats(player_name)
-                
+
                 # Recreate event and add to player stats
                 event = PressureEvent(
-                    timestamp=datetime.fromisoformat(event_data['timestamp']),
-                    event_type=event_data['event_type'],
+                    timestamp=event_entity.timestamp,
+                    event_type=event_entity.event_type,
                     player_name=player_name,
-                    details=event_data.get('details', {})
+                    details=event_entity.details or {}
                 )
-                
+
                 self.player_stats[player_name].add_event(event)
                 self.game_stats['total_events'] += 1
-                
+
                 # Update game-wide stats
                 if 'pot_size' in event.details:
                     self.game_stats['biggest_pot'] = max(
-                        self.game_stats['biggest_pot'], 
+                        self.game_stats['biggest_pot'],
                         event.details['pot_size']
                     )
                     

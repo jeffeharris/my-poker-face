@@ -203,6 +203,32 @@ class SQLiteTournamentRepository:
             for row in rows
         ]
 
+    def get_eliminated_personalities(self, player_name: str) -> List[dict]:
+        """Get all unique personalities eliminated by this player across all games."""
+        rows = self._db.fetch_all(
+            """
+            SELECT
+                ts.player_name as personality_name,
+                MIN(tr.ended_at) as first_eliminated_at,
+                COUNT(*) as times_eliminated
+            FROM tournament_standings ts
+            JOIN tournament_results tr ON ts.game_id = tr.game_id
+            WHERE ts.eliminated_by = ? AND ts.is_human = 0
+            GROUP BY ts.player_name
+            ORDER BY MIN(tr.ended_at) ASC
+            """,
+            (player_name,),
+        )
+
+        return [
+            {
+                'name': row['personality_name'],
+                'first_eliminated_at': row['first_eliminated_at'],
+                'times_eliminated': row['times_eliminated']
+            }
+            for row in rows
+        ]
+
     def save_tracker(self, tracker: TournamentTrackerEntity) -> None:
         """Save tournament tracker state."""
         with self._db.transaction() as conn:
@@ -236,3 +262,114 @@ class SQLiteTournamentRepository:
             tracker_data=from_json(row["tracker_data"]) or {},
             last_updated=datetime.fromisoformat(row["last_updated"]),
         )
+
+    def save_tracker_object(self, game_id: str, tracker) -> None:
+        """Save a TournamentTracker object (convenience method).
+
+        Args:
+            game_id: The game identifier
+            tracker: A TournamentTracker object with to_dict() method
+        """
+        entity = TournamentTrackerEntity(
+            game_id=game_id,
+            tracker_data=tracker.to_dict() if hasattr(tracker, 'to_dict') else {},
+            last_updated=datetime.now(),
+        )
+        self.save_tracker(entity)
+
+    def save_result_from_dict(self, game_id: str, result: Dict[str, Any]) -> None:
+        """Save tournament result from a dict (convenience method).
+
+        Args:
+            game_id: The game identifier
+            result: Dict with keys: winner_name, total_hands, biggest_pot,
+                   starting_player_count, started_at, standings
+        """
+        # Parse started_at
+        started_at = result.get('started_at')
+        if isinstance(started_at, str):
+            started_at = datetime.fromisoformat(started_at)
+        elif started_at is None:
+            started_at = datetime.now()
+
+        entity = TournamentResultEntity(
+            game_id=game_id,
+            tournament_type='elimination',
+            starting_players=result.get('starting_player_count', 0),
+            final_standings=result.get('standings', []),
+            total_hands=result.get('total_hands', 0),
+            started_at=started_at,
+            ended_at=datetime.now(),
+        )
+        self.save_result(entity)
+
+        # Also save individual standings
+        for standing_dict in result.get('standings', []):
+            standing = TournamentStandingEntity(
+                game_id=game_id,
+                player_name=standing_dict.get('player_name', ''),
+                final_position=standing_dict.get('finishing_position', 0),
+                final_chips=standing_dict.get('final_chips', 0),
+                hands_played=standing_dict.get('hands_played', 0),
+                eliminations=standing_dict.get('eliminations', 0),
+            )
+            self.save_standing(standing)
+
+    def update_career_stats_from_result(self, player_name: str, result: Dict[str, Any]) -> None:
+        """Update career stats for a player after a tournament.
+
+        Args:
+            player_name: The human player's name
+            result: Dict with tournament result data including standings
+        """
+        # Find the player's standing in this tournament
+        standings = result.get('standings', [])
+        player_standing = next(
+            (s for s in standings if s.get('player_name') == player_name),
+            None
+        )
+
+        if not player_standing:
+            return
+
+        finishing_position = player_standing.get('finishing_position', 0)
+        is_winner = finishing_position == 1
+        is_final_table = finishing_position <= 3
+
+        # Count eliminations by this player
+        eliminations_this_game = sum(
+            1 for s in standings
+            if s.get('eliminated_by') == player_name
+        )
+
+        # Get existing stats
+        existing = self.get_career_stats(player_name)
+
+        if existing:
+            # Update existing stats
+            new_stats = CareerStatsEntity(
+                player_name=player_name,
+                tournaments_played=existing.tournaments_played + 1,
+                total_wins=existing.total_wins + (1 if is_winner else 0),
+                total_final_tables=existing.total_final_tables + (1 if is_final_table else 0),
+                best_finish=min(existing.best_finish, finishing_position) if existing.best_finish > 0 else finishing_position,
+                avg_finish=((existing.avg_finish * existing.tournaments_played) + finishing_position) / (existing.tournaments_played + 1),
+                total_eliminations=existing.total_eliminations + eliminations_this_game,
+                total_hands_played=existing.total_hands_played + result.get('total_hands', 0),
+                last_updated=datetime.now(),
+            )
+        else:
+            # Create new stats
+            new_stats = CareerStatsEntity(
+                player_name=player_name,
+                tournaments_played=1,
+                total_wins=1 if is_winner else 0,
+                total_final_tables=1 if is_final_table else 0,
+                best_finish=finishing_position,
+                avg_finish=float(finishing_position),
+                total_eliminations=eliminations_this_game,
+                total_hands_played=result.get('total_hands', 0),
+                last_updated=datetime.now(),
+            )
+
+        self.save_career_stats(new_stats)

@@ -14,8 +14,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from authlib.integrations.flask_client import OAuth
 
-from poker.persistence import GamePersistence
-from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.repositories.factory import RepositoryFactory
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
@@ -31,12 +29,12 @@ socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
 # Limiter instance - will be initialized with app
 limiter = None
 
-# Persistence instances (legacy - kept for backward compatibility)
-persistence = None
-event_repository = None
-
-# New repository factory (preferred for new code)
+# Repository factory (new architecture)
 repository_factory = None
+
+# Legacy persistence (for backwards compatibility with experiment_routes)
+# TODO: Remove once experiment_routes is migrated to repository pattern
+persistence = None
 
 # Auth manager - will be set after app creation
 auth_manager = None
@@ -111,21 +109,23 @@ def init_limiter(app: Flask) -> Limiter:
     return limiter
 
 
-def init_persistence() -> tuple:
-    """Initialize persistence layer."""
-    global persistence, event_repository, repository_factory
+def init_persistence() -> RepositoryFactory:
+    """Initialize repository factory."""
+    global repository_factory, persistence
 
     db_path = config.DB_PATH
-
-    # Legacy persistence (kept for backward compatibility during migration)
-    persistence = GamePersistence(db_path)
-    event_repository = PressureEventRepository(db_path)
-
-    # New repository factory (preferred for new code)
-    # Note: Does not initialize schema as the existing database already has tables
     repository_factory = RepositoryFactory(db_path, initialize_schema=False)
 
-    return persistence, event_repository
+    # Initialize legacy persistence for backwards compatibility
+    # TODO: Remove once experiment_routes is migrated
+    try:
+        from poker.persistence import GamePersistence
+        persistence = GamePersistence(db_path)
+    except Exception as e:
+        logger.warning(f"Could not initialize legacy persistence (experiment routes may not work): {e}")
+        persistence = None
+
+    return repository_factory
 
 
 def get_repository_factory() -> RepositoryFactory:
@@ -140,8 +140,8 @@ def init_personality_generator() -> PersonalityGenerator:
     """Initialize personality generator and character image service."""
     global personality_generator
 
-    personality_generator = PersonalityGenerator(persistence=persistence)
-    init_character_image_service(personality_generator)
+    personality_generator = PersonalityGenerator(repository_factory=repository_factory)
+    init_character_image_service(personality_generator, repository_factory=repository_factory)
 
     return personality_generator
 
@@ -173,7 +173,7 @@ def init_auth(app: Flask) -> None:
     global auth_manager
 
     from poker.auth import AuthManager
-    auth_manager = AuthManager(app, persistence, oauth)
+    auth_manager = AuthManager(app, repository_factory, oauth)
 
 
 def init_extensions(app: Flask) -> None:

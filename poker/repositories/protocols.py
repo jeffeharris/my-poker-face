@@ -382,6 +382,10 @@ class GameRepositoryProtocol(Protocol):
         """Check if a game exists."""
         ...
 
+    def count_by_owner(self, owner_id: str) -> int:
+        """Count games owned by a specific user."""
+        ...
+
     def save_llm_configs(self, game_id: str, configs: Dict[str, Any]) -> None:
         """Save LLM configurations for a game."""
         ...
