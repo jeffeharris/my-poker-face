@@ -961,7 +961,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           <span>Loading personalities...</span>
         </div>
       ) : (
-        <div className="pm-container">
+        <div className={`pm-container ${embedded ? 'pm-container--embedded' : ''}`}>
           {/* Character Selector Trigger */}
           <button
             type="button"

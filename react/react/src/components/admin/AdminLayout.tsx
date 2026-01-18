@@ -3,6 +3,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowLeft,
+  Menu,
+  X,
 } from 'lucide-react';
 import './AdminLayout.css';
 
@@ -49,11 +51,78 @@ export function AdminLayout({
   onBack,
 }: AdminLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const activeNavItem = navItems.find(item => item.id === activeItem);
 
+  const handleMobileNavChange = (id: string) => {
+    onNavChange(id);
+    setMobileMenuOpen(false);
+  };
+
   return (
     <div className="admin-layout">
+      {/* Mobile Header */}
+      <header className="admin-layout__mobile-header">
+        <button
+          className="admin-layout__mobile-menu-btn"
+          onClick={() => setMobileMenuOpen(true)}
+          type="button"
+          aria-label="Open menu"
+        >
+          <Menu size={24} />
+        </button>
+        <h1 className="admin-layout__mobile-title">
+          {activeNavItem?.label || title}
+        </h1>
+        {onBack && (
+          <button
+            className="admin-layout__mobile-back-btn"
+            onClick={onBack}
+            type="button"
+            aria-label="Go back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+        )}
+      </header>
+
+      {/* Mobile Drawer Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="admin-layout__mobile-overlay"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Mobile Drawer */}
+      <aside className={`admin-layout__mobile-drawer ${mobileMenuOpen ? 'admin-layout__mobile-drawer--open' : ''}`}>
+        <div className="admin-layout__mobile-drawer-header">
+          <h2 className="admin-layout__mobile-drawer-title">{title}</h2>
+          <button
+            className="admin-layout__mobile-close-btn"
+            onClick={() => setMobileMenuOpen(false)}
+            type="button"
+            aria-label="Close menu"
+          >
+            <X size={24} />
+          </button>
+        </div>
+        <nav className="admin-layout__mobile-nav">
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              className={`admin-layout__mobile-nav-item ${activeItem === item.id ? 'admin-layout__mobile-nav-item--active' : ''}`}
+              onClick={() => handleMobileNavChange(item.id)}
+              type="button"
+            >
+              <span className="admin-layout__mobile-nav-icon">{item.icon}</span>
+              <span className="admin-layout__mobile-nav-label">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+      </aside>
+
       {/* Sidebar Navigation */}
       <aside
         className={`admin-layout__sidebar ${sidebarCollapsed ? 'admin-layout__sidebar--collapsed' : ''}`}
