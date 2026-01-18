@@ -19,3 +19,6 @@ export type { UserBadgeProps } from './UserBadge';
 
 export { PageLayout } from './PageLayout';
 export type { PageLayoutProps } from './PageLayout';
+
+export { ResponsiveGameLayout } from './ResponsiveGameLayout';
+export type { ResponsiveGameLayoutProps } from './ResponsiveGameLayout';

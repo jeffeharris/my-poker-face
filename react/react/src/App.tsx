@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
 import { type LucideIcon } from 'lucide-react'
-import { PokerTable } from './components/game/PokerTable'
-import { MobilePokerTable } from './components/mobile'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
@@ -15,7 +13,7 @@ import { PromptPlayground } from './components/debug/PromptPlayground'
 import { LoginForm } from './components/auth/LoginForm'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
-import { BackButton, UserBadge } from './components/shared'
+import { BackButton, UserBadge, ResponsiveGameLayout } from './components/shared'
 import { useAuth } from './hooks/useAuth'
 import { useViewport } from './hooks/useViewport'
 import { config } from './config'
@@ -364,24 +362,16 @@ function App() {
         />
       )}
       {currentView === 'table' && (
-        isMobile ? (
-          <MobilePokerTable
-            gameId={gameId}
-            playerName={playerName}
-            onGameCreated={(newGameId) => setGameId(newGameId)}
-            onBack={() => {
-              setGameId(null);
-              localStorage.removeItem('activePokerGameId');
-              setCurrentView('game-menu');
-            }}
-          />
-        ) : (
-          <PokerTable
-            gameId={gameId}
-            playerName={playerName}
-            onGameCreated={(newGameId) => setGameId(newGameId)}
-          />
-        )
+        <ResponsiveGameLayout
+          gameId={gameId}
+          playerName={playerName}
+          onGameCreated={(newGameId) => setGameId(newGameId)}
+          onBack={() => {
+            setGameId(null);
+            localStorage.removeItem('activePokerGameId');
+            setCurrentView('game-menu');
+          }}
+        />
       )}
       {currentView === 'personalities' && (
         <PersonalityManager onBack={() => setCurrentView('game-menu')} />
@@ -402,72 +392,31 @@ function App() {
 
       {/* Max Games Error Modal */}
       {maxGamesError && (
-        <div className="modal-overlay" style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '20px'
-        }}>
-          <div className="modal-content" style={{
-            background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '16px',
-            padding: '32px',
-            maxWidth: '400px',
-            width: '100%',
-            textAlign: 'center',
-            color: 'white'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+        <div className="max-games-modal">
+          <div className="max-games-modal__content">
+            <div className="max-games-modal__icon">
               <span role="img" aria-label="warning">&#x26A0;&#xFE0F;</span>
             </div>
-            <h2 style={{ fontSize: '24px', marginBottom: '12px', color: '#f1f5f9' }}>
+            <h2 className="max-games-modal__title">
               Game Limit Reached
             </h2>
-            <p style={{ color: '#94a3b8', marginBottom: '24px', lineHeight: '1.6' }}>
+            <p className="max-games-modal__message">
               You have reached the maximum of {maxGamesError.maxGames} saved game{maxGamesError.maxGames > 1 ? 's' : ''}.
               Would you like to manage your saved games to make room for a new one?
             </p>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <div className="max-games-modal__actions">
               <button
+                className="max-games-modal__btn max-games-modal__btn--primary"
                 onClick={() => {
                   setMaxGamesError(null);
                   setCurrentView('selector');
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '12px 24px',
-                  fontSize: '16px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'transform 0.2s, box-shadow 0.2s'
                 }}
               >
                 Manage Games
               </button>
               <button
+                className="max-games-modal__btn max-games-modal__btn--secondary"
                 onClick={() => setMaxGamesError(null)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  color: '#94a3b8',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  padding: '12px 24px',
-                  fontSize: '16px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'transform 0.2s, box-shadow 0.2s'
-                }}
               >
                 Cancel
               </button>

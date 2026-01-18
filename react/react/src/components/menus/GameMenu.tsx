@@ -1,32 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, Microscope, FlaskConical, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
 import { config } from '../../config';
 import { useCareerStats } from '../../hooks/useCareerStats';
+import { useViewport } from '../../hooks/useViewport';
 import './GameMenu.css';
-
-// ============================================
-// Hooks
-// ============================================
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.matchMedia(query).matches;
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
-  }, [query]);
-
-  return matches;
-}
 
 // ============================================
 // Stats Sidebar Component
@@ -205,7 +183,7 @@ export function GameMenu({
   savedGamesCount
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const { isDesktop } = useViewport();
 
   return (
     <PageLayout variant="centered" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'}>
