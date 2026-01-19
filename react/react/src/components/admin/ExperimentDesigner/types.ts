@@ -246,6 +246,8 @@ export interface DecisionStats {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** Human-readable diff of config changes (only for assistant messages) */
+  configDiff?: string;
 }
 
 export interface ChatResponse {
@@ -253,6 +255,8 @@ export interface ChatResponse {
   response: string;
   session_id: string;
   config_updates: Partial<ExperimentConfig> | null;
+  /** Human-readable diff of what changed in the config */
+  config_diff?: string | null;
   merged_config: ExperimentConfig;
   config_complete: boolean;
   config_versions?: ConfigVersion[];

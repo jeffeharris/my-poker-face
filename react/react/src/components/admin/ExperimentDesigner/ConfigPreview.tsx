@@ -37,6 +37,8 @@ interface ConfigPreviewProps {
   config: ExperimentConfig;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
   onLaunch: () => void;
+  /** Session ID for the design chat, passed to backend to save design history */
+  sessionId?: string | null;
   configVersions?: ConfigVersion[];
   currentVersionIndex?: number;
   onVersionChange?: (index: number) => void;
@@ -58,7 +60,7 @@ const PROMPT_CONFIG_LABELS: Record<keyof PromptConfig, string> = {
   memory_keep_exchanges: 'Memory Exchanges',
 };
 
-export function ConfigPreview({ config, onConfigUpdate, onLaunch, configVersions, currentVersionIndex, onVersionChange }: ConfigPreviewProps) {
+export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, configVersions, currentVersionIndex, onVersionChange }: ConfigPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -318,7 +320,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, configVersions
       const response = await fetch(`${appConfig.API_URL}/api/experiments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({
+          config,
+          session_id: sessionId,  // Pass design chat session for history preservation
+        }),
       });
 
       const data = await response.json();

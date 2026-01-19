@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict
 from typing import Dict, Any, Optional, List
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from core.llm import LLMClient, CallType
 from poker.persistence import GamePersistence
@@ -705,8 +705,11 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
 
         # Merge updates into current config
         merged_config = {**DEFAULT_EXPERIMENT_CONFIG, **current_config}
+        config_diff_for_response = None
         if config_updates:
             merged_config.update(config_updates)
+            # Compute diff between current config and merged config (what the AI changed)
+            config_diff_for_response = _compute_config_diff(current_config, merged_config)
 
         # Update session history and last_config
         history.append({"role": "user", "content": user_message_content})
@@ -727,11 +730,33 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
             'failure_context': session_data.get('failure_context'),
         }
 
+        # Persist session to database for resume functionality
+        owner_id = session.get('owner_id', 'anonymous')
+        # Convert history to frontend-compatible format (with configDiff)
+        ui_messages = []
+        for msg in history:
+            ui_msg = {'role': msg['role'], 'content': msg['content']}
+            # For assistant messages, extract and clean the response
+            if msg['role'] == 'assistant':
+                # Check if this message had config updates by looking at surrounding context
+                # For now, just store content - configDiff is added via response
+                ui_msg['content'] = clean_response_text(msg['content'])
+            ui_messages.append(ui_msg)
+
+        persistence.save_chat_session(
+            session_id=session_id,
+            owner_id=owner_id,
+            messages=ui_messages,
+            config_snapshot=merged_config,
+            config_versions=config_versions,
+        )
+
         return jsonify({
             'success': True,
             'response': display_text,
             'session_id': session_id,
             'config_updates': config_updates,
+            'config_diff': config_diff_for_response,  # Human-readable diff of AI changes
             'merged_config': merged_config,
             'config_complete': is_config_complete(merged_config),
             'config_versions': config_versions,
@@ -740,6 +765,264 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
 
     except Exception as e:
         logger.error(f"Error in experiment chat: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/chat/latest', methods=['GET'])
+def get_latest_chat_session():
+    """Get the most recent unfinished chat session for the current user.
+
+    Returns the session data if one exists, allowing users to resume their work.
+    """
+    try:
+        owner_id = session.get('owner_id', 'anonymous')
+        session_data = persistence.get_latest_chat_session(owner_id)
+
+        if session_data:
+            return jsonify({
+                'success': True,
+                'session': {
+                    'session_id': session_data['session_id'],
+                    'messages': session_data['messages'],
+                    'config': session_data['config'],
+                    'config_versions': session_data['config_versions'],
+                    'updated_at': session_data['updated_at'],
+                },
+            })
+
+        return jsonify({
+            'success': True,
+            'session': None,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting latest chat session: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/chat/archive', methods=['POST'])
+def archive_chat_session():
+    """Archive a chat session so it won't be returned as the latest session.
+
+    Called when the user chooses to start fresh instead of resuming.
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+
+        persistence.archive_chat_session(session_id)
+
+        return jsonify({
+            'success': True,
+            'archived': True,
+        })
+
+    except Exception as e:
+        logger.error(f"Error archiving chat session: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+def _build_experiment_assistant_context(experiment: dict) -> str:
+    """Build context for the experiment-scoped assistant.
+
+    Includes design history, experiment config, and results if available.
+    """
+    context_parts = []
+
+    # 1. Design conversation (how it was conceived)
+    design_chat = persistence.get_experiment_design_chat(experiment['id'])
+    if design_chat:
+        context_parts.append("## Original Design Conversation")
+        for msg in design_chat:
+            role = "User" if msg.get('role') == 'user' else "Assistant"
+            context_parts.append(f"{role}: {msg.get('content', '')[:500]}")  # Truncate long messages
+        context_parts.append("")
+
+    # 2. Experiment details (config, status)
+    context_parts.append("## Experiment Details")
+    context_parts.append(f"Name: {experiment.get('name')}")
+    context_parts.append(f"Description: {experiment.get('description', 'Not provided')}")
+    context_parts.append(f"Hypothesis: {experiment.get('hypothesis', 'Not provided')}")
+    context_parts.append(f"Status: {experiment.get('status')}")
+    context_parts.append(f"Tags: {', '.join(experiment.get('tags', []))}")
+    context_parts.append("")
+
+    # 3. Config summary (not full JSON, just key parts)
+    exp_config = experiment.get('config', {})
+    context_parts.append("## Configuration")
+    context_parts.append(f"Tournaments: {exp_config.get('num_tournaments', 1)}")
+    context_parts.append(f"Hands per tournament: {exp_config.get('hands_per_tournament', 100)}")
+    context_parts.append(f"Players: {exp_config.get('num_players', 4)}")
+    context_parts.append(f"Model: {exp_config.get('model', 'default')} ({exp_config.get('provider', 'openai')})")
+    if exp_config.get('control'):
+        context_parts.append(f"A/B Testing: Yes (control + {len(exp_config.get('variants', []))} variants)")
+    context_parts.append("")
+
+    # 4. Results summary if completed
+    summary = experiment.get('summary')
+    if summary:
+        context_parts.append("## Results Summary")
+        context_parts.append(f"Total tournaments: {summary.get('tournaments', 0)}")
+        context_parts.append(f"Total hands: {summary.get('total_hands', 0)}")
+        context_parts.append(f"Total API calls: {summary.get('total_api_calls', 0)}")
+        context_parts.append(f"Duration: {summary.get('total_duration_seconds', 0):.1f} seconds")
+
+        winners = summary.get('winners', {})
+        if winners:
+            context_parts.append("Winners:")
+            for name, count in sorted(winners.items(), key=lambda x: -x[1]):
+                context_parts.append(f"  - {name}: {count} wins")
+
+        decision_quality = summary.get('decision_quality')
+        if decision_quality:
+            context_parts.append(f"Decision quality: {decision_quality.get('correct_pct', 0):.1f}% correct")
+            context_parts.append(f"Mistakes: {decision_quality.get('mistakes', 0)} ({decision_quality.get('mistake_pct', 0):.1f}%)")
+
+        # Per-variant results for A/B testing
+        variants = summary.get('variants')
+        if variants:
+            context_parts.append("")
+            context_parts.append("### Results by Variant")
+            for variant_name, variant_stats in variants.items():
+                context_parts.append(f"\n**{variant_name}**")
+                context_parts.append(f"  Tournaments: {variant_stats.get('tournaments', 0)}")
+                context_parts.append(f"  Hands: {variant_stats.get('total_hands', 0)}")
+                vq = variant_stats.get('decision_quality', {})
+                if vq:
+                    context_parts.append(f"  Decision quality: {vq.get('correct_pct', 0):.1f}% correct")
+
+        # Failed tournaments if any
+        failed = summary.get('failed_tournaments', [])
+        if failed:
+            context_parts.append(f"\nFailed tournaments: {len(failed)}")
+            for ft in failed[:3]:  # Show first 3
+                context_parts.append(f"  - Tournament {ft.get('tournament_number')}: {ft.get('error_type')} - {ft.get('error', '')[:100]}")
+
+    return "\n".join(context_parts)
+
+
+# In-memory storage for experiment assistant sessions
+_experiment_assistant_sessions: Dict[str, dict] = {}
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/chat', methods=['POST'])
+def experiment_assistant_chat(experiment_id: int):
+    """Chat with an experiment-scoped assistant that has context about the experiment.
+
+    The assistant knows the design history, configuration, and results.
+    """
+    try:
+        data = request.get_json()
+        message = data.get('message', '').strip()
+
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
+
+        # Get experiment details
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            return jsonify({'error': 'Experiment not found'}), 404
+
+        # Get or create session
+        session_key = f"exp_assistant_{experiment_id}"
+        if session_key not in _experiment_assistant_sessions:
+            _experiment_assistant_sessions[session_key] = {
+                'history': [],
+            }
+
+        session_data = _experiment_assistant_sessions[session_key]
+        history = session_data['history']
+
+        # Build context for the assistant
+        experiment_context = _build_experiment_assistant_context(experiment)
+
+        # Build system prompt
+        system_prompt = f"""You are an AI assistant helping analyze a poker AI experiment. You have full context about this experiment's design, configuration, and results.
+
+{experiment_context}
+
+Help the user understand the experiment results, answer questions about the configuration, and provide insights. Be concise but thorough. If the user asks about data you don't have, say so clearly.
+
+You can help with:
+- Explaining why certain configurations were chosen
+- Analyzing the results and what they mean
+- Comparing variant performance in A/B tests
+- Suggesting follow-up experiments
+- Identifying patterns or anomalies in the data"""
+
+        # Build messages for LLM
+        llm_messages = [{"role": "system", "content": system_prompt}]
+        for msg in history:
+            llm_messages.append({"role": msg["role"], "content": msg["content"]})
+        llm_messages.append({"role": "user", "content": message})
+
+        # Call LLM
+        client = LLMClient()
+        response = client.complete(
+            messages=llm_messages,
+            call_type=CallType.CHAT_SUGGESTION,
+            game_id=None,
+        )
+
+        response_text = response.content
+
+        # Update history
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": response_text})
+        _experiment_assistant_sessions[session_key]['history'] = history
+
+        # Persist to database
+        persistence.save_experiment_assistant_chat(experiment_id, history)
+
+        return jsonify({
+            'success': True,
+            'response': response_text,
+        })
+
+    except Exception as e:
+        logger.error(f"Error in experiment assistant chat: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/chat/history', methods=['GET'])
+def get_experiment_chat_history(experiment_id: int):
+    """Get the chat history for an experiment assistant session."""
+    try:
+        # Try to get from database
+        history = persistence.get_experiment_assistant_chat(experiment_id)
+
+        return jsonify({
+            'success': True,
+            'history': history or [],
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting experiment chat history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/chat/clear', methods=['POST'])
+def clear_experiment_chat_history(experiment_id: int):
+    """Clear the chat history for an experiment assistant session."""
+    try:
+        # Clear from memory
+        session_key = f"exp_assistant_{experiment_id}"
+        if session_key in _experiment_assistant_sessions:
+            del _experiment_assistant_sessions[session_key]
+
+        # Clear from database
+        persistence.save_experiment_assistant_chat(experiment_id, [])
+
+        return jsonify({
+            'success': True,
+            'cleared': True,
+        })
+
+    except Exception as e:
+        logger.error(f"Error clearing experiment chat history: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -953,6 +1236,7 @@ def create_experiment():
     try:
         data = request.get_json()
         config_data = data.get('config', {})
+        design_session_id = data.get('session_id')  # Chat session ID for design history
 
         # Validate first
         if not config_data.get('name'):
@@ -965,6 +1249,20 @@ def create_experiment():
 
         # Create experiment record
         experiment_id = persistence.create_experiment(config_data)
+
+        # Save design chat history if session_id provided
+        if design_session_id and design_session_id in _chat_sessions:
+            session_data = _chat_sessions[design_session_id]
+            # Convert internal history format to storage format
+            design_chat = []
+            for msg in session_data.get('history', []):
+                design_chat.append({
+                    'role': msg.get('role'),
+                    'content': clean_response_text(msg.get('content', '')),
+                })
+            persistence.save_experiment_design_chat(experiment_id, design_chat)
+            # Archive the design session so it won't be returned as latest
+            persistence.archive_chat_session(design_session_id)
 
         # Launch in background
         thread = threading.Thread(

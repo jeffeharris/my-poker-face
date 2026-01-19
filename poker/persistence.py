@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 # v43: Add experiments and experiment_games tables for experiment tracking
 # v44: Add app_settings table for dynamic configuration
 # v45: Add users table for Google OAuth authentication
-SCHEMA_VERSION = 46
+# v46: (reserved)
+# v47: Add experiment_chat_sessions for design chat persistence
+#      Add design_chat_json and assistant_chat_json columns to experiments
+SCHEMA_VERSION = 47
 
 
 @dataclass
@@ -634,7 +637,9 @@ class GamePersistence:
                     status TEXT DEFAULT 'running',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
-                    summary_json TEXT
+                    summary_json TEXT,
+                    design_chat_json TEXT,
+                    assistant_chat_json TEXT
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
@@ -658,7 +663,23 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
 
-            # 26. App settings (v44) - Dynamic configuration
+            # 26. Experiment chat sessions (v47) - Persists design chat history
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    messages_json TEXT NOT NULL,
+                    config_snapshot_json TEXT NOT NULL,
+                    config_versions_json TEXT,
+                    is_archived BOOLEAN DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+
+            # 27. App settings (v44) - Dynamic configuration
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
@@ -751,6 +772,7 @@ class GamePersistence:
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
+            47: (self._migrate_v47_add_chat_sessions, "Add experiment_chat_sessions table and chat columns to experiments"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1951,6 +1973,42 @@ class GamePersistence:
             logger.info("error_message column already exists in api_usage table")
 
         logger.info("Migration v46 complete: error_message column added")
+
+    def _migrate_v47_add_chat_sessions(self, conn: sqlite3.Connection) -> None:
+        """Migration v47: Add experiment_chat_sessions table and chat columns to experiments.
+
+        Creates the experiment_chat_sessions table for persisting design chat history,
+        and adds design_chat_json and assistant_chat_json columns to experiments.
+        """
+        # Create experiment_chat_sessions table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                messages_json TEXT NOT NULL,
+                config_snapshot_json TEXT NOT NULL,
+                config_versions_json TEXT,
+                is_archived BOOLEAN DEFAULT 0
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+
+        # Add chat columns to experiments table
+        cursor = conn.execute("PRAGMA table_info(experiments)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'design_chat_json' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN design_chat_json TEXT")
+            logger.info("Added design_chat_json column to experiments table")
+
+        if 'assistant_chat_json' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN assistant_chat_json TEXT")
+            logger.info("Added assistant_chat_json column to experiments table")
+
+        logger.info("Migration v47 complete: Added experiment_chat_sessions table and chat columns")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -5016,6 +5074,181 @@ class GamePersistence:
                 })
 
             return incomplete
+
+    # ==================== Experiment Chat Session Methods ====================
+
+    def save_chat_session(
+        self,
+        session_id: str,
+        owner_id: str,
+        messages: List[Dict],
+        config_snapshot: Dict,
+        config_versions: Optional[List[Dict]] = None
+    ) -> None:
+        """Save or update a chat session.
+
+        Args:
+            session_id: Unique session identifier
+            owner_id: User/owner identifier
+            messages: List of chat messages [{role, content, configDiff?}]
+            config_snapshot: Current config state
+            config_versions: List of config version snapshots
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO experiment_chat_sessions (id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    messages_json = excluded.messages_json,
+                    config_snapshot_json = excluded.config_snapshot_json,
+                    config_versions_json = excluded.config_versions_json,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                session_id,
+                owner_id,
+                json.dumps(messages),
+                json.dumps(config_snapshot),
+                json.dumps(config_versions) if config_versions else None,
+            ))
+            conn.commit()
+            logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
+
+    def get_latest_chat_session(self, owner_id: str) -> Optional[Dict]:
+        """Get the most recent non-archived chat session for an owner.
+
+        Args:
+            owner_id: User/owner identifier
+
+        Returns:
+            Dict with session data or None if no session exists:
+            {
+                'session_id': str,
+                'messages': List[Dict],
+                'config': Dict,
+                'config_versions': List[Dict] | None,
+                'updated_at': str
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                FROM experiment_chat_sessions
+                WHERE owner_id = ? AND is_archived = 0
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """, (owner_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'session_id': row['id'],
+                'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
+                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
+                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'updated_at': row['updated_at'],
+            }
+
+    def archive_chat_session(self, session_id: str) -> None:
+        """Archive a chat session so it won't be returned by get_latest_chat_session.
+
+        Args:
+            session_id: The session ID to archive
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiment_chat_sessions SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,)
+            )
+            conn.commit()
+            logger.debug(f"Archived chat session {session_id}")
+
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete a chat session entirely.
+
+        Args:
+            session_id: The session ID to delete
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM experiment_chat_sessions WHERE id = ?", (session_id,))
+            conn.commit()
+            logger.debug(f"Deleted chat session {session_id}")
+
+    # ==================== Experiment Chat Storage Methods ====================
+
+    def save_experiment_design_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
+        """Store the design chat history with an experiment.
+
+        Called when an experiment is created to preserve the conversation that led to its design.
+
+        Args:
+            experiment_id: The experiment ID
+            chat_history: List of chat messages from the design session
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET design_chat_json = ? WHERE id = ?",
+                (json.dumps(chat_history), experiment_id)
+            )
+            conn.commit()
+            logger.info(f"Saved design chat ({len(chat_history)} messages) to experiment {experiment_id}")
+
+    def get_experiment_design_chat(self, experiment_id: int) -> Optional[List[Dict]]:
+        """Get the design chat history for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of chat messages or None if no design chat stored
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT design_chat_json FROM experiments WHERE id = ?",
+                (experiment_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
+
+    def save_experiment_assistant_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
+        """Store the ongoing assistant chat history for an experiment.
+
+        Used for the experiment-scoped assistant that can query results and answer questions.
+
+        Args:
+            experiment_id: The experiment ID
+            chat_history: List of chat messages from the assistant session
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET assistant_chat_json = ? WHERE id = ?",
+                (json.dumps(chat_history), experiment_id)
+            )
+            conn.commit()
+            logger.debug(f"Saved assistant chat ({len(chat_history)} messages) to experiment {experiment_id}")
+
+    def get_experiment_assistant_chat(self, experiment_id: int) -> Optional[List[Dict]]:
+        """Get the assistant chat history for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of chat messages or None if no assistant chat stored
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT assistant_chat_json FROM experiments WHERE id = ?",
+                (experiment_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
 
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.

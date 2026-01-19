@@ -21,6 +21,9 @@ import {
   Wand2,
   ChevronDown,
   ChevronRight,
+  MessageSquare,
+  X,
+  Send,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
@@ -100,6 +103,12 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
   const [pauseRequested, setPauseRequested] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [failureDetailsExpanded, setFailureDetailsExpanded] = useState(true);
+
+  // Experiment Assistant Chat state
+  const [showAssistantChat, setShowAssistantChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   const fetchExperiment = useCallback(async () => {
     try {
@@ -210,6 +219,60 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
     }
   };
 
+  // Load assistant chat history when opening the panel
+  const handleOpenAssistantChat = async () => {
+    setShowAssistantChat(true);
+    if (chatMessages.length === 0) {
+      try {
+        const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/chat/history`);
+        const data = await response.json();
+        if (data.success && data.history) {
+          setChatMessages(data.history);
+        }
+      } catch (err) {
+        console.error('Failed to load chat history:', err);
+      }
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+
+    const message = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: message }]);
+    setChatLoading(true);
+
+    try {
+      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+      } else {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error}` }]);
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error: Failed to connect to server' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleClearChatHistory = async () => {
+    try {
+      await fetch(`${config.API_URL}/api/experiments/${experimentId}/chat/clear`, {
+        method: 'POST',
+      });
+      setChatMessages([]);
+    } catch (err) {
+      console.error('Failed to clear chat history:', err);
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${Math.round(seconds)}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
@@ -276,6 +339,15 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
             title="Refresh"
           >
             <RefreshCw size={16} />
+          </button>
+          <button
+            className="experiment-detail__chat-btn"
+            onClick={handleOpenAssistantChat}
+            type="button"
+            title="Chat with Assistant"
+          >
+            <MessageSquare size={16} />
+            Ask Assistant
           </button>
           {experiment.status === 'running' && (
             <>
@@ -812,6 +884,88 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
           experimentName={experiment.name}
           onClose={() => setShowMonitor(false)}
         />
+      )}
+
+      {/* Experiment Assistant Chat Panel */}
+      {showAssistantChat && (
+        <div className="experiment-detail__assistant-overlay">
+          <div className="experiment-detail__assistant-panel">
+            <div className="experiment-detail__assistant-header">
+              <h3>
+                <MessageSquare size={18} />
+                Experiment Assistant
+              </h3>
+              <div className="experiment-detail__assistant-header-actions">
+                {chatMessages.length > 0 && (
+                  <button
+                    type="button"
+                    className="experiment-detail__assistant-clear-btn"
+                    onClick={handleClearChatHistory}
+                    title="Clear chat history"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="experiment-detail__assistant-close-btn"
+                  onClick={() => setShowAssistantChat(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="experiment-detail__assistant-messages">
+              {chatMessages.length === 0 && (
+                <div className="experiment-detail__assistant-welcome">
+                  <p>Ask me anything about this experiment:</p>
+                  <ul>
+                    <li>Why were certain configurations chosen?</li>
+                    <li>What do the results mean?</li>
+                    <li>How do the variants compare?</li>
+                    <li>What follow-up experiments should I run?</li>
+                  </ul>
+                </div>
+              )}
+              {chatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`experiment-detail__assistant-message experiment-detail__assistant-message--${msg.role}`}
+                >
+                  {msg.content.split('\n').map((line, i) => (
+                    <p key={i}>{line || '\u00A0'}</p>
+                  ))}
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="experiment-detail__assistant-message experiment-detail__assistant-message--assistant">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Thinking...</span>
+                </div>
+              )}
+            </div>
+            <form
+              className="experiment-detail__assistant-input-area"
+              onSubmit={(e) => { e.preventDefault(); handleSendChatMessage(); }}
+            >
+              <input
+                type="text"
+                className="experiment-detail__assistant-input"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask about this experiment..."
+                disabled={chatLoading}
+              />
+              <button
+                type="submit"
+                className="experiment-detail__assistant-send-btn"
+                disabled={!chatInput.trim() || chatLoading}
+              >
+                <Send size={16} />
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

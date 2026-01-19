@@ -133,6 +133,46 @@
   margin-bottom: 0;
 }
 
+/* Config Diff Display */
+.experiment-chat__config-diff {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.experiment-chat__config-diff-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #10b981;
+  margin-bottom: 0.5rem;
+}
+
+.experiment-chat__config-diff-content {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #a3a3a3;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Diff line coloring */
+.experiment-chat__config-diff-content {
+  /* Lines starting with + are green (additions) */
+  /* Lines starting with - are red (removals) */
+  /* Lines starting with ~ are yellow (changes) */
+}
+
 .experiment-chat__typing {
   display: flex;
   align-items: center;
@@ -2084,4 +2124,340 @@
   font-weight: 500;
   color: #60a5fa;
   white-space: nowrap;
+}
+
+/* Resume Session Modal */
+.experiment-designer__resume-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 1rem;
+}
+
+.experiment-designer__resume-modal {
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.experiment-designer__resume-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1.5rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
+  border-radius: 50%;
+  color: #60a5fa;
+}
+
+.experiment-designer__resume-title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.experiment-designer__resume-text {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+  color: #a3a3a3;
+  line-height: 1.5;
+}
+
+.experiment-designer__resume-config {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: #a3a3a3;
+}
+
+.experiment-designer__resume-messages {
+  margin: 0 0 1.5rem;
+  font-size: 0.8125rem;
+  color: #737373;
+}
+
+.experiment-designer__resume-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.experiment-designer__resume-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-designer__resume-btn--continue {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+}
+
+.experiment-designer__resume-btn--continue:hover {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.experiment-designer__resume-btn--fresh {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.experiment-designer__resume-btn--fresh:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Experiment Detail Chat Button */
+.experiment-detail__chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #60a5fa;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__chat-btn:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3));
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Experiment Assistant Chat Panel */
+.experiment-detail__assistant-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 100;
+}
+
+.experiment-detail__assistant-panel {
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  background: #1e1e1e;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  animation: slideInRight 0.2s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.experiment-detail__assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.experiment-detail__assistant-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.experiment-detail__assistant-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.experiment-detail__assistant-clear-btn {
+  padding: 0.375rem 0.75rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #a3a3a3;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__assistant-clear-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+}
+
+.experiment-detail__assistant-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #a3a3a3;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__assistant-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+}
+
+.experiment-detail__assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.experiment-detail__assistant-welcome {
+  padding: 1.5rem;
+  text-align: center;
+  color: #737373;
+}
+
+.experiment-detail__assistant-welcome p {
+  margin: 0 0 1rem;
+  font-size: 0.9375rem;
+  color: #a3a3a3;
+}
+
+.experiment-detail__assistant-welcome ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.experiment-detail__assistant-welcome li {
+  padding: 0.5rem 0;
+  padding-left: 1.5rem;
+  position: relative;
+  font-size: 0.875rem;
+}
+
+.experiment-detail__assistant-welcome li::before {
+  content: '•';
+  position: absolute;
+  left: 0.5rem;
+  color: #60a5fa;
+}
+
+.experiment-detail__assistant-message {
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.experiment-detail__assistant-message p {
+  margin: 0;
+}
+
+.experiment-detail__assistant-message p + p {
+  margin-top: 0.5rem;
+}
+
+.experiment-detail__assistant-message--user {
+  background: rgba(59, 130, 246, 0.2);
+  color: #e5e5e5;
+  margin-left: 2rem;
+}
+
+.experiment-detail__assistant-message--assistant {
+  background: rgba(255, 255, 255, 0.05);
+  color: #d4d4d4;
+  margin-right: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.experiment-detail__assistant-input-area {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.experiment-detail__assistant-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #e5e5e5;
+  font-size: 0.875rem;
+}
+
+.experiment-detail__assistant-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.experiment-detail__assistant-input::placeholder {
+  color: #737373;
+}
+
+.experiment-detail__assistant-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__assistant-send-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  transform: translateY(-1px);
+}
+
+.experiment-detail__assistant-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
