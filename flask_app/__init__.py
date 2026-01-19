@@ -13,9 +13,15 @@ from . import extensions
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Quiet noisy third-party loggers
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
+logging.getLogger("socketio").setLevel(logging.WARNING)
+logging.getLogger("engineio").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 

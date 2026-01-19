@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from typing import List, Tuple, Optional
@@ -5,6 +6,8 @@ from typing import List, Tuple, Optional
 from .poker_game import PokerGameState, setup_hand, set_betting_round_start_player, reset_player_action_flags, \
     are_pot_contributions_valid, deal_community_cards, determine_winner, reset_game_state_for_new_hand, \
     award_pot_winnings
+
+logger = logging.getLogger(__name__)
 
 
 class PokerPhase(Enum):
@@ -129,7 +132,7 @@ def get_next_phase(state: ImmutableStateMachine) -> PokerPhase:
         }
         # Handle unexpected card counts (corrupted state) - default to HAND_OVER to reset
         if num_cards_dealt not in num_cards_dealt_to_next_phase:
-            print(f"Warning: Unexpected community card count: {num_cards_dealt}, resetting to HAND_OVER")
+            logger.warning(f"[RESTORE] Unexpected community card count: {num_cards_dealt}, resetting to HAND_OVER")
             return PokerPhase.HAND_OVER
         return num_cards_dealt_to_next_phase[num_cards_dealt]
     

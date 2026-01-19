@@ -1,4 +1,5 @@
 import json
+import logging
 from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
 from random import shuffle
@@ -7,6 +8,8 @@ from typing import Tuple, Mapping, List, Optional, Dict
 from core.card import Card
 from .hand_evaluator import HandEvaluator, rank_to_display
 from .utils import obj_to_dict
+
+logger = logging.getLogger(__name__)
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
@@ -781,7 +784,7 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         'hand_rank': best_overall_hand['hand_rank']
     }
 
-    print(winner_info)
+    logger.debug(f"[HAND_END] {winner_info}")
     return winner_info
 
 

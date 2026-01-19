@@ -78,11 +78,12 @@ class TournamentPausedException(Exception):
         super().__init__(f"{message} at hand {hand_number}")
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Configure logging (only if not already configured, e.g., when imported)
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
 logger = logging.getLogger(__name__)
 
 

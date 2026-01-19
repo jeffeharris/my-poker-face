@@ -2025,7 +2025,7 @@ class GamePersistence:
                     phase_value = int(phase_value)
                 phase = PokerPhase(phase_value)
             except (ValueError, KeyError):
-                print(f"Warning: Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
+                logger.warning(f"[RESTORE] Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
