@@ -78,6 +78,11 @@ export interface ExperimentConfig {
   target_hands?: number | null;
   /** If true, reset all stacks when one player is eliminated (default false) */
   reset_on_elimination?: boolean;
+  // Parallel execution settings
+  /** Number of tournaments to run in parallel (default 1) */
+  parallel_tournaments?: number;
+  /** Delay in seconds between starting parallel tournaments (default 0) */
+  stagger_start_delay?: number;
 }
 
 export interface ExperimentSummary {
@@ -269,9 +274,9 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   tags: [],
   capture_prompts: true,
   num_tournaments: 1,
-  max_hands_per_tournament: 100,
+  max_hands_per_tournament: 10,
   num_players: 4,
-  starting_stack: 10000,
+  starting_stack: 2000,
   big_blind: 100,
   model: 'gpt-5-nano',
   provider: 'openai',
@@ -283,6 +288,8 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   variants: null,
   target_hands: null,
   reset_on_elimination: false,
+  parallel_tournaments: 1,
+  stagger_start_delay: 0,
 };
 
 export const DEFAULT_PROMPT_CONFIG: PromptConfig = {

@@ -1,8 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical } from 'lucide-react';
+import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X } from 'lucide-react';
 import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
+
+// Number input field defaults for when blur occurs with empty value
+const NUMBER_FIELD_DEFAULTS: Record<string, number> = {
+  num_tournaments: 1,
+  max_hands_per_tournament: 10,
+  num_players: 4,
+  starting_stack: 2000,
+  big_blind: 100,
+  target_hands: 10,
+  parallel_tournaments: 1,
+  stagger_start_delay: 2,
+};
 
 interface ValidationResult {
   valid: boolean;
@@ -53,8 +65,11 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
   const [launching, setLaunching] = useState(false);
   const [promptConfigExpanded, setPromptConfigExpanded] = useState(false);
   const [abTestingExpanded, setAbTestingExpanded] = useState(false);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providersLoading, setProvidersLoading] = useState(true);
+  const [availablePersonalities, setAvailablePersonalities] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
 
   // Fetch available providers and models on mount
   useEffect(() => {
@@ -81,6 +96,24 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
       }
     };
     fetchProviders();
+  }, []);
+
+  // Fetch available personalities on mount
+  useEffect(() => {
+    const fetchPersonalities = async () => {
+      try {
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/personalities`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+        if (data.success && data.personalities) {
+          setAvailablePersonalities(data.personalities);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch personalities:', err);
+      }
+    };
+    fetchPersonalities();
   }, []);
 
   // Helper to get models for a specific provider
@@ -140,6 +173,88 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
   const handleFieldChange = (field: keyof ExperimentConfig, value: unknown) => {
     onConfigUpdate({ [field]: value });
+  };
+
+  // Handle number input change - allows empty string while typing
+  const handleNumberChange = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '') {
+      // Allow empty temporarily - will be fixed on blur
+      onConfigUpdate({ [field]: '' as unknown as number });
+    } else {
+      const parsed = parseInt(value);
+      if (!isNaN(parsed)) {
+        onConfigUpdate({ [field]: parsed });
+      }
+    }
+  };
+
+  // Handle number input blur - apply default if empty
+  const handleNumberBlur = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '' || isNaN(parseInt(value))) {
+      const defaultVal = NUMBER_FIELD_DEFAULTS[field] ?? 1;
+      onConfigUpdate({ [field]: defaultVal });
+    }
+  };
+
+  // Handle float input change (for stagger_start_delay)
+  const handleFloatChange = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '') {
+      onConfigUpdate({ [field]: '' as unknown as number });
+    } else {
+      const parsed = parseFloat(value);
+      if (!isNaN(parsed)) {
+        onConfigUpdate({ [field]: parsed });
+      }
+    }
+  };
+
+  const handleFloatBlur = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '' || isNaN(parseFloat(value))) {
+      const defaultVal = NUMBER_FIELD_DEFAULTS[field] ?? 0;
+      onConfigUpdate({ [field]: defaultVal });
+    }
+  };
+
+  // Tag management
+  const handleAddTag = () => {
+    const tag = tagInput.trim().toLowerCase().replace(/\s+/g, '_');
+    if (tag && !config.tags.includes(tag)) {
+      onConfigUpdate({ tags: [...config.tags, tag] });
+    }
+    setTagInput('');
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    onConfigUpdate({ tags: config.tags.filter(t => t !== tagToRemove) });
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddTag();
+    }
+  };
+
+  // Personality management
+  const handlePersonalityToggle = (personality: string) => {
+    const current = config.personalities || [];
+    if (current.includes(personality)) {
+      const updated = current.filter(p => p !== personality);
+      onConfigUpdate({ personalities: updated.length > 0 ? updated : null });
+    } else {
+      onConfigUpdate({ personalities: [...current, personality] });
+    }
+  };
+
+  // Toggle between tournament-based and hand-based mode
+  const isHandBasedMode = config.target_hands !== null && config.target_hands !== undefined;
+
+  const handleModeToggle = (useHandBased: boolean) => {
+    if (useHandBased) {
+      onConfigUpdate({ target_hands: 10, num_tournaments: 1 });
+    } else {
+      onConfigUpdate({ target_hands: null });
+    }
   };
 
   const handlePromptConfigToggle = (field: keyof PromptConfig) => {
@@ -308,7 +423,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     type="number"
                     className="config-preview__input config-preview__input--small"
                     value={config.num_tournaments}
-                    onChange={(e) => handleFieldChange('num_tournaments', parseInt(e.target.value) || 1)}
+                    onChange={(e) => handleNumberChange('num_tournaments', e.target.value)}
+                    onBlur={(e) => handleNumberBlur('num_tournaments', e.target.value)}
                     min={1}
                     max={20}
                   />
@@ -320,7 +436,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     type="number"
                     className="config-preview__input config-preview__input--small"
                     value={config.max_hands_per_tournament}
-                    onChange={(e) => handleFieldChange('max_hands_per_tournament', parseInt(e.target.value) || 100)}
+                    onChange={(e) => handleNumberChange('max_hands_per_tournament', e.target.value)}
+                    onBlur={(e) => handleNumberBlur('max_hands_per_tournament', e.target.value)}
                     min={20}
                     max={500}
                   />
@@ -332,7 +449,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     type="number"
                     className="config-preview__input config-preview__input--small"
                     value={config.num_players}
-                    onChange={(e) => handleFieldChange('num_players', parseInt(e.target.value) || 4)}
+                    onChange={(e) => handleNumberChange('num_players', e.target.value)}
+                    onBlur={(e) => handleNumberBlur('num_players', e.target.value)}
                     min={2}
                     max={8}
                   />
@@ -346,7 +464,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     type="number"
                     className="config-preview__input config-preview__input--small"
                     value={config.starting_stack}
-                    onChange={(e) => handleFieldChange('starting_stack', parseInt(e.target.value) || 10000)}
+                    onChange={(e) => handleNumberChange('starting_stack', e.target.value)}
+                    onBlur={(e) => handleNumberBlur('starting_stack', e.target.value)}
                     min={1000}
                     max={100000}
                     step={1000}
@@ -359,7 +478,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                     type="number"
                     className="config-preview__input config-preview__input--small"
                     value={config.big_blind}
-                    onChange={(e) => handleFieldChange('big_blind', parseInt(e.target.value) || 100)}
+                    onChange={(e) => handleNumberChange('big_blind', e.target.value)}
+                    onBlur={(e) => handleNumberBlur('big_blind', e.target.value)}
                     min={10}
                     max={1000}
                     step={10}
@@ -671,6 +791,184 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                       </label>
                     );
                   })}
+                </div>
+              )}
+            </div>
+
+            {/* Advanced Settings (Collapsible) */}
+            <div className="config-preview__section config-preview__section--collapsible">
+              <button
+                className="config-preview__section-toggle"
+                onClick={() => setAdvancedExpanded(!advancedExpanded)}
+                type="button"
+              >
+                {advancedExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <Zap size={16} />
+                <h5 className="config-preview__section-title">Advanced Settings</h5>
+                <span className="config-preview__section-hint">
+                  {isHandBasedMode ? 'Hand-based' : 'Tournament-based'}
+                  {config.parallel_tournaments && config.parallel_tournaments > 1 ? `, ${config.parallel_tournaments}x parallel` : ''}
+                </span>
+              </button>
+
+              {advancedExpanded && (
+                <div className="config-preview__advanced">
+                  {/* Mode Toggle: Tournament-based vs Hand-based */}
+                  <div className="config-preview__mode-toggle">
+                    <span className="config-preview__mode-label">Experiment Mode:</span>
+                    <div className="config-preview__mode-buttons">
+                      <button
+                        type="button"
+                        className={`config-preview__mode-btn ${!isHandBasedMode ? 'config-preview__mode-btn--active' : ''}`}
+                        onClick={() => handleModeToggle(false)}
+                      >
+                        Tournament-based
+                      </button>
+                      <button
+                        type="button"
+                        className={`config-preview__mode-btn ${isHandBasedMode ? 'config-preview__mode-btn--active' : ''}`}
+                        onClick={() => handleModeToggle(true)}
+                      >
+                        Hand-based
+                      </button>
+                    </div>
+                    <p className="config-preview__mode-hint">
+                      {isHandBasedMode
+                        ? 'Run exactly N hands per variant, resetting stacks when someone is eliminated'
+                        : 'Run N tournaments per variant, each ending when one player remains'}
+                    </p>
+                  </div>
+
+                  {/* Target Hands (only shown in hand-based mode) */}
+                  {isHandBasedMode && (
+                    <div className="config-preview__row">
+                      <label className="config-preview__label config-preview__label--inline">
+                        Target Hands
+                        <input
+                          type="number"
+                          className="config-preview__input config-preview__input--small"
+                          value={config.target_hands ?? ''}
+                          onChange={(e) => handleNumberChange('target_hands' as keyof ExperimentConfig, e.target.value)}
+                          onBlur={(e) => handleNumberBlur('target_hands' as keyof ExperimentConfig, e.target.value)}
+                          min={5}
+                          max={500}
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Parallel Execution */}
+                  <div className="config-preview__row">
+                    <label className="config-preview__label config-preview__label--inline">
+                      Parallel Tournaments
+                      <input
+                        type="number"
+                        className="config-preview__input config-preview__input--small"
+                        value={config.parallel_tournaments ?? 1}
+                        onChange={(e) => handleNumberChange('parallel_tournaments' as keyof ExperimentConfig, e.target.value)}
+                        onBlur={(e) => handleNumberBlur('parallel_tournaments' as keyof ExperimentConfig, e.target.value)}
+                        min={1}
+                        max={10}
+                      />
+                    </label>
+                    <label className="config-preview__label config-preview__label--inline">
+                      Stagger Delay (s)
+                      <input
+                        type="number"
+                        className="config-preview__input config-preview__input--small"
+                        value={config.stagger_start_delay ?? 0}
+                        onChange={(e) => handleFloatChange('stagger_start_delay' as keyof ExperimentConfig, e.target.value)}
+                        onBlur={(e) => handleFloatBlur('stagger_start_delay' as keyof ExperimentConfig, e.target.value)}
+                        min={0}
+                        max={60}
+                        step={0.5}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Tags */}
+                  <div className="config-preview__tags-section">
+                    <label className="config-preview__label">
+                      <Tag size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                      Tags
+                    </label>
+                    <div className="config-preview__tags-input-row">
+                      <input
+                        type="text"
+                        className="config-preview__input"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={handleTagKeyDown}
+                        placeholder="Add tag..."
+                      />
+                      <button
+                        type="button"
+                        className="config-preview__add-tag-btn"
+                        onClick={handleAddTag}
+                        disabled={!tagInput.trim()}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                    {config.tags.length > 0 && (
+                      <div className="config-preview__tags-list">
+                        {config.tags.map((tag) => (
+                          <span key={tag} className="config-preview__tag">
+                            {tag}
+                            <button
+                              type="button"
+                              className="config-preview__tag-remove"
+                              onClick={() => handleRemoveTag(tag)}
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Personalities */}
+                  <div className="config-preview__personalities-section">
+                    <label className="config-preview__label">
+                      <Users size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                      Personalities
+                      <span className="config-preview__label-hint">
+                        {config.personalities ? `${config.personalities.length} selected` : 'Random'}
+                      </span>
+                    </label>
+                    <div className="config-preview__personalities-grid">
+                      {availablePersonalities.map((personality) => (
+                        <label key={personality} className="config-preview__personality-item">
+                          <input
+                            type="checkbox"
+                            checked={config.personalities?.includes(personality) ?? false}
+                            onChange={() => handlePersonalityToggle(personality)}
+                          />
+                          <span>{personality}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {config.personalities && config.personalities.length > 0 && (
+                      <button
+                        type="button"
+                        className="config-preview__clear-personalities"
+                        onClick={() => onConfigUpdate({ personalities: null })}
+                      >
+                        Clear Selection (use random)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Capture Prompts Toggle */}
+                  <label className="config-preview__toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={config.capture_prompts}
+                      onChange={(e) => handleFieldChange('capture_prompts', e.target.checked)}
+                    />
+                    Capture Prompts (for debugging)
+                  </label>
                 </div>
               )}
             </div>

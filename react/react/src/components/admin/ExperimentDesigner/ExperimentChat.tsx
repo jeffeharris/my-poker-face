@@ -61,7 +61,7 @@ export function ExperimentChat({
       setMessages([
         {
           role: 'assistant',
-          content: "Hi! I'm your experiment design assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
+          content: "Hi! I'm your Lab Assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
         },
       ]);
     }
