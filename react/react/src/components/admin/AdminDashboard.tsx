@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft, ChevronRight } from 'lucide-react';
 import { AdminSidebar, type AdminTab, type SidebarItem } from './AdminSidebar';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
@@ -9,50 +9,52 @@ import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
+import { PageLayout, PageHeader } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import './AdminDashboard.css';
+import '../menus/GameMenu.css';
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     id: 'personalities',
     label: 'Personalities',
-    icon: <Users size={20} />,
+    icon: <Users size={24} />,
     description: 'Create and customize AI opponents',
   },
   {
     id: 'analyzer',
     label: 'Decision Analyzer',
-    icon: <Microscope size={20} />,
+    icon: <Microscope size={24} />,
     description: 'Analyze and replay AI decision prompts',
   },
   {
     id: 'playground',
     label: 'Prompt Playground',
-    icon: <FlaskConical size={20} />,
+    icon: <FlaskConical size={24} />,
     description: 'View and replay any captured LLM prompt',
   },
   {
     id: 'experiments',
     label: 'Experiments',
-    icon: <Beaker size={20} />,
+    icon: <Beaker size={24} />,
     description: 'Design and run AI tournament experiments',
   },
   {
     id: 'templates',
     label: 'Templates',
-    icon: <FileText size={20} />,
+    icon: <FileText size={24} />,
     description: 'Edit system prompt templates',
   },
   {
     id: 'settings',
     label: 'Settings',
-    icon: <Settings size={20} />,
+    icon: <Settings size={24} />,
     description: 'Models, capture, storage, and pricing',
   },
   {
     id: 'debug',
     label: 'Debug',
-    icon: <Bug size={20} />,
+    icon: <Bug size={24} />,
     description: 'Inspect game state and AI internals',
   },
 ];
@@ -63,9 +65,9 @@ interface AdminDashboardProps {
   onTabChange?: (tab: AdminTab) => void;
 }
 
-export function AdminDashboard({ onBack, initialTab = 'personalities', onTabChange }: AdminDashboardProps) {
+export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboardProps) {
   const { isMobile } = useViewport();
-  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Sync activeTab with initialTab when it changes (URL navigation)
@@ -122,8 +124,38 @@ export function AdminDashboard({ onBack, initialTab = 'personalities', onTabChan
     </>
   );
 
-  // Mobile layout - full screen with AdminMenuContainer
+  // Mobile layout - show menu if no tab selected, otherwise show content
   if (isMobile) {
+    // No tab selected - show the menu using PageLayout (matches GameMenu style)
+    if (!activeTab) {
+      return (
+        <PageLayout variant="top" glowColor="gold">
+          <PageHeader
+            title="Admin Tools"
+            subtitle="Manage your poker game"
+            onBack={onBack}
+          />
+          <div className="game-menu__options">
+            {SIDEBAR_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                className="menu-option"
+                onClick={() => handleTabChange(item.id as AdminTab)}
+              >
+                {item.icon}
+                <div className="option-content">
+                  <h3>{item.label}</h3>
+                  <p>{item.description}</p>
+                </div>
+                <ChevronRight className="option-arrow" size={20} />
+              </button>
+            ))}
+          </div>
+        </PageLayout>
+      );
+    }
+
+    // Tab selected - show content with back to menu
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <AdminMenuContainer

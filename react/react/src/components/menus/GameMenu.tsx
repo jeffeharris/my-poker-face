@@ -307,8 +307,8 @@ export function GameMenu({
             >
               <LayoutDashboard className="option-icon" size={24} />
               <div className="option-content">
-                <h3>Admin Dashboard</h3>
-                <p>Personalities, decision analysis, and prompt tools</p>
+                <h3>Admin Tools</h3>
+                <p>Personalities, experiments, and prompt tools</p>
               </div>
               <ChevronRight className="option-arrow" size={20} />
             </button>
@@ -361,7 +361,7 @@ export function GameMenu({
           {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
           {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
           {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-          {hoveredOption === 'admin' && "All admin tools in one place: personalities, decision analysis, and prompts."}
+          {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
           {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
           {hoveredOption === 'debugger' && "Debug AI decisions by viewing and replaying captured prompts."}
           {hoveredOption === 'playground' && "Explore and replay any LLM prompt with different models."}
