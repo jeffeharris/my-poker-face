@@ -6,8 +6,26 @@ import { ExperimentList } from './ExperimentList';
 import { ExperimentDetail } from './ExperimentDetail';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
-import type { ExperimentConfig, ExperimentSummary } from './types';
+import type { ExperimentConfig, ExperimentSummary, FailureContext, ConfigVersion } from './types';
 import { DEFAULT_EXPERIMENT_CONFIG } from './types';
+
+// Interface for experiment detail passed from ExperimentDetail
+interface ExperimentDetailForEdit {
+  id: number;
+  name: string;
+  notes: string | null;
+  config: ExperimentConfig;
+  summary: {
+    failed_tournaments?: Array<{
+      tournament_id: string;
+      tournament_number: number;
+      variant: string | null;
+      error: string;
+      error_type: string;
+      duration_seconds: number;
+    }>;
+  } | null;
+}
 import './ExperimentDesigner.css';
 
 type ExperimentMode = 'design' | 'list' | 'detail';
@@ -22,6 +40,9 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   const [config, setConfig] = useState<ExperimentConfig>(DEFAULT_EXPERIMENT_CONFIG);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedExperimentId, setSelectedExperimentId] = useState<number | null>(null);
+  const [failureContext, setFailureContext] = useState<FailureContext | null>(null);
+  const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
+  const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
 
   const handleConfigUpdate = useCallback((updates: Partial<ExperimentConfig>) => {
     setConfig(prev => ({ ...prev, ...updates }));
@@ -30,6 +51,9 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   const handleNewExperiment = useCallback(() => {
     setConfig(DEFAULT_EXPERIMENT_CONFIG);
     setSessionId(null);
+    setFailureContext(null);
+    setConfigVersions([]);
+    setCurrentVersionIndex(0);
     setMode('design');
   }, []);
 
@@ -47,7 +71,43 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     setMode('list');
     setConfig(DEFAULT_EXPERIMENT_CONFIG);
     setSessionId(null);
+    setFailureContext(null);
+    setConfigVersions([]);
+    setCurrentVersionIndex(0);
   }, []);
+
+  const handleEditInLabAssistant = useCallback((experiment: ExperimentDetailForEdit) => {
+    // Create a new config based on the failed experiment's config
+    const configToEdit: ExperimentConfig = {
+      ...experiment.config,
+      name: `${experiment.config.name || experiment.name}_v2`,  // Suggest new name
+    };
+
+    setConfig(configToEdit);
+    setSessionId(null);  // Fresh chat session
+    setConfigVersions([]);
+    setCurrentVersionIndex(0);
+    setFailureContext({
+      experimentId: experiment.id,
+      experimentName: experiment.name,
+      errorMessage: experiment.notes || 'Unknown error',
+      failedTournaments: experiment.summary?.failed_tournaments || [],
+    });
+    setMode('design');
+  }, []);
+
+  const handleVersionChange = useCallback((index: number) => {
+    if (index >= 0 && index < configVersions.length) {
+      setCurrentVersionIndex(index);
+      setConfig(configVersions[index].config);
+    }
+  }, [configVersions]);
+
+  // Compute initialMessage from failureContext (cleared after first render via state)
+  const initialMessage = failureContext ? {
+    userMessage: `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
+    context: failureContext,
+  } : null;
 
   // Mobile design mode - full screen with tabs
   if (isMobile && mode === 'design') {
@@ -60,6 +120,12 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
           onConfigUpdate={handleConfigUpdate}
           onLaunch={handleExperimentLaunched}
           onBack={handleBackToList}
+          initialMessage={initialMessage}
+          configVersions={configVersions}
+          onConfigVersionsChange={setConfigVersions}
+          currentVersionIndex={currentVersionIndex}
+          onCurrentVersionIndexChange={setCurrentVersionIndex}
+          onVersionChange={handleVersionChange}
         />
       </div>
     );
@@ -122,6 +188,11 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
                 sessionId={sessionId}
                 onSessionIdChange={setSessionId}
                 onConfigUpdate={handleConfigUpdate}
+                initialMessage={initialMessage}
+                configVersions={configVersions}
+                onConfigVersionsChange={setConfigVersions}
+                currentVersionIndex={currentVersionIndex}
+                onCurrentVersionIndexChange={setCurrentVersionIndex}
               />
             </div>
             <div className="experiment-designer__preview-panel">
@@ -129,6 +200,9 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
                 config={config}
                 onConfigUpdate={handleConfigUpdate}
                 onLaunch={handleExperimentLaunched}
+                configVersions={configVersions}
+                currentVersionIndex={currentVersionIndex}
+                onVersionChange={handleVersionChange}
               />
             </div>
           </div>
@@ -145,6 +219,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
           <ExperimentDetail
             experimentId={selectedExperimentId}
             onBack={handleBackToList}
+            onEditInLabAssistant={handleEditInLabAssistant}
           />
         )}
       </div>

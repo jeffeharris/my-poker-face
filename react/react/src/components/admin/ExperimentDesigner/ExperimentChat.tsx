@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles } from 'lucide-react';
-import type { ExperimentConfig } from './types';
+import type { ExperimentConfig, FailureContext, ConfigVersion } from './types';
 import { config as appConfig } from '../../../config';
 
 interface QuickPrompt {
@@ -19,6 +19,15 @@ interface ExperimentChatProps {
   sessionId: string | null;
   onSessionIdChange: (sessionId: string) => void;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
+  /** Initial message to send on mount (e.g., for failure analysis) */
+  initialMessage?: {
+    userMessage: string;
+    context?: FailureContext;
+  } | null;
+  configVersions?: ConfigVersion[];
+  onConfigVersionsChange?: (versions: ConfigVersion[]) => void;
+  currentVersionIndex?: number;
+  onCurrentVersionIndexChange?: (index: number) => void;
 }
 
 export function ExperimentChat({
@@ -26,6 +35,11 @@ export function ExperimentChat({
   sessionId,
   onSessionIdChange,
   onConfigUpdate,
+  initialMessage,
+  configVersions,
+  onConfigVersionsChange,
+  currentVersionIndex,
+  onCurrentVersionIndexChange,
 }: ExperimentChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -33,6 +47,7 @@ export function ExperimentChat({
   const [quickPrompts, setQuickPrompts] = useState<QuickPrompt[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hasSentInitialMessage = useRef(false);
 
   // Fetch quick prompts on mount
   useEffect(() => {
@@ -55,20 +70,8 @@ export function ExperimentChat({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add initial welcome message (only on mount when messages is empty)
-  useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          role: 'assistant',
-          content: "Hi! I'm your Lab Assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
-        },
-      ]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount
-  }, []);
-
-  const sendMessage = useCallback(async (messageText: string) => {
+  // Define sendMessage BEFORE the useEffect that uses it
+  const sendMessage = useCallback(async (messageText: string, contextForFailure?: FailureContext | null) => {
     if (!messageText.trim() || loading) return;
 
     // Add user message to display
@@ -85,6 +88,7 @@ export function ExperimentChat({
           message: messageText,
           session_id: sessionId,
           current_config: config,
+          failure_context: contextForFailure || null,
         }),
       });
 
@@ -107,6 +111,14 @@ export function ExperimentChat({
         if (data.config_updates) {
           onConfigUpdate(data.config_updates);
         }
+
+        // Update config versions if present
+        if (data.config_versions && onConfigVersionsChange) {
+          onConfigVersionsChange(data.config_versions);
+          if (data.current_version_index !== undefined && onCurrentVersionIndexChange) {
+            onCurrentVersionIndexChange(data.current_version_index);
+          }
+        }
       } else {
         // Add error message
         setMessages(prev => [
@@ -128,7 +140,29 @@ export function ExperimentChat({
     } finally {
       setLoading(false);
     }
-  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId]);
+  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId, onConfigVersionsChange, onCurrentVersionIndexChange]);
+
+  // Handle initial message on mount (e.g., for failure analysis)
+  // Use ref to prevent double-send in React StrictMode (state checks are unreliable due to async updates)
+  useEffect(() => {
+    if (initialMessage && !hasSentInitialMessage.current) {
+      hasSentInitialMessage.current = true;
+      sendMessage(initialMessage.userMessage, initialMessage.context);
+    }
+  }, [initialMessage, sendMessage]);
+
+  // Add initial welcome message (only on mount when messages is empty)
+  useEffect(() => {
+    if (messages.length === 0 && !initialMessage) {
+      setMessages([
+        {
+          role: 'assistant',
+          content: "Hi! I'm your Lab Assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
+        },
+      ]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

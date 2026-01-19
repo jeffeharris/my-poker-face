@@ -2,8 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Settings, ArrowLeft, CheckCircle } from 'lucide-react';
 import { ExperimentChat } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
-import type { ExperimentConfig } from './types';
+import type { ExperimentConfig, FailureContext, ConfigVersion } from './types';
 import './MobileExperimentDesign.css';
+
+interface InitialMessage {
+  userMessage: string;
+  context?: FailureContext;
+}
 
 type DesignTab = 'chat' | 'configure';
 
@@ -14,6 +19,12 @@ interface MobileExperimentDesignProps {
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
   onLaunch: () => void;
   onBack: () => void;
+  initialMessage?: InitialMessage | null;
+  configVersions?: ConfigVersion[];
+  onConfigVersionsChange?: (versions: ConfigVersion[]) => void;
+  currentVersionIndex?: number;
+  onCurrentVersionIndexChange?: (index: number) => void;
+  onVersionChange?: (index: number) => void;
 }
 
 /**
@@ -32,6 +43,12 @@ export function MobileExperimentDesign({
   onConfigUpdate,
   onLaunch,
   onBack,
+  initialMessage,
+  configVersions,
+  onConfigVersionsChange,
+  currentVersionIndex,
+  onCurrentVersionIndexChange,
+  onVersionChange,
 }: MobileExperimentDesignProps) {
   const [activeTab, setActiveTab] = useState<DesignTab>('chat');
   const [showConfigUpdated, setShowConfigUpdated] = useState(false);
@@ -115,6 +132,11 @@ export function MobileExperimentDesign({
               sessionId={sessionId}
               onSessionIdChange={onSessionIdChange}
               onConfigUpdate={onConfigUpdate}
+              initialMessage={initialMessage}
+              configVersions={configVersions}
+              onConfigVersionsChange={onConfigVersionsChange}
+              currentVersionIndex={currentVersionIndex}
+              onCurrentVersionIndexChange={onCurrentVersionIndexChange}
             />
           </div>
         )}
@@ -125,6 +147,9 @@ export function MobileExperimentDesign({
               config={config}
               onConfigUpdate={onConfigUpdate}
               onLaunch={onLaunch}
+              configVersions={configVersions}
+              currentVersionIndex={currentVersionIndex}
+              onVersionChange={onVersionChange}
             />
           </div>
         )}

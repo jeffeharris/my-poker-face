@@ -24,8 +24,32 @@ experiment_bp = Blueprint('experiments', __name__)
 # Store active experiment threads for status checking
 _active_experiments: Dict[int, threading.Thread] = {}
 
+
+def detect_orphaned_experiments():
+    """Mark experiments stuck in 'running' as 'interrupted' on startup.
+
+    This is called on module import to handle experiments that were running
+    when the server was stopped/restarted. Uses the persistence layer's
+    mark_running_experiments_interrupted() method which sets the status and
+    adds a helpful message for users.
+    """
+    try:
+        count = persistence.mark_running_experiments_interrupted()
+        if count > 0:
+            logger.info(f"Marked {count} orphaned experiment(s) as interrupted on startup")
+    except Exception as e:
+        logger.error(f"Error detecting orphaned experiments: {e}")
+
+
+# Detect orphaned experiments on module load
+detect_orphaned_experiments()
+
 # Store chat sessions for experiment design
-# Each session stores: {'history': List[Dict], 'last_config': Dict}
+# Each session stores:
+#   'history': List[Dict] - conversation messages
+#   'last_config': Dict - last known config state for diff computation
+#   'config_versions': List[Dict] - list of {timestamp, config, message_index}
+#   'failure_context': Optional[Dict] - context from failed experiment being fixed
 _chat_sessions: Dict[str, Dict[str, Any]] = {}
 
 
@@ -429,10 +453,29 @@ All boolean options (default true unless specified):
 
 When the user describes what they want to test, suggest appropriate configuration values. Ask clarifying questions if needed.
 
-IMPORTANT: When you have configuration suggestions, include them in your response wrapped in <config_updates> tags like this:
-<config_updates>{"name": "example_name", "num_tournaments": 5}</config_updates>
+## Parallel Execution Best Practices
 
-Only include fields that should be updated based on the conversation. The frontend will merge your updates with the existing config.
+PREFER PARALLEL EXECUTION by default:
+- Set parallel_tournaments equal to the number of variants when using different providers
+- Different providers (OpenAI, Anthropic, Groq, Google, Mistral) have SEPARATE rate limits
+- Variants using different providers can safely run concurrently
+- Only reduce parallel_tournaments if the user reports rate limit errors from the SAME provider
+- Use stagger_start_delay (1-3 seconds) to spread out initial requests slightly
+
+## How to Propose Configuration Changes
+
+When you have configuration suggestions:
+1. First, describe the changes you want to make in plain text
+2. Ask the user if they want to apply these changes (e.g., "Should I apply these changes?")
+3. ONLY include <config_updates> tags AFTER the user confirms
+
+Example flow:
+- User: "I want to compare GPT vs Claude"
+- Assistant: "I'd suggest: control with GPT-4o, variant with Claude Sonnet, 5 tournaments each. Want me to apply this?"
+- User: "Yes" / "Looks good" / "Apply it"
+- Assistant: "Done!" <config_updates>{"control": {...}, "variants": [...], "num_tournaments": 5}</config_updates>
+
+EXCEPTION: For fixing failed experiments, you may apply changes immediately since the user explicitly asked for a fix.
 
 Common experiment scenarios:
 1. Model comparison: Use control + variants with different models/providers
@@ -461,7 +504,13 @@ Use this tool when:
 
 The tool accepts an optional `filter_play_style` parameter for keyword filtering (e.g., "aggressive", "calculated", "calm").
 
-Keep responses concise and focused on experiment design. Be helpful and proactive in suggesting configurations."""
+## Response Style
+
+- Be CONCISE. Users want configs, not essays.
+- Lead with config updates when you have suggestions - put <config_updates> near the top of your response.
+- Avoid long bullet lists of possibilities. Pick the most likely answer.
+- Don't repeat information the user already knows.
+- One short paragraph of explanation is usually enough."""
 
 # Quick prompts for common scenarios
 QUICK_PROMPTS = {
@@ -489,7 +538,10 @@ def extract_config_updates(response_text: str) -> Optional[Dict[str, Any]]:
 def clean_response_text(response_text: str) -> str:
     """Remove config_updates tags from response for display."""
     pattern = r'<config_updates>.*?</config_updates>'
-    return re.sub(pattern, '', response_text, flags=re.DOTALL).strip()
+    cleaned = re.sub(pattern, '', response_text, flags=re.DOTALL).strip()
+    # Collapse multiple consecutive newlines to at most two (one blank line)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    return cleaned
 
 
 def _describe_config_updates(updates: Dict[str, Any]) -> str:
@@ -524,15 +576,31 @@ def is_config_complete(config: Dict[str, Any]) -> bool:
     return bool(config.get('name'))
 
 
+def _format_failed_tournaments(failed_tournaments: List[Dict]) -> str:
+    """Format failed tournaments for display in the system prompt."""
+    if not failed_tournaments:
+        return "No failed tournament details available."
+
+    lines = []
+    for ft in failed_tournaments[:5]:  # Limit to first 5 for brevity
+        lines.append(f"- Tournament #{ft.get('tournament_number', '?')}: {ft.get('error_type', 'Unknown')} - {ft.get('error', 'No message')[:100]}")
+    if len(failed_tournaments) > 5:
+        lines.append(f"... and {len(failed_tournaments) - 5} more failures")
+    return "\n".join(lines)
+
+
 @experiment_bp.route('/api/experiments/chat', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_CHAT_SUGGESTIONS)
 def chat_experiment_design():
     """Chat with AI to design experiment configuration."""
+    from datetime import datetime
+
     try:
         data = request.get_json()
         message = data.get('message', '')
         session_id = data.get('session_id')
         current_config = data.get('current_config', {})
+        failure_context = data.get('failure_context')
 
         if not message:
             return jsonify({'error': 'Message is required'}), 400
@@ -540,16 +608,26 @@ def chat_experiment_design():
         # Create or retrieve session
         if not session_id:
             session_id = str(uuid.uuid4())
-            _chat_sessions[session_id] = {'history': [], 'last_config': {}}
+            _chat_sessions[session_id] = {
+                'history': [],
+                'last_config': {},
+                'config_versions': [],
+                'failure_context': failure_context,
+            }
 
         # Get session data (handle legacy format)
-        session_data = _chat_sessions.get(session_id, {'history': [], 'last_config': {}})
+        session_data = _chat_sessions.get(session_id, {'history': [], 'last_config': {}, 'config_versions': []})
         if isinstance(session_data, list):
             # Migrate from old format
-            session_data = {'history': session_data, 'last_config': {}}
+            session_data = {'history': session_data, 'last_config': {}, 'config_versions': []}
 
         history = session_data.get('history', [])
         last_config = session_data.get('last_config', {})
+        config_versions = session_data.get('config_versions', [])
+
+        # Store failure context if provided (only on first message)
+        if failure_context and not session_data.get('failure_context'):
+            session_data['failure_context'] = failure_context
 
         # Compute diff between last known config and current config
         config_diff = _compute_config_diff(last_config, current_config)
@@ -557,9 +635,41 @@ def chat_experiment_design():
         # Build context about current config
         config_context = f"\nCurrent experiment config:\n{json.dumps(current_config, indent=2)}"
 
+        # Build failure context if fixing a failed experiment
+        failure_context_prompt = ""
+        stored_failure_context = session_data.get('failure_context') or failure_context
+        if stored_failure_context:
+            failure_context_prompt = f"""
+
+## Fixing Failed Experiment
+
+**Failed experiment:** {stored_failure_context.get('experimentName', 'Unknown')}
+**Error:** {stored_failure_context.get('errorMessage', 'Unknown error')}
+
+**Failures:**
+{_format_failed_tournaments(stored_failure_context.get('failedTournaments', []))}
+
+RULES:
+1. Be CONCISE - one sentence diagnosis, config updates, one sentence explaining the fix.
+2. ONLY mention things you can fix via config changes. Do NOT speculate about network issues, server problems, transient errors, or anything outside the experiment config.
+3. Focus on these actionable fixes:
+   - RateLimitError from SAME provider → increase stagger_start_delay for that provider's variants
+   - RateLimitError across DIFFERENT providers → usually fine to run in parallel (each provider has separate limits)
+   - Model errors → change model or provider
+   - Timeout → reduce hands_per_tournament
+   - Invalid config → fix the specific field
+
+IMPORTANT: Different providers (OpenAI, Anthropic, Groq, Google) have SEPARATE rate limits. Variants using different providers CAN run in parallel safely. Only reduce parallelism when you see rate limit errors from the SAME provider running concurrently.
+
+Response format (NO numbered list - the config_updates tag gets hidden from user):
+- One sentence identifying the error type
+- <config_updates>{{...}}</config_updates> (this will be hidden, config panel updates automatically)
+- One sentence explaining what changed and why it should help
+"""
+
         # Build messages for LLM
         messages = [
-            {"role": "system", "content": EXPERIMENT_DESIGN_SYSTEM_PROMPT + config_context}
+            {"role": "system", "content": EXPERIMENT_DESIGN_SYSTEM_PROMPT + config_context + failure_context_prompt}
         ]
 
         # Add conversation history
@@ -574,8 +684,8 @@ def chat_experiment_design():
         # Add current user message
         messages.append({"role": "user", "content": user_message_content})
 
-        # Call LLM with tool support
-        client = LLMClient(model=config.FAST_AI_MODEL)
+        # Call LLM with tool support - use reasoning model for better analysis
+        client = LLMClient(model=config.ASSISTANT_MODEL, provider=config.ASSISTANT_PROVIDER)
         response = client.complete(
             messages=messages,
             tools=[PERSONALITY_TOOL],
@@ -601,9 +711,20 @@ def chat_experiment_design():
         # Update session history and last_config
         history.append({"role": "user", "content": user_message_content})
         history.append({"role": "assistant", "content": response.content})
+
+        # Track config version if there were updates
+        if config_updates:
+            config_versions.append({
+                'timestamp': datetime.utcnow().isoformat(),
+                'config': merged_config.copy(),
+                'message_index': len(history),
+            })
+
         _chat_sessions[session_id] = {
             'history': history,
             'last_config': merged_config,  # Store the merged config for next diff
+            'config_versions': config_versions,
+            'failure_context': session_data.get('failure_context'),
         }
 
         return jsonify({
@@ -613,6 +734,8 @@ def chat_experiment_design():
             'config_updates': config_updates,
             'merged_config': merged_config,
             'config_complete': is_config_complete(merged_config),
+            'config_versions': config_versions,
+            'current_version_index': len(config_versions) - 1 if config_versions else 0,
         })
 
     except Exception as e:
@@ -869,11 +992,13 @@ def list_experiments():
     """List all experiments with optional status filter."""
     try:
         status = request.args.get('status')
+        include_archived = request.args.get('include_archived', 'false').lower() == 'true'
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
 
         experiments = persistence.list_experiments(
             status=status,
+            include_archived=include_archived,
             limit=limit,
             offset=offset
         )
@@ -902,11 +1027,15 @@ def get_experiment(experiment_id: int):
         # Get real-time unified stats per variant
         live_stats = persistence.get_experiment_live_stats(experiment_id)
 
+        # Add pause_requested flag for "Pausing..." UI state
+        pause_requested = pause_coordinator.should_pause(experiment_id)
+
         return jsonify({
             'success': True,
             'experiment': experiment,
             'decision_stats': decision_stats,
             'live_stats': live_stats,
+            'pause_requested': pause_requested,
         })
 
     except Exception as e:
@@ -1142,6 +1271,56 @@ def resume_experiment(experiment_id: int):
 
     except Exception as e:
         logger.error(f"Error resuming experiment {experiment_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/archive', methods=['POST'])
+def archive_experiment(experiment_id: int):
+    """Archive an experiment by adding _archived tag."""
+    try:
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            return jsonify({'error': 'Experiment not found'}), 404
+
+        tags = experiment.get('tags', []) or []
+        if '_archived' not in tags:
+            tags.append('_archived')
+            persistence.update_experiment_tags(experiment_id, tags)
+            logger.info(f"Archived experiment {experiment_id}")
+
+        return jsonify({
+            'success': True,
+            'experiment_id': experiment_id,
+            'archived': True,
+        })
+
+    except Exception as e:
+        logger.error(f"Error archiving experiment {experiment_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/unarchive', methods=['POST'])
+def unarchive_experiment(experiment_id: int):
+    """Unarchive an experiment by removing _archived tag."""
+    try:
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            return jsonify({'error': 'Experiment not found'}), 404
+
+        tags = experiment.get('tags', []) or []
+        if '_archived' in tags:
+            tags.remove('_archived')
+            persistence.update_experiment_tags(experiment_id, tags)
+            logger.info(f"Unarchived experiment {experiment_id}")
+
+        return jsonify({
+            'success': True,
+            'experiment_id': experiment_id,
+            'archived': False,
+        })
+
+    except Exception as e:
+        logger.error(f"Error unarchiving experiment {experiment_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
