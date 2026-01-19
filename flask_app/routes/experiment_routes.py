@@ -178,7 +178,7 @@ You help configure experiments with these parameters:
 - hypothesis: The expected outcome or question being answered
 - tags: Categories for filtering (e.g., ["model_comparison", "prompt_testing"])
 - num_tournaments: How many tournaments to run PER VARIANT (1-20)
-- max_hands_per_tournament: Maximum hands per tournament (20-500)
+- max_hands_per_tournament: Maximum hands per tournament (5-500)
 - target_hands: Run until this many total hands, resetting stacks when one player remains (overrides tournament-based thinking)
 - reset_on_elimination: If true, reset all stacks when one player is eliminated (default false)
 - num_players: Players per tournament (2-8)
@@ -656,8 +656,8 @@ def validate_experiment_config():
             errors.append('num_tournaments must be between 1 and 20')
 
         max_hands = config_data.get('max_hands_per_tournament', 100)
-        if not isinstance(max_hands, int) or max_hands < 20 or max_hands > 500:
-            errors.append('max_hands_per_tournament must be between 20 and 500')
+        if not isinstance(max_hands, int) or max_hands < 5 or max_hands > 500:
+            errors.append('max_hands_per_tournament must be between 5 and 500')
 
         num_players = config_data.get('num_players', 4)
         if not isinstance(num_players, int) or num_players < 2 or num_players > 8:
