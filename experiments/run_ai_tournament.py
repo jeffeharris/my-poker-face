@@ -58,6 +58,7 @@ from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
+from core.llm import LLMClient, CallType
 
 
 def make_experiment_owner_id(experiment_name: str) -> str:
@@ -1121,6 +1122,8 @@ class AITournamentRunner:
         if self.experiment_id:
             try:
                 summary = self._compute_experiment_summary(results, failed)
+                # Generate AI interpretation of results (best-effort, won't block completion)
+                summary = self._generate_ai_interpretation(summary, failed)
                 self.persistence.complete_experiment(self.experiment_id, summary)
             except Exception as e:
                 logger.warning(f"Could not complete experiment: {e}")
@@ -1556,6 +1559,164 @@ class AITournamentRunner:
             logger.warning(f"Could not get latency metrics: {e}")
 
         return None
+
+    def _generate_ai_interpretation(
+        self,
+        summary: Dict,
+        failed: Optional[List[TournamentOutcome]] = None
+    ) -> Dict:
+        """Generate AI interpretation of experiment results.
+
+        Uses the experiment design assistant to analyze results and suggest
+        follow-up experiments. Includes the original design conversation
+        if available for context continuity.
+
+        Args:
+            summary: The computed experiment summary
+            failed: Optional list of failed tournament outcomes
+
+        Returns:
+            Updated summary dict with 'ai_interpretation' field added
+        """
+        # Skip if no tournaments completed
+        if summary.get('tournaments', 0) == 0:
+            logger.info("Skipping AI interpretation: no completed tournaments")
+            return summary
+
+        try:
+            # Get experiment config from persistence
+            experiment_data = None
+            if self.experiment_id:
+                experiment_data = self.persistence.get_experiment(self.experiment_id)
+
+            if not experiment_data:
+                logger.warning("Could not retrieve experiment data for AI interpretation")
+                return summary
+
+            config = experiment_data.get('config', {})
+
+            # Build design context from conversation history if available
+            design_conversation = config.get('design_conversation', [])
+            if design_conversation:
+                design_context = "Below is the conversation where you helped design this experiment:"
+            else:
+                design_context = "No design conversation was recorded for this experiment."
+
+            # Build system prompt for analysis
+            system_prompt = f"""You are the experiment design assistant for AI poker tournament testing. You helped design this experiment, and now you're analyzing the results.
+
+{design_context}
+
+Given the experiment configuration and results, provide:
+
+## Summary
+A 2-3 sentence summary of what happened.
+
+## Hypothesis Evaluation
+Did the data support the hypothesis? Cite specific numbers.
+
+## Key Findings
+3-5 notable observations, especially surprising results.
+
+## Variant Comparison (for A/B tests only)
+Which variant performed better? By how much?
+
+## Suggested Follow-ups
+2-3 ideas for follow-up experiments or data to investigate.
+
+Be concise and data-driven. Use specific numbers from the results.
+Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (array), variant_comparison (string or null), suggested_followups (array)"""
+
+            # Build results context
+            results_context = {
+                'experiment': {
+                    'name': config.get('name'),
+                    'description': config.get('description'),
+                    'hypothesis': config.get('hypothesis'),
+                    'tags': config.get('tags'),
+                },
+                'config': {
+                    'num_tournaments': config.get('num_tournaments'),
+                    'max_hands_per_tournament': config.get('max_hands_per_tournament'),
+                    'num_players': config.get('num_players'),
+                    'model': config.get('model'),
+                    'provider': config.get('provider'),
+                },
+                'results': {
+                    'tournaments_completed': summary.get('tournaments', 0),
+                    'total_hands': summary.get('total_hands', 0),
+                    'total_duration_seconds': summary.get('total_duration_seconds', 0),
+                    'winners_distribution': summary.get('winners', {}),
+                },
+            }
+
+            # Add decision quality if available
+            if summary.get('decision_quality'):
+                results_context['results']['decision_quality'] = summary['decision_quality']
+
+            # Add A/B test info if present
+            if config.get('control'):
+                results_context['ab_test'] = {
+                    'control_label': config['control'].get('label'),
+                    'variant_labels': [v.get('label') for v in config.get('variants', [])],
+                }
+            if summary.get('variants'):
+                results_context['results']['per_variant_stats'] = summary['variants']
+
+            # Add failure info if any
+            if failed:
+                results_context['failures'] = {
+                    'count': len(failed),
+                    'success_rate': summary.get('success_rate'),
+                }
+
+            # Build messages array
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Include original design conversation if available
+            for msg in design_conversation:
+                # Only include user and assistant messages (not system)
+                if msg.get('role') in ('user', 'assistant'):
+                    messages.append(msg)
+
+            # Add final user message with results
+            messages.append({
+                "role": "user",
+                "content": f"The experiment has completed. Here are the results:\n\n{json.dumps(results_context, indent=2)}\n\nPlease analyze these results."
+            })
+
+            # Make LLM call
+            client = LLMClient(model="gpt-4o")
+            response = client.complete(
+                messages=messages,
+                json_format=True,
+                call_type=CallType.EXPERIMENT_ANALYSIS,
+                game_id=f"experiment_{self.experiment_id}" if self.experiment_id else None,
+                owner_id=self._owner_id,
+            )
+
+            # Parse response
+            interpretation = json.loads(response.content)
+            interpretation['generated_at'] = datetime.now().isoformat()
+            interpretation['model_used'] = client.model
+
+            summary['ai_interpretation'] = interpretation
+            logger.info(f"Generated AI interpretation for experiment {self.experiment_id}")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"AI interpretation returned invalid JSON: {e}")
+            summary['ai_interpretation'] = {
+                'error': f'Invalid JSON response: {str(e)}',
+                'generated_at': datetime.now().isoformat(),
+            }
+        except Exception as e:
+            logger.warning(f"AI interpretation failed: {e}")
+            summary['ai_interpretation'] = {
+                'error': str(e),
+                'generated_at': datetime.now().isoformat(),
+            }
+
+        return summary
 
     def _save_result(self, result: TournamentResult):
         """Save tournament result to JSON file."""

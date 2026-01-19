@@ -683,6 +683,11 @@ def create_experiment():
     try:
         data = request.get_json()
         config_data = data.get('config', {})
+        session_id = data.get('session_id')
+
+        # Store design conversation if session exists (for AI analysis at completion)
+        if session_id and session_id in _chat_sessions:
+            config_data['design_conversation'] = _chat_sessions[session_id]
 
         # Validate first
         if not config_data.get('name'):
