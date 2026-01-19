@@ -27,9 +27,46 @@
       }
       #freeze-frame.active { display: block; opacity: 1; }
       #freeze-frame.fade-out { opacity: 0; }
+
+      /* Inline splash screen - shows before React loads */
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+        z-index: 9999;
+        transition: opacity 0.3s ease-out;
+      }
+      #splash.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash-logo {
+        font-size: 48px;
+        margin-bottom: 16px;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+      #splash-text {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.6);
+        letter-spacing: 0.1em;
+      }
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.05); opacity: 0.8; }
+      }
     </style>
   </head>
   <body>
+    <!-- Splash screen - visible immediately, hidden when React is ready -->
+    <div id="splash">
+      <div id="splash-logo">🃏</div>
+      <div id="splash-text">LOADING</div>
+    </div>
     <div id="freeze-frame"></div>
     <div id="root"></div>
     <script>

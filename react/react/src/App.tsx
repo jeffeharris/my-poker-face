@@ -61,6 +61,18 @@ function App() {
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
 
+  // Hide splash screen once auth check is complete
+  useEffect(() => {
+    if (!authLoading) {
+      const splash = document.getElementById('splash');
+      if (splash) {
+        splash.classList.add('hidden');
+        // Remove from DOM after fade animation
+        setTimeout(() => splash.remove(), 300);
+      }
+    }
+  }, [authLoading]);
+
   // Update player name when user changes
   useEffect(() => {
     if (user?.name) {
