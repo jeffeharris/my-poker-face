@@ -120,7 +120,35 @@
   }
 }
 
-/* Responsive - Hide sidebar on mobile (future enhancement) */
+/* Mobile Layout */
+.admin-dashboard-layout--mobile {
+  display: block;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.admin-main__content--mobile {
+  padding: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Let children handle their own scroll */
+}
+
+.admin-main__content--mobile > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Ensure embedded components fill mobile space */
+.admin-main__content--mobile .experiment-designer--embedded {
+  height: 100%;
+  min-height: 0;
+}
+
+/* Responsive - Desktop adjustments */
 @media (max-width: 768px) {
   .admin-main__header {
     padding: 1rem 1.25rem;

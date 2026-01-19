@@ -12,7 +12,9 @@ import {
   Zap,
   Monitor,
   Play,
+  Pause,
   DollarSign,
+  XCircle,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';

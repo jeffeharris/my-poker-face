@@ -1428,6 +1428,32 @@
   }
 }
 
+/* Mobile experiment designer - full height */
+.experiment-designer--mobile {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.experiment-designer--mobile .mobile-experiment-design {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Hide header on mobile for list view (parent handles it) */
+@media (max-width: 767px) {
+  .experiment-designer__header {
+    display: none;
+  }
+
+  .experiment-designer__content {
+    height: 100%;
+  }
+}
+
 /* Responsive - Tablet */
 @media (max-width: 900px) {
   .experiment-designer__design-layout {

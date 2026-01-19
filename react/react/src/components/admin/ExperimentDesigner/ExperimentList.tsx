@@ -4,6 +4,8 @@ import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
 import { formatDate } from '../../../utils/formatters';
 import { STATUS_CONFIG_SMALL as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
+import { useViewport } from '../../../hooks/useViewport';
+import { MobileExperimentList } from './MobileExperimentList';
 
 interface ExperimentListProps {
   onViewExperiment: (experiment: ExperimentSummary) => void;
@@ -11,6 +13,7 @@ interface ExperimentListProps {
 }
 
 export function ExperimentList({ onViewExperiment, onNewExperiment }: ExperimentListProps) {
+  const { isMobile } = useViewport();
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +73,23 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     return Math.min(100, Math.round((current / total) * 100));
   };
 
+  // Mobile view - render MobileExperimentList
+  if (isMobile) {
+    return (
+      <MobileExperimentList
+        experiments={experiments}
+        loading={loading}
+        error={error}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        onRefresh={fetchExperiments}
+        onViewExperiment={onViewExperiment}
+        onNewExperiment={onNewExperiment}
+      />
+    );
+  }
+
+  // Desktop view - original table-based layout
   if (loading) {
     return (
       <div className="experiment-list__loading">

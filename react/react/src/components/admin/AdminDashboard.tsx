@@ -8,6 +8,8 @@ import { ExperimentDesigner } from './ExperimentDesigner';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
+import { AdminMenuContainer } from './AdminMenuContainer';
+import { useViewport } from '../../hooks/useViewport';
 import './AdminDashboard.css';
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -60,6 +62,7 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ onBack }: AdminDashboardProps) {
+  const { isMobile } = useViewport();
   const [activeTab, setActiveTab] = useState<AdminTab>('personalities');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -79,6 +82,54 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  // Tab content component
+  const renderTabContent = () => (
+    <>
+      {activeTab === 'personalities' && (
+        <PersonalityManager embedded />
+      )}
+      {activeTab === 'analyzer' && (
+        <DecisionAnalyzer embedded />
+      )}
+      {activeTab === 'playground' && (
+        <PromptPlayground embedded />
+      )}
+      {activeTab === 'experiments' && (
+        <ExperimentDesigner embedded />
+      )}
+      {activeTab === 'templates' && (
+        <TemplateEditor embedded />
+      )}
+      {activeTab === 'settings' && (
+        <UnifiedSettings embedded />
+      )}
+      {activeTab === 'debug' && (
+        <DebugTools embedded />
+      )}
+    </>
+  );
+
+  // Mobile layout - full screen with AdminMenuContainer
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <AdminMenuContainer
+          title={activeTabConfig?.label || 'Admin'}
+          subtitle={activeTabConfig?.description}
+          onBack={onBack}
+          navItems={SIDEBAR_ITEMS}
+          activeNavId={activeTab}
+          onNavChange={(id) => setActiveTab(id as AdminTab)}
+        >
+          <div className="admin-main__content admin-main__content--mobile">
+            {renderTabContent()}
+          </div>
+        </AdminMenuContainer>
+      </div>
+    );
+  }
+
+  // Desktop layout - sidebar + main content
   return (
     <div className="admin-dashboard-layout">
       {/* Sidebar Navigation */}
@@ -109,27 +160,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
 
         {/* Tab Content */}
         <div className="admin-main__content">
-          {activeTab === 'personalities' && (
-            <PersonalityManager embedded />
-          )}
-          {activeTab === 'analyzer' && (
-            <DecisionAnalyzer embedded />
-          )}
-          {activeTab === 'playground' && (
-            <PromptPlayground embedded />
-          )}
-          {activeTab === 'experiments' && (
-            <ExperimentDesigner embedded />
-          )}
-          {activeTab === 'templates' && (
-            <TemplateEditor embedded />
-          )}
-          {activeTab === 'settings' && (
-            <UnifiedSettings embedded />
-          )}
-          {activeTab === 'debug' && (
-            <DebugTools embedded />
-          )}
+          {renderTabContent()}
         </div>
       </main>
     </div>

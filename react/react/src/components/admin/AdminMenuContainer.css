@@ -1,0 +1,251 @@
+/* AdminMenuContainer - Mobile-first responsive container */
+
+.admin-menu-container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  width: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 10, 14, 1) 0%,
+    rgba(15, 15, 22, 1) 100%
+  );
+  overflow: hidden;
+}
+
+/* Mobile Header */
+.admin-menu-container__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  padding-top: max(0.875rem, env(safe-area-inset-top));
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(212, 165, 116, 0.15);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.admin-menu-container__header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.admin-menu-container__back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  background: rgba(212, 165, 116, 0.12);
+  border: 1px solid rgba(212, 165, 116, 0.25);
+  border-radius: 10px;
+  color: #d4a574;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-menu-container__back-btn:active {
+  transform: scale(0.95);
+  background: rgba(212, 165, 116, 0.2);
+}
+
+.admin-menu-container__header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.admin-menu-container__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.95);
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-menu-container__subtitle {
+  font-size: 0.8125rem;
+  color: rgba(248, 250, 252, 0.5);
+  margin: 0;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-menu-container__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Content Area */
+.admin-menu-container__content {
+  flex: 1;
+  min-height: 0; /* Critical for flex children to shrink */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure direct children fill the content area */
+.admin-menu-container__content > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Custom scrollbar for mobile content */
+.admin-menu-container__content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.admin-menu-container__content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-menu-container__content::-webkit-scrollbar-thumb {
+  background: rgba(212, 165, 116, 0.2);
+  border-radius: 2px;
+}
+
+/* Animation for content entrance */
+.admin-menu-container__content > * {
+  animation: mobileContentSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes mobileContentSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Menu Button */
+.admin-menu-container__menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.85);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-menu-container__menu-btn:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Navigation List in Sheet */
+.admin-menu-container__nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.admin-menu-container__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-menu-container__nav-item:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.admin-menu-container__nav-item--active {
+  background: rgba(212, 165, 116, 0.12);
+}
+
+.admin-menu-container__nav-item--active:active {
+  background: rgba(212, 165, 116, 0.18);
+}
+
+.admin-menu-container__nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.7);
+  flex-shrink: 0;
+}
+
+.admin-menu-container__nav-item--active .admin-menu-container__nav-icon {
+  background: rgba(212, 165, 116, 0.15);
+  color: #d4a574;
+}
+
+.admin-menu-container__nav-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-menu-container__nav-label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: rgba(248, 250, 252, 0.9);
+}
+
+.admin-menu-container__nav-item--active .admin-menu-container__nav-label {
+  color: #d4a574;
+}
+
+.admin-menu-container__nav-desc {
+  font-size: 0.75rem;
+  color: rgba(248, 250, 252, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-menu-container__nav-check {
+  color: #d4a574;
+  flex-shrink: 0;
+}

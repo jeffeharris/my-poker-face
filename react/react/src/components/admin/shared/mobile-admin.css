@@ -1,0 +1,437 @@
+/* ============================================
+   Mobile Admin Design System
+   Shared tokens, utilities, and base styles
+   ============================================ */
+
+/* ===========================================
+   CSS Custom Properties - Mobile Admin Tokens
+   =========================================== */
+:root {
+  /* Mobile-specific spacing (touch-friendly) */
+  --mobile-space-xs: 4px;
+  --mobile-space-sm: 8px;
+  --mobile-space-md: 12px;
+  --mobile-space-lg: 16px;
+  --mobile-space-xl: 20px;
+  --mobile-space-2xl: 24px;
+  --mobile-space-3xl: 32px;
+
+  /* Touch targets (minimum 44px for accessibility) */
+  --mobile-touch-target: 44px;
+  --mobile-touch-target-sm: 40px;
+  --mobile-touch-target-lg: 52px;
+
+  /* Card styling */
+  --mobile-card-radius: 14px;
+  --mobile-card-padding: 16px;
+  --mobile-card-gap: 12px;
+  --mobile-card-bg: rgba(25, 25, 32, 0.85);
+  --mobile-card-border: rgba(255, 255, 255, 0.06);
+  --mobile-card-border-hover: rgba(255, 255, 255, 0.12);
+
+  /* Bottom sheet */
+  --mobile-sheet-radius: 20px;
+  --mobile-sheet-handle-width: 36px;
+  --mobile-sheet-handle-height: 4px;
+  --mobile-sheet-bg: rgba(20, 20, 28, 0.98);
+
+  /* Floating action button */
+  --mobile-fab-size: 56px;
+  --mobile-fab-bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
+  --mobile-fab-right: 20px;
+
+  /* Transitions */
+  --mobile-transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --mobile-transition-base: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --mobile-transition-spring: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Z-index layers */
+  --mobile-z-content: 1;
+  --mobile-z-sticky: 50;
+  --mobile-z-fab: 100;
+  --mobile-z-sheet-backdrop: 200;
+  --mobile-z-sheet: 250;
+  --mobile-z-modal: 300;
+}
+
+/* ===========================================
+   Animation Keyframes
+   =========================================== */
+
+/* Slide up animation for bottom sheets */
+@keyframes mobileSlideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Slide down animation for dismissing sheets */
+@keyframes mobileSlideDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+/* Fade in for backdrops */
+@keyframes mobileFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Fade out for backdrops */
+@keyframes mobileFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Scale pulse for FAB */
+@keyframes mobileFabPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Stagger animation for list items */
+@keyframes mobileListItemSlide {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pull to refresh spinner */
+@keyframes mobileSpinnerRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Card press feedback */
+@keyframes mobileCardPress {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.98); }
+  100% { transform: scale(1); }
+}
+
+/* ===========================================
+   Base Mobile Button Styles
+   =========================================== */
+
+.mobile-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: var(--mobile-touch-target);
+  padding: 0.75rem 1.25rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--mobile-transition-base);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.mobile-btn:active {
+  transform: scale(0.97);
+}
+
+.mobile-btn--primary {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+
+.mobile-btn--primary:active {
+  background: linear-gradient(135deg, #059669, #047857);
+}
+
+.mobile-btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(248, 250, 252, 0.9);
+}
+
+.mobile-btn--secondary:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mobile-btn--gold {
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  color: #d4a574;
+}
+
+.mobile-btn--gold:active {
+  background: rgba(212, 165, 116, 0.25);
+}
+
+.mobile-btn--icon {
+  width: var(--mobile-touch-target);
+  height: var(--mobile-touch-target);
+  padding: 0;
+  border-radius: 10px;
+}
+
+/* ===========================================
+   Base Mobile Card Styles
+   =========================================== */
+
+.mobile-card {
+  background: var(--mobile-card-bg);
+  border: 1px solid var(--mobile-card-border);
+  border-radius: var(--mobile-card-radius);
+  padding: var(--mobile-card-padding);
+  transition: all var(--mobile-transition-base);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-card--interactive {
+  cursor: pointer;
+}
+
+.mobile-card--interactive:active {
+  transform: scale(0.98);
+  border-color: var(--mobile-card-border-hover);
+}
+
+/* ===========================================
+   Floating Action Button
+   =========================================== */
+
+.mobile-fab {
+  position: fixed;
+  bottom: var(--mobile-fab-bottom);
+  right: var(--mobile-fab-right);
+  width: var(--mobile-fab-size);
+  height: var(--mobile-fab-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: none;
+  border-radius: 16px;
+  color: white;
+  cursor: pointer;
+  z-index: var(--mobile-z-fab);
+  box-shadow:
+    0 4px 12px rgba(16, 185, 129, 0.3),
+    0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all var(--mobile-transition-spring);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-fab:active {
+  transform: scale(0.92);
+}
+
+.mobile-fab:hover {
+  box-shadow:
+    0 6px 16px rgba(16, 185, 129, 0.4),
+    0 4px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* ===========================================
+   Status Badge (Mobile-optimized)
+   =========================================== */
+
+.mobile-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mobile-status-badge--pending {
+  background: rgba(115, 115, 115, 0.2);
+  color: #a3a3a3;
+}
+
+.mobile-status-badge--running {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.mobile-status-badge--completed {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.mobile-status-badge--failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.mobile-status-badge--paused {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+/* ===========================================
+   Progress Bar (Mobile-optimized)
+   =========================================== */
+
+.mobile-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.mobile-progress__bar-container {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mobile-progress__bar {
+  height: 100%;
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.mobile-progress__bar--success {
+  background: linear-gradient(90deg, #34d399, #10b981);
+}
+
+.mobile-progress__text {
+  font-size: 0.75rem;
+  color: rgba(248, 250, 252, 0.6);
+}
+
+/* ===========================================
+   Empty State
+   =========================================== */
+
+.mobile-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem 2rem;
+  text-align: center;
+}
+
+.mobile-empty-state__icon {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(212, 165, 116, 0.1);
+  border-radius: 16px;
+  color: #d4a574;
+}
+
+.mobile-empty-state__title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.9);
+}
+
+.mobile-empty-state__text {
+  margin: 0;
+  font-size: 0.875rem;
+  color: rgba(248, 250, 252, 0.5);
+  max-width: 280px;
+}
+
+/* ===========================================
+   Loading State
+   =========================================== */
+
+.mobile-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem;
+}
+
+.mobile-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(212, 165, 116, 0.2);
+  border-top-color: #d4a574;
+  border-radius: 50%;
+  animation: mobileSpinnerRotate 0.8s linear infinite;
+}
+
+.mobile-loading__text {
+  font-size: 0.875rem;
+  color: rgba(248, 250, 252, 0.6);
+}
+
+/* ===========================================
+   List Animation Utilities
+   =========================================== */
+
+.mobile-list-animated > * {
+  animation: mobileListItemSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.mobile-list-animated > *:nth-child(1) { animation-delay: 0ms; }
+.mobile-list-animated > *:nth-child(2) { animation-delay: 30ms; }
+.mobile-list-animated > *:nth-child(3) { animation-delay: 60ms; }
+.mobile-list-animated > *:nth-child(4) { animation-delay: 90ms; }
+.mobile-list-animated > *:nth-child(5) { animation-delay: 120ms; }
+.mobile-list-animated > *:nth-child(6) { animation-delay: 150ms; }
+.mobile-list-animated > *:nth-child(7) { animation-delay: 180ms; }
+.mobile-list-animated > *:nth-child(8) { animation-delay: 210ms; }
+.mobile-list-animated > *:nth-child(9) { animation-delay: 240ms; }
+.mobile-list-animated > *:nth-child(10) { animation-delay: 270ms; }
+
+/* For items beyond 10, use same delay */
+.mobile-list-animated > *:nth-child(n+11) { animation-delay: 300ms; }
+
+/* ===========================================
+   Safe Area Utilities
+   =========================================== */
+
+.mobile-safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.mobile-safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.mobile-safe-area-left {
+  padding-left: env(safe-area-inset-left);
+}
+
+.mobile-safe-area-right {
+  padding-right: env(safe-area-inset-right);
+}
+
+.mobile-safe-area-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.mobile-safe-area-y {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
