@@ -590,7 +590,6 @@ def api_new_game():
         owner_name = None
 
     requested_personalities = data.get('personalities', [])
-    opponent_count = data.get('opponent_count', 3)  # Default to 3 opponents
     default_llm_config = data.get('llm_config', {})
     starting_stack = data.get('starting_stack', 10000)
     big_blind = data.get('big_blind', 50)
@@ -638,7 +637,7 @@ def api_new_game():
                         # Merge with default config (per-player overrides default)
                         player_llm_configs[name] = {**default_llm_config, **p_llm_config}
     else:
-        ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
+        ai_player_names = get_celebrities(shuffled=True)[:3]
 
     game_state = initialize_game_state(
         player_names=ai_player_names,
