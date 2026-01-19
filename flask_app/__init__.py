@@ -26,10 +26,9 @@ def recover_interrupted_experiments():
     as 'interrupted' so users can manually resume them.
     """
     try:
-        from poker.persistence import GamePersistence
-        from .config import DB_PATH
-        persistence = GamePersistence(DB_PATH)
-        count = persistence.mark_running_experiments_interrupted()
+        from .extensions import get_repository_factory
+        repo = get_repository_factory()
+        count = repo.experiment.mark_running_experiments_interrupted()
         if count > 0:
             logger.warning(
                 f"Found {count} experiment(s) in 'running' state on startup. "

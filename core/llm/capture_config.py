@@ -39,18 +39,16 @@ _ENV_CAPTURE_MODE = os.environ.get("LLM_PROMPT_CAPTURE", CAPTURE_DISABLED).lower
 _ENV_RETENTION_DAYS = int(os.environ.get("LLM_PROMPT_RETENTION_DAYS", "0"))
 
 
-def _get_persistence():
-    """Get the persistence instance, handling import lazily to avoid circular imports."""
+def _get_config_repo():
+    """Get the config repository, handling import lazily to avoid circular imports."""
     try:
-        from flask_app.extensions import persistence
-        return persistence
+        from flask_app.extensions import get_repository_factory
+        return get_repository_factory().config
     except ImportError:
-        # Not running in Flask context, try direct import
-        try:
-            from poker.persistence import GamePersistence
-            return GamePersistence()
-        except Exception:
-            return None
+        # Not running in Flask context
+        return None
+    except Exception:
+        return None
 
 
 def get_capture_mode() -> str:
@@ -59,9 +57,9 @@ def get_capture_mode() -> str:
     Returns:
         One of: 'disabled', 'all', 'all_except_decisions'
     """
-    persistence = _get_persistence()
-    if persistence:
-        db_value = persistence.get_setting('LLM_PROMPT_CAPTURE', None)
+    config_repo = _get_config_repo()
+    if config_repo:
+        db_value = config_repo.get_setting('LLM_PROMPT_CAPTURE', None)
         if db_value is not None:
             return db_value.lower()
     return _ENV_CAPTURE_MODE
@@ -73,9 +71,9 @@ def get_retention_days() -> int:
     Returns:
         Number of days to keep captures (0 = unlimited)
     """
-    persistence = _get_persistence()
-    if persistence:
-        db_value = persistence.get_setting('LLM_PROMPT_RETENTION_DAYS', None)
+    config_repo = _get_config_repo()
+    if config_repo:
+        db_value = config_repo.get_setting('LLM_PROMPT_RETENTION_DAYS', None)
         if db_value is not None:
             try:
                 return int(db_value)
