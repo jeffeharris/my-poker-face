@@ -847,7 +847,7 @@ class SQLiteDebugRepository:
     def _load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all controller states for a game."""
         rows = self._db.fetch_all(
-            "SELECT player_name, state_data FROM ai_controller_states WHERE game_id = ?",
+            "SELECT player_name, state_data FROM controller_state WHERE game_id = ?",
             (game_id,),
         )
         return {
@@ -858,7 +858,7 @@ class SQLiteDebugRepository:
     def _load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all emotional states for a game."""
         rows = self._db.fetch_all(
-            "SELECT player_name, state_data FROM ai_emotional_states WHERE game_id = ?",
+            "SELECT player_name, state_data FROM emotional_state WHERE game_id = ?",
             (game_id,),
         )
         return {
@@ -869,7 +869,7 @@ class SQLiteDebugRepository:
     def _load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a specific player."""
         row = self._db.fetch_one(
-            "SELECT state_data FROM ai_controller_states WHERE game_id = ? AND player_name = ?",
+            "SELECT state_data FROM controller_state WHERE game_id = ? AND player_name = ?",
             (game_id, player_name),
         )
         return from_json(row["state_data"]) if row else None
@@ -877,7 +877,7 @@ class SQLiteDebugRepository:
     def _load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load emotional state for a specific player."""
         row = self._db.fetch_one(
-            "SELECT state_data FROM ai_emotional_states WHERE game_id = ? AND player_name = ?",
+            "SELECT state_data FROM emotional_state WHERE game_id = ? AND player_name = ?",
             (game_id, player_name),
         )
         return from_json(row["state_data"]) if row else None
