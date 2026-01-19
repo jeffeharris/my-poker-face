@@ -183,25 +183,12 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   // Models Logic
   // ============================================
 
-  const fetchModels = useCallback(async () => {
-    try {
-      setModelsLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/api/models`);
-      const data = await response.json();
-
-      if (data.success) {
-        setModels(data.models);
-        const providers = new Set<string>(data.models.map((m: Model) => m.provider));
-        setExpandedProviders(providers);
-      } else {
-        showAlert('error', data.error || 'Failed to load models');
-      }
-    } catch {
-      showAlert('error', 'Failed to connect to server');
-    } finally {
-      setModelsLoading(false);
+  // Initialize expanded providers when models load
+  useEffect(() => {
+    if (models && models.length > 0 && expandedProviders.size === 0) {
+      setExpandedProviders(new Set(models.map(m => m.provider)));
     }
-  }, []);
+  }, [models, expandedProviders.size]);
 
   const toggleModel = async (modelId: number, enabled: boolean) => {
     try {
@@ -214,9 +201,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       const data = await response.json();
 
       if (data.success) {
-        setModels(prev => prev.map(m =>
-          m.id === modelId ? { ...m, enabled } : m
-        ));
+        await refreshModels();
         showAlert('success', `Model ${enabled ? 'enabled' : 'disabled'}`);
       } else {
         showAlert('error', data.error || 'Failed to update model');
@@ -239,6 +224,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   };
 
   const modelsByProvider = useMemo(() => {
+    if (!models) return {};
     return models.reduce((acc, model) => {
       if (!acc[model.provider]) {
         acc[model.provider] = [];
@@ -463,11 +449,9 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     }
   };
 
-  // Load data when category changes
+  // Load data when category changes (models handled by useAdminResource hook)
   useEffect(() => {
-    if (activeCategory === 'models' && models.length === 0) {
-      fetchModels();
-    } else if (activeCategory === 'capture' && !captureSettings) {
+    if (activeCategory === 'capture' && !captureSettings) {
       fetchCaptureData();
     } else if (activeCategory === 'storage' && !storage) {
       fetchStorage();
@@ -475,7 +459,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       fetchPricing();
       fetchPricingProviders();
     }
-  }, [activeCategory, models.length, captureSettings, storage, pricing.length, fetchModels, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
+  }, [activeCategory, captureSettings, storage, pricing.length, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
 
   // Refetch pricing when filters change
   useEffect(() => {
