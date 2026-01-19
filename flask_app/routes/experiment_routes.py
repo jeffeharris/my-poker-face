@@ -30,6 +30,63 @@ _active_experiments: Dict[int, threading.Thread] = {}
 # Store chat sessions for experiment design
 _chat_sessions: Dict[str, List[Dict[str, str]]] = {}
 
+# Tool definition for getting available personalities
+PERSONALITY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_available_personalities",
+        "description": "Get list of available AI personalities with their play styles and traits. Call this when the user asks about personalities or wants to select specific ones for their experiment.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filter_play_style": {
+                    "type": ["string", "null"],
+                    "description": "Optional filter by play style (e.g., 'aggressive', 'passive', 'unpredictable', 'calculated', 'balanced')",
+                }
+            },
+            "additionalProperties": False,
+            "required": ["filter_play_style"],
+        }
+    }
+}
+
+
+def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
+    """Execute experiment design tools.
+
+    Args:
+        name: The tool name to execute
+        args: Arguments for the tool
+
+    Returns:
+        JSON string with tool results
+    """
+    if name == "get_available_personalities":
+        repo = get_repository_factory()
+        personalities = repo.personality.find_all(limit=100)
+
+        result = []
+        filter_style = args.get("filter_play_style")
+
+        for p in personalities:
+            config = p.config or {}
+            play_style = config.get("play_style", "unknown")
+
+            # Apply filter if provided
+            if filter_style and filter_style.lower() not in play_style.lower():
+                continue
+
+            result.append({
+                "name": p.name,
+                "play_style": play_style,
+                "traits": config.get("personality_traits", {}),
+            })
+
+        return json.dumps(result)
+
+    return json.dumps({"error": f"Unknown tool: {name}"})
+
 # Fields accepted in ExperimentConfig (used for filtering unknown keys)
 EXPERIMENT_CONFIG_FIELDS = {
     'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
@@ -261,6 +318,15 @@ Common experiment scenarios:
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
+## Tools Available
+
+You have access to a `get_available_personalities` tool that fetches the current list of AI personalities from the database. Use this tool when:
+- The user asks about available personalities
+- The user wants to select specific personalities for their experiment
+- You need to suggest personality names for the experiment config
+
+The tool can optionally filter by play_style (e.g., "aggressive", "passive").
+
 Keep responses concise and focused on experiment design. Be helpful and proactive in suggesting configurations."""
 
 
@@ -377,10 +443,13 @@ def chat_experiment_design():
         # Add current user message
         messages.append({"role": "user", "content": message})
 
-        # Call LLM
+        # Call LLM with tool support
         client = LLMClient(model=config.FAST_AI_MODEL)
         response = client.complete(
             messages=messages,
+            tools=[PERSONALITY_TOOL],
+            tool_choice="auto",
+            tool_executor=_execute_experiment_tool,
             call_type=CallType.EXPERIMENT_DESIGN,
             prompt_template='experiment_design_chat',
         )

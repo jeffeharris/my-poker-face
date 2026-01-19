@@ -1,6 +1,6 @@
 """Abstract base class for LLM providers."""
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from ..config import DEFAULT_MAX_TOKENS
 
@@ -36,6 +36,8 @@ class LLMProvider(ABC):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
         """Make a completion request.
 
@@ -43,6 +45,8 @@ class LLMProvider(ABC):
             messages: List of message dicts with 'role' and 'content'
             json_format: Whether to request JSON output
             max_tokens: Maximum tokens in response
+            tools: Optional list of tool definitions for function calling
+            tool_choice: Optional tool choice mode ("auto", "required", "none")
 
         Returns:
             Raw provider response object
@@ -100,3 +104,11 @@ class LLMProvider(ABC):
         Each provider has their own format (e.g., OpenAI: 'chatcmpl-xxx').
         """
         ...
+
+    def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls from response.
+
+        Returns None if no tool calls or not supported by this provider.
+        Override in providers that support function calling.
+        """
+        return None

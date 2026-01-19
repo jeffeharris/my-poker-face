@@ -1,6 +1,6 @@
 """Response dataclasses for LLM operations."""
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -20,6 +20,7 @@ class LLMResponse:
     status: str = "ok"
     error_code: Optional[str] = None
     request_id: Optional[str] = None  # Vendor request ID for correlation
+    tool_calls: Optional[List[Dict[str, Any]]] = None  # Tool calls from the model
     raw_response: Any = field(default=None, repr=False)
 
     @property

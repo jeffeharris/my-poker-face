@@ -82,6 +82,11 @@ class LLMClient:
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        # Tool calling support
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
+        tool_executor: Optional[Callable[[str, Dict[str, Any]], str]] = None,
+        max_tool_iterations: int = 5,
         # Tracking context
         call_type: Optional[CallType] = None,
         game_id: Optional[str] = None,
@@ -99,6 +104,10 @@ class LLMClient:
             messages: List of message dicts with 'role' and 'content'
             json_format: Whether to request JSON output
             max_tokens: Maximum tokens in response
+            tools: Optional list of tool definitions for function calling
+            tool_choice: Tool choice mode ("auto", "required", "none")
+            tool_executor: Callback to execute tools: (name, args) -> result string
+            max_tool_iterations: Maximum tool call iterations to prevent infinite loops
             call_type: Type of call for tracking
             game_id: Game ID for tracking
             owner_id: User ID for tracking
@@ -112,35 +121,101 @@ class LLMClient:
         Returns:
             LLMResponse with content and usage data
         """
+        import json as json_module
+
         start_time = time.time()
 
-        try:
-            raw_response = self._provider.complete(
-                messages=messages,
-                json_format=json_format,
-                max_tokens=max_tokens,
-            )
-            latency_ms = (time.time() - start_time) * 1000
+        # Track total usage across tool iterations
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cached_tokens = 0
+        total_reasoning_tokens = 0
 
-            usage = self._provider.extract_usage(raw_response)
-            content = self._provider.extract_content(raw_response)
-            finish_reason = self._provider.extract_finish_reason(raw_response)
-            request_id = self._provider.extract_request_id(raw_response)
+        # Make a mutable copy of messages for tool loop
+        working_messages = list(messages)
+        iteration = 0
+        final_tool_calls = None
+
+        try:
+            while iteration < max_tool_iterations:
+                iteration += 1
+
+                raw_response = self._provider.complete(
+                    messages=working_messages,
+                    json_format=json_format,
+                    max_tokens=max_tokens,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                )
+
+                usage = self._provider.extract_usage(raw_response)
+                total_input_tokens += usage["input_tokens"]
+                total_output_tokens += usage["output_tokens"]
+                total_cached_tokens += usage["cached_tokens"]
+                total_reasoning_tokens += usage["reasoning_tokens"]
+
+                content = self._provider.extract_content(raw_response)
+                finish_reason = self._provider.extract_finish_reason(raw_response)
+                request_id = self._provider.extract_request_id(raw_response)
+                tool_calls = self._provider.extract_tool_calls(raw_response)
+
+                # If no tool calls or no executor, we're done
+                if not tool_calls or not tool_executor:
+                    final_tool_calls = tool_calls
+                    break
+
+                # Execute each tool call and add results to messages
+                # First add the assistant's message with tool calls
+                assistant_msg = {"role": "assistant", "content": content or ""}
+                if tool_calls:
+                    assistant_msg["tool_calls"] = tool_calls
+                working_messages.append(assistant_msg)
+
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    tool_name = func.get("name", "")
+                    tool_args_str = func.get("arguments", "{}")
+                    tool_id = tc.get("id", "")
+
+                    try:
+                        tool_args = json_module.loads(tool_args_str)
+                    except json_module.JSONDecodeError:
+                        tool_args = {}
+
+                    try:
+                        tool_result = tool_executor(tool_name, tool_args)
+                    except Exception as e:
+                        logger.error(f"Tool execution error for {tool_name}: {e}")
+                        tool_result = json_module.dumps({"error": str(e)})
+
+                    # Add tool result message
+                    working_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": tool_result,
+                    })
+
+                # Continue loop to get the model's final response after tool execution
+                # Reset tool_choice to auto after first iteration to let model decide
+                tool_choice = "auto"
+
+            latency_ms = (time.time() - start_time) * 1000
 
             response = LLMResponse(
                 content=content,
                 model=self._provider.model,
                 provider=self._provider.provider_name,
-                input_tokens=usage["input_tokens"],
-                output_tokens=usage["output_tokens"],
-                cached_tokens=usage["cached_tokens"],
-                reasoning_tokens=usage["reasoning_tokens"],
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                cached_tokens=total_cached_tokens,
+                reasoning_tokens=total_reasoning_tokens,
                 reasoning_effort=self._provider.reasoning_effort,
                 max_tokens=max_tokens,
                 latency_ms=latency_ms,
                 finish_reason=finish_reason,
-                status="ok" if content else "error",
+                status="ok" if content or final_tool_calls else "error",
                 request_id=request_id,
+                tool_calls=final_tool_calls,
                 raw_response=raw_response,
             )
 
@@ -152,8 +227,10 @@ class LLMClient:
                 content="",
                 model=self._provider.model,
                 provider=self._provider.provider_name,
-                input_tokens=0,
-                output_tokens=0,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                cached_tokens=total_cached_tokens,
+                reasoning_tokens=total_reasoning_tokens,
                 max_tokens=max_tokens,
                 latency_ms=latency_ms,
                 status="error",

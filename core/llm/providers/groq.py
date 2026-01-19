@@ -79,8 +79,13 @@ class GroqProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
-        """Make a chat completion request."""
+        """Make a chat completion request.
+
+        Note: tools/tool_choice are accepted for interface compatibility but not used.
+        """
         kwargs = {
             "model": self._model,
             "messages": messages,

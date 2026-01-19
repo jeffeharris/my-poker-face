@@ -87,6 +87,8 @@ class AnthropicProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
         """Make a chat completion request.
 
@@ -96,6 +98,8 @@ class AnthropicProvider(LLMProvider):
 
         When json_format=True, explicit JSON instructions are injected into the
         system prompt since Anthropic doesn't have native JSON mode support.
+
+        Note: tools/tool_choice are accepted for interface compatibility but not used.
         """
         # Extract system prompt from messages if present
         system_prompt = None

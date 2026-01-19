@@ -60,6 +60,8 @@ class OpenAIProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
         """Make a chat completion request."""
         kwargs = {
@@ -70,6 +72,12 @@ class OpenAIProvider(LLMProvider):
 
         if json_format:
             kwargs["response_format"] = {"type": "json_object"}
+
+        # Add tools if provided
+        if tools:
+            kwargs["tools"] = tools
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
 
         # GPT-5 models use reasoning_effort instead of temperature
         if self._model.startswith("gpt-5"):
@@ -147,3 +155,27 @@ class OpenAIProvider(LLMProvider):
         if request_id is None or not isinstance(request_id, str):
             return ''
         return request_id
+
+    def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls from OpenAI response."""
+        message = raw_response.choices[0].message
+
+        # Check if tool_calls exists and is a proper list (not a Mock or None)
+        tool_calls = getattr(message, 'tool_calls', None)
+        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+            return None
+
+        if len(tool_calls) == 0:
+            return None
+
+        return [
+            {
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,  # JSON string
+                }
+            }
+            for tc in tool_calls
+        ]
