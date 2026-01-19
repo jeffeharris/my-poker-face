@@ -207,12 +207,50 @@ ALTER TABLE opponent_models ADD COLUMN recent_trend TEXT;
 
 ### 2. api_usage table (required for LLM tracking)
 
-The LLM tracking module writes prompt metadata. Add these columns:
+The LLM tracking module writes extended metadata. Add these columns:
 
 ```sql
+-- Core metadata columns
 ALTER TABLE api_usage ADD COLUMN prompt_template TEXT;
 ALTER TABLE api_usage ADD COLUMN prompt_version TEXT;
 ALTER TABLE api_usage ADD COLUMN max_tokens INTEGER;
+
+-- Extended tracking columns (added 2026-01)
+ALTER TABLE api_usage ADD COLUMN image_count INTEGER DEFAULT 0;
+ALTER TABLE api_usage ADD COLUMN image_size TEXT;
+ALTER TABLE api_usage ADD COLUMN status TEXT;
+ALTER TABLE api_usage ADD COLUMN finish_reason TEXT;
+ALTER TABLE api_usage ADD COLUMN error_code TEXT;
+ALTER TABLE api_usage ADD COLUMN message_count INTEGER;
+ALTER TABLE api_usage ADD COLUMN system_prompt_tokens INTEGER;
+```
+
+### 2.1 model_pricing table (required for cost calculation)
+
+The pricing system uses a row-per-unit approach. The table needs the correct unique constraint:
+
+```sql
+-- If table has wrong constraint UNIQUE(model, provider), recreate it:
+-- 1. Create new table
+CREATE TABLE model_pricing_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    cost REAL,
+    valid_from TEXT,
+    valid_until TEXT,
+    version TEXT,
+    notes TEXT,
+    UNIQUE(model, provider, unit, valid_from)
+);
+
+-- 2. Copy data, drop old, rename
+INSERT INTO model_pricing_new (model, provider, unit, cost, valid_from, valid_until)
+SELECT model, provider, unit, cost, valid_from, valid_until FROM model_pricing;
+DROP TABLE model_pricing;
+ALTER TABLE model_pricing_new RENAME TO model_pricing;
+CREATE INDEX idx_model_pricing_model ON model_pricing(model, provider);
 ```
 
 ### 3. experiments table (required for experiment routes)

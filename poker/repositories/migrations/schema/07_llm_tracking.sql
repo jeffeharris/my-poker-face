@@ -16,7 +16,23 @@ CREATE TABLE IF NOT EXISTS api_usage (
     input_cost REAL,
     output_cost REAL,
     total_cost REAL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Extended tracking fields
+    estimated_cost REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reasoning_effort TEXT,
+    request_id TEXT,
+    pricing_ids TEXT,
+    prompt_template TEXT,
+    prompt_version TEXT,
+    max_tokens INTEGER,
+    image_count INTEGER DEFAULT 0,
+    image_size TEXT,
+    status TEXT,
+    finish_reason TEXT,
+    error_code TEXT,
+    message_count INTEGER,
+    system_prompt_tokens INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_usage_game ON api_usage(game_id);
@@ -26,16 +42,25 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type);
 CREATE INDEX IF NOT EXISTS idx_api_usage_model ON api_usage(model);
 
 -- Model pricing configuration (IMPORTANT: preserve this data during migration)
+-- Uses row-per-unit approach: each SKU (provider/model/unit combination) has its own row
 CREATE TABLE IF NOT EXISTS model_pricing (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     model TEXT NOT NULL,
     provider TEXT NOT NULL,
-    input_price_per_1m REAL NOT NULL DEFAULT 0.0,
-    output_price_per_1m REAL NOT NULL DEFAULT 0.0,
-    cached_input_price_per_1m REAL NOT NULL DEFAULT 0.0,
-    reasoning_price_per_1m REAL NOT NULL DEFAULT 0.0,
+    unit TEXT NOT NULL,
+    cost REAL,
+    -- Legacy columns (kept for backwards compat, but cost/unit is the new approach)
+    input_price_per_1m REAL DEFAULT 0.0,
+    output_price_per_1m REAL DEFAULT 0.0,
+    cached_input_price_per_1m REAL DEFAULT 0.0,
+    reasoning_price_per_1m REAL DEFAULT 0.0,
     effective_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(model, provider)
+    version TEXT,
+    valid_from TEXT,
+    valid_until TEXT,
+    pricing_tier TEXT,
+    notes TEXT,
+    UNIQUE(model, provider, unit, valid_from)
 );
 
 CREATE INDEX IF NOT EXISTS idx_model_pricing_model ON model_pricing(model, provider);

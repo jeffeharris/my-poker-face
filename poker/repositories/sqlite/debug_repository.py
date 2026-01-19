@@ -845,39 +845,75 @@ class SQLiteDebugRepository:
         }
 
     def _load_all_controller_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all controller states for a game."""
+        """Load all controller states for a game.
+
+        The controller_state table stores state_data as JSON and prompt_config_json separately.
+        """
         rows = self._db.fetch_all(
-            "SELECT player_name, state_data FROM controller_state WHERE game_id = ?",
+            """SELECT player_name, state_data, prompt_config_json
+               FROM controller_state WHERE game_id = ?""",
             (game_id,),
         )
-        return {
-            row["player_name"]: from_json(row["state_data"]) or {}
-            for row in rows
-        }
+        result = {}
+        for row in rows:
+            state_data = from_json(row.get("state_data")) or {}
+            if row.get("prompt_config_json"):
+                state_data["prompt_config"] = from_json(row["prompt_config_json"])
+            result[row["player_name"]] = state_data
+        return result
 
     def _load_all_emotional_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
-        """Load all emotional states for a game."""
+        """Load all emotional states for a game.
+
+        The emotional_state table stores tilt_level, current_mood, trigger_events, modifier_stack.
+        """
         rows = self._db.fetch_all(
-            "SELECT player_name, state_data FROM emotional_state WHERE game_id = ?",
+            """SELECT player_name, tilt_level, current_mood, trigger_events, modifier_stack
+               FROM emotional_state WHERE game_id = ?""",
             (game_id,),
         )
-        return {
-            row["player_name"]: from_json(row["state_data"]) or {}
-            for row in rows
-        }
+        result = {}
+        for row in rows:
+            state_data = {
+                "tilt_level": row.get("tilt_level"),
+                "current_mood": row.get("current_mood"),
+            }
+            if row.get("trigger_events"):
+                state_data["trigger_events"] = from_json(row["trigger_events"])
+            if row.get("modifier_stack"):
+                state_data["modifier_stack"] = from_json(row["modifier_stack"])
+            result[row["player_name"]] = state_data
+        return result
 
     def _load_controller_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load controller state for a specific player."""
         row = self._db.fetch_one(
-            "SELECT state_data FROM controller_state WHERE game_id = ? AND player_name = ?",
+            """SELECT state_data, prompt_config_json
+               FROM controller_state WHERE game_id = ? AND player_name = ?""",
             (game_id, player_name),
         )
-        return from_json(row["state_data"]) if row else None
+        if not row:
+            return None
+        state_data = from_json(row.get("state_data")) or {}
+        if row.get("prompt_config_json"):
+            state_data["prompt_config"] = from_json(row["prompt_config_json"])
+        return state_data
 
     def _load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
         """Load emotional state for a specific player."""
         row = self._db.fetch_one(
-            "SELECT state_data FROM emotional_state WHERE game_id = ? AND player_name = ?",
+            """SELECT tilt_level, current_mood, trigger_events, modifier_stack
+               FROM emotional_state WHERE game_id = ? AND player_name = ?""",
             (game_id, player_name),
         )
-        return from_json(row["state_data"]) if row else None
+        if not row:
+            return None
+        state_data = {
+            "tilt_level": row.get("tilt_level"),
+            "current_mood": row.get("current_mood"),
+        }
+        if row.get("trigger_events"):
+            state_data["trigger_events"] = from_json(row["trigger_events"])
+        if row.get("modifier_stack"):
+            state_data["modifier_stack"] = from_json(row["modifier_stack"])
+        return state_data
