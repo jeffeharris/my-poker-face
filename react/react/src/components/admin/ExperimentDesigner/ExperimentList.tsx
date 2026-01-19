@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
 import { formatDate } from '../../../utils/formatters';
