@@ -11,7 +11,9 @@ from typing import Dict, Any, Optional, List
 from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType
+from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES, AVAILABLE_PROVIDERS
 from poker.utils import get_celebrities
+from .game_routes import _get_enabled_models_map
 from poker.prompt_config import PromptConfig
 from poker.repositories.protocols import ExperimentEntity, ExperimentGameEntity
 from ..extensions import get_repository_factory, limiter
@@ -67,8 +69,40 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'reset_on_elimination': False,
 }
 
-# System prompt for the experiment design assistant
-EXPERIMENT_DESIGN_SYSTEM_PROMPT = """You are an experiment design assistant for AI poker tournament testing. Your job is to help users design experiments that test AI player behavior, decision quality, and model performance.
+
+def _get_available_models_section() -> str:
+    """Generate model info section for system prompt, showing only enabled models."""
+    enabled_models = _get_enabled_models_map()
+
+    lines = ["## Available Providers and Models"]
+    if enabled_models:
+        lines.append("(Showing models enabled by admin)")
+    else:
+        lines.append("(Showing all available models)")
+
+    for provider in AVAILABLE_PROVIDERS:
+        all_models = PROVIDER_MODELS.get(provider, [])
+
+        # Filter by enabled if table exists
+        if enabled_models:
+            models = [m for m in all_models if enabled_models.get((provider, m), True)]
+        else:
+            models = all_models
+
+        if not models:
+            continue
+
+        caps = PROVIDER_CAPABILITIES.get(provider, {})
+        reasoning = "supports reasoning" if caps.get("supports_reasoning") else "no reasoning"
+        lines.append(f"\n**{provider}** ({reasoning}):")
+        for model in models:
+            lines.append(f"  - {model}")
+
+    return "\n".join(lines)
+
+
+# System prompt for the experiment design assistant (template with placeholder)
+_EXPERIMENT_DESIGN_SYSTEM_PROMPT_TEMPLATE = """You are an experiment design assistant for AI poker tournament testing. Your job is to help users design experiments that test AI player behavior, decision quality, and model performance.
 
 You help configure experiments with these parameters:
 - name: Unique identifier for the experiment (required, snake_case)
@@ -82,11 +116,14 @@ You help configure experiments with these parameters:
 - num_players: Players per tournament (2-8)
 - starting_stack: Chips per player (1000-100000)
 - big_blind: Big blind amount (10-1000)
-- model: Default LLM model to use (e.g., "gpt-5-nano", "claude-sonnet-4-20250514")
-- provider: Default LLM provider ("openai", "anthropic", "groq")
+- model: Default LLM model to use (see available models below)
+- provider: Default LLM provider (see available providers below)
+- reasoning_effort: Reasoning level for models that support it (minimal, low, medium, high)
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
+
+{available_models}
 
 ## A/B Testing with Control + Variants
 
@@ -226,6 +263,15 @@ When users ask to "compare", "A/B test", or run experiments "against each other"
 
 Keep responses concise and focused on experiment design. Be helpful and proactive in suggesting configurations."""
 
+
+def _get_experiment_design_prompt() -> str:
+    """Build the full system prompt with current enabled models."""
+    # Use replace instead of format to avoid conflicts with JSON braces in template
+    return _EXPERIMENT_DESIGN_SYSTEM_PROMPT_TEMPLATE.replace(
+        '{available_models}', _get_available_models_section()
+    )
+
+
 # Quick prompts for common scenarios
 QUICK_PROMPTS = {
     'compare_models': 'I want to compare GPT vs Claude decision quality in poker',
@@ -319,9 +365,9 @@ def chat_experiment_design():
         # Build context about current config
         config_context = f"\nCurrent experiment config:\n{json.dumps(current_config, indent=2)}"
 
-        # Build messages for LLM
+        # Build messages for LLM (get dynamic prompt with current enabled models)
         messages = [
-            {"role": "system", "content": EXPERIMENT_DESIGN_SYSTEM_PROMPT + config_context}
+            {"role": "system", "content": _get_experiment_design_prompt() + config_context}
         ]
 
         # Add conversation history
@@ -461,11 +507,10 @@ def validate_experiment_config():
                 if p not in available:
                     warnings.append(f"Personality '{p}' not found in available personalities")
 
-        # Validate provider
-        valid_providers = {'openai', 'anthropic', 'groq'}
+        # Validate provider (use dynamic list from config)
         provider = config_data.get('provider', 'openai')
-        if provider not in valid_providers:
-            errors.append(f"Invalid provider: {provider}. Must be one of {valid_providers}")
+        if provider not in AVAILABLE_PROVIDERS:
+            errors.append(f"Invalid provider: {provider}. Must be one of {AVAILABLE_PROVIDERS}")
 
         # Validate control/variants structure if present
         control = config_data.get('control')

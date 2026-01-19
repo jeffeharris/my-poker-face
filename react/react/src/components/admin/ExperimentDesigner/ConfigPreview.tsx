@@ -10,6 +10,18 @@ interface ValidationResult {
   warnings: string[];
 }
 
+interface ProviderInfo {
+  id: string;
+  name: string;
+  models: string[];
+  default_model: string;
+  capabilities: {
+    supports_reasoning: boolean;
+    supports_json_mode: boolean;
+    supports_image_generation: boolean;
+  };
+}
+
 interface ConfigPreviewProps {
   config: ExperimentConfig;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
@@ -41,6 +53,41 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
   const [launching, setLaunching] = useState(false);
   const [promptConfigExpanded, setPromptConfigExpanded] = useState(false);
   const [abTestingExpanded, setAbTestingExpanded] = useState(false);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+
+  // Fetch available providers and models on mount
+  useEffect(() => {
+    const fetchProviders = async () => {
+      setProvidersLoading(true);
+      try {
+        const response = await fetch(`${appConfig.API_URL}/api/llm-providers`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+        if (data.providers?.length > 0) {
+          setProviders(data.providers);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch providers, using fallback:', err);
+        // Fallback to basic providers if fetch fails
+        setProviders([
+          { id: 'openai', name: 'OpenAI', models: ['gpt-5-nano'], default_model: 'gpt-5-nano', capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: true } },
+          { id: 'anthropic', name: 'Anthropic', models: ['claude-sonnet-4-5-20250929'], default_model: 'claude-sonnet-4-5-20250929', capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: false } },
+          { id: 'groq', name: 'Groq', models: ['llama-3.1-8b-instant'], default_model: 'llama-3.1-8b-instant', capabilities: { supports_reasoning: false, supports_json_mode: true, supports_image_generation: false } },
+        ]);
+      } finally {
+        setProvidersLoading(false);
+      }
+    };
+    fetchProviders();
+  }, []);
+
+  // Helper to get models for a specific provider
+  const getModelsForProvider = useCallback((providerId: string): string[] => {
+    const provider = providers.find(p => p.id === providerId);
+    return provider?.models || [];
+  }, [providers]);
 
   // Sync JSON text when config changes (if in form mode)
   useEffect(() => {
@@ -331,25 +378,39 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                   <select
                     className="config-preview__select"
                     value={config.provider}
-                    onChange={(e) => handleFieldChange('provider', e.target.value)}
-                    disabled={isAbTestingEnabled}
+                    onChange={(e) => {
+                      const newProvider = e.target.value;
+                      const providerInfo = providers.find(p => p.id === newProvider);
+                      // Update both provider and model (to the new provider's default)
+                      onConfigUpdate({
+                        provider: newProvider,
+                        model: providerInfo?.default_model || config.model,
+                      });
+                    }}
+                    disabled={isAbTestingEnabled || providersLoading}
                   >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="groq">Groq</option>
+                    {providersLoading ? (
+                      <option value="">Loading...</option>
+                    ) : (
+                      providers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))
+                    )}
                   </select>
                 </label>
 
                 <label className="config-preview__label config-preview__label--inline">
                   Model
-                  <input
-                    type="text"
-                    className="config-preview__input"
+                  <select
+                    className="config-preview__select"
                     value={config.model}
                     onChange={(e) => handleFieldChange('model', e.target.value)}
-                    placeholder="gpt-5-nano"
-                    disabled={isAbTestingEnabled}
-                  />
+                    disabled={isAbTestingEnabled || providersLoading}
+                  >
+                    {getModelsForProvider(config.provider).map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
                 </label>
               </div>
               {isAbTestingEnabled && (
@@ -416,22 +477,37 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                               <select
                                 className="config-preview__select"
                                 value={config.control?.provider || config.provider}
-                                onChange={(e) => handleControlUpdate('provider', e.target.value)}
+                                onChange={(e) => {
+                                  const newProvider = e.target.value;
+                                  const providerInfo = providers.find(p => p.id === newProvider);
+                                  // Update both provider and model for control
+                                  onConfigUpdate({
+                                    control: {
+                                      ...config.control!,
+                                      provider: newProvider,
+                                      model: providerInfo?.default_model || config.control?.model || '',
+                                    },
+                                  });
+                                }}
+                                disabled={providersLoading}
                               >
-                                <option value="openai">OpenAI</option>
-                                <option value="anthropic">Anthropic</option>
-                                <option value="groq">Groq</option>
+                                {providers.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
                               </select>
                             </label>
                             <label className="config-preview__label config-preview__label--inline">
                               Model
-                              <input
-                                type="text"
-                                className="config-preview__input"
+                              <select
+                                className="config-preview__select"
                                 value={config.control?.model || ''}
                                 onChange={(e) => handleControlUpdate('model', e.target.value)}
-                                placeholder="gpt-5-nano"
-                              />
+                                disabled={providersLoading}
+                              >
+                                {getModelsForProvider(config.control?.provider || config.provider).map(model => (
+                                  <option key={model} value={model}>{model}</option>
+                                ))}
+                              </select>
                             </label>
                           </div>
                           <div className="config-preview__row config-preview__row--toggles">
@@ -486,23 +562,45 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                                 <select
                                   className="config-preview__select"
                                   value={variant.provider || ''}
-                                  onChange={(e) => handleVariantUpdate(index, 'provider', e.target.value)}
+                                  onChange={(e) => {
+                                    const newProvider = e.target.value;
+                                    if (newProvider === '') {
+                                      // Inherit from control - clear both provider and model
+                                      handleVariantUpdate(index, 'provider', '');
+                                      handleVariantUpdate(index, 'model', '');
+                                    } else {
+                                      const providerInfo = providers.find(p => p.id === newProvider);
+                                      // Update provider and set default model
+                                      const variants = [...(config.variants || [])];
+                                      variants[index] = {
+                                        ...variants[index],
+                                        provider: newProvider,
+                                        model: providerInfo?.default_model || '',
+                                      };
+                                      onConfigUpdate({ variants });
+                                    }
+                                  }}
+                                  disabled={providersLoading}
                                 >
                                   <option value="">Inherit from Control</option>
-                                  <option value="openai">OpenAI</option>
-                                  <option value="anthropic">Anthropic</option>
-                                  <option value="groq">Groq</option>
+                                  {providers.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                  ))}
                                 </select>
                               </label>
                               <label className="config-preview__label config-preview__label--inline">
                                 Model
-                                <input
-                                  type="text"
-                                  className="config-preview__input"
+                                <select
+                                  className="config-preview__select"
                                   value={variant.model || ''}
                                   onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
-                                  placeholder="Inherit from Control"
-                                />
+                                  disabled={providersLoading || !variant.provider}
+                                >
+                                  <option value="">Inherit from Control</option>
+                                  {variant.provider && getModelsForProvider(variant.provider).map(model => (
+                                    <option key={model} value={model}>{model}</option>
+                                  ))}
+                                </select>
                               </label>
                             </div>
                             <div className="config-preview__row config-preview__row--toggles">
