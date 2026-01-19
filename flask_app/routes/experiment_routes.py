@@ -26,7 +26,119 @@ experiment_bp = Blueprint('experiments', __name__)
 _active_experiments: Dict[int, threading.Thread] = {}
 
 # Store chat sessions for experiment design
-_chat_sessions: Dict[str, List[Dict[str, str]]] = {}
+# Each session stores: {'history': List[Dict], 'last_config': Dict}
+_chat_sessions: Dict[str, Dict[str, Any]] = {}
+
+
+def _compute_config_diff(old_config: Dict[str, Any], new_config: Dict[str, Any]) -> Optional[str]:
+    """Compute a human-readable diff between two configs.
+
+    Returns None if configs are identical, otherwise a formatted diff string.
+    """
+    if old_config == new_config:
+        return None
+
+    changes = []
+
+    # Find all keys in either config
+    all_keys = set(old_config.keys()) | set(new_config.keys())
+
+    for key in sorted(all_keys):
+        old_val = old_config.get(key)
+        new_val = new_config.get(key)
+
+        if old_val != new_val:
+            # Format values for display
+            def format_val(v):
+                if v is None:
+                    return "null"
+                if isinstance(v, (list, dict)):
+                    return json.dumps(v, separators=(',', ':'))
+                return repr(v)
+
+            if old_val is None or key not in old_config:
+                changes.append(f"  + {key}: {format_val(new_val)}")
+            elif new_val is None or key not in new_config:
+                changes.append(f"  - {key}: {format_val(old_val)}")
+            else:
+                changes.append(f"  ~ {key}: {format_val(old_val)} → {format_val(new_val)}")
+
+    if changes:
+        return "Config changes:\n" + "\n".join(changes)
+    return None
+
+
+# Tool definition for getting available personalities
+PERSONALITY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_available_personalities",
+        "description": "Get list of available AI personalities with their play styles and traits. Call this when the user asks about personalities or wants to select specific ones for their experiment.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filter_play_style": {
+                    "type": ["string", "null"],
+                    "description": "Optional keyword filter for play style (partial match). Common keywords: 'aggressive', 'calculated', 'strategic', 'unpredictable', 'charismatic', 'calm', 'bold', 'tight'",
+                }
+            },
+            "additionalProperties": False,
+            "required": ["filter_play_style"],
+        }
+    }
+}
+
+
+def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
+    """Execute experiment design tools.
+
+    Args:
+        name: The tool name to execute
+        args: Arguments for the tool
+
+    Returns:
+        JSON string with tool results
+    """
+    if name == "get_available_personalities":
+        import sqlite3
+
+        result = []
+        filter_style = args.get("filter_play_style")
+
+        # Query personalities directly from database to get configs
+        with sqlite3.connect(persistence.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT name, config_json
+                FROM personalities
+                ORDER BY times_used DESC, name
+                LIMIT 100
+            """)
+
+            for row in cursor:
+                personality_name = row['name']
+                try:
+                    config = json.loads(row['config_json']) if row['config_json'] else {}
+                except json.JSONDecodeError:
+                    config = {}
+
+                play_style = config.get("play_style", "unknown")
+
+                # Apply filter if provided
+                if filter_style and filter_style.lower() not in play_style.lower():
+                    continue
+
+                result.append({
+                    "name": personality_name,
+                    "play_style": play_style,
+                    "traits": config.get("personality_traits", {}),
+                })
+
+        return json.dumps(result)
+
+    return json.dumps({"error": f"Unknown tool: {name}"})
+
 
 # Default experiment config values
 DEFAULT_EXPERIMENT_CONFIG = {
@@ -36,9 +148,9 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'tags': [],
     'capture_prompts': True,
     'num_tournaments': 1,
-    'max_hands_per_tournament': 100,
+    'max_hands_per_tournament': 10,
     'num_players': 4,
-    'starting_stack': 10000,
+    'starting_stack': 2000,
     'big_blind': 100,
     'model': 'gpt-5-nano',
     'provider': 'openai',
@@ -58,7 +170,7 @@ DEFAULT_EXPERIMENT_CONFIG = {
 }
 
 # System prompt for the experiment design assistant
-EXPERIMENT_DESIGN_SYSTEM_PROMPT = """You are an experiment design assistant for AI poker tournament testing. Your job is to help users design experiments that test AI player behavior, decision quality, and model performance.
+EXPERIMENT_DESIGN_SYSTEM_PROMPT = """You are the Lab Assistant, the AI experiment design helper for AI poker tournament testing. Your job is to help users design experiments that test AI player behavior, decision quality, and model performance.
 
 You help configure experiments with these parameters:
 - name: Unique identifier for the experiment (required, snake_case)
@@ -94,94 +206,202 @@ For comparing models, prompts, or other configurations, use the control/variants
   - Each variant inherits from control and only needs to specify what's different
   - Same structure as control: label, model, provider, prompt_config, enable_psychology, enable_commentary
 
-Example A/B test structure for model comparison:
-{
-  "name": "gpt_vs_claude_comparison",
-  "num_tournaments": 3,
-  "control": {
-    "label": "GPT-4o Baseline",
-    "model": "gpt-4o",
-    "provider": "openai"
-  },
-  "variants": [
-    {
-      "label": "Claude Sonnet",
-      "model": "claude-sonnet-4-20250514",
-      "provider": "anthropic"
-    }
-  ]
-}
+## Real Examples from Successful Experiments
 
-This runs 3 tournaments with GPT-4o AND 3 tournaments with Claude (6 total).
-
-Example A/B test for prompt ablation:
+### Example 1: Psychology Impact Test (6 variants, multi-model) ✓ COMPLETED
+Tests whether psychology/commentary improves decision quality across different models.
+Ran 90 hands across 6 variants, comparing with/without psychology for 3 different providers:
 {
-  "name": "pot_odds_ablation",
-  "num_tournaments": 5,
+  "name": "psychology_impact_test_v2",
+  "description": "Test impact of psychology and commentary on decision quality",
+  "hypothesis": "Psychology/commentary may help smaller models make better decisions by adding emotional context",
+  "tags": ["psychology", "commentary", "ablation"],
+  "target_hands": 15,
+  "num_players": 6,
+  "starting_stack": 10000,
+  "big_blind": 250,
+  "parallel_tournaments": 6,
+  "stagger_start_delay": 2,
+  "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond", "Daniel Negreanu"],
   "control": {
-    "label": "Full Prompts",
-    "prompt_config": {"pot_odds": true, "hand_strength": true}
-  },
-  "variants": [
-    {
-      "label": "No Pot Odds",
-      "prompt_config": {"pot_odds": false, "hand_strength": true}
-    }
-  ]
-}
-
-Example A/B test for psychology systems (testing if emotional state improves decisions):
-{
-  "name": "psychology_impact_test",
-  "num_tournaments": 5,
-  "control": {
-    "label": "No Psychology",
+    "label": "GPT-5 Nano (no psych)",
+    "model": "gpt-5-nano",
+    "provider": "openai",
     "enable_psychology": false,
     "enable_commentary": false
   },
   "variants": [
     {
-      "label": "With Psychology",
+      "label": "GPT-5 Nano (with psych)",
+      "model": "gpt-5-nano",
+      "provider": "openai",
       "enable_psychology": true,
+      "enable_commentary": true
+    },
+    {
+      "label": "Gemini Flash (no psych)",
+      "model": "gemini-2.0-flash",
+      "provider": "google",
+      "enable_psychology": false,
       "enable_commentary": false
+    },
+    {
+      "label": "Gemini Flash (with psych)",
+      "model": "gemini-2.0-flash",
+      "provider": "google",
+      "enable_psychology": true,
+      "enable_commentary": true
+    },
+    {
+      "label": "Llama 8B (no psych)",
+      "model": "llama-3.1-8b-instant",
+      "provider": "groq",
+      "enable_psychology": false,
+      "enable_commentary": false
+    },
+    {
+      "label": "Llama 8B (with psych)",
+      "model": "llama-3.1-8b-instant",
+      "provider": "groq",
+      "enable_psychology": true,
+      "enable_commentary": true
     }
   ]
 }
 
-This tests whether tilt tracking and emotional state generation improves AI decision quality.
-Note: enable_psychology adds ~4 LLM calls per hand (one per player for emotional state).
-
-## Hand-Based vs Tournament-Based Experiments
-
-For experiments where you want to ensure equal hand counts (useful for fair A/B comparisons):
-
-Example using target_hands (run exactly N hands, resetting stacks as needed):
+### Example 2: Simple Poker Pros Personality Test ✓ COMPLETED
+Simple test with specific poker pro personalities using a single model:
 {
-  "name": "hand_count_test",
-  "target_hands": 200,
+  "name": "poker_pros_comparison",
+  "description": "Compare Phil Ivey and Daniel Negreanu against other personalities",
+  "hypothesis": "Professional poker player personalities will show tighter, more aggressive play",
+  "num_tournaments": 2,
+  "max_hands_per_tournament": 50,
   "num_players": 4,
-  "control": { "label": "GPT-5" }
+  "starting_stack": 10000,
+  "big_blind": 100,
+  "model": "gpt-4o-mini",
+  "provider": "openai",
+  "personalities": ["Phil Ivey", "Daniel Negreanu", "The Rock", "Gordon Ramsay"],
+  "control": {
+    "label": "Poker Pros Test",
+    "enable_psychology": true
+  }
 }
 
-Example using reset_on_elimination (tournaments continue through resets):
+### Example 3: Fast Model Comparison (5 providers) ✓ COMPLETED
+Compare decision quality across 5 fast/budget models with parallel execution:
 {
-  "name": "fair_tournament",
-  "num_tournaments": 3,
+  "name": "preflop_discipline_test_v1",
+  "description": "Test pre-flop raising discipline prompt - compare fast models",
+  "hypothesis": "New prompt guidance should reduce EV lost and prevent runaway all-ins",
+  "tags": ["prompt_test", "preflop_discipline", "fast_models"],
+  "num_tournaments": 1,
   "max_hands_per_tournament": 100,
-  "reset_on_elimination": true
+  "num_players": 5,
+  "starting_stack": 10000,
+  "big_blind": 250,
+  "capture_prompts": true,
+  "parallel_tournaments": 5,
+  "stagger_start_delay": 2.0,
+  "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond"],
+  "control": {
+    "label": "Mistral Small",
+    "provider": "mistral",
+    "model": "mistral-small-latest"
+  },
+  "variants": [
+    {
+      "label": "Gemini 2.0 Flash",
+      "provider": "google",
+      "model": "gemini-2.0-flash"
+    },
+    {
+      "label": "GPT-5 Nano",
+      "provider": "openai",
+      "model": "gpt-5-nano"
+    },
+    {
+      "label": "Groq Llama 3.1 8B",
+      "provider": "groq",
+      "model": "llama-3.1-8b-instant"
+    },
+    {
+      "label": "Groq Llama 3.3 70B",
+      "provider": "groq",
+      "model": "llama-3.3-70b-versatile"
+    }
+  ]
 }
 
-When target_hands is set:
-- Runs until exactly that many hands are played
-- Automatically resets all stacks when one player remains
-- Ignores num_tournaments (treated as 1 session)
+### Example 4: Groq Model Size Comparison ✓ COMPLETED
+Compare Groq 8B vs 70B model decision quality:
+{
+  "name": "reset_fix_v2",
+  "target_hands": 20,
+  "num_players": 5,
+  "starting_stack": 10000,
+  "big_blind": 250,
+  "parallel_tournaments": 2,
+  "stagger_start_delay": 1.0,
+  "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond"],
+  "control": {
+    "label": "Groq 8B",
+    "provider": "groq",
+    "model": "llama-3.1-8b-instant"
+  },
+  "variants": [
+    {
+      "label": "Groq 70B",
+      "provider": "groq",
+      "model": "llama-3.3-70b-versatile"
+    }
+  ]
+}
 
-When reset_on_elimination is true:
-- Runs num_tournaments of max_hands_per_tournament each
-- Resets stacks when one player wins, continues until max_hands reached
-- Tracks round winners for analysis
+### Example 5: Quick Sanity Test
+Minimal config for quick testing:
+{
+  "name": "quick_sanity_check",
+  "description": "Quick test to verify experiment system works",
+  "target_hands": 10,
+  "num_players": 4,
+  "starting_stack": 2000,
+  "big_blind": 100
+}
 
-Available prompt_config options (all boolean, default true):
+### Example 6: Prompt Ablation Study
+Test specific prompt component impact:
+{
+  "name": "pot_odds_ablation",
+  "description": "Test if pot odds info improves decision quality",
+  "hypothesis": "Players with pot odds info will make better call/fold decisions",
+  "num_tournaments": 5,
+  "control": {
+    "label": "Full Prompts",
+    "prompt_config": {
+      "pot_odds": true,
+      "hand_strength": true,
+      "session_memory": true,
+      "opponent_intel": true
+    }
+  },
+  "variants": [
+    {
+      "label": "No Pot Odds",
+      "prompt_config": {
+        "pot_odds": false,
+        "hand_strength": true,
+        "session_memory": true,
+        "opponent_intel": true
+      }
+    }
+  ]
+}
+
+## Available prompt_config Options
+
+All boolean options (default true unless specified):
 - pot_odds: Include pot odds and equity calculations
 - hand_strength: Include hand strength evaluation
 - session_memory: Include session stats (win rate, streaks)
@@ -193,6 +413,8 @@ Available prompt_config options (all boolean, default true):
 - mind_games: Include mind games instruction
 - persona_response: Include persona response instruction
 - memory_keep_exchanges: Number of conversation exchanges to retain (integer, default 0)
+
+## Guidelines
 
 When the user describes what they want to test, suggest appropriate configuration values. Ask clarifying questions if needed.
 
@@ -213,6 +435,20 @@ Common experiment scenarios:
 9. Extended tournaments: Use reset_on_elimination for longer tournaments with stack resets
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
+
+## Tools Available
+
+You have access to the `get_available_personalities` tool that queries the personalities database to get the real, current list of AI personalities with their play styles and traits.
+
+**IMPORTANT**: Always use this tool to get personality names - do NOT guess or make up personality names. The tool returns actual personalities from the system.
+
+Use this tool when:
+- The user asks about available personalities or wants to know who they can use
+- The user wants to select specific personalities for their experiment
+- You need to suggest personality names for the experiment config
+- You want to find personalities matching a certain play style
+
+The tool accepts an optional `filter_play_style` parameter for keyword filtering (e.g., "aggressive", "calculated", "calm").
 
 Keep responses concise and focused on experiment design. Be helpful and proactive in suggesting configurations."""
 
@@ -266,10 +502,19 @@ def chat_experiment_design():
         # Create or retrieve session
         if not session_id:
             session_id = str(uuid.uuid4())
-            _chat_sessions[session_id] = []
+            _chat_sessions[session_id] = {'history': [], 'last_config': {}}
 
-        # Get conversation history
-        history = _chat_sessions.get(session_id, [])
+        # Get session data (handle legacy format)
+        session_data = _chat_sessions.get(session_id, {'history': [], 'last_config': {}})
+        if isinstance(session_data, list):
+            # Migrate from old format
+            session_data = {'history': session_data, 'last_config': {}}
+
+        history = session_data.get('history', [])
+        last_config = session_data.get('last_config', {})
+
+        # Compute diff between last known config and current config
+        config_diff = _compute_config_diff(last_config, current_config)
 
         # Build context about current config
         config_context = f"\nCurrent experiment config:\n{json.dumps(current_config, indent=2)}"
@@ -283,13 +528,21 @@ def chat_experiment_design():
         for entry in history[-10:]:  # Keep last 10 exchanges
             messages.append(entry)
 
-        # Add current user message
-        messages.append({"role": "user", "content": message})
+        # Build user message, including config diff if present
+        user_message_content = message
+        if config_diff:
+            user_message_content = f"[User edited the config form]\n{config_diff}\n\n{message}"
 
-        # Call LLM
+        # Add current user message
+        messages.append({"role": "user", "content": user_message_content})
+
+        # Call LLM with tool support
         client = LLMClient(model=config.FAST_AI_MODEL)
         response = client.complete(
             messages=messages,
+            tools=[PERSONALITY_TOOL],
+            tool_choice="auto",
+            tool_executor=_execute_experiment_tool,
             call_type=CallType.EXPERIMENT_DESIGN,
             prompt_template='experiment_design_chat',
         )
@@ -298,15 +551,18 @@ def chat_experiment_design():
         config_updates = extract_config_updates(response.content)
         display_text = clean_response_text(response.content)
 
-        # Update session history
-        history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": response.content})
-        _chat_sessions[session_id] = history
-
         # Merge updates into current config
         merged_config = {**DEFAULT_EXPERIMENT_CONFIG, **current_config}
         if config_updates:
             merged_config.update(config_updates)
+
+        # Update session history and last_config
+        history.append({"role": "user", "content": user_message_content})
+        history.append({"role": "assistant", "content": response.content})
+        _chat_sessions[session_id] = {
+            'history': history,
+            'last_config': merged_config,  # Store the merged config for next diff
+        }
 
         return jsonify({
             'success': True,
