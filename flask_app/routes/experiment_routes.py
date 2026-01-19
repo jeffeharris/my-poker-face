@@ -5,18 +5,16 @@ import logging
 import re
 import threading
 import uuid
-from datetime import datetime
+from dataclasses import asdict
 from typing import Dict, Any, Optional, List
 
 from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType
-from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES, AVAILABLE_PROVIDERS
+from poker.persistence import GamePersistence
 from poker.utils import get_celebrities
-from .game_routes import _get_enabled_models_map
 from poker.prompt_config import PromptConfig
-from poker.repositories.protocols import ExperimentEntity, ExperimentGameEntity
-from ..extensions import get_repository_factory, limiter
+from ..extensions import persistence, limiter
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
 
@@ -29,73 +27,6 @@ _active_experiments: Dict[int, threading.Thread] = {}
 
 # Store chat sessions for experiment design
 _chat_sessions: Dict[str, List[Dict[str, str]]] = {}
-
-# Tool definition for getting available personalities
-PERSONALITY_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "get_available_personalities",
-        "description": "Get list of available AI personalities with their play styles and traits. Call this when the user asks about personalities or wants to select specific ones for their experiment.",
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "filter_play_style": {
-                    "type": ["string", "null"],
-                    "description": "Optional filter by play style (e.g., 'aggressive', 'passive', 'unpredictable', 'calculated', 'balanced')",
-                }
-            },
-            "additionalProperties": False,
-            "required": ["filter_play_style"],
-        }
-    }
-}
-
-
-def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
-    """Execute experiment design tools.
-
-    Args:
-        name: The tool name to execute
-        args: Arguments for the tool
-
-    Returns:
-        JSON string with tool results
-    """
-    if name == "get_available_personalities":
-        repo = get_repository_factory()
-        personalities = repo.personality.find_all(limit=100)
-
-        result = []
-        filter_style = args.get("filter_play_style")
-
-        for p in personalities:
-            config = p.config or {}
-            play_style = config.get("play_style", "unknown")
-
-            # Apply filter if provided
-            if filter_style and filter_style.lower() not in play_style.lower():
-                continue
-
-            result.append({
-                "name": p.name,
-                "play_style": play_style,
-                "traits": config.get("personality_traits", {}),
-            })
-
-        return json.dumps(result)
-
-    return json.dumps({"error": f"Unknown tool: {name}"})
-
-# Fields accepted in ExperimentConfig (used for filtering unknown keys)
-EXPERIMENT_CONFIG_FIELDS = {
-    'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-    'num_tournaments', 'max_hands_per_tournament', 'num_players',
-    'starting_stack', 'big_blind', 'model', 'provider',
-    'personalities', 'random_seed', 'control', 'variants',
-    'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-    'target_hands', 'reset_on_elimination'
-}
 
 # Default experiment config values
 DEFAULT_EXPERIMENT_CONFIG = {
@@ -126,40 +57,8 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'reset_on_elimination': False,
 }
 
-
-def _get_available_models_section() -> str:
-    """Generate model info section for system prompt, showing only enabled models."""
-    enabled_models = _get_enabled_models_map()
-
-    lines = ["## Available Providers and Models"]
-    if enabled_models:
-        lines.append("(Showing models enabled by admin)")
-    else:
-        lines.append("(Showing all available models)")
-
-    for provider in AVAILABLE_PROVIDERS:
-        all_models = PROVIDER_MODELS.get(provider, [])
-
-        # Filter by enabled if table exists
-        if enabled_models:
-            models = [m for m in all_models if enabled_models.get((provider, m), True)]
-        else:
-            models = all_models
-
-        if not models:
-            continue
-
-        caps = PROVIDER_CAPABILITIES.get(provider, {})
-        reasoning = "supports reasoning" if caps.get("supports_reasoning") else "no reasoning"
-        lines.append(f"\n**{provider}** ({reasoning}):")
-        for model in models:
-            lines.append(f"  - {model}")
-
-    return "\n".join(lines)
-
-
-# System prompt for the experiment design assistant (template with placeholder)
-_EXPERIMENT_DESIGN_SYSTEM_PROMPT_TEMPLATE = """You are an experiment design assistant for AI poker tournament testing. Your job is to help users design experiments that test AI player behavior, decision quality, and model performance.
+# System prompt for the experiment design assistant
+EXPERIMENT_DESIGN_SYSTEM_PROMPT = """You are an experiment design assistant for AI poker tournament testing. Your job is to help users design experiments that test AI player behavior, decision quality, and model performance.
 
 You help configure experiments with these parameters:
 - name: Unique identifier for the experiment (required, snake_case)
@@ -173,14 +72,11 @@ You help configure experiments with these parameters:
 - num_players: Players per tournament (2-8)
 - starting_stack: Chips per player (1000-100000)
 - big_blind: Big blind amount (10-1000)
-- model: Default LLM model to use (see available models below)
-- provider: Default LLM provider (see available providers below)
-- reasoning_effort: Reasoning level for models that support it (minimal, low, medium, high)
+- model: Default LLM model to use (e.g., "gpt-5-nano", "claude-sonnet-4-20250514")
+- provider: Default LLM provider ("openai", "anthropic", "groq")
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
-
-{available_models}
 
 ## A/B Testing with Control + Variants
 
@@ -318,25 +214,7 @@ Common experiment scenarios:
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
-## Tools Available
-
-You have access to a `get_available_personalities` tool that fetches the current list of AI personalities from the database. Use this tool when:
-- The user asks about available personalities
-- The user wants to select specific personalities for their experiment
-- You need to suggest personality names for the experiment config
-
-The tool can optionally filter by play_style (e.g., "aggressive", "passive").
-
 Keep responses concise and focused on experiment design. Be helpful and proactive in suggesting configurations."""
-
-
-def _get_experiment_design_prompt() -> str:
-    """Build the full system prompt with current enabled models."""
-    # Use replace instead of format to avoid conflicts with JSON braces in template
-    return _EXPERIMENT_DESIGN_SYSTEM_PROMPT_TEMPLATE.replace(
-        '{available_models}', _get_available_models_section()
-    )
-
 
 # Quick prompts for common scenarios
 QUICK_PROMPTS = {
@@ -347,41 +225,6 @@ QUICK_PROMPTS = {
     'baseline': 'Set up a baseline measurement with default settings',
     'quick_test': 'Create a minimal 1-tournament quick test for sanity checking',
 }
-
-
-def experiment_entity_to_dict(entity: ExperimentEntity) -> Dict[str, Any]:
-    """Convert ExperimentEntity to dict for JSON response."""
-    return {
-        'id': entity.id,
-        'name': entity.name,
-        'description': entity.description,
-        'hypothesis': entity.hypothesis,
-        'tags': entity.tags or [],
-        'notes': entity.notes,
-        'config': entity.config,
-        'status': entity.status,
-        'created_at': entity.created_at.isoformat() if entity.created_at else None,
-        'started_at': entity.started_at.isoformat() if entity.started_at else None,
-        'completed_at': entity.completed_at.isoformat() if entity.completed_at else None,
-        'summary': entity.summary,
-    }
-
-
-def experiment_game_entity_to_dict(entity: ExperimentGameEntity) -> Dict[str, Any]:
-    """Convert ExperimentGameEntity to dict for JSON response."""
-    return {
-        'id': entity.id,
-        'experiment_id': entity.experiment_id,
-        'game_id': entity.game_id,
-        'game_number': entity.game_number,
-        'variant': entity.variant,
-        'variant_config': entity.variant_config,
-        'tournament_number': entity.tournament_number,
-        'status': entity.status,
-        'started_at': entity.started_at.isoformat() if entity.started_at else None,
-        'completed_at': entity.completed_at.isoformat() if entity.completed_at else None,
-        'created_at': entity.created_at.isoformat() if entity.created_at else None,
-    }
 
 
 def extract_config_updates(response_text: str) -> Optional[Dict[str, Any]]:
@@ -431,9 +274,9 @@ def chat_experiment_design():
         # Build context about current config
         config_context = f"\nCurrent experiment config:\n{json.dumps(current_config, indent=2)}"
 
-        # Build messages for LLM (get dynamic prompt with current enabled models)
+        # Build messages for LLM
         messages = [
-            {"role": "system", "content": _get_experiment_design_prompt() + config_context}
+            {"role": "system", "content": EXPERIMENT_DESIGN_SYSTEM_PROMPT + config_context}
         ]
 
         # Add conversation history
@@ -443,13 +286,10 @@ def chat_experiment_design():
         # Add current user message
         messages.append({"role": "user", "content": message})
 
-        # Call LLM with tool support
+        # Call LLM
         client = LLMClient(model=config.FAST_AI_MODEL)
         response = client.complete(
             messages=messages,
-            tools=[PERSONALITY_TOOL],
-            tool_choice="auto",
-            tool_executor=_execute_experiment_tool,
             call_type=CallType.EXPERIMENT_DESIGN,
             prompt_template='experiment_design_chat',
         )
@@ -550,8 +390,7 @@ def validate_experiment_config():
 
         # Check for duplicate name
         if config_data.get('name'):
-            repo = get_repository_factory()
-            existing = repo.experiment.get_experiment_by_name(config_data['name'])
+            existing = persistence.get_experiment_by_name(config_data['name'])
             if existing:
                 errors.append(f"Experiment with name '{config_data['name']}' already exists")
 
@@ -576,10 +415,11 @@ def validate_experiment_config():
                 if p not in available:
                     warnings.append(f"Personality '{p}' not found in available personalities")
 
-        # Validate provider (use dynamic list from config)
+        # Validate provider
+        valid_providers = {'openai', 'anthropic', 'groq'}
         provider = config_data.get('provider', 'openai')
-        if provider not in AVAILABLE_PROVIDERS:
-            errors.append(f"Invalid provider: {provider}. Must be one of {AVAILABLE_PROVIDERS}")
+        if provider not in valid_providers:
+            errors.append(f"Invalid provider: {provider}. Must be one of {valid_providers}")
 
         # Validate control/variants structure if present
         control = config_data.get('control')
@@ -634,15 +474,21 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
     """Run experiment in background thread."""
     from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
 
-    # Get fresh repository instance for this thread (thread-safe)
-    repo = get_repository_factory()
-
     try:
         # Update status to running
-        repo.experiment.update_experiment_status(experiment_id, 'running')
+        persistence.update_experiment_status(experiment_id, 'running')
 
-        # Build ExperimentConfig from dict (filter to known fields)
-        filtered_config = {k: v for k, v in config_dict.items() if k in EXPERIMENT_CONFIG_FIELDS and v is not None}
+        # Build ExperimentConfig from dict
+        # Filter to only known fields
+        known_fields = {
+            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
+            'num_tournaments', 'max_hands_per_tournament', 'num_players',
+            'starting_stack', 'big_blind', 'model', 'provider',
+            'personalities', 'random_seed', 'control', 'variants',
+            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
+            'target_hands', 'reset_on_elimination'
+        }
+        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
 
         exp_config = ExperimentConfig(**filtered_config)
 
@@ -655,23 +501,23 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         # Check if paused (via pause coordinator flag still set)
         if pause_coordinator.should_pause(experiment_id):
             logger.info(f"Experiment {experiment_id} paused")
-            repo.experiment.update_experiment_status(experiment_id, 'paused')
+            persistence.update_experiment_status(experiment_id, 'paused')
         elif results:
             # Complete the experiment (runner already does this, but ensure it's done)
             summary = runner._compute_experiment_summary(results)
-            repo.experiment.complete_experiment(experiment_id, summary)
+            persistence.complete_experiment(experiment_id, summary)
             logger.info(f"Experiment {experiment_id} completed successfully")
         else:
             logger.info(f"Experiment {experiment_id} completed with no results")
-            repo.experiment.update_experiment_status(experiment_id, 'completed')
+            persistence.update_experiment_status(experiment_id, 'completed')
 
     except Exception as e:
         logger.error(f"Experiment {experiment_id} failed: {e}")
         # Check if this was due to pause
         if pause_coordinator.should_pause(experiment_id):
-            repo.experiment.update_experiment_status(experiment_id, 'paused')
+            persistence.update_experiment_status(experiment_id, 'paused')
         else:
-            repo.experiment.update_experiment_status(experiment_id, 'failed', str(e))
+            persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
         # Clean up thread reference (use pop to avoid race condition)
         _active_experiments.pop(experiment_id, None)
@@ -683,37 +529,18 @@ def create_experiment():
     try:
         data = request.get_json()
         config_data = data.get('config', {})
-        session_id = data.get('session_id')
-
-        # Store design conversation if session exists (for AI analysis at completion)
-        if session_id and session_id in _chat_sessions:
-            config_data['design_conversation'] = _chat_sessions[session_id]
 
         # Validate first
         if not config_data.get('name'):
             return jsonify({'error': 'Experiment name is required'}), 400
 
-        repo = get_repository_factory()
-
         # Check for duplicate
-        existing = repo.experiment.get_experiment_by_name(config_data['name'])
+        existing = persistence.get_experiment_by_name(config_data['name'])
         if existing:
             return jsonify({'error': f"Experiment '{config_data['name']}' already exists"}), 400
 
-        # Create ExperimentEntity
-        experiment = ExperimentEntity(
-            name=config_data['name'],
-            description=config_data.get('description', ''),
-            hypothesis=config_data.get('hypothesis'),
-            tags=config_data.get('tags'),
-            notes=config_data.get('notes'),
-            config=config_data,
-            status='pending',
-            created_at=datetime.now(),
-        )
-
         # Create experiment record
-        experiment_id = repo.experiment.create_experiment(experiment)
+        experiment_id = persistence.create_experiment(config_data)
 
         # Launch in background
         thread = threading.Thread(
@@ -744,19 +571,15 @@ def list_experiments():
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
 
-        repo = get_repository_factory()
-        experiments = repo.experiment.list_experiments(
+        experiments = persistence.list_experiments(
             status=status,
             limit=limit,
             offset=offset
         )
 
-        # Convert entities to dicts
-        experiments_list = [experiment_entity_to_dict(exp) for exp in experiments]
-
         return jsonify({
             'success': True,
-            'experiments': experiments_list,
+            'experiments': experiments,
         })
 
     except Exception as e:
@@ -768,20 +591,19 @@ def list_experiments():
 def get_experiment(experiment_id: int):
     """Get experiment details by ID."""
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
         # Get decision stats
-        decision_stats = repo.experiment.get_experiment_decision_stats(experiment_id)
+        decision_stats = persistence.get_experiment_decision_stats(experiment_id)
 
         # Get real-time unified stats per variant
-        live_stats = repo.experiment.get_experiment_live_stats(experiment_id)
+        live_stats = persistence.get_experiment_live_stats(experiment_id)
 
         return jsonify({
             'success': True,
-            'experiment': experiment_entity_to_dict(experiment),
+            'experiment': experiment,
             'decision_stats': decision_stats,
             'live_stats': live_stats,
         })
@@ -795,19 +617,15 @@ def get_experiment(experiment_id: int):
 def get_experiment_games(experiment_id: int):
     """Get games linked to an experiment."""
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        games = repo.experiment.get_experiment_games(experiment_id)
-
-        # Convert entities to dicts
-        games_list = [experiment_game_entity_to_dict(g) for g in games]
+        games = persistence.get_experiment_games(experiment_id)
 
         return jsonify({
             'success': True,
-            'games': games_list,
+            'games': games,
         })
 
     except Exception as e:
@@ -840,36 +658,32 @@ def get_experiment_cost_trends(experiment_id: int):
     Query params:
         bucket: Bucket size in minutes (default 5)
     """
+    import sqlite3
+
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
         bucket_minutes = request.args.get('bucket', 5, type=int)
 
-        # Use the repository's database context for the query
-        rows = repo.experiment._db.fetch_all(
-            """
-            SELECT
-                strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
-                    printf('-%d minutes', CAST(strftime('%M', au.created_at) AS INTEGER) % ?)) as bucket,
-                eg.variant,
-                SUM(au.estimated_cost) as cost,
-                COUNT(*) as calls
-            FROM api_usage au
-            JOIN experiment_games eg ON au.game_id = eg.game_id
-            WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
-            GROUP BY bucket, eg.variant
-            ORDER BY bucket
-            """,
-            (bucket_minutes, experiment_id),
-        )
+        with sqlite3.connect(persistence.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT
+                    strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
+                        printf('-%d minutes', CAST(strftime('%M', au.created_at) AS INTEGER) % ?)) as bucket,
+                    eg.variant,
+                    SUM(au.estimated_cost) as cost,
+                    COUNT(*) as calls
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
+                GROUP BY bucket, eg.variant
+                ORDER BY bucket
+            """, (bucket_minutes, experiment_id))
 
-        trends = [
-            {'time': r['bucket'], 'variant': r['variant'], 'cost': r['cost'], 'calls': r['calls']}
-            for r in rows
-        ]
+            trends = [{'time': r[0], 'variant': r[1], 'cost': r[2], 'calls': r[3]}
+                      for r in cursor.fetchall()]
 
         return jsonify({
             'success': True,
@@ -890,19 +704,16 @@ def get_live_games(experiment_id: int):
     Designed to be polled every 5 seconds for live monitoring view.
     """
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        games = repo.experiment.get_experiment_game_snapshots(
-            experiment_id, debug_repo=repo.debug
-        )
+        games = persistence.get_experiment_game_snapshots(experiment_id)
 
         return jsonify({
             'success': True,
             'games': games,
-            'experiment_status': experiment.status,
+            'experiment_status': experiment.get('status'),
         })
 
     except Exception as e:
@@ -918,13 +729,12 @@ def get_player_detail(experiment_id: int, game_id: str, player_name: str):
     play style analysis, and recent decisions.
     """
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        player_detail = repo.experiment.get_experiment_player_detail(
-            experiment_id, game_id, player_name, debug_repo=repo.debug
+        player_detail = persistence.get_experiment_player_detail(
+            experiment_id, game_id, player_name
         )
 
         if not player_detail:
@@ -948,14 +758,13 @@ def pause_experiment(experiment_id: int):
     The experiment will stop after the current action completes.
     """
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        if experiment.status != 'running':
+        if experiment.get('status') != 'running':
             return jsonify({
-                'error': f"Cannot pause experiment with status '{experiment.status}'. Only running experiments can be paused."
+                'error': f"Cannot pause experiment with status '{experiment.get('status')}'. Only running experiments can be paused."
             }), 400
 
         # Set the pause flag - workers will check this after each action
@@ -981,23 +790,22 @@ def resume_experiment(experiment_id: int):
     Finds incomplete tournaments and continues them from their saved state.
     """
     try:
-        repo = get_repository_factory()
-        experiment = repo.experiment.get_experiment(experiment_id)
+        experiment = persistence.get_experiment(experiment_id)
         if not experiment:
             return jsonify({'error': 'Experiment not found'}), 404
 
-        if experiment.status not in ('paused', 'interrupted'):
+        if experiment.get('status') not in ('paused', 'interrupted'):
             return jsonify({
-                'error': f"Cannot resume experiment with status '{experiment.status}'. Only paused or interrupted experiments can be resumed."
+                'error': f"Cannot resume experiment with status '{experiment.get('status')}'. Only paused or interrupted experiments can be resumed."
             }), 400
 
         # Get incomplete tournaments
-        incomplete = repo.experiment.get_incomplete_tournaments(experiment_id)
+        incomplete = persistence.get_incomplete_tournaments(experiment_id)
 
         if not incomplete:
             # No incomplete tournaments - mark as completed
             logger.info(f"No incomplete tournaments for experiment {experiment_id}, marking as completed")
-            repo.experiment.update_experiment_status(experiment_id, 'completed')
+            persistence.update_experiment_status(experiment_id, 'completed')
             return jsonify({
                 'success': True,
                 'message': 'No incomplete tournaments found. Experiment marked as completed.',
@@ -1008,10 +816,10 @@ def resume_experiment(experiment_id: int):
         pause_coordinator.clear_pause(experiment_id)
 
         # Update status to running
-        repo.experiment.update_experiment_status(experiment_id, 'running')
+        persistence.update_experiment_status(experiment_id, 'running')
 
         # Get experiment config
-        config_dict = experiment.config or {}
+        config_dict = experiment.get('config', {})
 
         # Launch background resume thread
         thread = threading.Thread(
@@ -1036,56 +844,46 @@ def resume_experiment(experiment_id: int):
         return jsonify({'error': str(e)}), 500
 
 
-def resume_experiment_background(
-    experiment_id: int,
-    incomplete_tournaments: List[ExperimentGameEntity],
-    config_dict: Dict[str, Any]
-):
+def resume_experiment_background(experiment_id: int, incomplete_tournaments: List[Dict], config_dict: Dict[str, Any]):
     """Resume incomplete tournaments in background thread."""
-    from experiments.run_ai_tournament import (
-        ExperimentConfig, AITournamentRunner, TournamentPausedException, make_experiment_owner_id
-    )
+    from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
     from poker.poker_state_machine import PokerStateMachine
     from poker.controllers import AIPlayerController
     from poker.memory.memory_manager import AIMemoryManager
     from poker.prompt_config import PromptConfig
 
-    # Get fresh repository instance for this thread (thread-safe)
-    repo = get_repository_factory()
-
     try:
-        # Build ExperimentConfig (filter to known fields)
-        filtered_config = {k: v for k, v in config_dict.items() if k in EXPERIMENT_CONFIG_FIELDS and v is not None}
+        # Build ExperimentConfig
+        known_fields = {
+            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
+            'num_tournaments', 'max_hands_per_tournament', 'num_players',
+            'starting_stack', 'big_blind', 'model', 'provider',
+            'personalities', 'random_seed', 'control', 'variants',
+            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
+            'target_hands', 'reset_on_elimination'
+        }
+        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
         exp_config = ExperimentConfig(**filtered_config)
 
+        results = []
         paused_again = False
 
-        for tournament in incomplete_tournaments:
-            game_id = tournament.game_id
-            variant = tournament.variant
-            variant_config = tournament.variant_config
+        for tournament_info in incomplete_tournaments:
+            game_id = tournament_info['game_id']
+            variant = tournament_info.get('variant')
+            variant_config = tournament_info.get('variant_config')
 
             logger.info(f"Resuming tournament {game_id}")
 
             try:
-                # Load saved game state using repository
-                game_entity = repo.game.find_by_id(game_id)
-                if not game_entity:
+                # Load saved game state
+                state_machine = persistence.load_game(game_id)
+                if not state_machine:
                     logger.warning(f"Could not load game state for {game_id}, skipping")
                     continue
 
-                state_machine = game_entity.state_machine
-
-                # Load AI player states (conversation history) using repository
-                ai_states_entities = repo.ai_memory.load_player_states(game_id)
-                # Convert entities to dict format expected by the code
-                ai_states = {
-                    name: {
-                        'messages': entity.conversation_history,
-                        'personality_state': entity.personality_state,
-                    }
-                    for name, entity in ai_states_entities.items()
-                }
+                # Load AI player states (conversation history)
+                ai_states = persistence.load_ai_player_states(game_id)
 
                 # Determine LLM config
                 if variant_config:
@@ -1103,25 +901,19 @@ def resume_experiment_background(
                 prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
                 prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict else None
 
-                # Helper to create AI controller with consistent settings
-                owner_id = make_experiment_owner_id(exp_config.name)
-
-                def _create_ai_controller(player_name: str) -> AIPlayerController:
-                    return AIPlayerController(
-                        player_name=player_name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        repository_factory=repo,
-                        debug_capture=exp_config.capture_prompts,
-                        prompt_config=prompt_config,
-                    )
-
                 # Recreate controllers for all players
                 controllers = {}
                 for player in state_machine.game_state.players:
-                    controller = _create_ai_controller(player.name)
+                    controller = AIPlayerController(
+                        player_name=player.name,
+                        state_machine=state_machine,
+                        llm_config=llm_config,
+                        game_id=game_id,
+                        owner_id=f"experiment_{exp_config.name}",
+                        persistence=persistence,
+                        debug_capture=exp_config.capture_prompts,
+                        prompt_config=prompt_config,
+                    )
 
                     # Restore conversation history if available
                     if player.name in ai_states:
@@ -1132,12 +924,13 @@ def resume_experiment_background(
 
                     controllers[player.name] = controller
 
-                # Create memory manager using repository
+                # Create memory manager
                 memory_manager = AIMemoryManager(
                     game_id=game_id,
-                    repository_factory=repo,
-                    owner_id=owner_id
+                    db_path=persistence.db_path,
+                    owner_id=f"experiment_{exp_config.name}"
                 )
+                memory_manager.set_persistence(persistence)
 
                 # Initialize memory manager for players
                 for player in state_machine.game_state.players:
@@ -1146,6 +939,7 @@ def resume_experiment_background(
                 # Create a runner instance for the tournament logic
                 runner = AITournamentRunner(exp_config, pause_coordinator=pause_coordinator)
                 runner.experiment_id = experiment_id
+                runner.persistence = persistence
 
                 # Get original player names from experiment config for reset scenarios
                 original_player_names = exp_config.personalities or []
@@ -1168,16 +962,8 @@ def resume_experiment_background(
                         variant_config=variant_config
                     )
 
-                    # Save game state for live monitoring using repository
-                    from poker.repositories.protocols import GameEntity
-                    game_entity_updated = GameEntity(
-                        id=game_id,
-                        state_machine=state_machine,
-                        created_at=game_entity.created_at,
-                        updated_at=datetime.now(),
-                        owner_id=owner_id,
-                    )
-                    repo.game.save(game_entity_updated)
+                    # Save game state for live monitoring
+                    persistence.save_game(game_id, state_machine, f"experiment_{exp_config.name}")
 
                     # Handle reset_needed - restore all original players
                     if hand_result == "reset_needed":
@@ -1196,7 +982,16 @@ def resume_experiment_background(
                             # Recreate controllers for any players that were eliminated
                             for name in original_player_names:
                                 if name not in controllers:
-                                    controllers[name] = _create_ai_controller(name)
+                                    controllers[name] = AIPlayerController(
+                                        player_name=name,
+                                        state_machine=state_machine,
+                                        llm_config=llm_config,
+                                        game_id=game_id,
+                                        owner_id=f"experiment_{exp_config.name}",
+                                        persistence=persistence,
+                                        debug_capture=exp_config.capture_prompts,
+                                        prompt_config=prompt_config,
+                                    )
                                     memory_manager.initialize_for_player(name)
                             continue
                         else:
@@ -1224,17 +1019,17 @@ def resume_experiment_background(
 
         # Update final status
         if paused_again or pause_coordinator.should_pause(experiment_id):
-            repo.experiment.update_experiment_status(experiment_id, 'paused')
+            persistence.update_experiment_status(experiment_id, 'paused')
             logger.info(f"Experiment {experiment_id} paused again")
         else:
-            repo.experiment.update_experiment_status(experiment_id, 'completed')
+            persistence.update_experiment_status(experiment_id, 'completed')
             logger.info(f"Experiment {experiment_id} resume completed")
 
     except Exception as e:
         logger.error(f"Error in resume_experiment_background for {experiment_id}: {e}", exc_info=True)
         if pause_coordinator.should_pause(experiment_id):
-            repo.experiment.update_experiment_status(experiment_id, 'paused')
+            persistence.update_experiment_status(experiment_id, 'paused')
         else:
-            repo.experiment.update_experiment_status(experiment_id, 'failed', str(e))
+            persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
         _active_experiments.pop(experiment_id, None)

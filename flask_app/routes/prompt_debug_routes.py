@@ -6,7 +6,7 @@ from typing import Dict
 from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType, Assistant
-from ..extensions import get_repository_factory
+from ..extensions import persistence
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,10 @@ def list_captures():
     # Remove None values
     filters = {k: v for k, v in filters.items() if v is not None}
 
-    result = get_repository_factory().debug.list_prompt_captures(**filters)
+    result = persistence.list_prompt_captures(**filters)
 
     # Also get stats (pass call_type filter to ensure stats match the filtered view)
-    stats = get_repository_factory().debug.get_prompt_capture_stats(
+    stats = persistence.get_prompt_capture_stats(
         game_id=filters.get('game_id'),
         call_type=filters.get('call_type')
     )
@@ -87,13 +87,13 @@ def list_captures():
 @prompt_debug_bp.route('/api/prompt-debug/captures/<int:capture_id>', methods=['GET'])
 def get_capture(capture_id):
     """Get a single prompt capture with full details and linked decision analysis."""
-    capture = get_repository_factory().debug.get_prompt_capture(capture_id)
+    capture = persistence.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
     # Get linked decision analysis if it exists
-    decision_analysis = get_repository_factory().debug.get_decision_analysis_by_capture(capture_id)
+    decision_analysis = persistence.get_decision_analysis_by_capture(capture_id)
 
     return jsonify({
         'success': True,
@@ -115,7 +115,7 @@ def replay_capture(capture_id):
         model: Model to use (optional, defaults to original)
         reasoning_effort: Reasoning effort level (optional, defaults to original or 'low')
     """
-    capture = get_repository_factory().debug.get_prompt_capture(capture_id)
+    capture = persistence.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -213,7 +213,7 @@ def interrogate_capture(capture_id):
         reasoning_effort_used: Reasoning effort level used
         latency_ms: Response latency
     """
-    capture = get_repository_factory().debug.get_prompt_capture(capture_id)
+    capture = persistence.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -331,7 +331,7 @@ def update_capture_tags(capture_id):
         tags: List of tags
         notes: Optional notes string
     """
-    capture = get_repository_factory().debug.get_prompt_capture(capture_id)
+    capture = persistence.get_prompt_capture(capture_id)
 
     if not capture:
         return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -341,7 +341,7 @@ def update_capture_tags(capture_id):
     tags = data.get('tags', [])
     notes = data.get('notes')
 
-    success = get_repository_factory().debug.update_prompt_capture_tags(capture_id, tags, notes)
+    success = persistence.update_prompt_capture_tags(capture_id, tags, notes)
 
     return jsonify({
         'success': success
@@ -361,7 +361,7 @@ def get_capture_stats():
     if call_type == 'all':
         call_type = None
 
-    stats = get_repository_factory().debug.get_prompt_capture_stats(game_id=game_id, call_type=call_type)
+    stats = persistence.get_prompt_capture_stats(game_id=game_id, call_type=call_type)
 
     return jsonify({
         'success': True,
@@ -388,7 +388,7 @@ def cleanup_captures():
             'error': 'Must specify game_id or before_date'
         }), 400
 
-    deleted = get_repository_factory().debug.delete_prompt_captures(game_id, before_date)
+    deleted = persistence.delete_prompt_captures(game_id, before_date)
 
     return jsonify({
         'success': True,
@@ -422,10 +422,10 @@ def list_decision_analyses():
     # Remove None values
     filters = {k: v for k, v in filters.items() if v is not None}
 
-    result = get_repository_factory().debug.list_decision_analyses(**filters)
+    result = persistence.list_decision_analyses(**filters)
 
     # Also get stats
-    stats = get_repository_factory().debug.get_decision_analysis_stats(filters.get('game_id'))
+    stats = persistence.get_decision_analysis_stats(filters.get('game_id'))
 
     return jsonify({
         'success': True,
@@ -438,7 +438,7 @@ def list_decision_analyses():
 @prompt_debug_bp.route('/api/prompt-debug/analysis/<int:analysis_id>', methods=['GET'])
 def get_decision_analysis(analysis_id):
     """Get a single decision analysis by ID."""
-    analysis = get_repository_factory().debug.get_decision_analysis(analysis_id)
+    analysis = persistence.get_decision_analysis(analysis_id)
 
     if not analysis:
         return jsonify({'success': False, 'error': 'Analysis not found'}), 404
@@ -458,7 +458,7 @@ def get_analysis_stats():
     """
     game_id = request.args.get('game_id')
 
-    stats = get_repository_factory().debug.get_decision_analysis_stats(game_id)
+    stats = persistence.get_decision_analysis_stats(game_id)
 
     return jsonify({
         'success': True,
@@ -472,7 +472,7 @@ def get_game_decision_quality(game_id):
 
     Returns aggregate stats for AI decision quality in this game.
     """
-    stats = get_repository_factory().debug.get_decision_analysis_stats(game_id)
+    stats = persistence.get_decision_analysis_stats(game_id)
 
     # Calculate quality metrics
     total = stats.get('total', 0)

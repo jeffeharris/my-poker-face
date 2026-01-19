@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request, redirect
 from poker.utils import get_celebrities
 from core.llm import LLMClient, CallType
 
-from ..extensions import get_repository_factory, limiter, auth_manager, personality_generator
+from ..extensions import persistence, limiter, auth_manager, personality_generator
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -28,12 +28,14 @@ def personalities_page():
 def get_personalities():
     """Get all personalities."""
     try:
-        repo = get_repository_factory()
-        db_personalities = repo.personality.find_all(limit=200)
+        db_personalities = persistence.list_personalities(limit=200)
 
         personalities = {}
-        for entity in db_personalities:
-            personalities[entity.name] = entity.config
+        for p in db_personalities:
+            name = p['name']
+            config_data = persistence.load_personality(name)
+            if config_data:
+                personalities[name] = config_data
 
         try:
             personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
@@ -57,11 +59,11 @@ def get_personalities():
 def get_personality(name):
     """Get a specific personality."""
     try:
-        entity = get_repository_factory().personality.find_by_name(name)
-        if entity:
+        db_personality = persistence.load_personality(name)
+        if db_personality:
             return jsonify({
                 'success': True,
-                'personality': entity.config,
+                'personality': db_personality,
                 'name': name
             })
 
@@ -107,16 +109,7 @@ def create_personality():
                 "emoji_usage": 0.3
             }
 
-        from datetime import datetime
-        from poker.repositories.protocols import PersonalityEntity
-        entity = PersonalityEntity(
-            name=name,
-            config=personality_config,
-            source='user_created',
-            created_at=datetime.now(),
-            last_used=None
-        )
-        get_repository_factory().personality.save(entity)
+        persistence.save_personality(name, personality_config, source='user_created')
 
         return jsonify({
             'success': True,
@@ -135,16 +128,7 @@ def update_personality(name):
     try:
         personality_config = request.json
 
-        from datetime import datetime
-        from poker.repositories.protocols import PersonalityEntity
-        entity = PersonalityEntity(
-            name=name,
-            config=personality_config,
-            source='user_edited',
-            created_at=datetime.now(),
-            last_used=None
-        )
-        get_repository_factory().personality.save(entity)
+        persistence.save_personality(name, personality_config, source='user_edited')
 
         return jsonify({
             'success': True,
@@ -184,7 +168,7 @@ def update_avatar_description(name):
                 'error': f'Personality {name} not found'
             }), 404
 
-        # Update avatar_description via personality_generator (handles both cache and database)
+        # Update avatar_description via personality_generator (handles both cache and persistence)
         personality_generator.set_avatar_description(name, avatar_description)
 
         return jsonify({
@@ -205,12 +189,11 @@ def delete_personality(name):
     Note: Also deletes associated avatar images from database.
     """
     try:
-        repo = get_repository_factory()
         # Delete associated avatar images
-        repo.personality.delete_avatars(name)
+        persistence.delete_avatar_images(name)
 
         # Delete the personality
-        deleted = repo.personality.delete(name)
+        deleted = persistence.delete_personality(name)
 
         if not deleted:
             return jsonify({

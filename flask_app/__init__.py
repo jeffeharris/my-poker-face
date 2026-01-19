@@ -24,18 +24,11 @@ def recover_interrupted_experiments():
 
     Called on startup to detect orphaned 'running' experiments and mark them
     as 'interrupted' so users can manually resume them.
+
+    NOTE: Temporarily disabled during repository rollback.
     """
-    try:
-        from .extensions import get_repository_factory
-        repo = get_repository_factory()
-        count = repo.experiment.mark_running_experiments_interrupted()
-        if count > 0:
-            logger.warning(
-                f"Found {count} experiment(s) in 'running' state on startup. "
-                "Marked as 'interrupted'. Use the resume endpoint to continue them."
-            )
-    except Exception as e:
-        logger.error(f"Failed to recover interrupted experiments: {e}")
+    # TODO: Re-enable after fixing experiment repository dependencies
+    pass
 
 
 def create_app():

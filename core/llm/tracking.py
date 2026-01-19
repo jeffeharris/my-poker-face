@@ -517,9 +517,7 @@ def capture_prompt(
                 capture_data.get('raise_amount'),
             ))
 
-            # IMPORTANT: Get capture_id INSIDE the with block to avoid race condition
-            # in parallel execution (last_insert_rowid is connection-scoped)
-            capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
         # Call on_captured callback if provided (allows caller to get capture_id without coupling)
         on_captured = capture_data.get('_on_captured')

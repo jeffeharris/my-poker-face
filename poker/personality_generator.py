@@ -4,14 +4,11 @@ Uses LLM to generate unique personality configurations based on character names.
 """
 import json
 import random
-from datetime import datetime
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional
 from pathlib import Path
 
 from core.llm import LLMClient, CallType
-
-if TYPE_CHECKING:
-    from poker.repositories.factory import RepositoryFactory
+from .persistence import GamePersistence
 
 
 class PersonalityGenerator:
@@ -68,27 +65,31 @@ Respond with ONLY a JSON object in this exact format:
 }}
 """
     
-    def __init__(self, repository_factory: Optional["RepositoryFactory"] = None):
+    def __init__(self, persistence: Optional[GamePersistence] = None, db_path: Optional[str] = None):
         """Initialize the personality generator.
-
+        
         Args:
-            repository_factory: RepositoryFactory instance for database access
+            persistence: Existing GamePersistence instance
+            db_path: Path to database (used if persistence not provided)
         """
-        self._repo = repository_factory
+        if persistence:
+            self.persistence = persistence
+        else:
+            db_path = db_path or self._get_default_db_path()
+            self.persistence = GamePersistence(db_path)
 
         # Use stateless LLMClient for generation
         self._client = LLMClient()
 
         # Cache for this session
         self._cache = {}
-
-    @property
-    def repo(self) -> "RepositoryFactory":
-        """Get repository factory, initializing from Flask context if needed."""
-        if self._repo is None:
-            from flask_app.extensions import get_repository_factory
-            self._repo = get_repository_factory()
-        return self._repo
+    
+    def _get_default_db_path(self) -> str:
+        """Get the default database path based on environment."""
+        if Path('/app/data').exists():
+            return '/app/data/poker_games.db'
+        else:
+            return Path(__file__).parent.parent / 'poker_games.db'
     
     def get_personality(self, name: str, description: Optional[str] = None, force_generate: bool = False) -> Dict[str, Any]:
         """Get a personality for a character, generating if needed.
@@ -118,35 +119,23 @@ Respond with ONLY a JSON object in this exact format:
 
         # Check database (source of truth) unless forcing generation
         if not force_generate:
-            entity = self.repo.personality.find_by_name(name)
-            if entity:
+            db_personality = self.persistence.load_personality(name)
+            if db_personality:
                 print(f"[PersonalityGenerator] Found {name} in database")
-                self._cache[name] = entity.config
-                return entity.config
+                self._cache[name] = db_personality
+                return db_personality
 
         # Generate new personality via AI
         print(f"[PersonalityGenerator] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
 
         # Save to database
-        self._save_personality(name, generated, source='ai_generated')
+        self.persistence.save_personality(name, generated, source='ai_generated')
 
         # Cache it
         self._cache[name] = generated
 
         return generated
-
-    def _save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated') -> None:
-        """Save a personality to the database."""
-        from poker.repositories.protocols import PersonalityEntity
-        entity = PersonalityEntity(
-            name=name,
-            config=config,
-            source=source,
-            created_at=datetime.now(),
-            last_used=None
-        )
-        self.repo.personality.save(entity)
     
     def _generate_personality(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
         """Generate a new personality using AI."""
@@ -267,7 +256,7 @@ Respond with ONLY a JSON object in this exact format:
         # Update in database (source of truth)
         personality = self.get_personality(name)
         personality['avatar_description'] = description
-        self._save_personality(name, personality, source='updated')
+        self.persistence.save_personality(name, personality, source='updated')
 
     def get_avatar_images(self, name: str) -> list:
         """Get list of available avatar emotions for a personality.
@@ -280,7 +269,7 @@ Respond with ONLY a JSON object in this exact format:
         Returns:
             List of emotion names that have avatar images
         """
-        return self.repo.personality.get_available_emotions(name)
+        return self.persistence.get_available_avatar_emotions(name)
 
     def has_avatar_image(self, name: str, emotion: str) -> bool:
         """Check if an avatar image exists for the personality and emotion.
@@ -292,5 +281,4 @@ Respond with ONLY a JSON object in this exact format:
         Returns:
             True if avatar image exists in database
         """
-        avatar = self.repo.personality.load_avatar(name, emotion)
-        return avatar is not None
+        return self.persistence.has_avatar_image(name, emotion)

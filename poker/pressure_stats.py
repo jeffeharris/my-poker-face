@@ -9,8 +9,6 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-from poker.repositories.protocols import PressureEventEntity
-
 
 @dataclass
 class PressureEvent:
@@ -205,14 +203,12 @@ class PressureStatsTracker:
             # Save to database if repository is available
             if self.event_repository and self.game_id:
                 try:
-                    entity = PressureEventEntity(
+                    self.event_repository.save_event(
                         game_id=self.game_id,
                         player_name=player_name,
                         event_type=event_type,
                         details=details,
-                        timestamp=datetime.now(),
                     )
-                    self.event_repository.save_pressure_event(entity)
                 except Exception as e:
                     # Log error but don't fail - maintain backward compatibility
                     print(f"Failed to save pressure event to database: {e}")

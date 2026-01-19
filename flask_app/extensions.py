@@ -14,7 +14,8 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from authlib.integrations.flask_client import OAuth
 
-from poker.repositories.factory import RepositoryFactory
+from poker.persistence import GamePersistence
+from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
 from poker.pricing_loader import sync_pricing_from_yaml
@@ -29,8 +30,9 @@ socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
 # Limiter instance - will be initialized with app
 limiter = None
 
-# Repository factory (new architecture)
-repository_factory = None
+# Persistence instances
+persistence = None
+event_repository = None
 
 # Auth manager - will be set after app creation
 auth_manager = None
@@ -105,30 +107,23 @@ def init_limiter(app: Flask) -> Limiter:
     return limiter
 
 
-def init_persistence() -> RepositoryFactory:
-    """Initialize repository factory."""
-    global repository_factory
+def init_persistence() -> tuple:
+    """Initialize persistence layer."""
+    global persistence, event_repository
 
     db_path = config.DB_PATH
-    repository_factory = RepositoryFactory(db_path, initialize_schema=False)
+    persistence = GamePersistence(db_path)
+    event_repository = PressureEventRepository(db_path)
 
-    return repository_factory
-
-
-def get_repository_factory() -> RepositoryFactory:
-    """Get the repository factory, initializing if needed."""
-    global repository_factory
-    if repository_factory is None:
-        init_persistence()
-    return repository_factory
+    return persistence, event_repository
 
 
 def init_personality_generator() -> PersonalityGenerator:
     """Initialize personality generator and character image service."""
     global personality_generator
 
-    personality_generator = PersonalityGenerator(repository_factory=repository_factory)
-    init_character_image_service(personality_generator, repository_factory=repository_factory)
+    personality_generator = PersonalityGenerator(persistence=persistence)
+    init_character_image_service(personality_generator)
 
     return personality_generator
 
@@ -160,7 +155,7 @@ def init_auth(app: Flask) -> None:
     global auth_manager
 
     from poker.auth import AuthManager
-    auth_manager = AuthManager(app, repository_factory, oauth)
+    auth_manager = AuthManager(app, persistence, oauth)
 
 
 def init_extensions(app: Flask) -> None:

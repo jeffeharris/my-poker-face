@@ -295,14 +295,14 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
 class AIPlayerController:
     def __init__(self, player_name, state_machine=None, llm_config=None,
                  session_memory=None, opponent_model_manager=None,
-                 game_id=None, owner_id=None, debug_capture=False, repository_factory=None,
+                 game_id=None, owner_id=None, debug_capture=False, persistence=None,
                  prompt_config=None):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
         self.game_id = game_id
         self.owner_id = owner_id
-        self._repo = repository_factory
+        self._persistence = persistence
         self.ai_player = AIPokerPlayer(
             player_name,
             llm_config=self.llm_config,
@@ -628,7 +628,7 @@ class AIPlayerController:
 
         This runs for EVERY AI decision to track quality metrics.
         """
-        if not self._repo:
+        if not self._persistence:
             return
 
         try:
@@ -720,7 +720,7 @@ class AIPlayerController:
                 opponent_infos=opponent_infos,
             )
 
-            self._repo.debug.save_decision_analysis(analysis)
+            self._persistence.save_decision_analysis(analysis)
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
             logger.debug(
                 f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "

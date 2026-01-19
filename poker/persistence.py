@@ -4971,144 +4971,6 @@ class GamePersistence:
 
             return incomplete
 
-    # --- Helper methods for get_experiment_live_stats ---
-
-    def _build_variant_filter(self, variant: Optional[str]) -> tuple:
-        """Build SQL clause and params for variant filtering.
-
-        Returns:
-            (where_clause, params) tuple for use in SQL queries
-        """
-        if variant is None:
-            return "AND (eg.variant IS NULL OR eg.variant = '')", []
-        return "AND eg.variant = ?", [variant]
-
-    def _calculate_latency_metrics(self, latencies: List[float]) -> Optional[Dict]:
-        """Calculate latency percentiles (avg, p50, p95, p99).
-
-        Returns:
-            Dict with latency metrics or None if no latencies provided
-        """
-        if not latencies:
-            return None
-        return {
-            'avg_ms': round(float(np.mean(latencies)), 2),
-            'p50_ms': round(float(np.percentile(latencies, 50)), 2),
-            'p95_ms': round(float(np.percentile(latencies, 95)), 2),
-            'p99_ms': round(float(np.percentile(latencies, 99)), 2),
-            'count': len(latencies),
-        }
-
-    def _get_cost_metrics(self, conn: sqlite3.Connection, experiment_id: int,
-                          variant_clause: str = "", variant_params: list = None) -> Dict:
-        """Get cost metrics with optional variant filter.
-
-        Args:
-            conn: Database connection
-            experiment_id: The experiment ID
-            variant_clause: SQL clause for variant filtering (e.g., "AND eg.variant = ?")
-            variant_params: Parameters for the variant clause
-
-        Returns:
-            Dict with cost metrics including total, per-call, by-model, per-decision, per-hand
-        """
-        if variant_params is None:
-            variant_params = []
-
-        # Total cost metrics
-        cursor = conn.execute(f"""
-            SELECT
-                COALESCE(SUM(au.estimated_cost), 0) as total_cost,
-                COUNT(*) as total_calls,
-                COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
-            FROM api_usage au
-            JOIN experiment_games eg ON au.game_id = eg.game_id
-            WHERE eg.experiment_id = ? {variant_clause}
-        """, [experiment_id] + variant_params)
-        cost_row = cursor.fetchone()
-
-        # Cost by model
-        cursor = conn.execute(f"""
-            SELECT
-                au.provider || '/' || au.model as model_key,
-                SUM(au.estimated_cost) as cost,
-                COUNT(*) as calls
-            FROM api_usage au
-            JOIN experiment_games eg ON au.game_id = eg.game_id
-            WHERE eg.experiment_id = ? {variant_clause} AND au.estimated_cost IS NOT NULL
-            GROUP BY au.provider, au.model
-        """, [experiment_id] + variant_params)
-        by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
-
-        # Cost per decision (player_decision call type)
-        cursor = conn.execute(f"""
-            SELECT AVG(au.estimated_cost), COUNT(*)
-            FROM api_usage au
-            JOIN experiment_games eg ON au.game_id = eg.game_id
-            WHERE eg.experiment_id = ? {variant_clause} AND au.call_type = 'player_decision'
-        """, [experiment_id] + variant_params)
-        decision_cost_row = cursor.fetchone()
-
-        # Count hands for normalized cost
-        cursor = conn.execute(f"""
-            SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
-            FROM api_usage au
-            JOIN experiment_games eg ON au.game_id = eg.game_id
-            WHERE eg.experiment_id = ? {variant_clause} AND au.hand_number IS NOT NULL
-        """, [experiment_id] + variant_params)
-        hand_row = cursor.fetchone()
-        total_hands = hand_row[0] or 1
-
-        return {
-            'total_cost': round(cost_row[0] or 0, 6),
-            'total_calls': cost_row[1] or 0,
-            'avg_cost_per_call': round(cost_row[2] or 0, 8),
-            'by_model': by_model,
-            'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8) if decision_cost_row[0] else 0,
-            'total_decisions': decision_cost_row[1] or 0,
-            'cost_per_hand': round((cost_row[0] or 0) / total_hands, 6),
-            'total_hands': total_hands,
-        }
-
-    def _calculate_progress(self, games_count: int, current_max_hand: int,
-                            max_hands: int, num_tournaments: int) -> Dict:
-        """Calculate progress for a variant.
-
-        Logic:
-        - If current_max_hand < max_hands, one game is in progress
-        - Otherwise, all counted games are complete
-
-        Args:
-            games_count: Number of games for this variant
-            current_max_hand: Highest hand number seen in current game
-            max_hands: Max hands per tournament
-            num_tournaments: Expected number of tournaments
-
-        Returns:
-            Dict with progress metrics
-        """
-        if games_count == 0:
-            current_hands = 0
-        elif current_max_hand > 0 and current_max_hand < max_hands:
-            # One game in progress
-            current_hands = (games_count - 1) * max_hands + current_max_hand
-        else:
-            # All games complete
-            current_hands = games_count * max_hands
-
-        variant_max_hands = num_tournaments * max_hands
-        current_hands = min(current_hands, variant_max_hands)
-
-        return {
-            'current_hands': current_hands,
-            'max_hands': variant_max_hands,
-            'games_count': games_count,
-            'games_expected': num_tournaments,
-            'progress_pct': round(current_hands * 100 / variant_max_hands, 1) if variant_max_hands else 0,
-        }
-
-    # --- End helper methods ---
-
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.
 
@@ -5178,8 +5040,13 @@ class GamePersistence:
             for variant in variant_labels:
                 variant_key = variant or 'default'
 
-                # Build variant clause using helper
-                variant_clause, variant_params = self._build_variant_filter(variant)
+                # Build variant clause
+                if variant is None:
+                    variant_clause = "AND (eg.variant IS NULL OR eg.variant = '')"
+                    variant_params = []
+                else:
+                    variant_clause = "AND eg.variant = ?"
+                    variant_params = [variant]
 
                 # 1. Latency metrics from api_usage
                 cursor = conn.execute(f"""
@@ -5189,9 +5056,17 @@ class GamePersistence:
                 """, [experiment_id] + variant_params)
                 latencies = [row[0] for row in cursor.fetchall()]
 
-                latency_metrics = self._calculate_latency_metrics(latencies)
                 if latencies:
+                    latency_metrics = {
+                        'avg_ms': round(float(np.mean(latencies)), 2),
+                        'p50_ms': round(float(np.percentile(latencies, 50)), 2),
+                        'p95_ms': round(float(np.percentile(latencies, 95)), 2),
+                        'p99_ms': round(float(np.percentile(latencies, 99)), 2),
+                        'count': len(latencies),
+                    }
                     all_latencies.extend(latencies)
+                else:
+                    latency_metrics = None
 
                 # 2. Decision quality from player_decision_analysis
                 cursor = conn.execute(f"""
@@ -5235,12 +5110,89 @@ class GamePersistence:
                 games_count = row[0] or 0
                 current_max_hand = row[1] or 0
 
-                progress = self._calculate_progress(games_count, current_max_hand, max_hands, num_tournaments)
-                overall_progress['current_hands'] += progress['current_hands']
-                overall_progress['max_hands'] += progress['max_hands']
+                # Calculate progress: completed games * max_hands + current hand
+                # For a variant, expected tournaments = num_tournaments
+                variant_max_hands = num_tournaments * max_hands
+                if games_count > 0:
+                    # Estimate: (completed_games - 1) * max_hands + current_max_hand
+                    # But we don't know which games are complete, so use games_count directly
+                    # Approximation: if max_hand is less than max_hands, game is in progress
+                    completed_games = max(0, games_count - 1) if current_max_hand < max_hands else games_count
+                    current_hands = completed_games * max_hands + (current_max_hand if current_max_hand < max_hands else 0)
+                    # Simpler approach: just use games_count * average hands if we have a summary
+                    # For now, use a rough estimate
+                    current_hands = min(games_count * max_hands, variant_max_hands)
+                    # Refine: if game is in progress, add current hand
+                    if current_max_hand > 0 and current_max_hand < max_hands:
+                        current_hands = (games_count - 1) * max_hands + current_max_hand
+                else:
+                    current_hands = 0
 
-                # 4. Cost metrics using helper
-                cost_metrics = self._get_cost_metrics(conn, experiment_id, variant_clause, variant_params)
+                progress = {
+                    'current_hands': current_hands,
+                    'max_hands': variant_max_hands,
+                    'games_count': games_count,
+                    'games_expected': num_tournaments,
+                    'progress_pct': round(current_hands * 100 / variant_max_hands, 1) if variant_max_hands else 0,
+                }
+
+                overall_progress['current_hands'] += current_hands
+                overall_progress['max_hands'] += variant_max_hands
+
+                # 4. Cost metrics from api_usage
+                cursor = conn.execute(f"""
+                    SELECT
+                        COALESCE(SUM(au.estimated_cost), 0) as total_cost,
+                        COUNT(*) as total_calls,
+                        COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                cost_row = cursor.fetchone()
+
+                # Cost by model
+                cursor = conn.execute(f"""
+                    SELECT
+                        au.provider || '/' || au.model as model_key,
+                        SUM(au.estimated_cost) as cost,
+                        COUNT(*) as calls
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.estimated_cost IS NOT NULL
+                    GROUP BY au.provider, au.model
+                """, [experiment_id] + variant_params)
+                by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
+
+                # Cost per decision (player_decision call type)
+                cursor = conn.execute(f"""
+                    SELECT AVG(au.estimated_cost), COUNT(*)
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.call_type = 'player_decision'
+                """, [experiment_id] + variant_params)
+                decision_cost_row = cursor.fetchone()
+
+                # Count hands for normalized cost (use api_usage since hand_history may be empty)
+                cursor = conn.execute(f"""
+                    SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
+                    FROM api_usage au
+                    JOIN experiment_games eg ON au.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause} AND au.hand_number IS NOT NULL
+                """, [experiment_id] + variant_params)
+                hand_row = cursor.fetchone()
+                total_hands_for_cost = hand_row[0] or 1
+
+                cost_metrics = {
+                    'total_cost': round(cost_row[0] or 0, 6),
+                    'total_calls': cost_row[1] or 0,
+                    'avg_cost_per_call': round(cost_row[2] or 0, 8),
+                    'by_model': by_model,
+                    'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8) if decision_cost_row[0] else 0,
+                    'total_decisions': decision_cost_row[1] or 0,
+                    'cost_per_hand': round((cost_row[0] or 0) / total_hands_for_cost, 6),
+                    'total_hands': total_hands_for_cost,
+                }
 
                 result['by_variant'][variant_key] = {
                     'latency_metrics': latency_metrics,
@@ -5249,8 +5201,17 @@ class GamePersistence:
                     'cost_metrics': cost_metrics,
                 }
 
-            # Compute overall stats using helpers
-            overall_latency = self._calculate_latency_metrics(all_latencies)
+            # Compute overall stats
+            if all_latencies:
+                overall_latency = {
+                    'avg_ms': round(float(np.mean(all_latencies)), 2),
+                    'p50_ms': round(float(np.percentile(all_latencies, 50)), 2),
+                    'p95_ms': round(float(np.percentile(all_latencies, 95)), 2),
+                    'p99_ms': round(float(np.percentile(all_latencies, 99)), 2),
+                    'count': len(all_latencies),
+                }
+            else:
+                overall_latency = None
 
             if overall_decision['total'] > 0:
                 overall_decision_quality = {
@@ -5269,8 +5230,57 @@ class GamePersistence:
                 'progress_pct': round(overall_progress['current_hands'] * 100 / overall_progress['max_hands'], 1) if overall_progress['max_hands'] else 0,
             }
 
-            # Overall cost metrics using helper (no variant filter)
-            overall_cost_metrics = self._get_cost_metrics(conn, experiment_id)
+            # Overall cost metrics
+            cursor = conn.execute("""
+                SELECT
+                    COALESCE(SUM(au.estimated_cost), 0) as total_cost,
+                    COUNT(*) as total_calls,
+                    COALESCE(AVG(au.estimated_cost), 0) as avg_cost_per_call
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ?
+            """, (experiment_id,))
+            overall_cost_row = cursor.fetchone()
+
+            cursor = conn.execute("""
+                SELECT
+                    au.provider || '/' || au.model as model_key,
+                    SUM(au.estimated_cost) as cost,
+                    COUNT(*) as calls
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
+                GROUP BY au.provider, au.model
+            """, (experiment_id,))
+            overall_by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
+
+            cursor = conn.execute("""
+                SELECT AVG(au.estimated_cost), COUNT(*)
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.call_type = 'player_decision'
+            """, (experiment_id,))
+            overall_decision_cost_row = cursor.fetchone()
+
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
+                FROM api_usage au
+                JOIN experiment_games eg ON au.game_id = eg.game_id
+                WHERE eg.experiment_id = ? AND au.hand_number IS NOT NULL
+            """, (experiment_id,))
+            overall_hand_row = cursor.fetchone()
+            overall_total_hands = overall_hand_row[0] or 1
+
+            overall_cost_metrics = {
+                'total_cost': round(overall_cost_row[0] or 0, 6),
+                'total_calls': overall_cost_row[1] or 0,
+                'avg_cost_per_call': round(overall_cost_row[2] or 0, 8),
+                'by_model': overall_by_model,
+                'avg_cost_per_decision': round(overall_decision_cost_row[0] or 0, 8) if overall_decision_cost_row[0] else 0,
+                'total_decisions': overall_decision_cost_row[1] or 0,
+                'cost_per_hand': round((overall_cost_row[0] or 0) / overall_total_hands, 6),
+                'total_hands': overall_total_hands,
+            }
 
             result['overall'] = {
                 'latency_metrics': overall_latency,

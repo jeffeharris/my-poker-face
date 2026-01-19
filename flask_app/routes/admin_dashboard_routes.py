@@ -76,29 +76,38 @@ def _check_admin_auth() -> tuple[bool, str]:
 
 
 def _admin_required(f):
-    """Decorator to restrict admin endpoints to development mode.
+    """Decorator to restrict admin endpoints with authentication.
 
     Security:
-    - Admin endpoints are ONLY accessible in development mode (FLASK_ENV=development)
-    - In production, returns 403 Forbidden regardless of authentication
-    - Optional ADMIN_TOKEN can add extra protection even in development
+    - In production: ADMIN_TOKEN is REQUIRED for access
+    - In development: Access allowed by default, optionally require token with ADMIN_REQUIRE_TOKEN=true
+    - Token can be provided via Authorization header or query parameter
     """
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Primary security: development mode only
-        if not config.is_development:
-            return jsonify({'error': 'Admin dashboard only available in development mode'}), 403
-
-        # Optional secondary check: ADMIN_TOKEN (only enforced if explicitly set)
-        # This is for users who want extra protection even in development
         admin_token = os.environ.get('ADMIN_TOKEN')
-        require_token = os.environ.get('ADMIN_REQUIRE_TOKEN', 'false').lower() == 'true'
 
+        # In production: ADMIN_TOKEN is required
+        if not config.is_development:
+            if not admin_token:
+                return jsonify({
+                    'error': 'Admin dashboard requires ADMIN_TOKEN to be configured in production'
+                }), 403
+
+            is_authenticated, error_msg = _check_admin_auth()
+            if not is_authenticated:
+                return jsonify({
+                    'error': error_msg,
+                    'hint': 'Set Authorization: Bearer YOUR_TOKEN header'
+                }), 401
+
+            return f(*args, **kwargs)
+
+        # In development: optionally require token
+        require_token = os.environ.get('ADMIN_REQUIRE_TOKEN', 'false').lower() == 'true'
         if admin_token and require_token:
             is_authenticated, error_msg = _check_admin_auth()
             if not is_authenticated:
-                if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
-                    return jsonify({'error': error_msg}), 401
                 return jsonify({
                     'error': error_msg,
                     'hint': 'Add ?admin_token=YOUR_TOKEN to the URL or set Authorization: Bearer YOUR_TOKEN header'
@@ -636,11 +645,10 @@ def api_playground_captures():
         date_from: Filter by start date (ISO format)
         date_to: Filter by end date (ISO format)
     """
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
 
     try:
-        repo = get_repository_factory()
-        result = repo.debug.list_playground_captures(
+        result = persistence.list_playground_captures(
             call_type=request.args.get('call_type'),
             provider=request.args.get('provider'),
             limit=int(request.args.get('limit', 50)),
@@ -649,7 +657,7 @@ def api_playground_captures():
             date_to=request.args.get('date_to'),
         )
 
-        stats = repo.debug.get_playground_capture_stats()
+        stats = persistence.get_playground_capture_stats()
 
         return jsonify({
             'success': True,
@@ -667,10 +675,10 @@ def api_playground_captures():
 @_dev_only
 def api_playground_capture(capture_id):
     """Get a single playground capture by ID."""
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
 
     try:
-        capture = get_repository_factory().debug.get_prompt_capture(capture_id)
+        capture = persistence.get_prompt_capture(capture_id)
 
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -699,11 +707,11 @@ def api_playground_replay(capture_id):
         model: Model to use (optional)
         reasoning_effort: Reasoning effort (optional)
     """
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
     from core.llm import LLMClient, CallType
 
     try:
-        capture = get_repository_factory().debug.get_prompt_capture(capture_id)
+        capture = persistence.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -770,10 +778,10 @@ def api_playground_replay(capture_id):
 @_dev_only
 def api_playground_stats():
     """Get aggregate statistics for playground captures."""
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
 
     try:
-        stats = get_repository_factory().debug.get_playground_capture_stats()
+        stats = persistence.get_playground_capture_stats()
         return jsonify({'success': True, 'stats': stats})
 
     except Exception as e:
@@ -789,7 +797,7 @@ def api_playground_cleanup():
     Request body:
         retention_days: Delete captures older than this many days (default: from config)
     """
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
     from core.llm.capture_config import get_retention_days
 
     try:
@@ -803,7 +811,7 @@ def api_playground_cleanup():
                 'deleted': 0,
             })
 
-        deleted = get_repository_factory().debug.cleanup_old_captures(retention_days)
+        deleted = persistence.cleanup_old_captures(retention_days)
 
         return jsonify({
             'success': True,
@@ -1289,7 +1297,7 @@ def api_get_settings():
     - LLM_PROMPT_CAPTURE: Capture mode (disabled, all, all_except_decisions)
     - LLM_PROMPT_RETENTION_DAYS: Days to keep captures (0 = unlimited)
     """
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
     from core.llm.capture_config import (
         get_capture_mode, get_retention_days, get_env_defaults,
         CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
@@ -1304,7 +1312,7 @@ def api_get_settings():
         current_retention_days = get_retention_days()
 
         # Get DB values directly to show if overridden
-        db_settings = get_repository_factory().config.get_all_settings()
+        db_settings = persistence.get_all_settings()
 
         settings = {
             'LLM_PROMPT_CAPTURE': {
@@ -1342,7 +1350,7 @@ def api_update_setting():
         key: Setting key (e.g., 'LLM_PROMPT_CAPTURE')
         value: New value
     """
-    from ..extensions import get_repository_factory
+    from ..extensions import persistence
     from core.llm.capture_config import CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
 
     try:
@@ -1388,7 +1396,7 @@ def api_update_setting():
             'LLM_PROMPT_RETENTION_DAYS': 'Days to keep captures (0 = unlimited)',
         }
 
-        success = get_repository_factory().config.set_setting(key, value, descriptions.get(key))
+        success = persistence.set_setting(key, value, descriptions.get(key))
 
         if success:
             return jsonify({
@@ -1411,7 +1419,7 @@ def api_reset_settings():
     Request body (optional):
         key: Specific setting to reset (if not provided, resets all)
     """
-    repo = get_repository_factory()
+    from ..extensions import persistence
 
     try:
         data = request.get_json() or {}
@@ -1423,7 +1431,7 @@ def api_reset_settings():
             if key not in valid_keys:
                 return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
-            success = repo.config.delete_setting(key)
+            success = persistence.delete_setting(key)
             return jsonify({
                 'success': True,
                 'message': f'Setting {key} reset to environment default',
@@ -1433,7 +1441,7 @@ def api_reset_settings():
             # Reset all settings
             deleted_count = 0
             for k in ['LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS']:
-                if repo.config.delete_setting(k):
+                if persistence.delete_setting(k):
                     deleted_count += 1
 
             return jsonify({
@@ -1456,7 +1464,8 @@ def api_active_games():
         List of games with game_id, owner_name, player names, phase, etc.
         Active games are marked with is_active=True
     """
-    repo = get_repository_factory()
+    from ..extensions import persistence
+    import json as json_module
 
     try:
         all_games = []
@@ -1502,13 +1511,13 @@ def api_active_games():
 
         # Then, add recent saved games from database (not already in memory)
         try:
-            saved_games = repo.game.find_recent(limit=20)
+            saved_games = persistence.list_games(limit=20)
             for saved_game in saved_games:
-                if saved_game.id in seen_game_ids:
+                if saved_game.game_id in seen_game_ids:
                     continue  # Already added from memory
 
                 game_info = {
-                    'game_id': saved_game.id,
+                    'game_id': saved_game.game_id,
                     'owner_name': saved_game.owner_name or 'Unknown',
                     'players': [],
                     'phase': saved_game.phase,
@@ -1517,24 +1526,24 @@ def api_active_games():
                     'num_players': saved_game.num_players,
                 }
 
-                # Extract player names from the state machine
+                # Try to extract player names from saved game state
                 try:
-                    game_state = saved_game.state_machine.game_state
-                    if game_state and hasattr(game_state, 'players'):
-                        for p in game_state.players:
+                    state_dict = json_module.loads(saved_game.game_state_json)
+                    if 'players' in state_dict:
+                        for p in state_dict['players']:
                             game_info['players'].append({
-                                'name': p.name,
-                                'chips': p.stack,
-                                'is_human': getattr(p, 'is_human', False),
-                                'is_active': not p.is_folded and p.stack > 0,
+                                'name': p.get('name', 'Unknown'),
+                                'chips': p.get('stack', 0),
+                                'is_human': p.get('is_human', False),
+                                'is_active': not p.get('is_folded', False) and p.get('stack', 0) > 0,
                             })
-                    if hasattr(game_state, 'hand_number'):
-                        game_info['hand_number'] = game_state.hand_number
-                except Exception:
+                    if 'hand_number' in state_dict:
+                        game_info['hand_number'] = state_dict['hand_number']
+                except (json_module.JSONDecodeError, KeyError):
                     pass
 
                 all_games.append(game_info)
-                seen_game_ids.add(saved_game.id)
+                seen_game_ids.add(saved_game.game_id)
 
         except Exception as e:
             logger.warning(f"Could not load saved games: {e}")

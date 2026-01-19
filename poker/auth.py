@@ -9,13 +9,10 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any
 
 from flask import session, request, jsonify, redirect, url_for
 import jwt
-
-if TYPE_CHECKING:
-    from poker.repositories.factory import RepositoryFactory
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +28,12 @@ OAUTH_STATE_EXPIRATION = timedelta(minutes=10)
 class AuthManager:
     """Manages authentication for the poker application."""
 
-    def __init__(self, app=None, repository_factory: Optional["RepositoryFactory"] = None, oauth=None):
+    def __init__(self, app=None, persistence=None, oauth=None):
         self.app = app
-        self._repo = repository_factory
+        self.persistence = persistence
         self.oauth = oauth
         if app:
             self.init_app(app)
-
-    @property
-    def repo(self) -> "RepositoryFactory":
-        """Get repository factory, initializing from Flask context if needed."""
-        if self._repo is None:
-            from flask_app.extensions import get_repository_factory
-            self._repo = get_repository_factory()
-        return self._repo
     
     def init_app(self, app):
         """Initialize the auth manager with a Flask app."""
@@ -210,62 +199,40 @@ class AuthManager:
                     return redirect(f"{config.FRONTEND_URL}/?auth=error&message=missing_user_info")
 
                 # Check if user already exists by email
-                existing_user_entity = self.repo.config.get_user_by_email(email)
+                existing_user = self.persistence.get_user_by_email(email)
 
                 # Get guest_id if this was a linking attempt
                 guest_id = session.pop('oauth_guest_id', None)
 
-                if existing_user_entity:
-                    # User already exists - convert entity to dict
-                    existing_user = {
-                        'id': existing_user_entity.id,
-                        'email': existing_user_entity.email,
-                        'name': existing_user_entity.name,
-                        'picture': existing_user_entity.picture,
-                        'linked_guest_id': existing_user_entity.linked_guest_id,
-                        'created_at': existing_user_entity.created_at.isoformat() if existing_user_entity.created_at else None
-                    }
-
+                if existing_user:
+                    # User already exists
                     if guest_id and not existing_user.get('linked_guest_id'):
                         # Guest trying to link to existing Google account
                         # Check if guest has games to transfer
-                        games_transferred = self.repo.game.transfer_ownership(
+                        games_transferred = self.persistence.transfer_game_ownership(
                             guest_id, existing_user['id'], existing_user['name']
                         )
                         if games_transferred > 0:
                             logger.info(f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}")
 
                     # Update last login
-                    self.repo.config.update_user_last_login(existing_user['id'])
+                    self.persistence.update_user_last_login(existing_user['id'])
                     user_data = existing_user
 
                 else:
                     # Create new user
                     try:
-                        from poker.repositories.protocols import UserEntity
-                        user_id = f'google_{google_sub}'
-                        new_user = UserEntity(
-                            id=user_id,
+                        user_data = self.persistence.create_google_user(
+                            google_sub=google_sub,
                             email=email,
                             name=name,
                             picture=picture,
-                            created_at=datetime.utcnow(),
-                            last_login=datetime.utcnow(),
                             linked_guest_id=guest_id
                         )
-                        self.repo.config.save_user(new_user)
-                        user_data = {
-                            'id': user_id,
-                            'email': email,
-                            'name': name,
-                            'picture': picture,
-                            'linked_guest_id': guest_id,
-                            'created_at': datetime.utcnow().isoformat()
-                        }
 
                         # Transfer games from guest if linking
                         if guest_id:
-                            games_transferred = self.repo.game.transfer_ownership(
+                            games_transferred = self.persistence.transfer_game_ownership(
                                 guest_id, user_data['id'], user_data['name']
                             )
                             if games_transferred > 0:
@@ -274,15 +241,9 @@ class AuthManager:
                     except sqlite3.IntegrityError as e:
                         # Email already exists (race condition)
                         logger.warning(f"Race condition creating user: {e}")
-                        existing_user_entity = self.repo.config.get_user_by_email(email)
-                        if existing_user_entity:
-                            user_data = {
-                                'id': existing_user_entity.id,
-                                'email': existing_user_entity.email,
-                                'name': existing_user_entity.name,
-                                'picture': existing_user_entity.picture,
-                                'created_at': existing_user_entity.created_at.isoformat() if existing_user_entity.created_at else None
-                            }
+                        existing_user = self.persistence.get_user_by_email(email)
+                        if existing_user:
+                            user_data = existing_user
                         else:
                             return redirect(f"{config.FRONTEND_URL}/?auth=error&message=user_creation_failed")
 

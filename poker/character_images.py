@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from core.llm import LLMClient, CallType
 
 if TYPE_CHECKING:
-    from poker.repositories.factory import RepositoryFactory
+    from .persistence import GamePersistence
 
 logger = logging.getLogger(__name__)
 
@@ -60,27 +60,32 @@ EMOTION_DETAILS = {
 class CharacterImageService:
     """Service for managing character avatar images.
 
-    Images are stored in the SQLite database as BLOBs via the repository layer.
+    Images are stored in the SQLite database as BLOBs via the persistence layer.
     Filesystem storage is only used as a fallback for migration of existing images.
     """
 
-    def __init__(self, personality_generator=None, repository_factory: Optional["RepositoryFactory"] = None):
+    def __init__(self, personality_generator=None, persistence: Optional["GamePersistence"] = None):
         """Initialize the service.
 
         Args:
             personality_generator: Optional PersonalityGenerator instance for managing descriptions
-            repository_factory: Optional RepositoryFactory instance for database access
+            persistence: Optional GamePersistence instance for database access
         """
         self._personality_generator = personality_generator
-        self._repo = repository_factory
+        self._persistence = persistence
 
-    @property
-    def repo(self) -> "RepositoryFactory":
-        """Get repository factory, initializing from Flask context if needed."""
-        if self._repo is None:
-            from flask_app.extensions import get_repository_factory
-            self._repo = get_repository_factory()
-        return self._repo
+        # Initialize persistence if not provided
+        if self._persistence is None:
+            from .persistence import GamePersistence
+            db_path = self._get_default_db_path()
+            self._persistence = GamePersistence(db_path)
+
+    def _get_default_db_path(self) -> str:
+        """Get the default database path based on environment."""
+        if Path('/app/data').exists():
+            return '/app/data/poker_games.db'
+        else:
+            return str(Path(__file__).parent.parent / 'poker_games.db')
 
     def get_avatar_url(self, personality_name: str, emotion: str = "confident") -> Optional[str]:
         """
@@ -99,8 +104,7 @@ class CharacterImageService:
             emotion = "confident"
 
         # Check database first (source of truth)
-        avatar = self.repo.personality.load_avatar(personality_name, emotion)
-        if avatar is not None:
+        if self._persistence.has_avatar_image(personality_name, emotion):
             return f"/api/avatar/{personality_name}/{emotion}"
 
         # Fallback to filesystem during migration
@@ -114,7 +118,7 @@ class CharacterImageService:
     def has_images(self, personality_name: str) -> bool:
         """Check if any images exist for a personality."""
         # Check database first
-        db_emotions = self.repo.personality.get_available_emotions(personality_name)
+        db_emotions = self._persistence.get_available_avatar_emotions(personality_name)
         if db_emotions:
             return True
 
@@ -128,7 +132,7 @@ class CharacterImageService:
     def get_available_emotions(self, personality_name: str) -> List[str]:
         """Get list of emotions that have generated images for a personality."""
         # Check database first
-        db_emotions = self.repo.personality.get_available_emotions(personality_name)
+        db_emotions = self._persistence.get_available_avatar_emotions(personality_name)
 
         # Also check filesystem for migration fallback
         fs_emotions = []
@@ -156,9 +160,9 @@ class CharacterImageService:
             PNG image bytes or None if not found
         """
         # Check database first
-        avatar = self.repo.personality.load_avatar(personality_name, emotion)
-        if avatar and avatar.image_data:
-            return avatar.image_data
+        image_data = self._persistence.load_avatar_image(personality_name, emotion)
+        if image_data:
+            return image_data
 
         # Fallback to filesystem during migration
         icon_filename = self._get_icon_filename(personality_name, emotion)
@@ -179,10 +183,7 @@ class CharacterImageService:
         Returns:
             Full PNG image bytes or None if not found
         """
-        avatar = self.repo.personality.load_avatar(personality_name, emotion)
-        if avatar and avatar.full_image_data:
-            return avatar.full_image_data
-        return None
+        return self._persistence.load_full_avatar_image(personality_name, emotion)
 
     def get_full_avatar_url(self, personality_name: str, emotion: str = "confident") -> Optional[str]:
         """Get the URL for a character's full uncropped avatar image.
@@ -200,8 +201,7 @@ class CharacterImageService:
             emotion = "confident"
 
         # Check if full image exists in database
-        avatar = self.repo.personality.load_avatar(personality_name, emotion)
-        if avatar and avatar.full_image_data:
+        if self._persistence.has_full_avatar_image(personality_name, emotion):
             return f"/api/avatar/{personality_name}/{emotion}/full"
 
         return None
@@ -470,18 +470,16 @@ class CharacterImageService:
         icon_bytes = buffer.getvalue()
 
         # Save both to database - full image for CSS cropping, icon for backward compatibility
-        from datetime import datetime
-        from poker.repositories.protocols import AvatarImageEntity
-        avatar_entity = AvatarImageEntity(
+        self._persistence.save_avatar_image(
             personality_name=personality_name,
             emotion=emotion,
             image_data=icon_bytes,
-            thumbnail_data=icon_bytes,  # Use icon as thumbnail
+            width=ICON_SIZE,
+            height=ICON_SIZE,
             full_image_data=raw_image_bytes,
-            generation_prompt=None,
-            created_at=datetime.now()
+            full_width=full_width,
+            full_height=full_height
         )
-        self.repo.personality.save_avatar(avatar_entity)
 
         logger.debug(f"Saved icon ({len(icon_bytes)} bytes) and full image ({len(raw_image_bytes)} bytes) to database: {personality_name} - {emotion}")
         return icon_bytes
@@ -557,25 +555,25 @@ _service: Optional[CharacterImageService] = None
 
 def get_character_image_service(
     personality_generator=None,
-    repository_factory: Optional["RepositoryFactory"] = None
+    persistence: Optional["GamePersistence"] = None
 ) -> CharacterImageService:
     """Get the singleton CharacterImageService instance.
 
     Args:
         personality_generator: Optional PersonalityGenerator to use for descriptions.
                               Only used on first initialization.
-        repository_factory: Optional RepositoryFactory instance for database access.
-                           Only used on first initialization.
+        persistence: Optional GamePersistence instance for database access.
+                    Only used on first initialization.
     """
     global _service
     if _service is None:
-        _service = CharacterImageService(personality_generator, repository_factory)
+        _service = CharacterImageService(personality_generator, persistence)
     return _service
 
 
 def init_character_image_service(
     personality_generator=None,
-    repository_factory: Optional["RepositoryFactory"] = None
+    persistence: Optional["GamePersistence"] = None
 ) -> CharacterImageService:
     """Initialize the CharacterImageService with dependencies.
 
@@ -583,10 +581,10 @@ def init_character_image_service(
 
     Args:
         personality_generator: Optional PersonalityGenerator for descriptions
-        repository_factory: Optional RepositoryFactory for database access
+        persistence: Optional GamePersistence for database access
     """
     global _service
-    _service = CharacterImageService(personality_generator, repository_factory)
+    _service = CharacterImageService(personality_generator, persistence)
     return _service
 
 

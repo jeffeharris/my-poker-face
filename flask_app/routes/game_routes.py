@@ -26,7 +26,7 @@ from poker.tournament_tracker import TournamentTracker
 from poker.character_images import get_avatar_url
 
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, get_repository_factory, auth_manager, limiter
+from ..extensions import socketio, persistence, auth_manager, limiter
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..handlers.game_handler import (
@@ -148,7 +148,7 @@ def analyze_player_decision(
             opponent_infos=opponent_infos,
         )
 
-        get_repository_factory().debug.save_decision_analysis(analysis)
+        persistence.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
             f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
@@ -169,7 +169,7 @@ def list_games():
     current_user = auth_manager.get_current_user()
 
     if current_user:
-        saved_games = get_repository_factory().game.find_recent(owner_id=current_user.get('id'), limit=10)
+        saved_games = persistence.list_games(owner_id=current_user.get('id'), limit=10)
     else:
         saved_games = []
 
@@ -237,8 +237,7 @@ def api_game_state(game_id):
         # Try to load from database
         try:
             current_user = auth_manager.get_current_user()
-            repo = get_repository_factory()
-            saved_games = repo.game.find_recent(owner_id=current_user.get('id') if current_user else None, limit=50)
+            saved_games = persistence.list_games(owner_id=current_user.get('id') if current_user else None, limit=50)
 
             game_found = False
             owner_id = None
@@ -253,18 +252,18 @@ def api_game_state(game_id):
             if not game_found:
                 return jsonify({'error': 'Game not found or access denied'}), 404
 
-            base_state_machine = repo.game.find_by_id(game_id)
+            base_state_machine = persistence.load_game(game_id)
             if base_state_machine:
                 state_machine = StateMachineAdapter(base_state_machine)
                 # Load per-player LLM configs for proper provider restoration
-                llm_configs = repo.game.load_llm_configs(game_id) or {}
+                llm_configs = persistence.load_llm_configs(game_id) or {}
                 ai_controllers = restore_ai_controllers(
-                    game_id, state_machine, repo,
+                    game_id, state_machine, persistence,
                     owner_id=owner_id,
                     player_llm_configs=llm_configs.get('player_llm_configs'),
                     default_llm_config=llm_configs.get('default_llm_config')
                 )
-                db_messages = repo.messages.find_by_game_id(game_id)
+                db_messages = persistence.load_messages(game_id)
 
                 elasticity_manager = ElasticityManager()
                 for player in state_machine.game_state.players:
@@ -278,17 +277,17 @@ def api_game_state(game_id):
                 pressure_detector = PressureEventDetector(elasticity_manager)
                 pressure_stats = PressureStatsTracker()
 
-                memory_manager = AIMemoryManager(game_id, repo.db_path, owner_id=owner_id)
-                memory_manager.set_repository_factory(repo)  # Enable hand history saving
+                memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
+                memory_manager.set_persistence(persistence)  # Enable hand history saving
 
                 # Restore hand count from database
-                restored_hand_count = repo.hand_history.get_hand_count(game_id)
+                restored_hand_count = persistence.get_hand_count(game_id)
                 if restored_hand_count > 0:
                     memory_manager.hand_count = restored_hand_count
                     logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
 
                 # Restore opponent models from database
-                saved_opponent_models = repo.ai_memory.load_opponent_models(game_id)
+                saved_opponent_models = persistence.load_opponent_models(game_id)
                 if saved_opponent_models:
                     memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
                     logger.info(f"[LOAD] Restored opponent models for game {game_id}")
@@ -306,7 +305,7 @@ def api_game_state(game_id):
                 memory_manager.on_hand_start(state_machine.game_state, hand_number=memory_manager.hand_count + 1)
 
                 # Try to load tournament tracker from database, or create new one
-                tracker_data = repo.tournament.load_tracker(game_id)
+                tracker_data = persistence.load_tournament_tracker(game_id)
                 if tracker_data:
                     tournament_tracker = TournamentTracker.from_dict(tracker_data)
                     logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
@@ -573,13 +572,12 @@ def api_new_game():
     data = request.json or {}
 
     current_user = auth_manager.get_current_user()
-    repo = get_repository_factory()
     if current_user:
         player_name = data.get('playerName', current_user.get('name', 'Player'))
         owner_id = current_user.get('id')
         owner_name = current_user.get('name')
 
-        game_count = repo.game.count_by_owner(owner_id)
+        game_count = persistence.count_user_games(owner_id)
         max_games = 3 if current_user.get('is_guest', True) else 10
 
         if game_count >= max_games:
@@ -592,7 +590,6 @@ def api_new_game():
         owner_name = None
 
     requested_personalities = data.get('personalities', [])
-    opponent_count = data.get('opponent_count', 3)  # Default to 3 opponents
     default_llm_config = data.get('llm_config', {})
     starting_stack = data.get('starting_stack', 10000)
     big_blind = data.get('big_blind', 50)
@@ -640,7 +637,7 @@ def api_new_game():
                         # Merge with default config (per-player overrides default)
                         player_llm_configs[name] = {**default_llm_config, **p_llm_config}
     else:
-        ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
+        ai_player_names = get_celebrities(shuffled=True)[:3]
 
     game_state = initialize_game_state(
         player_names=ai_player_names,
@@ -674,18 +671,20 @@ def api_new_game():
                 llm_config=player_config,
                 game_id=game_id,
                 owner_id=owner_id,
-                repository_factory=repo
+                persistence=persistence
             )
             ai_controllers[player.name] = new_controller
             elasticity_manager.add_player(
                 player.name,
                 new_controller.ai_player.personality_config
             )
+    from poker.repositories.sqlite_repositories import PressureEventRepository
+    event_repository = PressureEventRepository(config.DB_PATH)
     pressure_detector = PressureEventDetector(elasticity_manager)
-    pressure_stats = PressureStatsTracker(game_id, repo.emotional_state)
+    pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-    memory_manager = AIMemoryManager(game_id, repo.db_path, owner_id=owner_id)
-    memory_manager.set_repository_factory(repo)  # Enable hand history saving
+    memory_manager = AIMemoryManager(game_id, persistence.db_path, owner_id=owner_id)
+    memory_manager.set_persistence(persistence)  # Enable hand history saving
     for player in state_machine.game_state.players:
         if not player.is_human:
             memory_manager.initialize_for_player(player.name)
@@ -730,40 +729,12 @@ def api_new_game():
     }
     game_state_service.set_game(game_id, game_data)
 
-    # Save game using repository pattern
-    from poker.repositories.protocols import GameEntity, TournamentTrackerEntity, OpponentModelEntity
-    game_entity = GameEntity(
-        id=game_id,
-        state_machine=state_machine._state_machine,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-        owner_id=owner_id,
-        owner_name=owner_name,
+    persistence.save_game(
+        game_id, state_machine._state_machine, owner_id, owner_name,
         llm_configs={'player_llm_configs': player_llm_configs, 'default_llm_config': default_llm_config}
     )
-    repo.game.save(game_entity)
-
-    # Save tournament tracker
-    tracker_entity = TournamentTrackerEntity(
-        game_id=game_id,
-        tracker_data=tournament_tracker.to_dict(),
-        last_updated=datetime.now()
-    )
-    repo.tournament.save_tracker(tracker_entity)
-
-    # Save opponent models
-    omm = memory_manager.get_opponent_model_manager()
-    for observer_name, opponents in omm.models.items():
-        for opponent_name, model in opponents.items():
-            model_entity = OpponentModelEntity(
-                game_id=game_id,
-                observer_name=observer_name,
-                opponent_name=opponent_name,
-                observations=model.tendencies.to_dict() if hasattr(model, 'tendencies') and model.tendencies else {},
-                last_updated=datetime.now()
-            )
-            repo.ai_memory.save_opponent_model(model_entity)
-
+    persistence.save_tournament_tracker(game_id, tournament_tracker)
+    persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
 
     return jsonify({'game_id': game_id})
@@ -808,30 +779,9 @@ def api_player_action(game_id):
     game_state_service.set_game(game_id, current_game_data)
 
     owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-    repo = get_repository_factory()
-    from poker.repositories.protocols import GameEntity, OpponentModelEntity
-    game_entity = GameEntity(
-        id=game_id,
-        state_machine=state_machine._state_machine,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-        owner_id=owner_id,
-        owner_name=owner_name,
-    )
-    repo.game.save(game_entity)
-
+    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     if 'memory_manager' in current_game_data:
-        omm = current_game_data['memory_manager'].get_opponent_model_manager()
-        for observer_name, opponents in omm.models.items():
-            for opponent_name, model in opponents.items():
-                model_entity = OpponentModelEntity(
-                    game_id=game_id,
-                    observer_name=observer_name,
-                    opponent_name=opponent_name,
-                    observations=model.tendencies.to_dict() if hasattr(model, 'tendencies') and model.tendencies else {},
-                    last_updated=datetime.now()
-                )
-                repo.ai_memory.save_opponent_model(model_entity)
+        persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
     progress_game(game_id)
 
@@ -912,8 +862,12 @@ def delete_game(game_id):
     """Delete a saved game."""
     try:
         game_state_service.delete_game(game_id)
-        # repo.game.delete handles all related tables (ai_player_state, personality_snapshots, etc.)
-        get_repository_factory().game.delete(game_id)
+        persistence.delete_game(game_id)
+
+        import sqlite3
+        with sqlite3.connect(persistence.db_path) as conn:
+            conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
+            conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
 
         return jsonify({'message': 'Game deleted successfully'}), 200
     except Exception as e:
@@ -927,7 +881,7 @@ def end_game(game_id):
     game_state_service.delete_game(game_id)
 
     try:
-        get_repository_factory().game.delete(game_id)
+        persistence.delete_game(game_id)
     except Exception as e:
         print(f"Error deleting game {game_id} from database: {e}")
 
@@ -963,7 +917,7 @@ def api_game_llm_configs(game_id):
     if not current_game_data:
         # Try to load from database
         try:
-            llm_configs = get_repository_factory().game.load_llm_configs(game_id)
+            llm_configs = persistence.load_llm_configs(game_id)
             if llm_configs:
                 return jsonify(llm_configs)
             return jsonify({'error': 'Game not found'}), 404
@@ -1058,30 +1012,9 @@ def register_socket_events(sio):
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        repo = get_repository_factory()
-        from poker.repositories.protocols import GameEntity, OpponentModelEntity
-        game_entity = GameEntity(
-            id=game_id,
-            state_machine=state_machine._state_machine,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-            owner_id=owner_id,
-            owner_name=owner_name,
-        )
-        repo.game.save(game_entity)
-
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            omm = current_game_data['memory_manager'].get_opponent_model_manager()
-            for observer_name, opponents in omm.models.items():
-                for opponent_name, model in opponents.items():
-                    model_entity = OpponentModelEntity(
-                        game_id=game_id,
-                        observer_name=observer_name,
-                        opponent_name=opponent_name,
-                        observations=model.tendencies.to_dict() if hasattr(model, 'tendencies') and model.tendencies else {},
-                        last_updated=datetime.now()
-                    )
-                    repo.ai_memory.save_opponent_model(model_entity)
+            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
         update_and_emit_game_state(game_id)
         progress_game(game_id)

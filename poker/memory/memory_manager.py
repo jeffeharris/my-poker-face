@@ -26,22 +26,17 @@ logger = logging.getLogger(__name__)
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
 
-    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None,
-                 commentary_enabled: Optional[bool] = None):
+    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None):
         """Initialize the memory manager.
 
         Args:
             game_id: Unique identifier for the game
             db_path: Path to database for persistence (optional)
             owner_id: Owner/user ID for tracking (optional)
-            commentary_enabled: Override for COMMENTARY_ENABLED config (optional).
-                                If None, uses global COMMENTARY_ENABLED setting.
         """
         self.game_id = game_id
         self.db_path = db_path
         self.owner_id = owner_id
-        # Allow instance-level override for commentary generation
-        self._commentary_enabled_override = commentary_enabled
 
         # Core systems
         self.hand_recorder = HandHistoryRecorder(game_id)
@@ -64,16 +59,16 @@ class AIMemoryManager:
         self._lock = threading.Lock()
         self._last_recorded_hand: Optional[RecordedHand] = None
 
-        # Repository factory (set externally to avoid circular imports)
-        self._repo = None
+        # Persistence layer (set externally to avoid circular imports)
+        self._persistence = None
 
-    def set_repository_factory(self, repo) -> None:
-        """Set the repository factory for saving hand history.
+    def set_persistence(self, persistence) -> None:
+        """Set the persistence layer for saving hand history.
 
         Args:
-            repo: RepositoryFactory instance
+            persistence: GamePersistence instance
         """
-        self._repo = repo
+        self._persistence = persistence
 
     def initialize_for_player(self, player_name: str) -> None:
         """Set up memory systems for an AI player.
@@ -84,10 +79,10 @@ class AIMemoryManager:
         if player_name in self.initialized_players:
             return
 
-        # Create session memory with DB backing if repository is available
+        # Create session memory with DB backing if persistence is available
         session_memory = SessionMemory(player_name)
-        if self._repo:
-            session_memory.set_repository_factory(self._repo, self.game_id)
+        if self._persistence:
+            session_memory.set_persistence(self._persistence, self.game_id)
         self.session_memories[player_name] = session_memory
 
         self.initialized_players.add(player_name)
@@ -213,21 +208,9 @@ class AIMemoryManager:
                 self._last_recorded_hand = recorded_hand
 
             # Persist hand to database
-            if self._repo:
+            if self._persistence:
                 try:
-                    from poker.repositories.protocols import HandHistoryEntity
-                    entity = HandHistoryEntity(
-                        game_id=self.game_id,
-                        hand_number=recorded_hand.hand_number,
-                        phase=recorded_hand.final_phase,
-                        community_cards=[c.to_dict() if hasattr(c, 'to_dict') else c for c in recorded_hand.community_cards],
-                        pot_size=recorded_hand.pot_size,
-                        player_hands={p.name: [c.to_dict() if hasattr(c, 'to_dict') else c for c in p.hand] for p in recorded_hand.players if p.hand},
-                        actions=[a.to_dict() for a in recorded_hand.actions],
-                        winners=recorded_hand.winners,
-                        timestamp=recorded_hand.timestamp,
-                    )
-                    self._repo.hand_history.save(entity)
+                    self._persistence.save_hand_history(recorded_hand)
                 except Exception as e:
                     logger.warning(f"Failed to persist hand history: {e}")
         except Exception as e:
@@ -326,9 +309,7 @@ class AIMemoryManager:
 
         commentaries: Dict[str, HandCommentary] = {}
 
-        # Check instance override first, then fall back to global setting
-        commentary_enabled = self._commentary_enabled_override if self._commentary_enabled_override is not None else COMMENTARY_ENABLED
-        if not commentary_enabled:
+        if not COMMENTARY_ENABLED:
             return commentaries
 
         # Build list of players to generate commentary for
