@@ -59,12 +59,25 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
 
 interface AdminDashboardProps {
   onBack: () => void;
+  initialTab?: AdminTab;
+  onTabChange?: (tab: AdminTab) => void;
 }
 
-export function AdminDashboard({ onBack }: AdminDashboardProps) {
+export function AdminDashboard({ onBack, initialTab = 'personalities', onTabChange }: AdminDashboardProps) {
   const { isMobile } = useViewport();
-  const [activeTab, setActiveTab] = useState<AdminTab>('personalities');
+  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Sync activeTab with initialTab when it changes (URL navigation)
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  // Wrapper to update both state and notify parent
+  const handleTabChange = useCallback((tab: AdminTab) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  }, [onTabChange]);
 
   // Find active tab config for header
   const activeTabConfig = SIDEBAR_ITEMS.find(t => t.id === activeTab);
@@ -119,7 +132,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
           onBack={onBack}
           navItems={SIDEBAR_ITEMS}
           activeNavId={activeTab}
-          onNavChange={(id) => setActiveTab(id as AdminTab)}
+          onNavChange={(id) => handleTabChange(id as AdminTab)}
         >
           <div className="admin-main__content admin-main__content--mobile">
             {renderTabContent()}
@@ -136,7 +149,7 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
       <AdminSidebar
         items={SIDEBAR_ITEMS}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
       />
