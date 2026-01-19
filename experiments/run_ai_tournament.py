@@ -1115,6 +1115,10 @@ class AITournamentRunner:
     ) -> List[TournamentTask]:
         """Build queue of tournament tasks for execution.
 
+        Tasks are ordered to run all variants once before starting second
+        tournament of any variant. This ensures early data from all variants
+        and graceful degradation if experiment is interrupted.
+
         Args:
             variant_configs: List of (label, config) tuples from get_variant_configs()
 
@@ -1125,8 +1129,10 @@ class AITournamentRunner:
         global_tournament_num = 0
         base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        for variant_label, variant_config in variant_configs:
-            for i in range(self.config.num_tournaments):
+        # Iterate tournaments first, then variants within each tournament round
+        # This ensures all variants get run before any variant repeats
+        for tournament_round in range(self.config.num_tournaments):
+            for variant_label, variant_config in variant_configs:
                 global_tournament_num += 1
 
                 # Create unique tournament ID including variant label if present

@@ -4822,6 +4822,7 @@ class GamePersistence:
     def list_experiments(
         self,
         status: Optional[str] = None,
+        include_archived: bool = False,
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict]:
@@ -4829,6 +4830,7 @@ class GamePersistence:
 
         Args:
             status: Optional status filter ('pending', 'running', 'completed', 'failed')
+            include_archived: If False (default), filter out experiments with _archived tag
             limit: Maximum number of experiments to return
             offset: Number of experiments to skip for pagination
 
@@ -4836,9 +4838,19 @@ class GamePersistence:
             List of experiment dictionaries with basic info and progress
         """
         with sqlite3.connect(self.db_path) as conn:
-            # Build query with optional status filter
-            where_clause = "WHERE status = ?" if status else ""
-            params = [status] if status else []
+            # Build query with optional filters
+            conditions = []
+            params = []
+
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+
+            if not include_archived:
+                # Filter out experiments with _archived tag
+                conditions.append("(tags IS NULL OR tags NOT LIKE '%\"_archived\"%')")
+
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
             cursor = conn.execute(f"""
                 SELECT
@@ -4927,6 +4939,21 @@ class GamePersistence:
             conn.commit()
             logger.info(f"Updated experiment {experiment_id} status to {status}")
 
+    def update_experiment_tags(self, experiment_id: int, tags: List[str]) -> None:
+        """Update experiment tags.
+
+        Args:
+            experiment_id: The experiment ID
+            tags: List of tags to set (replaces existing tags)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET tags = ? WHERE id = ?",
+                (json.dumps(tags), experiment_id)
+            )
+            conn.commit()
+            logger.info(f"Updated experiment {experiment_id} tags to {tags}")
+
     def mark_running_experiments_interrupted(self) -> int:
         """Mark all 'running' experiments as 'interrupted'.
 
@@ -4940,7 +4967,7 @@ class GamePersistence:
             cursor = conn.execute("""
                 UPDATE experiments
                 SET status = 'interrupted',
-                    notes = COALESCE(notes || '\n', '') || 'Server restarted while experiment was running.'
+                    notes = 'Server restarted while experiment was running. Click Resume to continue.'
                 WHERE status = 'running'
             """)
             count = cursor.rowcount
@@ -5116,36 +5143,26 @@ class GamePersistence:
                 else:
                     decision_quality = None
 
-                # 3. Progress - count games and max hand number per variant
+                # 3. Progress - sum hands across all games for this variant
+                # Query gets max hand per game, then we sum them up
+                # This correctly handles parallel execution where multiple games
+                # may be in progress simultaneously
                 cursor = conn.execute(f"""
                     SELECT
-                        COUNT(DISTINCT eg.game_id) as games_count,
-                        MAX(au.hand_number) as max_hand
+                        eg.game_id,
+                        COALESCE(MAX(au.hand_number), 0) as max_hand
                     FROM experiment_games eg
                     LEFT JOIN api_usage au ON au.game_id = eg.game_id
                     WHERE eg.experiment_id = ? {variant_clause}
+                    GROUP BY eg.game_id
                 """, [experiment_id] + variant_params)
-                row = cursor.fetchone()
-                games_count = row[0] or 0
-                current_max_hand = row[1] or 0
+                games_data = cursor.fetchall()
+                games_count = len(games_data)
+                # Sum actual hands played in each game (capped at max_hands per game)
+                current_hands = sum(min(row[1], max_hands) for row in games_data)
 
-                # Calculate progress: completed games * max_hands + current hand
                 # For a variant, expected tournaments = num_tournaments
                 variant_max_hands = num_tournaments * max_hands
-                if games_count > 0:
-                    # Estimate: (completed_games - 1) * max_hands + current_max_hand
-                    # But we don't know which games are complete, so use games_count directly
-                    # Approximation: if max_hand is less than max_hands, game is in progress
-                    completed_games = max(0, games_count - 1) if current_max_hand < max_hands else games_count
-                    current_hands = completed_games * max_hands + (current_max_hand if current_max_hand < max_hands else 0)
-                    # Simpler approach: just use games_count * average hands if we have a summary
-                    # For now, use a rough estimate
-                    current_hands = min(games_count * max_hands, variant_max_hands)
-                    # Refine: if game is in progress, add current hand
-                    if current_max_hand > 0 and current_max_hand < max_hands:
-                        current_hands = (games_count - 1) * max_hands + current_max_hand
-                else:
-                    current_hands = 0
 
                 progress = {
                     'current_hands': current_hands,
