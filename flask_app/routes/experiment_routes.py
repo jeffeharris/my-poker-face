@@ -12,7 +12,6 @@ from flask import Blueprint, jsonify, request
 
 from core.llm import LLMClient, CallType
 from poker.persistence import GamePersistence
-from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
 from ..extensions import persistence, limiter
 from .. import config
@@ -582,7 +581,9 @@ def chat_experiment_design():
 def get_personalities():
     """Get available AI personalities for experiments."""
     try:
-        personalities = get_celebrities()
+        # Get personalities from database
+        personality_list = persistence.list_personalities(limit=200)
+        personalities = [p['name'] for p in personality_list]
         return jsonify({
             'success': True,
             'personalities': personalities,
@@ -663,13 +664,14 @@ def validate_experiment_config():
         if not isinstance(num_players, int) or num_players < 2 or num_players > 8:
             errors.append('num_players must be between 2 and 8')
 
-        # Validate personalities if specified
+        # Validate personalities if specified (check against database)
         personalities = config_data.get('personalities')
         if personalities:
-            available = get_celebrities()
+            available_list = persistence.list_personalities(limit=200)
+            available_names = {p['name'] for p in available_list}
             for p in personalities:
-                if p not in available:
-                    warnings.append(f"Personality '{p}' not found in available personalities")
+                if p not in available_names:
+                    warnings.append(f"Personality '{p}' not found in database")
 
         # Validate provider
         valid_providers = {'openai', 'anthropic', 'groq'}
