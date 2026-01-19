@@ -354,9 +354,9 @@ class UsageTracker:
                     call_type, prompt_template, provider, model,
                     input_tokens, output_tokens, cached_tokens, reasoning_tokens,
                     reasoning_effort, max_tokens, image_count, image_size, latency_ms, status,
-                    finish_reason, error_code, request_id, message_count, system_prompt_tokens,
+                    finish_reason, error_code, error_message, request_id, message_count, system_prompt_tokens,
                     estimated_cost, pricing_ids
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 game_id,
@@ -379,6 +379,7 @@ class UsageTracker:
                 response.status,
                 None if is_image else getattr(response, 'finish_reason', None),
                 getattr(response, 'error_code', None),
+                getattr(response, 'error_message', None),
                 getattr(response, 'request_id', None),
                 message_count,
                 system_prompt_tokens,

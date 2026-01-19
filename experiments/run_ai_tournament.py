@@ -52,7 +52,6 @@ from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
 from poker.persistence import GamePersistence as Persistence
 from poker.memory.memory_manager import AIMemoryManager
-from poker.repositories.factory import RepositoryFactory
 from poker.utils import get_celebrities
 from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
@@ -360,18 +359,13 @@ class TournamentWorker:
             # Link game to experiment before running (enables live progress tracking)
             if self.experiment_id:
                 try:
-                    from poker.repositories.protocols import ExperimentGameEntity
-                    game_entity = ExperimentGameEntity(
+                    runner.persistence.link_game_to_experiment(
                         experiment_id=self.experiment_id,
                         game_id=task.tournament_id,
-                        game_number=task.tournament_number,
                         variant=task.variant_label,
                         variant_config=task.variant_config,
                         tournament_number=task.tournament_number,
-                        status='running',
-                        started_at=datetime.now(),
                     )
-                    runner.repository_factory.experiment.add_game_to_experiment(game_entity)
                 except Exception as e:
                     logger.warning(f"Could not link game to experiment: {e}")
 
@@ -381,15 +375,6 @@ class TournamentWorker:
                 variant_label=task.variant_label,
                 variant_config=task.variant_config,
             )
-
-            # Update game status to completed
-            if self.experiment_id:
-                try:
-                    runner.repository_factory.experiment.update_experiment_game_status(
-                        self.experiment_id, task.tournament_id, 'completed'
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not update game status: {e}")
 
             # Save result to JSON
             runner._save_result(result)
@@ -465,7 +450,6 @@ class AITournamentRunner:
         else:
             self.db_path = str(project_root / "poker_games.db")
         self.persistence = Persistence(self.db_path)
-        self.repository_factory = RepositoryFactory(self.db_path, initialize_schema=False)
         self.all_personalities = get_celebrities()
 
         # Experiment tracking
@@ -551,7 +535,6 @@ class AITournamentRunner:
             owner_id=self._owner_id,
             commentary_enabled=commentary_enabled
         )
-        memory_manager.set_repository_factory(self.repository_factory)
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:
@@ -580,9 +563,9 @@ class AITournamentRunner:
                 llm_config=llm_config,
                 game_id=tournament_id,
                 owner_id=self._owner_id,
-                repository_factory=self.repository_factory,
                 debug_capture=self.config.capture_prompts,
                 prompt_config=prompt_config,
+                persistence=self.persistence,
             )
             controllers[player.name] = controller
             # Initialize memory manager for this player
@@ -1193,18 +1176,13 @@ class AITournamentRunner:
                 # Link game to experiment BEFORE running so live_stats can track progress
                 if self.experiment_id:
                     try:
-                        from poker.repositories.protocols import ExperimentGameEntity
-                        game_entity = ExperimentGameEntity(
+                        self.persistence.link_game_to_experiment(
                             experiment_id=self.experiment_id,
                             game_id=task.tournament_id,
-                            game_number=task.tournament_number,
                             variant=task.variant_label,
                             variant_config=task.variant_config if task.variant_label else None,
                             tournament_number=task.tournament_number,
-                            status='running',
-                            started_at=datetime.now(),
                         )
-                        self.repository_factory.experiment.add_game_to_experiment(game_entity)
                     except Exception as e:
                         logger.warning(f"Could not link game to experiment: {e}")
 
@@ -1214,15 +1192,6 @@ class AITournamentRunner:
                     task.variant_config
                 )
                 results.append(result)
-
-                # Update game status to completed
-                if self.experiment_id:
-                    try:
-                        self.repository_factory.experiment.update_experiment_game_status(
-                            self.experiment_id, task.tournament_id, 'completed'
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not update game status: {e}")
 
                 # Save result to file
                 self._save_result(result)
@@ -1520,6 +1489,11 @@ class AITournamentRunner:
             if latency_metrics:
                 variant_summary['latency_metrics'] = latency_metrics
 
+            # Add error stats from database for this variant
+            error_stats = self._get_error_stats_for_games(game_ids)
+            if error_stats:
+                variant_summary['error_stats'] = error_stats
+
             variant_summaries[label] = variant_summary
 
         return variant_summaries
@@ -1557,6 +1531,58 @@ class AITournamentRunner:
                     }
         except Exception as e:
             logger.warning(f"Could not get latency metrics: {e}")
+
+        return None
+
+    def _get_error_stats_for_games(self, game_ids: List[str]) -> Optional[Dict]:
+        """Get aggregated error stats for a list of games.
+
+        Args:
+            game_ids: List of game IDs to aggregate errors from
+
+        Returns:
+            Dictionary with error stats or None if no data
+        """
+        if not game_ids:
+            return None
+
+        try:
+            import sqlite3
+
+            with sqlite3.connect(self.persistence.db_path) as conn:
+                placeholders = ','.join('?' * len(game_ids))
+
+                # Get total calls and error counts
+                cursor = conn.execute(f"""
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+                    FROM api_usage
+                    WHERE game_id IN ({placeholders})
+                """, game_ids)
+                row = cursor.fetchone()
+
+                if row and row[0] > 0:
+                    total, errors = row[0], row[1] or 0
+
+                    # Get error breakdown by error_code
+                    cursor = conn.execute(f"""
+                        SELECT error_code, COUNT(*) as count
+                        FROM api_usage
+                        WHERE game_id IN ({placeholders}) AND status = 'error'
+                        GROUP BY error_code
+                        ORDER BY count DESC
+                    """, game_ids)
+                    by_code = {row[0]: row[1] for row in cursor.fetchall()}
+
+                    return {
+                        'total_calls': total,
+                        'errors': errors,
+                        'error_rate': round(errors * 100 / total, 2) if total > 0 else 0,
+                        'by_error_code': by_code,
+                    }
+        except Exception as e:
+            logger.warning(f"Could not get error stats: {e}")
 
         return None
 

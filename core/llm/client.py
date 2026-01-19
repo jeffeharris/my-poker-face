@@ -221,7 +221,8 @@ class LLMClient:
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
-            logger.error(f"LLM completion failed: {e}")
+            error_message = str(e)
+            logger.error(f"LLM completion failed: {error_message}")
 
             response = LLMResponse(
                 content="",
@@ -235,6 +236,7 @@ class LLMClient:
                 latency_ms=latency_ms,
                 status="error",
                 error_code=type(e).__name__,
+                error_message=error_message[:1000] if error_message else None,  # Truncate to 1000 chars
             )
 
         # Track usage

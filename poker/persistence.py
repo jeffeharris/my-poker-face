@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # v43: Add experiments and experiment_games tables for experiment tracking
 # v44: Add app_settings table for dynamic configuration
 # v45: Add users table for Google OAuth authentication
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 
 
 @dataclass
@@ -750,6 +750,7 @@ class GamePersistence:
             43: (self._migrate_v43_add_experiments, "Add experiments and experiment_games tables for experiment tracking"),
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
+            46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1932,6 +1933,24 @@ class GamePersistence:
             logger.info("Created users table with indices")
 
         logger.info("Migration v45 complete: Users table added")
+
+    def _migrate_v46_add_error_message(self, conn: sqlite3.Connection) -> None:
+        """Migration v46: Add error_message column to api_usage table.
+
+        Stores the full error message when API calls fail, enabling better
+        debugging and error analysis in experiments.
+        """
+        # Check if column already exists
+        cursor = conn.execute("PRAGMA table_info(api_usage)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'error_message' not in columns:
+            conn.execute("ALTER TABLE api_usage ADD COLUMN error_message TEXT")
+            logger.info("Added error_message column to api_usage table")
+        else:
+            logger.info("error_message column already exists in api_usage table")
+
+        logger.info("Migration v46 complete: error_message column added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
