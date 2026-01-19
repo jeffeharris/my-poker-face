@@ -480,6 +480,33 @@ def clean_response_text(response_text: str) -> str:
     return re.sub(pattern, '', response_text, flags=re.DOTALL).strip()
 
 
+def _describe_config_updates(updates: Dict[str, Any]) -> str:
+    """Generate a human-readable description of config updates."""
+    if not updates:
+        return ""
+
+    descriptions = []
+    for key, value in updates.items():
+        # Format the value for display
+        if isinstance(value, list):
+            if len(value) <= 3:
+                formatted = ", ".join(str(v) for v in value)
+            else:
+                formatted = f"{len(value)} items"
+        elif isinstance(value, dict):
+            formatted = f"{len(value)} settings"
+        elif value is None:
+            formatted = "default"
+        else:
+            formatted = str(value)
+
+        # Convert key to readable form
+        readable_key = key.replace('_', ' ')
+        descriptions.append(f"**{readable_key}**: {formatted}")
+
+    return "Updated config:\n" + "\n".join(f"- {d}" for d in descriptions)
+
+
 def is_config_complete(config: Dict[str, Any]) -> bool:
     """Check if experiment config has minimum required fields."""
     return bool(config.get('name'))
@@ -549,6 +576,10 @@ def chat_experiment_design():
         # Extract config updates from response
         config_updates = extract_config_updates(response.content)
         display_text = clean_response_text(response.content)
+
+        # If display_text is empty but we have config updates, describe what changed
+        if not display_text and config_updates:
+            display_text = _describe_config_updates(config_updates)
 
         # Merge updates into current config
         merged_config = {**DEFAULT_EXPERIMENT_CONFIG, **current_config}
