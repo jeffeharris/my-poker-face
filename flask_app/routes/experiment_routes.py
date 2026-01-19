@@ -147,7 +147,7 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'tags': [],
     'capture_prompts': True,
     'num_tournaments': 1,
-    'max_hands_per_tournament': 10,
+    'hands_per_tournament': 10,
     'num_players': 4,
     'starting_stack': 2000,
     'big_blind': 100,
@@ -164,7 +164,6 @@ DEFAULT_EXPERIMENT_CONFIG = {
     'stagger_start_delay': 0.0,
     'rate_limit_backoff_seconds': 30.0,
     # Tournament reset behavior options
-    'target_hands': None,
     'reset_on_elimination': False,
 }
 
@@ -177,8 +176,7 @@ You help configure experiments with these parameters:
 - hypothesis: The expected outcome or question being answered
 - tags: Categories for filtering (e.g., ["model_comparison", "prompt_testing"])
 - num_tournaments: How many tournaments to run PER VARIANT (1-20)
-- max_hands_per_tournament: Maximum hands per tournament (5-500)
-- target_hands: Run until this many total hands, resetting stacks when one player remains (overrides tournament-based thinking)
+- hands_per_tournament: Hands per tournament (5-500)
 - reset_on_elimination: If true, reset all stacks when one player is eliminated (default false)
 - num_players: Players per tournament (2-8)
 - starting_stack: Chips per player (1000-100000)
@@ -188,6 +186,15 @@ You help configure experiments with these parameters:
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
+
+## How hands_per_tournament and reset_on_elimination Compose
+
+| Config | Behavior |
+|--------|----------|
+| `reset_on_elimination: false` | Tournament ends when one player wins OR hits hand limit (variable hands) |
+| `reset_on_elimination: true` | Stacks reset on elimination, always plays EXACTLY hands_per_tournament |
+
+Key insight: `reset_on_elimination` determines if hand count is a maximum or exact target.
 
 ## A/B Testing with Control + Variants
 
@@ -209,13 +216,15 @@ For comparing models, prompts, or other configurations, use the control/variants
 
 ### Example 1: Psychology Impact Test (6 variants, multi-model) ✓ COMPLETED
 Tests whether psychology/commentary improves decision quality across different models.
-Ran 90 hands across 6 variants, comparing with/without psychology for 3 different providers:
+Uses reset_on_elimination to ensure exactly 15 hands per variant for fair comparison:
 {
   "name": "psychology_impact_test_v2",
   "description": "Test impact of psychology and commentary on decision quality",
   "hypothesis": "Psychology/commentary may help smaller models make better decisions by adding emotional context",
   "tags": ["psychology", "commentary", "ablation"],
-  "target_hands": 15,
+  "num_tournaments": 1,
+  "hands_per_tournament": 15,
+  "reset_on_elimination": true,
   "num_players": 6,
   "starting_stack": 10000,
   "big_blind": 250,
@@ -275,7 +284,7 @@ Simple test with specific poker pro personalities using a single model:
   "description": "Compare Phil Ivey and Daniel Negreanu against other personalities",
   "hypothesis": "Professional poker player personalities will show tighter, more aggressive play",
   "num_tournaments": 2,
-  "max_hands_per_tournament": 50,
+  "hands_per_tournament": 50,
   "num_players": 4,
   "starting_stack": 10000,
   "big_blind": 100,
@@ -296,7 +305,7 @@ Compare decision quality across 5 fast/budget models with parallel execution:
   "hypothesis": "New prompt guidance should reduce EV lost and prevent runaway all-ins",
   "tags": ["prompt_test", "preflop_discipline", "fast_models"],
   "num_tournaments": 1,
-  "max_hands_per_tournament": 100,
+  "hands_per_tournament": 100,
   "num_players": 5,
   "starting_stack": 10000,
   "big_blind": 250,
@@ -334,10 +343,12 @@ Compare decision quality across 5 fast/budget models with parallel execution:
 }
 
 ### Example 4: Groq Model Size Comparison ✓ COMPLETED
-Compare Groq 8B vs 70B model decision quality:
+Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant):
 {
   "name": "reset_fix_v2",
-  "target_hands": 20,
+  "num_tournaments": 1,
+  "hands_per_tournament": 20,
+  "reset_on_elimination": true,
   "num_players": 5,
   "starting_stack": 10000,
   "big_blind": 250,
@@ -359,11 +370,12 @@ Compare Groq 8B vs 70B model decision quality:
 }
 
 ### Example 5: Quick Sanity Test
-Minimal config for quick testing:
+Minimal config for quick testing (up to 10 hands, may end early if someone wins):
 {
   "name": "quick_sanity_check",
   "description": "Quick test to verify experiment system works",
-  "target_hands": 10,
+  "num_tournaments": 1,
+  "hands_per_tournament": 10,
   "num_players": 4,
   "starting_stack": 2000,
   "big_blind": 100
@@ -430,8 +442,8 @@ Common experiment scenarios:
 5. Baseline measurement: Simple default config to establish baseline metrics
 6. Psychology impact: Test if enable_psychology improves decision quality (tilt + emotional state)
 7. Commentary impact: Test if enable_commentary affects player behavior
-8. Hand-based experiments: Use target_hands for equal hand counts across variants (fair A/B comparisons)
-9. Extended tournaments: Use reset_on_elimination for longer tournaments with stack resets
+8. Fixed hand count experiments: Use reset_on_elimination: true for equal hand counts across variants (fair A/B comparisons)
+9. Natural tournaments: Use reset_on_elimination: false (default) for tournaments that end when one player wins all chips
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
@@ -687,9 +699,9 @@ def validate_experiment_config():
         if not isinstance(num_tournaments, int) or num_tournaments < 1 or num_tournaments > 20:
             errors.append('num_tournaments must be between 1 and 20')
 
-        max_hands = config_data.get('max_hands_per_tournament', 100)
-        if not isinstance(max_hands, int) or max_hands < 5 or max_hands > 500:
-            errors.append('max_hands_per_tournament must be between 5 and 500')
+        hands_per_tournament = config_data.get('hands_per_tournament', 100)
+        if not isinstance(hands_per_tournament, int) or hands_per_tournament < 5 or hands_per_tournament > 500:
+            errors.append('hands_per_tournament must be between 5 and 500')
 
         num_players = config_data.get('num_players', 4)
         if not isinstance(num_players, int) or num_players < 2 or num_players > 8:
@@ -771,11 +783,11 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         # Filter to only known fields
         known_fields = {
             'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'max_hands_per_tournament', 'num_players',
+            'num_tournaments', 'hands_per_tournament', 'num_players',
             'starting_stack', 'big_blind', 'model', 'provider',
             'personalities', 'random_seed', 'control', 'variants',
             'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'target_hands', 'reset_on_elimination'
+            'reset_on_elimination'
         }
         filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
 
@@ -1145,11 +1157,11 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
         # Build ExperimentConfig
         known_fields = {
             'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'max_hands_per_tournament', 'num_players',
+            'num_tournaments', 'hands_per_tournament', 'num_players',
             'starting_stack', 'big_blind', 'model', 'provider',
             'personalities', 'random_seed', 'control', 'variants',
             'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'target_hands', 'reset_on_elimination'
+            'reset_on_elimination'
         }
         filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
         exp_config = ExperimentConfig(**filtered_config)
@@ -1237,8 +1249,8 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     original_player_names = [p.name for p in state_machine.game_state.players]
 
                 # Determine reset behavior
-                should_reset = bool(exp_config.target_hands) or exp_config.reset_on_elimination
-                max_hands = exp_config.target_hands or exp_config.max_hands_per_tournament
+                should_reset = exp_config.reset_on_elimination
+                max_hands = exp_config.hands_per_tournament
 
                 # Continue the tournament from saved state
                 hand_number = 0

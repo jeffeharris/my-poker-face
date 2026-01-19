@@ -7,11 +7,10 @@ import { config as appConfig } from '../../../config';
 // Number input field defaults for when blur occurs with empty value
 const NUMBER_FIELD_DEFAULTS: Record<string, number> = {
   num_tournaments: 1,
-  max_hands_per_tournament: 10,
+  hands_per_tournament: 10,
   num_players: 4,
   starting_stack: 2000,
   big_blind: 100,
-  target_hands: 10,
   parallel_tournaments: 1,
   stagger_start_delay: 2,
 };
@@ -246,17 +245,6 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     }
   };
 
-  // Toggle between tournament-based and hand-based mode
-  const isHandBasedMode = config.target_hands !== null && config.target_hands !== undefined;
-
-  const handleModeToggle = (useHandBased: boolean) => {
-    if (useHandBased) {
-      onConfigUpdate({ target_hands: 10, num_tournaments: 1 });
-    } else {
-      onConfigUpdate({ target_hands: null });
-    }
-  };
-
   const handlePromptConfigToggle = (field: keyof PromptConfig) => {
     const current = config.prompt_config || DEFAULT_PROMPT_CONFIG;
     const updated = { ...current, [field]: !current[field] };
@@ -431,14 +419,14 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                 </label>
 
                 <label className="config-preview__label config-preview__label--inline">
-                  Max Hands
+                  Hands
                   <input
                     type="number"
                     className="config-preview__input config-preview__input--small"
-                    value={config.max_hands_per_tournament}
-                    onChange={(e) => handleNumberChange('max_hands_per_tournament', e.target.value)}
-                    onBlur={(e) => handleNumberBlur('max_hands_per_tournament', e.target.value)}
-                    min={20}
+                    value={config.hands_per_tournament}
+                    onChange={(e) => handleNumberChange('hands_per_tournament', e.target.value)}
+                    onBlur={(e) => handleNumberBlur('hands_per_tournament', e.target.value)}
+                    min={5}
                     max={500}
                   />
                 </label>
@@ -456,6 +444,21 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                   />
                 </label>
               </div>
+
+              {/* Reset on elimination toggle with explanation */}
+              <label className="config-preview__toggle-label" title="When enabled, stacks reset on elimination ensuring exactly the configured number of hands. When disabled, tournament ends when one player wins all chips.">
+                <input
+                  type="checkbox"
+                  checked={config.reset_on_elimination ?? false}
+                  onChange={(e) => handleFieldChange('reset_on_elimination', e.target.checked)}
+                />
+                Reset stacks on elimination
+              </label>
+              <p className="config-preview__hint" style={{ marginTop: '4px', marginBottom: '0' }}>
+                {config.reset_on_elimination
+                  ? `Plays exactly ${config.hands_per_tournament} hands per tournament (stacks reset when someone is eliminated)`
+                  : `Plays up to ${config.hands_per_tournament} hands per tournament (ends early if one player wins all chips)`}
+              </p>
 
               <div className="config-preview__row">
                 <label className="config-preview__label config-preview__label--inline">
@@ -806,57 +809,12 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                 <Zap size={16} />
                 <h5 className="config-preview__section-title">Advanced Settings</h5>
                 <span className="config-preview__section-hint">
-                  {isHandBasedMode ? 'Hand-based' : 'Tournament-based'}
-                  {config.parallel_tournaments && config.parallel_tournaments > 1 ? `, ${config.parallel_tournaments}x parallel` : ''}
+                  {config.parallel_tournaments && config.parallel_tournaments > 1 ? `${config.parallel_tournaments}x parallel` : 'Sequential'}
                 </span>
               </button>
 
               {advancedExpanded && (
                 <div className="config-preview__advanced">
-                  {/* Mode Toggle: Tournament-based vs Hand-based */}
-                  <div className="config-preview__mode-toggle">
-                    <span className="config-preview__mode-label">Experiment Mode:</span>
-                    <div className="config-preview__mode-buttons">
-                      <button
-                        type="button"
-                        className={`config-preview__mode-btn ${!isHandBasedMode ? 'config-preview__mode-btn--active' : ''}`}
-                        onClick={() => handleModeToggle(false)}
-                      >
-                        Tournament-based
-                      </button>
-                      <button
-                        type="button"
-                        className={`config-preview__mode-btn ${isHandBasedMode ? 'config-preview__mode-btn--active' : ''}`}
-                        onClick={() => handleModeToggle(true)}
-                      >
-                        Hand-based
-                      </button>
-                    </div>
-                    <p className="config-preview__mode-hint">
-                      {isHandBasedMode
-                        ? 'Run exactly N hands per variant, resetting stacks when someone is eliminated'
-                        : 'Run N tournaments per variant, each ending when one player remains'}
-                    </p>
-                  </div>
-
-                  {/* Target Hands (only shown in hand-based mode) */}
-                  {isHandBasedMode && (
-                    <div className="config-preview__row">
-                      <label className="config-preview__label config-preview__label--inline">
-                        Target Hands
-                        <input
-                          type="number"
-                          className="config-preview__input config-preview__input--small"
-                          value={config.target_hands ?? ''}
-                          onChange={(e) => handleNumberChange('target_hands' as keyof ExperimentConfig, e.target.value)}
-                          onBlur={(e) => handleNumberBlur('target_hands' as keyof ExperimentConfig, e.target.value)}
-                          min={5}
-                          max={500}
-                        />
-                      </label>
-                    </div>
-                  )}
-
                   {/* Parallel Execution */}
                   <div className="config-preview__row">
                     <label className="config-preview__label config-preview__label--inline">

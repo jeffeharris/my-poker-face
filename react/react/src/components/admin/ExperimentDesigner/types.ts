@@ -60,7 +60,7 @@ export interface ExperimentConfig {
   tags: string[];
   capture_prompts: boolean;
   num_tournaments: number;
-  max_hands_per_tournament: number;
+  hands_per_tournament: number;
   num_players: number;
   starting_stack: number;
   big_blind: number;
@@ -73,10 +73,8 @@ export interface ExperimentConfig {
   // A/B testing support
   control: ControlConfig | null;
   variants: VariantConfig[] | null;
-  // Tournament reset behavior options
-  /** Run until this many total hands, resetting stacks when one player remains */
-  target_hands?: number | null;
-  /** If true, reset all stacks when one player is eliminated (default false) */
+  // Tournament reset behavior
+  /** If true, reset all stacks when one player is eliminated, ensuring exactly hands_per_tournament hands (default false) */
   reset_on_elimination?: boolean;
   // Parallel execution settings
   /** Number of tournaments to run in parallel (default 1) */
@@ -274,7 +272,7 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   tags: [],
   capture_prompts: true,
   num_tournaments: 1,
-  max_hands_per_tournament: 10,
+  hands_per_tournament: 10,
   num_players: 4,
   starting_stack: 2000,
   big_blind: 100,
@@ -286,7 +284,6 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   player_configs: null,
   control: null,
   variants: null,
-  target_hands: null,
   reset_on_elimination: false,
   parallel_tournaments: 1,
   stagger_start_delay: 0,

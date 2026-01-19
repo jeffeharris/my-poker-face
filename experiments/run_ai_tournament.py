@@ -141,7 +141,7 @@ class ExperimentConfig:
     tags: Optional[List[str]] = None
     capture_prompts: bool = True
     num_tournaments: int = 1
-    max_hands_per_tournament: int = 100
+    hands_per_tournament: int = 100
     num_players: int = 4
     starting_stack: int = 10000
     big_blind: int = 100
@@ -156,8 +156,7 @@ class ExperimentConfig:
     parallel_tournaments: int = 1  # Number of concurrent tournaments (1 = sequential)
     stagger_start_delay: float = 0.0  # Seconds between starting parallel workers
     rate_limit_backoff_seconds: float = 30.0  # Base backoff on rate limit detection
-    # Tournament reset behavior options
-    target_hands: Optional[int] = None  # If set, run until this many hands (resets stacks as needed)
+    # Tournament reset behavior
     reset_on_elimination: bool = False  # If true, reset all stacks when 1 player remains
 
     def __post_init__(self):
@@ -881,15 +880,12 @@ class AITournamentRunner:
         elimination_order = []
         prev_active = set(p.name for p in state_machine.game_state.players)
 
-        # Determine target hands and reset behavior
-        # target_hands mode: run until exactly that many hands, resetting as needed
-        # reset_on_elimination mode: reset when 1 player remains within normal tournament structure
-        if self.config.target_hands:
-            max_hands = self.config.target_hands
-            should_reset = True
-        else:
-            max_hands = self.config.max_hands_per_tournament
-            should_reset = self.config.reset_on_elimination
+        # Determine hand limit and reset behavior
+        # reset_on_elimination determines if hand count is maximum or exact:
+        # - false: tournament ends when one player wins OR hits hand limit (variable hands)
+        # - true: stacks reset on elimination, always plays exactly hands_per_tournament
+        max_hands = self.config.hands_per_tournament
+        should_reset = self.config.reset_on_elimination
 
         # Track round winners (for reset scenarios)
         round_winners: List[str] = []
@@ -1061,7 +1057,7 @@ class AITournamentRunner:
             'hypothesis': self.config.hypothesis,
             'tags': self.config.tags or [],
             'num_tournaments': self.config.num_tournaments,
-            'max_hands_per_tournament': self.config.max_hands_per_tournament,
+            'hands_per_tournament': self.config.hands_per_tournament,
             'num_players': self.config.num_players,
             'starting_stack': self.config.starting_stack,
             'big_blind': self.config.big_blind,
@@ -1663,7 +1659,7 @@ Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (
                 },
                 'config': {
                     'num_tournaments': config.get('num_tournaments'),
-                    'max_hands_per_tournament': config.get('max_hands_per_tournament'),
+                    'hands_per_tournament': config.get('hands_per_tournament'),
                     'num_players': config.get('num_players'),
                     'model': config.get('model'),
                     'provider': config.get('provider'),
@@ -1867,7 +1863,7 @@ def main():
         tags=tags,
         capture_prompts=not args.no_capture,
         num_tournaments=args.tournaments,
-        max_hands_per_tournament=args.hands,
+        hands_per_tournament=args.hands,
         num_players=args.players,
         starting_stack=args.stack,
         big_blind=args.blind,
@@ -1883,7 +1879,7 @@ def main():
     print(f"Running experiment: {config.name}")
     print(f"  Model: {config.provider}/{config.model}")
     print(f"  Tournaments: {config.num_tournaments}")
-    print(f"  Max hands: {config.max_hands_per_tournament}")
+    print(f"  Hands per tournament: {config.hands_per_tournament}")
     print(f"  Players: {config.num_players}")
     if config.parallel_tournaments > 1:
         print(f"  Parallel workers: {config.parallel_tournaments}")

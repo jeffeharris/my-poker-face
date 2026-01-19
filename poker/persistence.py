@@ -5020,7 +5020,7 @@ class GamePersistence:
                 return {'by_variant': {}, 'overall': None}
 
             config = exp.get('config', {})
-            max_hands = config.get('target_hands') or config.get('max_hands_per_tournament', 100)
+            max_hands = config.get('hands_per_tournament', 100)
             num_tournaments = config.get('num_tournaments', 1)
 
             # Determine number of variants from control/variants config
