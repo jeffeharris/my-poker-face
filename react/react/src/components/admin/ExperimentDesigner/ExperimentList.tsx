@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Loader2 } from 'lucide-react';
+import { RefreshCw, Loader2, Archive } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
 import { formatDate } from '../../../utils/formatters';
@@ -18,12 +18,16 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | 'all'>('all');
+  const [includeArchived, setIncludeArchived] = useState(false);
 
   const fetchExperiments = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') {
         params.append('status', statusFilter);
+      }
+      if (includeArchived) {
+        params.append('include_archived', 'true');
       }
 
       const response = await fetch(`${config.API_URL}/api/experiments?${params}`);
@@ -41,7 +45,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, includeArchived]);
 
   // Initial load
   useEffect(() => {
@@ -82,6 +86,8 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
         error={error}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
+        includeArchived={includeArchived}
+        onIncludeArchivedChange={setIncludeArchived}
         onRefresh={fetchExperiments}
         onViewExperiment={onViewExperiment}
         onNewExperiment={onNewExperiment}
@@ -112,9 +118,20 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
           <option value="pending">Pending</option>
           <option value="running">Running</option>
           <option value="paused">Paused</option>
+          <option value="interrupted">Interrupted</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
         </select>
+
+        <label className="experiment-list__archive-toggle">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(e) => setIncludeArchived(e.target.checked)}
+          />
+          <Archive size={14} />
+          <span>Show archived</span>
+        </label>
 
         <button
           className="experiment-list__refresh-btn"

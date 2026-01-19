@@ -1767,3 +1767,321 @@
   border-color: rgba(255, 255, 255, 0.2);
   color: #a3a3a3;
 }
+
+/* Pausing Status Badge */
+.experiment-list .status-badge--pausing,
+.experiment-detail .status-badge--pausing {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+/* Archive Badge in Detail View */
+.experiment-detail__archived-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(115, 115, 115, 0.2);
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a3a3a3;
+}
+
+/* Archive Button */
+.experiment-detail__archive-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 1rem;
+  background: rgba(115, 115, 115, 0.2);
+  border: 1px solid rgba(115, 115, 115, 0.3);
+  border-radius: 6px;
+  color: #a3a3a3;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__archive-btn:hover:not(:disabled) {
+  background: rgba(115, 115, 115, 0.3);
+  border-color: rgba(115, 115, 115, 0.4);
+  color: #e5e5e5;
+}
+
+.experiment-detail__archive-btn--unarchive {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.experiment-detail__archive-btn--unarchive:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.experiment-detail__archive-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Error Banner */
+.experiment-detail__error-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.experiment-detail__error-banner--failed {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.experiment-detail__error-banner--interrupted {
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
+.experiment-detail__error-banner-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.experiment-detail__error-banner-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.experiment-detail__error-banner-message {
+  font-size: 0.8125rem;
+  opacity: 0.9;
+}
+
+.experiment-detail__error-banner-action {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__error-banner-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.experiment-detail__error-banner-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Archive Toggle in List View */
+.experiment-list__archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #a3a3a3;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-list__archive-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #e5e5e5;
+}
+
+.experiment-list__archive-toggle input {
+  accent-color: #10b981;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.experiment-list__archive-toggle input:checked + svg,
+.experiment-list__archive-toggle input:checked ~ span {
+  color: #34d399;
+}
+
+/* Mobile Archive Toggle */
+.mobile-experiment-list__archive-toggle {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Failure Details Section */
+.experiment-detail__section--failure {
+  margin-bottom: 1.5rem;
+}
+
+.experiment-detail__section--failure .experiment-detail__section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__section--failure .experiment-detail__section-toggle:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.experiment-detail__section--failure .experiment-detail__section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.experiment-detail__failure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.experiment-detail__failure-item {
+  padding: 0.75rem 1rem;
+  background: rgba(30, 30, 30, 0.5);
+  border-left: 3px solid #ef4444;
+  border-radius: 0 6px 6px 0;
+}
+
+.experiment-detail__failure-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.experiment-detail__failure-tournament {
+  font-weight: 600;
+  color: #e5e5e5;
+  font-size: 0.875rem;
+}
+
+.experiment-detail__failure-variant {
+  padding: 0.125rem 0.5rem;
+  background: rgba(139, 92, 246, 0.2);
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  color: #a78bfa;
+}
+
+.experiment-detail__failure-type {
+  padding: 0.125rem 0.5rem;
+  background: rgba(239, 68, 68, 0.2);
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #f87171;
+  font-family: monospace;
+}
+
+.experiment-detail__failure-duration {
+  font-size: 0.75rem;
+  color: #737373;
+}
+
+.experiment-detail__failure-message {
+  font-size: 0.8125rem;
+  color: #a3a3a3;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Error Banner Actions */
+.experiment-detail__error-banner-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.experiment-detail__error-banner-action--edit {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(139, 92, 246, 0.2));
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #a78bfa;
+}
+
+.experiment-detail__error-banner-action--edit:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.4), rgba(139, 92, 246, 0.3));
+}
+
+/* Config Preview Header Layout */
+.config-preview__header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Version Navigation */
+.config-preview__version-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
+}
+
+.config-preview__version-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #60a5fa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.config-preview__version-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.config-preview__version-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.config-preview__version-label {
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #60a5fa;
+  white-space: nowrap;
+}
