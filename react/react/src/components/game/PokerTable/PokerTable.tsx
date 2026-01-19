@@ -65,7 +65,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       }
     }
     clearTournamentResult();
-    localStorage.removeItem('activePokerGameId');
     // Navigate back to menu by reloading
     window.location.href = '/';
   }, [gameId, clearTournamentResult]);

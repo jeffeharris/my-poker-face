@@ -87,7 +87,6 @@ export function MobilePokerTable({
       }
     }
     clearTournamentResult();
-    localStorage.removeItem('activePokerGameId');
     // Call onBack if available, otherwise reload
     if (onBack) {
       onBack();
