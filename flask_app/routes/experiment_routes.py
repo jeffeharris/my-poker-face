@@ -923,7 +923,9 @@ def resume_experiment_background(
     config_dict: Dict[str, Any]
 ):
     """Resume incomplete tournaments in background thread."""
-    from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
+    from experiments.run_ai_tournament import (
+        ExperimentConfig, AITournamentRunner, TournamentPausedException, make_experiment_owner_id
+    )
     from poker.poker_state_machine import PokerStateMachine
     from poker.controllers import AIPlayerController
     from poker.memory.memory_manager import AIMemoryManager
@@ -983,13 +985,15 @@ def resume_experiment_background(
                 prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict else None
 
                 # Helper to create AI controller with consistent settings
+                owner_id = make_experiment_owner_id(exp_config.name)
+
                 def _create_ai_controller(player_name: str) -> AIPlayerController:
                     return AIPlayerController(
                         player_name=player_name,
                         state_machine=state_machine,
                         llm_config=llm_config,
                         game_id=game_id,
-                        owner_id=f"experiment_{exp_config.name}",
+                        owner_id=owner_id,
                         repository_factory=repo,
                         debug_capture=exp_config.capture_prompts,
                         prompt_config=prompt_config,
@@ -1013,7 +1017,7 @@ def resume_experiment_background(
                 memory_manager = AIMemoryManager(
                     game_id=game_id,
                     repository_factory=repo,
-                    owner_id=f"experiment_{exp_config.name}"
+                    owner_id=owner_id
                 )
 
                 # Initialize memory manager for players
@@ -1052,7 +1056,7 @@ def resume_experiment_background(
                         state_machine=state_machine,
                         created_at=game_entity.created_at,
                         updated_at=datetime.now(),
-                        owner_id=f"experiment_{exp_config.name}",
+                        owner_id=owner_id,
                     )
                     repo.game.save(game_entity_updated)
 

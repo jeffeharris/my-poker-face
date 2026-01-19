@@ -60,6 +60,15 @@ from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
 
 
+def make_experiment_owner_id(experiment_name: str) -> str:
+    """Generate consistent owner_id for experiment-related resources.
+
+    This ensures game saves, AI memory, and other resources are properly
+    namespaced to their experiment.
+    """
+    return f"experiment_{experiment_name}"
+
+
 class TournamentPausedException(Exception):
     """Raised when a tournament is paused before completion."""
 
@@ -469,7 +478,7 @@ class AITournamentRunner:
     @property
     def _owner_id(self) -> str:
         """Return the owner ID for this experiment."""
-        return f"experiment_{self.config.name}"
+        return make_experiment_owner_id(self.config.name)
 
     def _check_pause_requested(self) -> bool:
         """Check if experiment should pause. Returns True if pause requested."""
