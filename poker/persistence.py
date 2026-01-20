@@ -23,16 +23,9 @@ logger = logging.getLogger(__name__)
 # v43: Add experiments and experiment_games tables for experiment tracking
 # v44: Add app_settings table for dynamic configuration
 # v45: Add users table for Google OAuth authentication
-# v46: Add error_message column to api_usage table
-# v47: Add experiment_chat_sessions for design chat persistence
-#      Add design_chat_json and assistant_chat_json columns to experiments
-# v48: Add Pollinations image models to enabled_models table
-# v49: Add Runware image models to enabled_models table
-# v50: Add user_enabled column to enabled_models for dual toggle support
-# v51: Add parent_experiment_id to experiments for experiment lineage tracking
-# v52: Add supports_img2img column to enabled_models for image-to-image capability
-# v53: Add image capture support to prompt_captures and reference_images table
-SCHEMA_VERSION = 53
+# v46: Add experiment manager features (error tracking, chat sessions, image models,
+#      experiment lineage, image capture support)
+SCHEMA_VERSION = 46
 
 
 @dataclass
@@ -810,14 +803,7 @@ class GamePersistence:
             43: (self._migrate_v43_add_experiments, "Add experiments and experiment_games tables for experiment tracking"),
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
-            46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
-            47: (self._migrate_v47_add_chat_sessions, "Add experiment_chat_sessions table and chat columns to experiments"),
-            48: (self._migrate_v48_add_pollinations_models, "Add Pollinations image models to enabled_models"),
-            49: (self._migrate_v49_add_runware_models, "Add Runware image models to enabled_models"),
-            50: (self._migrate_v50_add_user_enabled, "Add user_enabled column to enabled_models for dual toggle"),
-            51: (self._migrate_v51_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
-            52: (self._migrate_v52_add_supports_img2img, "Add supports_img2img column to enabled_models"),
-            53: (self._migrate_v53_add_image_capture_support, "Add image capture support to prompt_captures and reference_images table"),
+            46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2001,31 +1987,28 @@ class GamePersistence:
 
         logger.info("Migration v45 complete: Users table added")
 
-    def _migrate_v46_add_error_message(self, conn: sqlite3.Connection) -> None:
-        """Migration v46: Add error_message column to api_usage table.
+    def _migrate_v46_experiment_manager_features(self, conn: sqlite3.Connection) -> None:
+        """Migration v46: Add experiment manager features.
 
-        Stores the full error message when API calls fail, enabling better
-        debugging and error analysis in experiments.
+        This combined migration adds all experiment manager functionality:
+        - error_message column to api_usage table
+        - experiment_chat_sessions table for design chat persistence
+        - design_chat_json and assistant_chat_json columns to experiments
+        - Pollinations and Runware image models to enabled_models
+        - user_enabled column to enabled_models for dual toggle
+        - parent_experiment_id to experiments for lineage tracking
+        - supports_img2img column to enabled_models
+        - Image capture support (reference_images table, prompt_captures columns)
         """
-        # Check if column already exists
-        cursor = conn.execute("PRAGMA table_info(api_usage)")
-        columns = [row[1] for row in cursor.fetchall()]
+        from core.llm.config import POLLINATIONS_AVAILABLE_MODELS, RUNWARE_AVAILABLE_MODELS
 
-        if 'error_message' not in columns:
+        # 1. Add error_message column to api_usage
+        api_usage_cols = [row[1] for row in conn.execute("PRAGMA table_info(api_usage)").fetchall()]
+        if 'error_message' not in api_usage_cols:
             conn.execute("ALTER TABLE api_usage ADD COLUMN error_message TEXT")
             logger.info("Added error_message column to api_usage table")
-        else:
-            logger.info("error_message column already exists in api_usage table")
 
-        logger.info("Migration v46 complete: error_message column added")
-
-    def _migrate_v47_add_chat_sessions(self, conn: sqlite3.Connection) -> None:
-        """Migration v47: Add experiment_chat_sessions table and chat columns to experiments.
-
-        Creates the experiment_chat_sessions table for persisting design chat history,
-        and adds design_chat_json and assistant_chat_json columns to experiments.
-        """
-        # Create experiment_chat_sessions table
+        # 2. Create experiment_chat_sessions table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
                 id TEXT PRIMARY KEY,
@@ -2041,137 +2024,50 @@ class GamePersistence:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
 
-        # Add chat columns to experiments table
-        cursor = conn.execute("PRAGMA table_info(experiments)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'design_chat_json' not in columns:
+        # 3. Add chat columns to experiments table
+        experiments_cols = [row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()]
+        if 'design_chat_json' not in experiments_cols:
             conn.execute("ALTER TABLE experiments ADD COLUMN design_chat_json TEXT")
-            logger.info("Added design_chat_json column to experiments table")
-
-        if 'assistant_chat_json' not in columns:
+        if 'assistant_chat_json' not in experiments_cols:
             conn.execute("ALTER TABLE experiments ADD COLUMN assistant_chat_json TEXT")
-            logger.info("Added assistant_chat_json column to experiments table")
+        if 'parent_experiment_id' not in experiments_cols:
+            conn.execute("ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
 
-        logger.info("Migration v47 complete: Added experiment_chat_sessions table and chat columns")
-
-    def _migrate_v48_add_pollinations_models(self, conn: sqlite3.Connection) -> None:
-        """Migration v48: Add Pollinations image models to enabled_models table.
-
-        Pollinations.ai is an image-only provider with extremely cheap pricing (~$0.0002/image).
-        This migration adds Pollinations models to the enabled_models table with:
-        - flux and zimage enabled by default (most commonly used)
-        - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
-        """
-        from core.llm.config import POLLINATIONS_AVAILABLE_MODELS
-
-        # Models that should be enabled by default (cheapest: $0.0002/image)
-        default_enabled = {"flux", "zimage"}
-
+        # 4. Add Pollinations image models
+        pollinations_default_enabled = {"flux", "zimage"}
         for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
-            enabled = 1 if model in default_enabled else 0
+            enabled = 1 if model in pollinations_default_enabled else 0
             conn.execute("""
                 INSERT OR REPLACE INTO enabled_models
                 (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
 
-        logger.info("Migration v48 complete: Added Pollinations image models to enabled_models")
-
-    def _migrate_v49_add_runware_models(self, conn: sqlite3.Connection) -> None:
-        """Migration v49: Add Runware image models to enabled_models table.
-
-        Runware.ai is an image-only provider with fast FLUX model generation.
-        This migration adds Runware models to the enabled_models table with:
-        - runware:101@1 (FLUX Schnell) enabled by default
-        - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
-        """
-        from core.llm.config import RUNWARE_AVAILABLE_MODELS
-
-        # Models that should be enabled by default
-        default_enabled = {"runware:101@1"}  # FLUX Schnell - fast and good quality
-
+        # 5. Add Runware image models
+        runware_default_enabled = {"runware:101@1"}
         for sort_order, model in enumerate(RUNWARE_AVAILABLE_MODELS):
-            enabled = 1 if model in default_enabled else 0
+            enabled = 1 if model in runware_default_enabled else 0
             conn.execute("""
                 INSERT OR REPLACE INTO enabled_models
                 (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, ("runware", model, enabled, 0, 0, 1, sort_order))
 
-        logger.info("Migration v49 complete: Added Runware image models to enabled_models")
-
-    def _migrate_v50_add_user_enabled(self, conn: sqlite3.Connection) -> None:
-        """Migration v50: Add user_enabled column to enabled_models for dual toggle support.
-
-        This allows admins to control model visibility separately:
-        - enabled (system): Model is available for admin/internal use (experiments, playground)
-        - user_enabled: Model is available for users (game setup)
-
-        Toggle logic:
-        - User ON → System automatically turns ON
-        - System OFF → User automatically turns OFF
-        - System ON alone = admin-only model
-        - User OFF alone = remove user access, keep system access
-        """
-        # Add user_enabled column
+        # 6. Add user_enabled and supports_img2img columns to enabled_models
         try:
-            conn.execute("""
-                ALTER TABLE enabled_models ADD COLUMN user_enabled INTEGER DEFAULT 1
-            """)
+            conn.execute("ALTER TABLE enabled_models ADD COLUMN user_enabled INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
-            # Column might already exist if fresh install ran _init_db
-            pass
-
-        # Sync user_enabled with enabled for all existing models
-        # This ensures consistent state regardless of SQLite version behavior
-        conn.execute("""
-            UPDATE enabled_models SET user_enabled = enabled
-        """)
-
-        logger.info("Migration v50 complete: Added user_enabled column to enabled_models")
-
-    def _migrate_v51_add_parent_experiment_id(self, conn: sqlite3.Connection) -> None:
-        """Migration v51: Add parent_experiment_id to experiments for lineage tracking.
-
-        Enables tracking of experiment lineage when follow-up experiments are created
-        based on suggestions from previous experiments.
-        """
-        cursor = conn.execute("PRAGMA table_info(experiments)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'parent_experiment_id' not in columns:
-            conn.execute("ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
-            logger.info("Added parent_experiment_id column to experiments table")
-
-        logger.info("Migration v51 complete: Added parent_experiment_id to experiments")
-
-    def _migrate_v52_add_supports_img2img(self, conn: sqlite3.Connection) -> None:
-        """Migration v52: Add supports_img2img column to enabled_models.
-
-        This adds image-to-image capability tracking at the model level.
-        Models like Pollinations klein/kontext and Runware FLUX.2 support img2img.
-        """
-        # Add supports_img2img column
+            pass  # Column already exists
         try:
-            conn.execute("""
-                ALTER TABLE enabled_models ADD COLUMN supports_img2img INTEGER DEFAULT 0
-            """)
+            conn.execute("ALTER TABLE enabled_models ADD COLUMN supports_img2img INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
-            # Column might already exist if fresh install ran _init_db
-            pass
+            pass  # Column already exists
 
-        logger.info("Migration v52 complete: Added supports_img2img column to enabled_models")
+        # Sync user_enabled with enabled for existing models
+        conn.execute("UPDATE enabled_models SET user_enabled = enabled")
 
-    def _migrate_v53_add_image_capture_support(self, conn: sqlite3.Connection) -> None:
-        """Migration v53: Add image capture support to prompt_captures and reference_images table.
-
-        This migration:
-        1. Creates the reference_images table for storing uploaded/generated reference images
-        2. Adds image-specific columns to prompt_captures for capturing image generation prompts
-        """
-        # 1. Create reference_images table
+        # 7. Create reference_images table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS reference_images (
                 id TEXT PRIMARY KEY,
@@ -2189,10 +2085,8 @@ class GamePersistence:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
-        # 2. Add image-specific columns to prompt_captures
-        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
-        columns = [row[1] for row in cursor.fetchall()]
-
+        # 8. Add image capture columns to prompt_captures
+        prompt_captures_cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
         image_columns = [
             ("is_image_capture", "INTEGER DEFAULT 0"),
             ("image_prompt", "TEXT"),
@@ -2205,16 +2099,13 @@ class GamePersistence:
             ("target_emotion", "TEXT"),
             ("reference_image_id", "TEXT"),
         ]
-
         for col_name, col_type in image_columns:
-            if col_name not in columns:
+            if col_name not in prompt_captures_cols:
                 conn.execute(f"ALTER TABLE prompt_captures ADD COLUMN {col_name} {col_type}")
-                logger.info(f"Added {col_name} column to prompt_captures")
 
-        # 3. Add index for filtering image captures
         conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
 
-        logger.info("Migration v53 complete: Added image capture support")
+        logger.info("Migration v46 complete: Added experiment manager features")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
