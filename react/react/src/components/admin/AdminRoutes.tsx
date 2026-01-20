@@ -1,10 +1,17 @@
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Beaker } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
+import { AdminSidebar, type SidebarItem } from './AdminSidebar';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { useViewport } from '../../hooks/useViewport';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['personalities', 'analyzer', 'playground', 'experiments', 'templates', 'settings', 'debug'];
+
+// Minimal sidebar items for context when viewing experiment detail
+const SIDEBAR_ITEMS: SidebarItem[] = [
+  { id: 'experiments', label: 'Experiments', icon: <Beaker size={24} />, description: 'Design and run AI tournament experiments' },
+];
 
 /**
  * Wrapper for experiment detail view with URL params
@@ -12,13 +19,17 @@ const VALID_TABS: AdminTab[] = ['personalities', 'analyzer', 'playground', 'expe
 function ExperimentDetailWrapper() {
   const { experimentId } = useParams<{ experimentId: string }>();
   const navigate = useNavigate();
+  const { isMobile } = useViewport();
 
   const handleBack = () => {
     navigate('/admin/experiments');
   };
 
+  const handleBackToMenu = () => {
+    navigate('/menu');
+  };
+
   const handleEditInLabAssistant = (experiment: Parameters<NonNullable<React.ComponentProps<typeof ExperimentDetail>['onEditInLabAssistant']>>[0]) => {
-    // Navigate to experiments tab - the ExperimentDesigner will need to handle this via URL params or state
     navigate('/admin/experiments', { state: { editExperiment: experiment } });
   };
 
@@ -33,14 +44,57 @@ function ExperimentDetailWrapper() {
     return <Navigate to="/admin/experiments" replace />;
   }
 
+  const experimentIdNum = parseInt(experimentId, 10);
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <div className="admin-main__content admin-main__content--mobile">
+          <ExperimentDetail
+            experimentId={experimentIdNum}
+            onBack={handleBack}
+            onEditInLabAssistant={handleEditInLabAssistant}
+            onBuildFromSuggestion={handleBuildFromSuggestion}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout with sidebar
   return (
-    <div className="admin-dashboard">
-      <ExperimentDetail
-        experimentId={parseInt(experimentId, 10)}
-        onBack={handleBack}
-        onEditInLabAssistant={handleEditInLabAssistant}
-        onBuildFromSuggestion={handleBuildFromSuggestion}
+    <div className="admin-dashboard-layout">
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab="experiments"
+        onTabChange={() => navigate('/admin/experiments')}
+        collapsed={false}
+        onCollapsedChange={() => {}}
       />
+      <main className="admin-main">
+        <header className="admin-main__header">
+          <button
+            className="admin-main__back"
+            onClick={handleBackToMenu}
+            aria-label="Go back to menu"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">Experiment Details</h1>
+            <p className="admin-main__subtitle">View experiment results and analysis</p>
+          </div>
+        </header>
+        <div className="admin-main__content">
+          <ExperimentDetail
+            experimentId={experimentIdNum}
+            onBack={handleBack}
+            onEditInLabAssistant={handleEditInLabAssistant}
+            onBuildFromSuggestion={handleBuildFromSuggestion}
+          />
+        </div>
+      </main>
     </div>
   );
 }
