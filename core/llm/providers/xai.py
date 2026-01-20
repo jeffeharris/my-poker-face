@@ -78,9 +78,17 @@ class XAIProvider(LLMProvider):
             if self._model in REASONING_EFFORT_MODELS and reasoning_effort in VALID_REASONING_EFFORTS:
                 self._reasoning_effort = reasoning_effort
 
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("XAI_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "xAI API key not provided. Set XAI_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         # xAI uses OpenAI-compatible API with shared HTTP client for connection reuse
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("XAI_API_KEY"),
+            api_key=resolved_key,
             base_url="https://api.x.ai/v1",
             http_client=shared_http_client,
         )

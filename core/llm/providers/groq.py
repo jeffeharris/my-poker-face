@@ -48,9 +48,18 @@ class GroqProvider(LLMProvider):
         """
         self._model = model or GROQ_DEFAULT_MODEL
         self._service_tier = service_tier or os.environ.get("GROQ_SERVICE_TIER", "auto")
+
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("GROQ_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "Groq API key not provided. Set GROQ_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         # Groq uses OpenAI-compatible API with shared HTTP client for connection reuse
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("GROQ_API_KEY"),
+            api_key=resolved_key,
             base_url="https://api.groq.com/openai/v1",
             http_client=shared_http_client,
         )

@@ -37,8 +37,17 @@ class MistralProvider(LLMProvider):
             api_key: Mistral API key (defaults to MISTRAL_API_KEY env var)
         """
         self._model = model or MISTRAL_DEFAULT_MODEL
+
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("MISTRAL_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "Mistral API key not provided. Set MISTRAL_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("MISTRAL_API_KEY"),
+            api_key=resolved_key,
             base_url="https://api.mistral.ai/v1",
             http_client=shared_http_client,
         )

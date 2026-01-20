@@ -38,8 +38,17 @@ class AnthropicProvider(LLMProvider):
         """
         self._model = model or ANTHROPIC_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
+
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "Anthropic API key not provided. Set ANTHROPIC_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = anthropic.Anthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+            api_key=resolved_key,
             http_client=shared_http_client,
         )
 

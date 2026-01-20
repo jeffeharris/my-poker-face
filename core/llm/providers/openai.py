@@ -30,8 +30,17 @@ class OpenAIProvider(LLMProvider):
         """
         self._model = model or DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort or DEFAULT_REASONING_EFFORT
+
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "OpenAI API key not provided. Set OPENAI_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            api_key=resolved_key,
             http_client=shared_http_client,
         )
 

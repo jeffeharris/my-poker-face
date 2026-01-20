@@ -76,8 +76,16 @@ class DeepSeekProvider(LLMProvider):
         else:
             self._model = base_model
 
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "DeepSeek API key not provided. Set DEEPSEEK_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
+            api_key=resolved_key,
             base_url="https://api.deepseek.com/v1",
             http_client=shared_http_client,
         )

@@ -2115,6 +2115,13 @@ def api_storage_stats():
             'assets': ['avatar_images'],
         }
 
+        # Build whitelist from known categories for defensive SQL
+        allowed_tables = set()
+        for table_list in categories.values():
+            allowed_tables.update(table_list)
+        # Also allow experiments table which may not be in categories
+        allowed_tables.add('experiments')
+
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
@@ -2127,8 +2134,12 @@ def api_storage_stats():
             tables = [row['name'] for row in cursor.fetchall()]
 
             for table in tables:
+                # Skip tables not in whitelist to prevent SQL injection
+                if table not in allowed_tables:
+                    continue
+
                 try:
-                    # Get row count
+                    # Get row count - table name is validated against whitelist
                     cursor = conn.execute(f'SELECT COUNT(*) as cnt FROM "{table}"')
                     count = cursor.fetchone()['cnt']
 
