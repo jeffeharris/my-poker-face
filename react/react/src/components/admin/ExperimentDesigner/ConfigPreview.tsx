@@ -418,9 +418,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
               <label className="config-preview__label">
                 Description
-                <input
-                  type="text"
-                  className="config-preview__input"
+                <textarea
+                  className="config-preview__input config-preview__textarea"
+                  rows={3}
                   value={config.description}
                   onChange={(e) => handleFieldChange('description', e.target.value)}
                   placeholder="What this experiment tests"
@@ -429,9 +429,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
               <label className="config-preview__label">
                 Hypothesis
-                <input
-                  type="text"
-                  className="config-preview__input"
+                <textarea
+                  className="config-preview__input config-preview__textarea"
+                  rows={3}
                   value={config.hypothesis}
                   onChange={(e) => handleFieldChange('hypothesis', e.target.value)}
                   placeholder="Expected outcome"
@@ -856,7 +856,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                 <div className="config-preview__advanced">
                   {/* Deterministic Seeding */}
                   <div className="config-preview__seed-section">
-                    <label className="config-preview__toggle-label" title="Enable deterministic deck shuffling for reproducible experiments. Essential for fair A/B comparisons.">
+                    <label className="config-preview__toggle-label" title="Enable deterministic seeding for reproducible experiments. Same seed = same player seating order and card shuffling across all tables. Essential for fair A/B comparisons.">
                       <input
                         type="checkbox"
                         checked={config.random_seed !== null}
@@ -873,7 +873,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                           }
                         }}
                       />
-                      Deterministic Deck Seeding
+                      Deterministic Seeding
                     </label>
                     {config.random_seed !== null && (
                       <div className="config-preview__seed-row">
@@ -919,8 +919,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                     )}
                     <p className="config-preview__hint">
                       {config.random_seed !== null
-                        ? 'Same seed = same card order across variants (fair A/B comparison)'
-                        : 'Random deck order each tournament (more variance)'}
+                        ? 'Same seed = same player seating & card order across tables (fair A/B comparison)'
+                        : 'Random seating & deck order each tournament (more variance)'}
                     </p>
                   </div>
 
@@ -955,11 +955,11 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
                   {/* Tags */}
                   <div className="config-preview__tags-section">
-                    <label className="config-preview__label">
-                      <Tag size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
-                      Tags
-                    </label>
                     <div className="config-preview__tags-input-row">
+                      <span className="config-preview__tags-label">
+                        <Tag size={14} />
+                        Tags
+                      </span>
                       <input
                         type="text"
                         className="config-preview__input"

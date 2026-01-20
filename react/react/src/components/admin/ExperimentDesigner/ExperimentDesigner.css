@@ -385,6 +385,13 @@
   border-color: #ef4444;
 }
 
+.config-preview__textarea {
+  resize: vertical;
+  min-height: 4.5em;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
 .config-preview__row {
   display: flex;
   flex-wrap: wrap;
@@ -1755,7 +1762,17 @@
 
 .config-preview__tags-input-row {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.config-preview__tags-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: #a3a3a3;
+  white-space: nowrap;
 }
 
 .config-preview__tags-input-row .config-preview__input {
