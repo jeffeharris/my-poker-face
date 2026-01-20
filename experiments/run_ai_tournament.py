@@ -58,6 +58,11 @@ from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
+from experiments.variant_config import (
+    VariantConfig as VariantConfigClass,
+    ControlConfig as ControlConfigClass,
+    build_effective_variant_config,
+)
 from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
 
 
@@ -117,6 +122,8 @@ class ControlConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     prompt_config: Optional[Dict] = None
+    prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
+    guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # 'minimal', 'low', 'medium', 'high'
@@ -128,7 +135,10 @@ class VariantConfig:
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
+    personality: Optional[str] = None  # Per-variant personality assignment
     prompt_config: Optional[Dict] = None
+    prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
+    guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # Inherits from control if None
@@ -184,6 +194,11 @@ class ExperimentConfig:
 
         If control is None, returns a single entry with legacy flat fields.
         If control is set, returns control + all variants with inherited fields.
+
+        Supports new fields:
+        - personality: Per-variant personality assignment
+        - prompt_preset_id: Load prompt config from saved preset
+        - guidance_injection: Extra text appended to decision prompts
         """
         # Legacy mode: no control/variants defined
         if self.control is None:
@@ -203,6 +218,9 @@ class ExperimentConfig:
             'enable_psychology': self.control.get('enable_psychology', False),
             'enable_commentary': self.control.get('enable_commentary', False),
             'reasoning_effort': self.control.get('reasoning_effort'),
+            # New fields for enhanced variant support
+            'guidance_injection': self.control.get('guidance_injection'),
+            'prompt_preset_id': self.control.get('prompt_preset_id'),
         }
         control_label = self.control.get('label', 'Control')
         result.append((control_label, control_config))
@@ -220,6 +238,12 @@ class ExperimentConfig:
                 'enable_commentary': variant.get('enable_commentary', control_config.get('enable_commentary', False)),
                 # Reasoning effort - inherit from control if not specified
                 'reasoning_effort': variant.get('reasoning_effort') if 'reasoning_effort' in variant else control_config.get('reasoning_effort'),
+                # New fields - personality is variant-specific (not inherited)
+                'personality': variant.get('personality'),
+                # Prompt preset ID - use variant's or inherit from control
+                'prompt_preset_id': variant.get('prompt_preset_id') if 'prompt_preset_id' in variant else control_config.get('prompt_preset_id'),
+                # Guidance injection - use variant's or inherit from control
+                'guidance_injection': variant.get('guidance_injection') if 'guidance_injection' in variant else control_config.get('guidance_injection'),
             }
             variant_label = variant.get('label', f'Variant {len(result)}')
             result.append((variant_label, variant_config))
@@ -587,9 +611,34 @@ class AITournamentRunner:
                 'model': self.config.model,
             }
 
-        # Extract and convert prompt_config from variant
+        # Extract and resolve prompt_config from variant
+        # Priority: 1) inline prompt_config, 2) load from preset, 3) None (use defaults)
         prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
-        prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict is not None else None
+        prompt_preset_id = variant_config.get('prompt_preset_id') if variant_config else None
+        guidance_injection = variant_config.get('guidance_injection') if variant_config else None
+
+        if prompt_config_dict is not None:
+            # Use inline prompt config
+            prompt_config = PromptConfig.from_dict(prompt_config_dict)
+        elif prompt_preset_id is not None:
+            # Load from preset
+            preset = self.persistence.get_prompt_preset(prompt_preset_id)
+            if preset and preset.get('prompt_config'):
+                prompt_config = PromptConfig.from_dict(preset['prompt_config'])
+                # Use preset's guidance_injection if not overridden by variant
+                if not guidance_injection and preset.get('guidance_injection'):
+                    guidance_injection = preset['guidance_injection']
+            else:
+                prompt_config = PromptConfig()
+                logger.warning(f"Prompt preset {prompt_preset_id} not found, using defaults")
+        else:
+            prompt_config = None
+
+        # Apply guidance injection to prompt config if set
+        if guidance_injection and prompt_config:
+            prompt_config = prompt_config.copy(guidance_injection=guidance_injection)
+        elif guidance_injection:
+            prompt_config = PromptConfig(guidance_injection=guidance_injection)
 
         controllers = {}
         for player in game_state.players:

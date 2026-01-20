@@ -31,6 +31,7 @@ class PromptConfig:
         tilt_effects: Tilt-based prompt modifications (intrusive thoughts, etc.)
         mind_games: MIND GAMES instruction (read opponent table talk)
         persona_response: PERSONA RESPONSE instruction (trash talk guidance)
+        guidance_injection: Extra text to append to decision prompts (for experiments)
     """
 
     # Game state components
@@ -51,6 +52,9 @@ class PromptConfig:
     # Template instruction components
     mind_games: bool = True
     persona_response: bool = True
+
+    # Experiment support
+    guidance_injection: str = ""  # Extra text appended to decision prompts
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for persistence."""
