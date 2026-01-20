@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
+import { AvatarAssignmentModal } from './AvatarAssignmentModal';
 import type {
   PlaygroundCapture,
   PlaygroundCaptureDetail,
@@ -60,6 +61,10 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   const [imageReplaySize, setImageReplaySize] = useState('512x512');
   const [modifiedImagePrompt, setModifiedImagePrompt] = useState('');
   const [imageReplayResult, setImageReplayResult] = useState<ImageReplayResponse | null>(null);
+
+  // Avatar assignment modal state
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [avatarImageUrl, setAvatarImageUrl] = useState<string | null>(null);
 
   // Available providers/models (using 'system' scope for admin tools)
   const { providers, getModelsForProvider, getModelTier } = useLLMProviders({ scope: 'system' });
@@ -228,6 +233,36 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
     } finally {
       setReplaying(false);
     }
+  };
+
+  // Avatar assignment handler
+  const handleAssignAvatar = async (personality: string, emotion: string) => {
+    if (!selectedCapture) throw new Error('No capture selected');
+
+    const response = await fetch(
+      `${config.API_URL}/admin/api/playground/captures/${selectedCapture.id}/assign-avatar`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personality_name: personality,
+          emotion: emotion,
+          use_replayed: !!avatarImageUrl && avatarImageUrl !== selectedCapture.image_url,
+          replayed_image_data: avatarImageUrl !== selectedCapture.image_url ? avatarImageUrl : undefined,
+        }),
+      }
+    );
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to assign avatar');
+    }
+  };
+
+  // Open avatar modal with the appropriate image
+  const openAvatarModal = (imageUrl: string) => {
+    setAvatarImageUrl(imageUrl);
+    setShowAvatarModal(true);
   };
 
   // Initial fetch
@@ -445,6 +480,15 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                       )}
                       <span>Latency: {selectedCapture.latency_ms}ms</span>
                     </div>
+
+                    {selectedCapture.image_url && (
+                      <button
+                        className="assign-avatar-btn"
+                        onClick={() => openAvatarModal(selectedCapture.image_url!)}
+                      >
+                        Assign as Avatar
+                      </button>
+                    )}
                   </div>
                 ) : (
                   /* Text View Mode */
@@ -597,6 +641,14 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                               <span>Size: {imageReplayResult.size_used}</span>
                               <span>Latency: {imageReplayResult.latency_ms}ms</span>
                             </div>
+                            {imageReplayResult.new_image_url && (
+                              <button
+                                className="assign-avatar-btn"
+                                onClick={() => openAvatarModal(imageReplayResult.new_image_url!)}
+                              >
+                                Assign New Image as Avatar
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -719,6 +771,21 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
             )}
         </div>
       </div>
+
+      {/* Avatar Assignment Modal */}
+      {showAvatarModal && avatarImageUrl && selectedCapture && (
+        <AvatarAssignmentModal
+          imageUrl={avatarImageUrl}
+          defaultPersonality={selectedCapture.target_personality}
+          defaultEmotion={selectedCapture.target_emotion}
+          captureId={selectedCapture.id}
+          onAssign={handleAssignAvatar}
+          onClose={() => {
+            setShowAvatarModal(false);
+            setAvatarImageUrl(null);
+          }}
+        />
+      )}
     </div>
   );
 }

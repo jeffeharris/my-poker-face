@@ -358,7 +358,7 @@ class LLMClient:
                 response=response,
                 call_type=call_type,
                 target_personality=target_personality or context.get("player_name"),
-                target_emotion=target_emotion,
+                target_emotion=target_emotion or context.get("target_emotion"),
                 reference_image_id=reference_image_id,
                 game_id=game_id,
                 owner_id=owner_id,

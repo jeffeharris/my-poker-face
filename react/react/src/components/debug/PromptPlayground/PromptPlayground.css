@@ -2093,6 +2093,35 @@
   content: '🖼️ ';
 }
 
+/* Assign as Avatar button */
+.assign-avatar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  margin-top: 1rem;
+  background: linear-gradient(135deg, #2d3a5a 0%, #1e2a4a 100%);
+  color: var(--pg-info);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: var(--pg-radius);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.assign-avatar-btn:hover {
+  background: linear-gradient(135deg, #3d4a6a 0%, #2d3a5a 100%);
+  border-color: var(--pg-info);
+}
+
+.assign-avatar-btn:active {
+  transform: scale(0.98);
+}
+
 /* Mobile responsive for image styles */
 @media (max-width: 768px) {
   .image-preview-container {

@@ -430,6 +430,7 @@ class CharacterImageService:
                 game_id=game_id,
                 player_name=personality_name,
                 prompt_template='avatar_generation',
+                target_emotion=emotion,
             )
             if image_response.is_error:
                 # Check for content policy violation before raising
@@ -453,6 +454,7 @@ class CharacterImageService:
                         game_id=game_id,
                         player_name=personality_name,
                         prompt_template='avatar_generation_fallback',
+                        target_emotion=emotion,
                     )
                     if image_response.is_error:
                         logger.error(f"Second attempt also failed for {personality_name}/{emotion}: {image_response.error_message}")
