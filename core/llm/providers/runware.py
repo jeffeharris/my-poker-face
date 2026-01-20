@@ -117,6 +117,7 @@ class RunwareProvider(LLMProvider):
         n: int = 1,
         seed_image_url: Optional[str] = None,
         strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> RunwareImageResponse:
         """Generate an image using Runware.ai.
 
@@ -128,6 +129,7 @@ class RunwareProvider(LLMProvider):
             strength: How much to transform the seed image (0.0-1.0).
                       Lower = more like original, higher = more creative.
                       Default 0.75 provides good balance.
+            negative_prompt: Optional negative prompt for things to avoid
 
         Returns:
             RunwareImageResponse with image URL
@@ -163,15 +165,21 @@ class RunwareProvider(LLMProvider):
             }
         ]
 
+        # Add negative prompt if provided
+        if negative_prompt:
+            payload[0]["negativePrompt"] = negative_prompt
+
         # Add img2img parameters if seed image provided
-        # Runware uses inputs.referenceImages array for img2img
+        # Runware uses seedImage for img2img with strength control
         if seed_image_url:
-            payload[0]["inputs"] = {
-                "referenceImages": [seed_image_url]
-            }
+            payload[0]["seedImage"] = seed_image_url
+            # Strength controls how much to transform the image
+            # 0.0 = keep original, 1.0 = fully transform
+            # Default 0.75 provides good balance for avatar generation
+            payload[0]["strength"] = strength
             # Log seed image info (truncate data URIs)
             seed_info = seed_image_url[:50] + "..." if len(seed_image_url) > 50 else seed_image_url
-            logger.info("Using img2img with reference image: %s", seed_info)
+            logger.info("Using img2img with seed image (strength=%.2f): %s", strength, seed_info)
 
         logger.info("Generating image with Runware: model=%s, size=%dx%d, img2img=%s",
                      self._model, width, height, bool(seed_image_url))

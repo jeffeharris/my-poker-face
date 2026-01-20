@@ -289,7 +289,9 @@ def regenerate_avatar(personality_name: str):
 
     Request body:
         {
-            "emotions": ["confident", "happy"]  // Optional, defaults to all emotions
+            "emotions": ["confident", "happy"],  // Optional, defaults to all emotions
+            "reference_image_id": "uuid",        // Optional, for img2img generation
+            "strength": 0.75                     // Optional, 0.0-1.0 (lower = more like reference)
         }
 
     Returns:
@@ -298,6 +300,14 @@ def regenerate_avatar(personality_name: str):
     try:
         data = request.get_json() or {}
         emotions = data.get('emotions', get_available_emotions())
+        reference_image_id = data.get('reference_image_id')
+        # Strength: 0.0 = keep original exactly, 1.0 = fully transform
+        # Lower values = more like the reference image
+        strength = data.get('strength', 0.75)
+        # Clamp to valid range
+        strength = max(0.0, min(1.0, float(strength)))
+
+        logger.info(f"Regenerate avatar request for {personality_name}: emotions={emotions}, reference_image_id={reference_image_id}, strength={strength}")
 
         # Validate emotions
         valid_emotions = get_available_emotions()
@@ -316,6 +326,18 @@ def regenerate_avatar(personality_name: str):
                 'error': f'Personality {personality_name} not found'
             }), 404
 
+        # If reference_image_id provided, convert to data URL for img2img
+        seed_image_url = None
+        if reference_image_id:
+            logger.info(f"Looking up reference image: {reference_image_id}")
+            seed_image_url = _get_reference_image_data_url(reference_image_id)
+            if seed_image_url:
+                logger.info(f"Found reference image, data URL length: {len(seed_image_url)}")
+            else:
+                logger.warning(f"Reference image {reference_image_id} not found, proceeding without it")
+        else:
+            logger.info("No reference_image_id provided in request")
+
         results = []
         success_count = 0
         error_count = 0
@@ -326,7 +348,13 @@ def regenerate_avatar(personality_name: str):
                 logger.info(f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image")
                 time.sleep(POLLINATIONS_RATE_LIMIT_DELAY)
 
-            result = regenerate_avatar_emotion(personality_name, emotion)
+            result = regenerate_avatar_emotion(
+                personality_name,
+                emotion,
+                seed_image_url=seed_image_url,
+                strength=strength,
+                reference_image_id=reference_image_id
+            )
             results.append({
                 'emotion': emotion,
                 'success': result.get('success', False),
@@ -356,6 +384,39 @@ def regenerate_avatar(personality_name: str):
             'success': False,
             'error': str(e)
         }), 500
+
+
+def _get_reference_image_data_url(reference_id: str) -> str | None:
+    """Convert a reference_image_id to a base64 data URL for img2img.
+
+    Args:
+        reference_id: UUID of the reference image in the database
+
+    Returns:
+        Base64 data URL (e.g., 'data:image/png;base64,...') or None if not found
+    """
+    import base64
+    import sqlite3
+    from pathlib import Path
+
+    db_path = Path('/app/data/poker_games.db') if Path('/app/data').exists() else Path(__file__).parent.parent.parent / 'poker_games.db'
+
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT image_data, content_type FROM reference_images WHERE id = ?",
+                (reference_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                image_data, content_type = row
+                content_type = content_type or 'image/png'
+                b64_data = base64.b64encode(image_data).decode('utf-8')
+                return f"data:{content_type};base64,{b64_data}"
+    except Exception as e:
+        logger.error(f"Error loading reference image {reference_id}: {e}")
+
+    return None
 
 
 @image_bp.route('/api/avatar-stats')

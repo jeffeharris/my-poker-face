@@ -137,6 +137,8 @@ class XAIProvider(LLMProvider):
         size: str = "1024x1024",
         n: int = 1,
         seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """xAI doesn't support image generation."""
         raise NotImplementedError("xAI does not support image generation")

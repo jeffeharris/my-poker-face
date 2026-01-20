@@ -108,6 +108,8 @@ class PollinationsProvider(LLMProvider):
         size: str = "1024x1024",
         n: int = 1,
         seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> PollinationsImageResponse:
         """Generate an image using Pollinations.ai.
 
@@ -116,6 +118,7 @@ class PollinationsProvider(LLMProvider):
             size: Image size (e.g., '512x512', '1024x1024')
             n: Number of images (only 1 supported)
             seed_image_url: Ignored - Pollinations doesn't support img2img
+            strength: Ignored - Pollinations doesn't support img2img
 
         Returns:
             PollinationsImageResponse with data URL

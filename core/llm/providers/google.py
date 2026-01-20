@@ -172,6 +172,8 @@ class GoogleProvider(LLMProvider):
         size: str = "1024x1024",
         n: int = 1,
         seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """Generate image using Imagen."""
         # Imagen integration would go here

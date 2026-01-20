@@ -282,6 +282,8 @@ class LLMClient:
         target_emotion: Optional[str] = None,
         reference_image_id: Optional[str] = None,
         seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
         **context: Any,
     ) -> ImageResponse:
         """Generate an image.
@@ -296,6 +298,9 @@ class LLMClient:
             target_emotion: Optional emotion (for avatar generation)
             reference_image_id: Optional reference image ID (for img2img)
             seed_image_url: Optional URL to base image for img2img generation
+            strength: How much to transform the seed image (0.0-1.0).
+                      Lower = more like original, higher = more creative.
+            negative_prompt: Optional negative prompt for things to avoid
             **context: Additional tracking context
 
         Returns:
@@ -308,6 +313,8 @@ class LLMClient:
                 prompt=prompt,
                 size=size,
                 seed_image_url=seed_image_url,
+                strength=strength,
+                negative_prompt=negative_prompt,
             )
             latency_ms = (time.time() - start_time) * 1000
 

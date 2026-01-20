@@ -94,10 +94,12 @@ class OpenAIProvider(LLMProvider):
         size: str = "1024x1024",
         n: int = 1,
         seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """Generate an image using DALL-E.
 
-        Note: seed_image_url is ignored - DALL-E 3 doesn't support img2img.
+        Note: seed_image_url and strength are ignored - DALL-E 3 doesn't support img2img.
         """
         if seed_image_url:
             logger.warning("DALL-E doesn't support img2img, ignoring seed_image_url")

@@ -60,6 +60,8 @@ class LLMProvider(ABC):
         size: str = "1024x1024",
         n: int = 1,
         seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """Generate an image.
 
@@ -68,6 +70,10 @@ class LLMProvider(ABC):
             size: Image size (e.g., '1024x1024')
             n: Number of images to generate
             seed_image_url: Optional URL to base image for img2img generation
+            strength: How much to transform the seed image (0.0-1.0).
+                      Lower = more like original, higher = more creative.
+                      Only used when seed_image_url is provided.
+            negative_prompt: Optional negative prompt for things to avoid
 
         Returns:
             Raw provider response object
