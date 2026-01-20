@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
-import { config } from '../../config';
 import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
 import './AdminShared.css';
