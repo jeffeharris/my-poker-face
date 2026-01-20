@@ -865,6 +865,371 @@ def api_playground_cleanup():
 
 
 # =============================================================================
+# Image Playground API (capture viewing, replay, reference images, avatars)
+# =============================================================================
+
+@admin_dashboard_bp.route('/api/reference-images', methods=['POST'])
+@_dev_only
+def api_upload_reference_image():
+    """Upload a reference image for image-to-image generation.
+
+    Accepts: multipart/form-data with 'file' or JSON with 'url'
+    Returns: { reference_id, width, height }
+    """
+    import uuid
+    import requests as http_requests
+
+    try:
+        image_data = None
+        content_type = 'image/png'
+        source = 'upload'
+        original_url = None
+        width = None
+        height = None
+
+        # Check for file upload
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename:
+                image_data = file.read()
+                content_type = file.content_type or 'image/png'
+                source = 'upload'
+        else:
+            # Check for URL in JSON body
+            data = request.get_json() or {}
+            url = data.get('url')
+            if url:
+                # Download the image from URL
+                response = http_requests.get(url, timeout=30)
+                response.raise_for_status()
+                image_data = response.content
+                content_type = response.headers.get('Content-Type', 'image/png')
+                source = 'url'
+                original_url = url
+
+        if not image_data:
+            return jsonify({'success': False, 'error': 'No image provided'}), 400
+
+        # Try to get image dimensions
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(image_data))
+            width, height = img.size
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"Could not get image dimensions: {e}")
+
+        # Generate unique ID
+        reference_id = str(uuid.uuid4())
+
+        # Store in database
+        with sqlite3.connect(_get_db_path()) as conn:
+            conn.execute("""
+                INSERT INTO reference_images (id, image_data, width, height, content_type, source, original_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (reference_id, image_data, width, height, content_type, source, original_url))
+
+        return jsonify({
+            'success': True,
+            'reference_id': reference_id,
+            'width': width,
+            'height': height,
+        })
+
+    except Exception as e:
+        logger.error(f"Reference image upload error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/reference-images/<reference_id>')
+@_dev_only
+def api_get_reference_image(reference_id: str):
+    """Serve a reference image by ID.
+
+    Returns the raw image data with appropriate content-type header.
+    """
+    from flask import Response
+
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT image_data, content_type FROM reference_images WHERE id = ?",
+                (reference_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Reference image not found'}), 404
+
+            return Response(
+                row['image_data'],
+                mimetype=row['content_type'] or 'image/png',
+                headers={'Cache-Control': 'max-age=31536000'}  # Cache for 1 year
+            )
+
+    except Exception as e:
+        logger.error(f"Reference image fetch error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/playground/captures/<int:capture_id>/replay-image', methods=['POST'])
+@_dev_only
+def api_playground_replay_image(capture_id: int):
+    """Replay an image capture with modifications.
+
+    Request body:
+        prompt: Modified prompt
+        provider: Image provider to use
+        model: Model to use
+        size: Image size (e.g., "512x512")
+        reference_image_id: Optional reference image
+
+    Returns: {
+        original_image_url,
+        new_image_url,  # base64 data URL
+        provider_used,
+        model_used,
+        latency_ms,
+        estimated_cost
+    }
+    """
+    from ..extensions import persistence
+    from core.llm import LLMClient, CallType
+    import base64
+
+    try:
+        capture = persistence.get_prompt_capture(capture_id)
+        if not capture:
+            return jsonify({'success': False, 'error': 'Capture not found'}), 404
+
+        # Verify it's an image capture
+        if not capture.get('is_image_capture'):
+            return jsonify({'success': False, 'error': 'Not an image capture'}), 400
+
+        data = request.get_json() or {}
+
+        # Use modified values or originals
+        prompt = data.get('prompt', capture.get('image_prompt', ''))
+        provider = data.get('provider', capture.get('provider', 'pollinations')).lower()
+        model = data.get('model', capture.get('model'))
+        size = data.get('size', capture.get('image_size', '512x512'))
+        reference_image_id = data.get('reference_image_id')
+
+        # Create LLM client for the provider
+        client = LLMClient(provider=provider, model=model)
+
+        # Generate the new image
+        response = client.generate_image(
+            prompt=prompt,
+            size=size,
+            call_type=CallType.DEBUG_REPLAY,
+        )
+
+        if response.is_error:
+            return jsonify({
+                'success': False,
+                'error': response.error_message or 'Image generation failed',
+            }), 500
+
+        # Download the new image and convert to base64 data URL
+        new_image_url = None
+        if response.url:
+            try:
+                import requests as http_requests
+                img_response = http_requests.get(response.url, timeout=30)
+                img_response.raise_for_status()
+                img_data = img_response.content
+                content_type = img_response.headers.get('Content-Type', 'image/png')
+                b64_data = base64.b64encode(img_data).decode('utf-8')
+                new_image_url = f"data:{content_type};base64,{b64_data}"
+            except Exception as e:
+                logger.warning(f"Failed to download new image: {e}")
+                new_image_url = response.url  # Fall back to URL
+
+        # Get original image as base64 if available
+        original_image_url = None
+        if capture.get('image_data'):
+            content_type = 'image/png'
+            b64_data = base64.b64encode(capture['image_data']).decode('utf-8')
+            original_image_url = f"data:{content_type};base64,{b64_data}"
+        elif capture.get('image_url'):
+            original_image_url = capture['image_url']
+
+        return jsonify({
+            'success': True,
+            'original_image_url': original_image_url,
+            'new_image_url': new_image_url,
+            'provider_used': response.provider,
+            'model_used': response.model,
+            'latency_ms': int(response.latency_ms) if response.latency_ms else None,
+            'size_used': size,
+        })
+
+    except Exception as e:
+        logger.error(f"Image replay error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/playground/captures/<int:capture_id>/assign-avatar', methods=['POST'])
+@_dev_only
+def api_assign_avatar_from_capture(capture_id: int):
+    """Assign a captured/replayed image as a personality avatar.
+
+    Request body:
+        personality_name: Target personality
+        emotion: Target emotion
+        use_replayed: True to use replayed image, False for original
+        replayed_image_data: Base64 image data (if use_replayed)
+    """
+    from ..extensions import persistence
+    import base64
+
+    try:
+        capture = persistence.get_prompt_capture(capture_id)
+        if not capture:
+            return jsonify({'success': False, 'error': 'Capture not found'}), 404
+
+        data = request.get_json() or {}
+        personality_name = data.get('personality_name')
+        emotion = data.get('emotion', 'neutral')
+        use_replayed = data.get('use_replayed', False)
+        replayed_image_data = data.get('replayed_image_data')
+
+        if not personality_name:
+            return jsonify({'success': False, 'error': 'personality_name is required'}), 400
+
+        # Get the image data
+        if use_replayed and replayed_image_data:
+            # Extract base64 data from data URL if needed
+            if replayed_image_data.startswith('data:'):
+                # Parse data URL: data:image/png;base64,xxxxx
+                parts = replayed_image_data.split(',', 1)
+                if len(parts) == 2:
+                    image_data = base64.b64decode(parts[1])
+                else:
+                    return jsonify({'success': False, 'error': 'Invalid image data format'}), 400
+            else:
+                image_data = base64.b64decode(replayed_image_data)
+        elif capture.get('image_data'):
+            image_data = capture['image_data']
+        else:
+            return jsonify({'success': False, 'error': 'No image data available'}), 400
+
+        # Save to avatar_images table
+        with sqlite3.connect(_get_db_path()) as conn:
+            # Check if avatar exists for this personality/emotion
+            cursor = conn.execute(
+                "SELECT id FROM avatar_images WHERE personality_name = ? AND emotion = ?",
+                (personality_name, emotion)
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing
+                conn.execute("""
+                    UPDATE avatar_images
+                    SET image_data = ?, content_type = 'image/png', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (image_data, existing[0]))
+            else:
+                # Insert new
+                conn.execute("""
+                    INSERT INTO avatar_images (personality_name, emotion, image_data, content_type)
+                    VALUES (?, ?, ?, 'image/png')
+                """, (personality_name, emotion, image_data))
+
+        return jsonify({
+            'success': True,
+            'message': f'Avatar assigned for {personality_name} ({emotion})',
+            'personality_name': personality_name,
+            'emotion': emotion,
+        })
+
+    except Exception as e:
+        logger.error(f"Avatar assignment error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_dashboard_bp.route('/api/image-providers')
+@_dev_only
+def api_get_image_providers():
+    """Get list of enabled image providers with their models and size presets.
+
+    Returns providers that support image generation (supports_image_gen=1).
+    """
+    try:
+        with sqlite3.connect(_get_db_path()) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get enabled image generation models
+            cursor = conn.execute("""
+                SELECT provider, model, display_name, supports_img2img
+                FROM enabled_models
+                WHERE enabled = 1 AND supports_image_gen = 1
+                ORDER BY provider, sort_order
+            """)
+
+            # Group by provider
+            providers = {}
+            for row in cursor.fetchall():
+                provider = row['provider']
+                if provider not in providers:
+                    providers[provider] = {
+                        'id': provider,
+                        'name': provider.title(),
+                        'models': [],
+                        'size_presets': _get_size_presets(provider),
+                    }
+                providers[provider]['models'].append({
+                    'id': row['model'],
+                    'name': row['display_name'] or row['model'],
+                    'supports_img2img': bool(row['supports_img2img']),
+                })
+
+            return jsonify({
+                'success': True,
+                'providers': list(providers.values()),
+            })
+
+    except Exception as e:
+        logger.error(f"Image providers error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _get_size_presets(provider: str) -> list:
+    """Get recommended size presets for a provider."""
+    # Common presets that work across providers
+    common_presets = [
+        {'label': '1:1 Small (512x512)', 'value': '512x512', 'cost': '$'},
+        {'label': '1:1 Medium (1024x1024)', 'value': '1024x1024', 'cost': '$$'},
+    ]
+
+    provider_presets = {
+        'openai': [
+            {'label': '1:1 (1024x1024)', 'value': '1024x1024', 'cost': '$$'},
+            {'label': 'Portrait (1024x1792)', 'value': '1024x1792', 'cost': '$$$'},
+            {'label': 'Landscape (1792x1024)', 'value': '1792x1024', 'cost': '$$$'},
+        ],
+        'pollinations': common_presets + [
+            {'label': '16:9 (1024x576)', 'value': '1024x576', 'cost': '$$'},
+            {'label': '9:16 (576x1024)', 'value': '576x1024', 'cost': '$$'},
+        ],
+        'runware': common_presets + [
+            {'label': '16:9 (1024x576)', 'value': '1024x576', 'cost': '$$'},
+            {'label': '9:16 (576x1024)', 'value': '576x1024', 'cost': '$$'},
+        ],
+        'xai': [
+            {'label': '1:1 (1024x1024)', 'value': '1024x1024', 'cost': '$$'},
+        ],
+    }
+
+    return provider_presets.get(provider, common_presets)
+
+
+# =============================================================================
 # Prompt Template Management
 # =============================================================================
 

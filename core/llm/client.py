@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Any, Callable
 
 from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
 from .response import LLMResponse, ImageResponse
-from .tracking import UsageTracker, CallType, capture_prompt
+from .tracking import UsageTracker, CallType, capture_prompt, capture_image_prompt
 from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
 from .providers.groq import GroqProvider
@@ -278,6 +278,9 @@ class LLMClient:
         call_type: CallType = CallType.IMAGE_GENERATION,
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
+        target_personality: Optional[str] = None,
+        target_emotion: Optional[str] = None,
+        reference_image_id: Optional[str] = None,
         **context: Any,
     ) -> ImageResponse:
         """Generate an image.
@@ -288,6 +291,9 @@ class LLMClient:
             call_type: Type of call for tracking
             game_id: Game ID for tracking
             owner_id: User ID for tracking
+            target_personality: Optional personality name (for avatar generation)
+            target_emotion: Optional emotion (for avatar generation)
+            reference_image_id: Optional reference image ID (for img2img)
             **context: Additional tracking context
 
         Returns:
@@ -344,5 +350,18 @@ class LLMClient:
             player_name=context.get("player_name"),
             prompt_template=context.get("prompt_template"),
         )
+
+        # Capture image prompt for playground (if enabled via LLM_PROMPT_CAPTURE env var)
+        if response.status == "ok":
+            capture_image_prompt(
+                prompt=prompt,
+                response=response,
+                call_type=call_type,
+                target_personality=target_personality or context.get("player_name"),
+                target_emotion=target_emotion,
+                reference_image_id=reference_image_id,
+                game_id=game_id,
+                owner_id=owner_id,
+            )
 
         return response

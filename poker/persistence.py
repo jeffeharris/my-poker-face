@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 # v50: Add user_enabled column to enabled_models for dual toggle support
 # v51: Add parent_experiment_id to experiments for experiment lineage tracking
 # v52: Add supports_img2img column to enabled_models for image-to-image capability
-SCHEMA_VERSION = 52
+# v53: Add image capture support to prompt_captures and reference_images table
+SCHEMA_VERSION = 53
 
 
 @dataclass
@@ -525,7 +526,7 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)")
 
-            # 21. Prompt captures (v18, v19, v24, v30, v33, v39)
+            # 21. Prompt captures (v18, v19, v24, v30, v33, v39, v53)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_captures (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -562,6 +563,16 @@ class GamePersistence:
                     original_request_id TEXT,
                     provider TEXT DEFAULT 'openai',
                     call_type TEXT,
+                    is_image_capture INTEGER DEFAULT 0,
+                    image_prompt TEXT,
+                    image_url TEXT,
+                    image_data BLOB,
+                    image_size TEXT,
+                    image_width INTEGER,
+                    image_height INTEGER,
+                    target_personality TEXT,
+                    target_emotion TEXT,
+                    reference_image_id TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -571,13 +582,32 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
-            # These indexes are on columns added by migrations v33 and v39
+            # These indexes are on columns added by migrations v33, v39, and v53
             # Use try-except to handle older databases that haven't been migrated yet
             try:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
+
+            # 21b. Reference images (v53) - for image-to-image generation
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS reference_images (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    image_data BLOB NOT NULL,
+                    width INTEGER,
+                    height INTEGER,
+                    content_type TEXT DEFAULT 'image/png',
+                    source TEXT,
+                    original_url TEXT,
+                    owner_id TEXT,
+                    expires_at TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
             # 22. Player decision analysis (v20, v22, v23)
             conn.execute("""
@@ -787,6 +817,7 @@ class GamePersistence:
             50: (self._migrate_v50_add_user_enabled, "Add user_enabled column to enabled_models for dual toggle"),
             51: (self._migrate_v51_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
             52: (self._migrate_v52_add_supports_img2img, "Add supports_img2img column to enabled_models"),
+            53: (self._migrate_v53_add_image_capture_support, "Add image capture support to prompt_captures and reference_images table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2132,6 +2163,58 @@ class GamePersistence:
             pass
 
         logger.info("Migration v52 complete: Added supports_img2img column to enabled_models")
+
+    def _migrate_v53_add_image_capture_support(self, conn: sqlite3.Connection) -> None:
+        """Migration v53: Add image capture support to prompt_captures and reference_images table.
+
+        This migration:
+        1. Creates the reference_images table for storing uploaded/generated reference images
+        2. Adds image-specific columns to prompt_captures for capturing image generation prompts
+        """
+        # 1. Create reference_images table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reference_images (
+                id TEXT PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                image_data BLOB NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                content_type TEXT DEFAULT 'image/png',
+                source TEXT,
+                original_url TEXT,
+                owner_id TEXT,
+                expires_at TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
+
+        # 2. Add image-specific columns to prompt_captures
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        image_columns = [
+            ("is_image_capture", "INTEGER DEFAULT 0"),
+            ("image_prompt", "TEXT"),
+            ("image_url", "TEXT"),
+            ("image_data", "BLOB"),
+            ("image_size", "TEXT"),
+            ("image_width", "INTEGER"),
+            ("image_height", "INTEGER"),
+            ("target_personality", "TEXT"),
+            ("target_emotion", "TEXT"),
+            ("reference_image_id", "TEXT"),
+        ]
+
+        for col_name, col_type in image_columns:
+            if col_name not in columns:
+                conn.execute(f"ALTER TABLE prompt_captures ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Added {col_name} column to prompt_captures")
+
+        # 3. Add index for filtering image captures
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
+
+        logger.info("Migration v53 complete: Added image capture support")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4162,6 +4245,19 @@ class GamePersistence:
                         capture[field] = json.loads(capture[field])
                     except json.JSONDecodeError:
                         logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+
+            # Handle image_data BLOB - convert to base64 data URL for JSON serialization
+            if capture.get('is_image_capture') and capture.get('image_data'):
+                import base64
+                img_bytes = capture['image_data']
+                if isinstance(img_bytes, bytes):
+                    b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                    capture['image_url'] = f"data:image/png;base64,{b64_data}"
+                # Remove raw bytes from response (not JSON serializable)
+                del capture['image_data']
+            elif 'image_data' in capture:
+                # Remove even if None/empty to avoid serialization issues
+                del capture['image_data']
             return capture
 
     def list_prompt_captures(
@@ -4421,7 +4517,9 @@ class GamePersistence:
                        phase, call_type, action_taken,
                        model, provider, reasoning_effort,
                        latency_ms, input_tokens, output_tokens,
-                       tags, notes
+                       tags, notes,
+                       is_image_capture, image_size, image_width, image_height,
+                       target_personality, target_emotion
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC
