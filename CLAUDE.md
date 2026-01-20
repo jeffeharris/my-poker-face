@@ -6,10 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Comprehensive documentation about the game's vision and planned features can be found in:
 - `/docs/vision/GAME_VISION.md` - Overall game vision and philosophy
-- `/docs/vision/PERSONALITY_ELASTICITY.md` - Dynamic personality system design
 - `/docs/vision/FEATURE_IDEAS.md` - Detailed feature brainstorming
 - `/docs/vision/QUICK_WINS.md` - High-impact, low-effort features
-- `/docs/vision/TECH_DEBT_ANALYSIS.md` - Technical debt analysis plan
+- `/docs/technical/PERSONALITY_ELASTICITY.md` - Dynamic personality system (implemented)
 
 ## Personality Testing Tools
 
@@ -79,7 +78,7 @@ docker compose exec frontend npx tsc --noEmit
 
 ## Architecture Overview
 
-This is a poker game application with AI players powered by OpenAI. The codebase follows a functional architecture with immutable state management.
+This is a poker game with AI personalities AND an experiment platform for testing LLM capabilities at scale. The codebase follows a functional architecture with immutable state management.
 
 ### Core Components
 
@@ -95,11 +94,13 @@ This is a poker game application with AI players powered by OpenAI. The codebase
 
 5. **Persistence Layer** (`poker/persistence.py`): SQLite-based game storage with automatic saving after each action.
 
+6. **Experiment Manager** (`experiments/run_ai_tournament.py`): Run AI-only tournaments to A/B test models, prompts, and configurations at scale.
+
 ### Key Design Patterns
 
 - **Functional Core**: Game logic uses pure functions that take state and return new state
 - **Event-Driven Web Interface**: SocketIO handles real-time game events and player actions
-- **AI Integration**: AI players use OpenAI API with personality prompts from `utils.get_celebrities()`
+- **AI Integration**: AI players use LLM providers (OpenAI, Anthropic, etc.) with personality prompts
 - **Adapter Pattern**: `flask_app/game_adapter.py` bridges differences between Flask expectations and poker module implementation
 
 ### Development Notes
@@ -218,7 +219,7 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    response = assistant.chat("What's your move?", json_format=True)
    ```
 
-3. **Provider Support**: Currently supports OpenAI (extensible to Anthropic, Groq)
+3. **Provider Support**: OpenAI, Anthropic, Groq, DeepSeek, Mistral, Google, xAI
 
 4. **Tracking Data**: All API calls are logged to `api_usage` table with:
    - Token counts (input, output, cached, reasoning)

@@ -30,6 +30,18 @@ export interface PlaygroundCaptureDetail extends PlaygroundCapture {
   cached_tokens: number | null;
   reasoning_tokens: number | null;
   estimated_cost: number | null;
+
+  // Image-specific fields (v53)
+  is_image_capture?: boolean;
+  image_prompt?: string;
+  image_url?: string;  // base64 data URL for display
+  image_data?: string; // base64 encoded image data
+  image_size?: string;
+  image_width?: number;
+  image_height?: number;
+  target_personality?: string;
+  target_emotion?: string;
+  reference_image_id?: string;
 }
 
 export interface ConversationMessage {
@@ -107,4 +119,36 @@ export interface TemplateUpdateResponse {
   new_hash?: string;
   new_version?: string;
   error?: string;
+}
+
+// Image playground types (v53)
+export interface ImageReplayResponse {
+  success: boolean;
+  original_image_url: string | null;
+  new_image_url: string | null;
+  provider_used: string;
+  model_used: string;
+  latency_ms: number | null;
+  size_used: string;
+  estimated_cost?: number;
+  error?: string;
+}
+
+export interface ImageProvider {
+  id: string;
+  name: string;
+  models: ImageModel[];
+  size_presets: SizePreset[];
+}
+
+export interface ImageModel {
+  id: string;
+  name: string;
+  supports_img2img: boolean;
+}
+
+export interface SizePreset {
+  label: string;
+  value: string;
+  cost: string;
 }

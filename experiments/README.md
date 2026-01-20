@@ -2,7 +2,33 @@
 
 This module provides tools for running AI-only poker tournaments to test different configurations, models, and strategies.
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Web UI (Recommended)](#web-ui-recommended)
+- [Configuration Reference](#configuration-reference)
+- [A/B Testing](#ab-testing)
+- [Parallel Execution](#parallel-execution)
+- [Hand-Based Experiments](#hand-based-experiments)
+- [Psychology Systems](#psychology-systems)
+- [Best Practices](#best-practices)
+- [Limitations & Gotchas](#limitations--gotchas)
+- [Cost Estimation](#cost-estimation)
+- [Querying Results](#querying-results)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 ## Quick Start
+
+### Via Web UI (Recommended)
+
+1. Navigate to the Admin Dashboard → Experiments
+2. Click "New Experiment"
+3. Use the AI assistant to help design your experiment
+4. Configure variants and run
+
+### Via CLI
 
 ```bash
 # Run a simple tournament from Docker
@@ -10,198 +36,593 @@ docker compose exec backend python -m experiments.run_ai_tournament \
     --experiment my_test \
     --tournaments 1 \
     --hands 50 \
-    --players 3
+    --players 4
+
+# Run with parallel execution
+docker compose exec backend python -m experiments.run_ai_tournament \
+    --experiment parallel_test \
+    --tournaments 5 \
+    --parallel 5 \
+    --hands 100
 ```
 
-## Components
+### Via API
 
-### 1. `run_ai_tournament.py` - Core Tournament Runner
-
-The main experiment runner that handles:
-- Creating AI-only games with configurable players
-- Running tournaments to completion
-- Tracking decision quality metrics
-- Persisting results to the database
-
-#### Basic Usage
-
-```python
-from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner
-
-config = ExperimentConfig(
-    name='test_gemini_vs_gpt',
-    description='Compare Gemini Flash vs GPT-4o decision quality',
-    num_tournaments=5,
-    max_hands_per_tournament=100,
-    num_players=4,
-    starting_stack=10000,
-    big_blind=100,
-    provider='google',  # or 'openai', 'anthropic', 'groq', etc.
-    model='gemini-2.0-flash',
-    personalities=['Abraham Lincoln', 'Batman', 'Sherlock Holmes'],  # Optional specific personalities
-)
-
-runner = AITournamentRunner(config)
-results = runner.run_experiment()
-
-for result in results:
-    print(f"Tournament {result.tournament_id}: Winner = {result.winner}, Hands = {result.hands_played}")
-    print(f"Decision stats: {result.decision_stats}")
+```bash
+curl -X POST http://localhost:5005/api/experiments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": {
+      "name": "my_experiment",
+      "num_tournaments": 3,
+      "hands_per_tournament": 50,
+      "num_players": 4,
+      "model": "gpt-5-nano",
+      "provider": "openai"
+    }
+  }'
 ```
 
-#### Configuration Options
+---
+
+## Web UI (Recommended)
+
+The Experiment Designer provides an AI-assisted interface for creating experiments.
+
+### Features
+
+- **AI Assistant**: Describe what you want to test in natural language
+- **Config Preview**: Real-time preview of experiment configuration
+- **Validation**: Catches errors before you run
+- **Live Monitoring**: Watch experiments progress in real-time
+- **Cost Tracking**: See API costs per variant
+
+### AI Assistant Tips
+
+The assistant understands these requests:
+- "Compare GPT-5 vs Claude for poker decisions"
+- "Test if enabling psychology improves play"
+- "A/B test pot_odds enabled vs disabled"
+- "Run a quick sanity check with 1 tournament"
+- "Compare all fast/cheap models"
+
+---
+
+## Configuration Reference
+
+### Basic Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | string | required | Unique identifier (snake_case) |
+| `description` | string | "" | What the experiment tests |
+| `hypothesis` | string | "" | Expected outcome |
+| `tags` | string[] | [] | Categories for filtering |
+| `num_tournaments` | int | 1 | Tournaments per variant (1-20) |
+| `hands_per_tournament` | int | 100 | Hands per tournament (5-500) |
+| `num_players` | int | 4 | Players per tournament (2-8) |
+| `starting_stack` | int | 10000 | Starting chips |
+| `big_blind` | int | 100 | Big blind amount |
+| `reset_on_elimination` | bool | false | Reset stacks when one player remains (ensures exact hand count) |
+
+### LLM Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `provider` | string | "openai" | LLM provider |
+| `model` | string | "gpt-5-nano" | Model name |
+| `reasoning_effort` | string | "low" | Reasoning level: minimal, low, medium, high |
+
+**Available Providers & Models**:
+
+| Provider | Models | Notes |
+|----------|--------|-------|
+| `openai` | gpt-5-nano, gpt-4o, gpt-4o-mini | reasoning_effort supported |
+| `anthropic` | claude-sonnet-4-20250514, claude-opus-4 | |
+| `groq` | llama-3.1-8b-instant | Very fast, no reasoning |
+| `google` | gemini-2.0-flash, gemini-2.5-flash | |
+| `mistral` | mistral-small-latest, mistral-medium-latest | |
+| `xai` | grok-4-fast, grok-3-mini | minimal → no reasoning |
+| `deepseek` | deepseek, deepseek-chat, deepseek-reasoner | |
+
+### Execution Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `parallel_tournaments` | int | 1 | Concurrent tournaments (1 = sequential) |
+| `stagger_start_delay` | float | 0.0 | Seconds between starting workers |
+| `capture_prompts` | bool | true | Save prompts for debugging |
+| `personalities` | string[] | null | Specific personalities (random if null) |
+
+### Prompt Config Options
+
+Control which information is included in AI decision prompts:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `name` | required | Unique experiment name |
-| `description` | "" | What you're testing |
-| `hypothesis` | "" | Expected outcome |
-| `tags` | None | List of tags for filtering |
-| `num_tournaments` | 1 | Number of tournaments to run |
-| `max_hands_per_tournament` | 100 | Hand limit per tournament |
-| `num_players` | 4 | Players per tournament |
-| `starting_stack` | 10000 | Starting chips |
-| `big_blind` | 100 | Big blind amount |
-| `provider` | "openai" | LLM provider |
-| `model` | "gpt-5-nano" | Model name |
-| `personalities` | None | Specific personalities (random if None) |
-| `capture_prompts` | True | Save prompts for debugging |
+| `pot_odds` | true | Pot odds and equity calculations |
+| `hand_strength` | true | Hand strength evaluation |
+| `session_memory` | true | Session stats (win rate, streaks) |
+| `opponent_intel` | true | Opponent tendencies |
+| `strategic_reflection` | true | Past strategic reflections |
+| `chattiness` | true | Chattiness guidance |
+| `emotional_state` | true | Emotional state narrative |
+| `tilt_effects` | true | Tilt-based modifications |
+| `mind_games` | true | Mind games instruction |
+| `persona_response` | true | Persona response instruction |
+| `memory_keep_exchanges` | 0 | Conversation exchanges to retain |
 
-### 2. `ab_test_demo.py` - A/B Testing Framework
+---
 
-Run controlled experiments comparing two configurations:
+## A/B Testing
 
-```python
-from experiments.ab_test_demo import run_ab_test
+For comparing models, prompts, or configurations, use the **control/variants** structure.
 
-results = run_ab_test(
-    experiment_name='prompt_comparison',
-    variant_a_config={'provider': 'google', 'model': 'gemini-2.0-flash'},
-    variant_b_config={'provider': 'openai', 'model': 'gpt-4o-mini'},
-    tournaments_per_variant=3,
-)
+### Structure
+
+```json
+{
+  "name": "my_ab_test",
+  "num_tournaments": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "Baseline"
+  },
+  "variants": [
+    {
+      "label": "Challenger",
+      "model": "gemini-2.0-flash",
+      "provider": "google"
+    }
+  ]
+}
 ```
 
-### 3. `compare_strategies.py` - Strategy Comparison
+This runs **5 tournaments with control** (using top-level model/provider) AND **5 tournaments with each variant**.
 
-Compare different AI strategies or prompt configurations.
+**Note**: Control always uses the experiment-level `model`/`provider` settings. Variants can override these to test different models.
+
+### Control Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `label` | Yes | Display name in results |
+| `prompt_config` | No | Override prompt settings |
+| `enable_psychology` | No | Enable tilt/emotional state |
+| `enable_commentary` | No | Enable commentary generation |
+
+**Note**: Control uses experiment-level `model`/`provider` - these cannot be overridden in control.
+
+### Variant Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `label` | Yes | Display name in results |
+| `model` | No | Override model (inherits from experiment) |
+| `provider` | No | Override provider (inherits from experiment) |
+| `prompt_config` | No | Override prompt settings |
+| `reasoning_effort` | No | Override reasoning level |
+| `enable_psychology` | No | Enable tilt/emotional state (inherits from control) |
+| `enable_commentary` | No | Enable commentary generation (inherits from control) |
+
+### Example: Model Comparison
+
+```json
+{
+  "name": "gpt_vs_claude_vs_gemini",
+  "num_tournaments": 3,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "GPT-5 Nano"
+  },
+  "variants": [
+    {
+      "label": "Claude Sonnet",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    },
+    {
+      "label": "Gemini Flash",
+      "provider": "google",
+      "model": "gemini-2.0-flash"
+    }
+  ]
+}
+```
+
+### Example: Prompt Ablation
+
+```json
+{
+  "name": "pot_odds_ablation",
+  "num_tournaments": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "With Pot Odds",
+    "prompt_config": {"pot_odds": true}
+  },
+  "variants": [
+    {
+      "label": "No Pot Odds",
+      "prompt_config": {"pot_odds": false}
+    }
+  ]
+}
+```
+
+---
+
+## Parallel Execution
+
+Run multiple tournaments concurrently to speed up experiments.
+
+### Configuration
+
+```json
+{
+  "name": "parallel_experiment",
+  "num_tournaments": 1,
+  "parallel_tournaments": 7,
+  "stagger_start_delay": 2.0,
+  "control": { "label": "A" },
+  "variants": [
+    { "label": "B" },
+    { "label": "C" }
+  ]
+}
+```
+
+### How It Works
+
+- `parallel_tournaments: 7` runs up to 7 tournaments simultaneously
+- Each variant runs in its own thread with isolated state
+- `stagger_start_delay: 2.0` waits 2 seconds between starting workers (helps avoid rate limits)
+
+### Recommendations
+
+| Scenario | parallel_tournaments | stagger_start_delay |
+|----------|---------------------|---------------------|
+| Single provider | 2-3 | 1.0 |
+| Multiple providers | N (one per variant) | 2.0 |
+| Rate limit concerns | 1-2 | 5.0 |
+| Fast providers (Groq) | 5+ | 0.5 |
+
+---
+
+## Tournament Behavior: reset_on_elimination
+
+The `reset_on_elimination` parameter determines whether hand counts are exact or maximum.
+
+### The Problem
+
+Default tournament behavior ends when one player has all chips. This creates unequal hand counts between experiments, making A/B comparisons difficult.
+
+### How reset_on_elimination Works
+
+| Config | Behavior |
+|--------|----------|
+| `reset_on_elimination: false` (default) | Tournament ends when one player wins OR hits hand limit (variable hands) |
+| `reset_on_elimination: true` | Stacks reset on elimination, always plays EXACTLY hands_per_tournament |
+
+### Example: Variable Hands (default)
+
+```json
+{
+  "name": "quick_tournament",
+  "num_tournaments": 3,
+  "hands_per_tournament": 100,
+  "num_players": 4
+}
+```
+
+**Behavior**:
+- Runs 3 tournaments of UP TO 100 hands each
+- Tournaments end early if one player wins all chips
+- Total hands varies based on game flow
+
+### Example: Exact Hands (for fair A/B comparisons)
+
+```json
+{
+  "name": "fair_comparison_test",
+  "num_tournaments": 1,
+  "hands_per_tournament": 200,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "control": { "label": "Model A" },
+  "variants": [{ "label": "Model B" }]
+}
+```
+
+**Behavior**:
+- Runs EXACTLY 200 hands per variant
+- When one player eliminates others, all stacks reset to `starting_stack`
+- Tracks "round winners" (who had most chips at each reset)
+- Each variant gets identical sample size for fair comparison
+
+### When to Use Each
+
+| Scenario | Recommendation |
+|----------|----------------|
+| A/B testing model quality | `reset_on_elimination: true` with desired hand count |
+| Equal data points per variant | `reset_on_elimination: true` |
+| Natural tournament flow | `reset_on_elimination: false` (default) |
+| Quick tests | `reset_on_elimination: false` (default) |
+
+### Results Tracking
+
+With `reset_on_elimination: true`, results include:
+- `round_winners`: List of players who had most chips at each reset
+- `total_resets`: How many times stacks were reset
+
+---
+
+## Psychology Systems
+
+Enable psychological feedback systems for richer AI behavior.
+
+### Flags
+
+| Flag | LLM Cost/Hand | Description |
+|------|---------------|-------------|
+| `enable_psychology` | ~4 calls | Tilt tracking + emotional state generation |
+| `enable_commentary` | ~4 calls | Commentary generation + session reflections |
+
+### What They Do
+
+**enable_psychology**:
+- Tracks pressure events (big wins, bad beats, bluffs)
+- Updates tilt state after each hand
+- Generates emotional state narrative via LLM
+- Emotional state influences decision prompts
+
+**enable_commentary**:
+- Generates post-hand commentary per player
+- Stores reflections in session memory
+- Can affect future decision context
+
+### Example: Psychology Impact Test
+
+```json
+{
+  "name": "psychology_impact",
+  "num_tournaments": 5,
+  "control": {
+    "label": "No Psychology",
+    "enable_psychology": false
+  },
+  "variants": [
+    {
+      "label": "With Psychology",
+      "enable_psychology": true
+    }
+  ]
+}
+```
+
+### Cost Warning
+
+With psychology enabled, each hand makes ~8 additional LLM calls (4 players × 2 calls for emotional state + categorization). For a 50-hand tournament with 4 players, that's ~400 extra calls.
+
+---
+
+## Best Practices
+
+### Statistical Validity
+
+1. **Run enough tournaments**: Poker has high variance. 3-5 tournaments minimum, 10+ for reliable conclusions.
+
+2. **Control for randomness**: Use `random_seed` for reproducible personality selection:
+   ```json
+   {"random_seed": 42}
+   ```
+
+3. **Same personalities across variants**: When comparing models, ensure the same personalities are used. Either specify them explicitly or use a seed.
+
+4. **Sufficient hands**: Tournaments should run long enough for skill to matter. 50+ hands recommended, 100+ for reliable stats.
+
+### Experiment Design
+
+1. **Change one thing at a time**: Don't compare different models AND different prompts simultaneously.
+
+2. **Use descriptive names**: `gpt_vs_claude_reasoning_low` is better than `test_1`.
+
+3. **Document your hypothesis**: Future you will thank you.
+
+4. **Tag experiments**: Use tags like `["model_comparison", "production_candidate"]` for filtering.
+
+### Performance
+
+1. **Use parallel execution**: For multi-variant tests, set `parallel_tournaments` equal to your variant count.
+
+2. **Choose fast models for iteration**: Use `gpt-5-nano` or `gemini-2.0-flash` for quick tests, save expensive models for final validation.
+
+3. **Start small**: Run 1 tournament with 20 hands first to verify everything works.
+
+4. **Mind rate limits**: Stagger parallel workers with `stagger_start_delay: 2.0` to avoid 429 errors.
+
+### Cost Management
+
+1. **Estimate before running**: See [Cost Estimation](#cost-estimation) section.
+
+2. **Disable psychology for initial tests**: It doubles+ your API costs.
+
+3. **Use cheap models first**: Validate experiment design with `gpt-5-nano` before using `gpt-4o`.
+
+---
+
+## Limitations & Gotchas
+
+### Known Limitations
+
+1. **No live games**: Experiments are AI-only. No human players.
+
+2. **Sequential hands within tournament**: Hands within a single tournament run sequentially (poker can't be parallelized mid-game).
+
+3. **Server restart kills workers**: If Flask restarts (code changes in dev), running experiments stop. Resume via API or dashboard.
+
+4. **Memory grows with history**: Long tournaments with `memory_keep_exchanges > 0` can accumulate large prompt contexts.
+
+### Common Gotchas
+
+1. **"Only one variant ran"**: Check `parallel_tournaments`. Default is 1 (sequential).
+
+2. **"Experiment stuck"**: Check if server restarted. Status may show "running" but worker is dead. Pause then resume.
+
+3. **"Missing decision stats"**: GTO analyzer runs async. Wait a moment after tournament completes, or check `player_decision_analysis` table.
+
+4. **"Rate limited"**: Add `stagger_start_delay`, reduce `parallel_tournaments`, or use providers with higher limits (Groq is generous).
+
+5. **"Results seem random"**: Poker has variance. Run more tournaments. 3 is minimum, 10+ for confidence.
+
+6. **"Tournament ended early"**: Players eliminated (reached 0 chips). This is normal. Check `total_hands` vs `hands_per_tournament`. Use `reset_on_elimination: true` to run exact hand counts.
+
+### Database Column Names
+
+The `experiment_games` table uses `variant_config_json` (not `variant_config`). This has caused bugs - if you write custom queries, use the correct column name.
+
+---
+
+## Cost Estimation
+
+### Per-Decision Costs (approximate)
+
+| Model | Input $/M | Output $/M | ~Cost/Hand (4 players) |
+|-------|-----------|------------|------------------------|
+| gpt-5-nano | $0.10 | $0.40 | $0.002 |
+| gpt-4o-mini | $0.15 | $0.60 | $0.003 |
+| gpt-4o | $2.50 | $10.00 | $0.05 |
+| claude-sonnet-4 | $3.00 | $15.00 | $0.06 |
+| gemini-2.0-flash | $0.10 | $0.40 | $0.002 |
+| gemini-2.5-flash | $0.30 | $2.50 | $0.01 |
+| groq llama-3.1-8b | Free tier | Free tier | ~$0 |
+| mistral-small | $0.20 | $0.60 | $0.003 |
+
+### Formula
+
+```
+Base cost = hands × players × 2 × (input_cost × ~1000 + output_cost × ~200) / 1M
+With psychology: Base cost × 2
+With commentary: Base cost × 2.5
+```
+
+### Example Calculation
+
+50-hand tournament, 4 players, GPT-5 Nano, no psychology:
+- ~8 decisions/hand × 50 hands = 400 decisions
+- ~$0.002/decision × 400 = **~$0.80 per tournament**
+
+Same with psychology enabled:
+- **~$1.60 per tournament**
+
+A/B test with 5 tournaments × 2 variants:
+- **~$8.00 total** (or ~$16 with psychology)
+
+---
 
 ## Querying Results
 
-Results are stored in the main `poker_games.db` database. Key tables:
+### Key Tables
 
-### `experiments` table
+- `experiments` - Experiment metadata and config
+- `experiment_games` - Links games to experiments
+- `tournament_results` - Final standings per tournament
+- `player_decision_analysis` - Per-decision quality metrics
+- `api_usage` - LLM call tracking and costs
+
+### Useful Queries
+
 ```sql
-SELECT name, status, summary_json, created_at
+-- Experiment summary
+SELECT name, status, created_at,
+       json_extract(summary_json, '$.total_tournaments') as tournaments,
+       json_extract(summary_json, '$.total_hands') as hands
 FROM experiments
 ORDER BY created_at DESC;
-```
 
-### `experiment_games` table
-```sql
--- Get all games for an experiment
-SELECT eg.game_id, eg.variant, eg.tournament_number
+-- Results by variant
+SELECT eg.variant,
+       COUNT(*) as tournaments,
+       AVG(tr.total_hands) as avg_hands,
+       SUM(CASE WHEN tr.winner_name IS NOT NULL THEN 1 ELSE 0 END) as completed
 FROM experiment_games eg
-JOIN experiments e ON eg.experiment_id = e.id
-WHERE e.name = 'my_experiment';
-```
+LEFT JOIN tournament_results tr ON eg.game_id = tr.game_id
+WHERE eg.experiment_id = ?
+GROUP BY eg.variant;
 
-### Decision quality by experiment
-```sql
--- Aggregate decision stats for an experiment
-SELECT
-    e.name,
-    COUNT(*) as total_decisions,
-    SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
-    ROUND(AVG(COALESCE(pda.ev_lost, 0)), 2) as avg_ev_lost
+-- Decision quality by variant
+SELECT eg.variant,
+       COUNT(*) as decisions,
+       ROUND(100.0 * SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) / COUNT(*), 1) as correct_pct,
+       ROUND(AVG(COALESCE(pda.ev_lost, 0)), 4) as avg_ev_lost
 FROM player_decision_analysis pda
 JOIN experiment_games eg ON pda.game_id = eg.game_id
-JOIN experiments e ON eg.experiment_id = e.id
-GROUP BY e.name;
+WHERE eg.experiment_id = ?
+GROUP BY eg.variant;
+
+-- API costs by variant
+SELECT eg.variant,
+       au.provider,
+       au.model,
+       COUNT(*) as calls,
+       SUM(au.estimated_cost) as total_cost
+FROM api_usage au
+JOIN experiment_games eg ON au.game_id = eg.game_id
+WHERE eg.experiment_id = ?
+GROUP BY eg.variant, au.provider, au.model;
 ```
 
-### Decision stats by player
-```sql
--- Per-player performance in an experiment
-SELECT
-    pda.player_name,
-    COUNT(*) as decisions,
-    ROUND(100.0 * SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) / COUNT(*), 1) as correct_pct
-FROM player_decision_analysis pda
-JOIN experiment_games eg ON pda.game_id = eg.game_id
-JOIN experiments e ON eg.experiment_id = e.id
-WHERE e.name = 'my_experiment'
-GROUP BY pda.player_name
-ORDER BY correct_pct DESC;
-```
-
-## Example Experiments
-
-### 1. Model Comparison
-```bash
-# Test different models
-docker compose exec backend python -c "
-from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner
-
-for provider, model in [('google', 'gemini-2.0-flash'), ('openai', 'gpt-4o-mini')]:
-    config = ExperimentConfig(
-        name=f'model_test_{provider}',
-        num_tournaments=3,
-        max_hands_per_tournament=50,
-        num_players=3,
-        provider=provider,
-        model=model,
-    )
-    runner = AITournamentRunner(config)
-    results = runner.run_experiment()
-    print(f'{provider}/{model}: {sum(r.decision_stats.get(\"correct_pct\", 0) for r in results) / len(results):.1f}% correct')
-"
-```
-
-### 2. Personality Impact
-```bash
-# Test aggressive vs passive personalities
-docker compose exec backend python -c "
-from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner
-
-aggressive = ['The Hulk', 'Gordon Ramsay', 'Donald Trump']
-passive = ['Bob Ross', 'Eeyore', 'Mr. Rogers']
-
-for name, personalities in [('aggressive', aggressive), ('passive', passive)]:
-    config = ExperimentConfig(
-        name=f'personality_{name}',
-        num_tournaments=2,
-        personalities=personalities,
-        provider='google',
-        model='gemini-2.0-flash',
-    )
-    runner = AITournamentRunner(config)
-    results = runner.run_experiment()
-"
-```
-
-## Output Files
-
-- **Results JSON**: `experiments/results/exp_<name>_<timestamp>_<tournament>.json`
-- **Database**: All data persisted to `data/poker_games.db`
+---
 
 ## Troubleshooting
 
+### Experiment Won't Start
+
+1. Check validation errors in the response
+2. Ensure name is unique and snake_case
+3. Verify API keys are configured for the provider
+
+### Experiment Stuck
+
+1. Check server logs: `docker compose logs backend --tail 100`
+2. If server restarted, pause then resume the experiment
+3. Check for rate limit errors (429)
+
+### No Results After Completion
+
+1. Wait for async processing to complete
+2. Check `tournament_results` table has entries
+3. Verify `experiment_games` links are correct
+
 ### Rate Limiting
-If you hit rate limits (429 errors), the runner uses fallback actions automatically. For cleaner results, add delays between tournaments or use a higher-tier API plan.
 
-### Tournament Stuck
-The runner has built-in protections:
-- Pre-hand check stops when ≤1 player has chips
-- Run-it-out mode auto-advances all-in scenarios
-- Loop detection breaks out after 6 repeated player queries
+1. Reduce `parallel_tournaments`
+2. Add `stagger_start_delay: 5.0`
+3. Switch to a provider with higher limits (Groq, Google)
+4. The system uses fallback actions automatically but this affects data quality
 
-### Missing Decision Stats
-Decision analysis requires the GTO analyzer. If stats are empty, check that `player_decision_analysis` table is being populated during games.
+### Resuming Failed Experiments
 
-## How It Works
+```bash
+# Via API
+curl -X POST http://localhost:5005/api/experiments/{id}/resume
 
-### Architecture Overview
+# If status is stuck on "running"
+docker compose exec backend python -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/poker_games.db')
+conn.execute('UPDATE experiments SET status = \"paused\" WHERE id = {id}')
+conn.commit()
+"
+# Then resume via API
+```
+
+---
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -212,137 +633,22 @@ Decision analysis requires the GTO analyzer. If stats are empty, check that `pla
 │  PokerStateMachine    →  Game flow control                      │
 │  AIPlayerController[] →  AI decision making per player          │
 │  AIMemoryManager      →  Hand tracking & persistence            │
+│  ThreadPoolExecutor   →  Parallel tournament execution          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Tournament Flow
 
-1. **Initialization** (`create_game`)
-   - Select random personalities (or use specified ones)
-   - Create `PokerGameState` with AI-only players
-   - Initialize `PokerStateMachine` for game flow
-   - Create `AIPlayerController` for each player with LLM config
-   - Set up `AIMemoryManager` for tracking
+1. **Initialization**: Create game state, controllers, memory manager
+2. **Hand Loop**: Advance state machine, get AI decisions, apply actions
+3. **Psychology** (if enabled): Detect events, update tilt, generate emotional state
+4. **Commentary** (if enabled): Generate reflections, update session memory
+5. **Completion**: Record results, compute standings, aggregate stats
 
-2. **Hand Loop** (`run_hand`)
-   ```
-   For each hand:
-   ├── Check if tournament should end (≤1 player with chips)
-   ├── State machine advances to next action point
-   ├── If run_it_out mode (all-in): auto-advance, skip player input
-   ├── If awaiting_action:
-   │   ├── Get current player's controller
-   │   ├── Call controller.decide_action() → LLM API call
-   │   ├── Apply action via play_turn()
-   │   └── Advance to next active player
-   ├── Loop detection: break if same player asked 6+ times
-   └── On EVALUATING_HAND phase: determine winner, award pot
-   ```
+### Key Files
 
-3. **Tournament Completion** (`run_tournament`)
-   - Track eliminations as players reach 0 chips
-   - Continue until 1 player remains or hand limit reached
-   - Compute final standings sorted by chip count
-   - Query decision stats from `player_decision_analysis` table
-   - Return `TournamentResult` with all metrics
-
-### Key State Machine Phases
-
-```
-INITIALIZING_HAND → PRE_FLOP → DEALING_CARDS → FLOP → DEALING_CARDS
-    → TURN → DEALING_CARDS → RIVER → SHOWDOWN → EVALUATING_HAND → HAND_OVER
-```
-
-The tournament runner calls `state_machine.run_until([PokerPhase.EVALUATING_HAND])` which advances through phases until:
-- A player action is needed (`awaiting_action = True`), or
-- The hand reaches evaluation
-
-### Decision Quality Tracking
-
-Each AI decision is analyzed by the GTO (Game Theory Optimal) analyzer:
-
-```python
-# In player_decision_analysis table:
-{
-    'game_id': 'tournament_001',
-    'player_name': 'Batman',
-    'hand_number': 5,
-    'phase': 'FLOP',
-    'action_taken': 'raise',
-    'optimal_action': 'raise',
-    'decision_quality': 'correct',  # correct, marginal, or mistake
-    'ev_lost': 0.0,  # Expected value lost vs optimal
-}
-```
-
-Quality classifications:
-- **correct**: Action matches GTO recommendation
-- **marginal**: Suboptimal but small EV loss (e.g., check when raise is slightly better)
-- **mistake**: Significant EV loss (e.g., folding a strong hand)
-
-### Run-It-Out Mode
-
-When all remaining players are all-in (or only 1 can act), the game enters "run-it-out" mode:
-
-```python
-if game_state.run_it_out:
-    # No player input needed - just deal remaining cards
-    if current_phase == PokerPhase.RIVER:
-        next_phase = PokerPhase.SHOWDOWN
-    else:
-        next_phase = PokerPhase.DEALING_CARDS
-    # Clear flags and advance
-    game_state = game_state.update(awaiting_action=False, run_it_out=False)
-    state_machine.update_phase(next_phase)
-```
-
-This prevents the stuck loop where eliminated or all-in players are repeatedly asked for actions.
-
-### Experiment Persistence
-
-Experiments are stored in two tables:
-
-**`experiments`** - Metadata
-```sql
-CREATE TABLE experiments (
-    id INTEGER PRIMARY KEY,
-    name TEXT UNIQUE,
-    description TEXT,
-    config_json TEXT,      -- Full ExperimentConfig as JSON
-    status TEXT,           -- 'running', 'completed', 'failed'
-    summary_json TEXT,     -- Aggregated results on completion
-    created_at TIMESTAMP,
-    completed_at TIMESTAMP
-);
-```
-
-**`experiment_games`** - Links games to experiments
-```sql
-CREATE TABLE experiment_games (
-    experiment_id INTEGER,
-    game_id TEXT,
-    variant TEXT,              -- For A/B tests: 'variant_a', 'variant_b'
-    variant_config_json TEXT,  -- Variant-specific config
-    tournament_number INTEGER,
-    FOREIGN KEY (experiment_id) REFERENCES experiments(id),
-    FOREIGN KEY (game_id) REFERENCES games(game_id)
-);
-```
-
-### AI Fallback Behavior
-
-When LLM calls fail (rate limits, errors), the system uses fallback strategies:
-
-```python
-@with_ai_fallback(fallback_strategy=AIFallbackStrategy.MIMIC_PERSONALITY)
-def _get_ai_decision(self, message: str, **context) -> Dict:
-    # If this fails after 3 retries, fallback kicks in
-    ...
-```
-
-Fallback strategies:
-- **CONSERVATIVE**: Check if possible, else call/fold
-- **RANDOM_VALID**: Random action from valid options
-- **MIMIC_PERSONALITY**: Based on personality traits (aggression, bluff tendency)
-
-This ensures tournaments complete even with API issues.
+- `experiments/run_ai_tournament.py` - Main runner and config
+- `experiments/pause_coordinator.py` - Pause/resume coordination
+- `flask_app/routes/experiment_routes.py` - API endpoints
+- `poker/controllers.py` - AIPlayerController
+- `poker/player_psychology.py` - Tilt and emotional state

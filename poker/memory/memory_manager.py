@@ -26,17 +26,22 @@ logger = logging.getLogger(__name__)
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
 
-    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None):
+    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None,
+                 commentary_enabled: Optional[bool] = None):
         """Initialize the memory manager.
 
         Args:
             game_id: Unique identifier for the game
             db_path: Path to database for persistence (optional)
             owner_id: Owner/user ID for tracking (optional)
+            commentary_enabled: Override for COMMENTARY_ENABLED config (optional).
+                                If None, uses global COMMENTARY_ENABLED setting.
         """
         self.game_id = game_id
         self.db_path = db_path
         self.owner_id = owner_id
+        # Allow instance-level override for commentary generation
+        self._commentary_enabled_override = commentary_enabled
 
         # Core systems
         self.hand_recorder = HandHistoryRecorder(game_id)
@@ -309,7 +314,9 @@ class AIMemoryManager:
 
         commentaries: Dict[str, HandCommentary] = {}
 
-        if not COMMENTARY_ENABLED:
+        # Check instance override first, then fall back to global setting
+        commentary_enabled = self._commentary_enabled_override if self._commentary_enabled_override is not None else COMMENTARY_ENABLED
+        if not commentary_enabled:
             return commentaries
 
         # Build list of players to generate commentary for

@@ -9,11 +9,13 @@ Supports on-demand generation for personalities without existing images.
 import io
 import logging
 import os
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 from core.llm import LLMClient, CallType
+from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
 
 if TYPE_CHECKING:
     from .persistence import GamePersistence
@@ -32,6 +34,36 @@ EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
 # Icon size for processed images
 ICON_SIZE = 256
 
+# Image provider configuration
+# Priority: 1. Database (app_settings), 2. Environment variable, 3. Default
+# IMAGE_PROVIDER: "openai" (default), "pollinations", "runware", etc.
+# IMAGE_MODEL: model to use (provider-specific default if not set)
+
+def get_image_provider() -> str:
+    """Get the image provider from app_settings or environment."""
+    from .persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('IMAGE_PROVIDER', '')
+    if db_value:
+        return db_value
+    return os.environ.get("IMAGE_PROVIDER", "openai")
+
+
+def get_image_model() -> Optional[str]:
+    """Get the image model from app_settings or environment."""
+    from .persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('IMAGE_MODEL', '')
+    if db_value:
+        return db_value
+    return os.environ.get("IMAGE_MODEL")
+
+
+# Legacy module-level constants for backward compatibility (read at module load)
+# Note: These may not reflect runtime app_settings changes
+IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL")
+
 # Full image generation size (512x512 for DALL-E 2, 1024x1024 for DALL-E 3)
 # The full image is stored for CSS-based cropping on the frontend
 FULL_IMAGE_SIZE = "512x512"
@@ -45,6 +77,9 @@ Bold outlines, vibrant colors, exaggerated features. Chest-up view, centered."""
 # Prompt template for real people (uses descriptions to avoid content policy blocks)
 PROMPT_TEMPLATE_DESCRIPTION = """Black background, cartoonish caricature of {emotion_detail} {description} playing poker.
 Bold outlines, vibrant colors, exaggerated features. Chest-up view, centered."""
+
+# Negative prompt for avatar generation - things to avoid
+NEGATIVE_PROMPT = "cleavage, anime, manga, cartoon eyes, big eyes, nsfw, nude, naked, revealing clothing, low cut, sexy"
 
 # Emotion descriptions for image generation - grammatically complete phrases
 EMOTION_DETAILS = {
@@ -210,7 +245,10 @@ class CharacterImageService:
         self,
         personality_name: str,
         emotion: str,
-        game_id: Optional[str] = None
+        game_id: Optional[str] = None,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        reference_image_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Regenerate a single emotion image for a personality.
 
@@ -218,6 +256,10 @@ class CharacterImageService:
             personality_name: Name of the personality
             emotion: Emotion to regenerate
             game_id: Optional game ID for tracking
+            seed_image_url: Optional base64 data URL for img2img generation
+            strength: How much to transform the seed image (0.0-1.0).
+                      Lower = more like original, higher = more creative.
+            reference_image_id: Optional reference image ID for tracking/capture
 
         Returns:
             Dict with 'success', 'message', and optionally 'error'
@@ -234,8 +276,16 @@ class CharacterImageService:
             return {"success": False, "error": f"Missing dependency: {e}"}
 
         try:
-            llm_client = LLMClient()
-            raw_image_bytes = self._generate_single_image(llm_client, personality_name, emotion, game_id=game_id)
+            llm_client = LLMClient(provider=get_image_provider(), model=get_image_model())
+            raw_image_bytes = self._generate_single_image(
+                llm_client,
+                personality_name,
+                emotion,
+                game_id=game_id,
+                seed_image_url=seed_image_url,
+                strength=strength,
+                reference_image_id=reference_image_id
+            )
             self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
             return {
                 "success": True,
@@ -290,14 +340,25 @@ class CharacterImageService:
             }
 
         # Initialize LLM client for tracked API calls
-        llm_client = LLMClient()
+        # Use app_settings IMAGE_PROVIDER and IMAGE_MODEL for image generation
+        image_provider = get_image_provider()
+        image_model = get_image_model()
+        llm_client = LLMClient(provider=image_provider, model=image_model)
 
         results = {"generated": 0, "failed": 0, "skipped": 0, "errors": []}
 
-        for emotion in emotions:
+        # Check if we're using Pollinations (needs rate limiting)
+        needs_rate_limit = image_provider == "pollinations" and POLLINATIONS_RATE_LIMIT_DELAY > 0
+
+        for i, emotion in enumerate(emotions):
             if emotion not in EMOTIONS:
                 results["skipped"] += 1
                 continue
+
+            # Add delay between requests to respect rate limits (skip first request)
+            if needs_rate_limit and i > 0:
+                logger.info(f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image")
+                time.sleep(POLLINATIONS_RATE_LIMIT_DELAY)
 
             try:
                 # Generate the image and get raw bytes
@@ -349,7 +410,10 @@ class CharacterImageService:
         return None
 
     def _generate_single_image(self, llm_client: LLMClient, personality_name: str, emotion: str,
-                                game_id: Optional[str] = None) -> bytes:
+                                game_id: Optional[str] = None,
+                                seed_image_url: Optional[str] = None,
+                                strength: float = 0.75,
+                                reference_image_id: Optional[str] = None) -> bytes:
         """Generate a single image using DALL-E and return raw bytes.
 
         Args:
@@ -357,6 +421,10 @@ class CharacterImageService:
             personality_name: Name of the personality
             emotion: Emotion to generate
             game_id: Game ID for tracking (owner derived via JOIN)
+            seed_image_url: Optional base64 data URL for img2img generation
+            strength: How much to transform the seed image (0.0-1.0).
+                      Lower = more like original, higher = more creative.
+            reference_image_id: Optional reference image ID for tracking/capture
 
         Returns:
             Raw image bytes (512x512 PNG by default, configurable via FULL_IMAGE_SIZE)
@@ -387,6 +455,11 @@ class CharacterImageService:
                 game_id=game_id,
                 player_name=personality_name,
                 prompt_template='avatar_generation',
+                target_emotion=emotion,
+                seed_image_url=seed_image_url,
+                strength=strength,
+                reference_image_id=reference_image_id,
+                negative_prompt=NEGATIVE_PROMPT,
             )
             if image_response.is_error:
                 # Check for content policy violation before raising
@@ -410,6 +483,8 @@ class CharacterImageService:
                         game_id=game_id,
                         player_name=personality_name,
                         prompt_template='avatar_generation_fallback',
+                        target_emotion=emotion,
+                        negative_prompt=NEGATIVE_PROMPT,
                     )
                     if image_response.is_error:
                         logger.error(f"Second attempt also failed for {personality_name}/{emotion}: {image_response.error_message}")
@@ -443,6 +518,25 @@ class CharacterImageService:
 
         # Load image from bytes
         img = Image.open(io.BytesIO(raw_image_bytes))
+        original_width, original_height = img.size
+
+        # If image is not square (can happen with img2img), resize to target size
+        target_size = FULL_IMAGE_DIMENSIONS[0]  # 512
+        if original_width != original_height or original_width != target_size:
+            logger.info(f"Resizing image from {original_width}x{original_height} to {target_size}x{target_size}")
+            # Center crop to square first if needed
+            if original_width != original_height:
+                crop_size = min(original_width, original_height)
+                left = (original_width - crop_size) // 2
+                top = (original_height - crop_size) // 2
+                img = img.crop((left, top, left + crop_size, top + crop_size))
+            # Resize to target
+            img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+            # Update raw_image_bytes with resized image
+            buffer = io.BytesIO()
+            img.save(buffer, 'PNG')
+            raw_image_bytes = buffer.getvalue()
+
         full_width, full_height = img.size
 
         # Center crop to square for icon
@@ -627,10 +721,20 @@ def get_full_avatar_url(personality_name: str, emotion: str = "confident") -> Op
 def regenerate_avatar_emotion(
     personality_name: str,
     emotion: str,
-    game_id: Optional[str] = None
+    game_id: Optional[str] = None,
+    seed_image_url: Optional[str] = None,
+    strength: float = 0.75,
+    reference_image_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Regenerate a single emotion image for a personality."""
-    return get_character_image_service().regenerate_emotion(personality_name, emotion, game_id=game_id)
+    return get_character_image_service().regenerate_emotion(
+        personality_name,
+        emotion,
+        game_id=game_id,
+        seed_image_url=seed_image_url,
+        strength=strength,
+        reference_image_id=reference_image_id
+    )
 
 
 def get_available_emotions() -> List[str]:

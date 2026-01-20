@@ -3,6 +3,8 @@ import { Search, Check, Settings } from 'lucide-react';
 import { config } from '../../config';
 import { PageLayout, PageHeader } from '../shared';
 import { OpponentConfigScreen } from './OpponentConfigScreen';
+import { useLLMProviders } from '../../hooks/useLLMProviders';
+import type { OpponentLLMConfig } from '../../types/llm';
 import './CustomGameConfig.css';
 
 interface Personality {
@@ -14,25 +16,6 @@ interface Personality {
     chattiness: number;
     emoji_usage: number;
   };
-}
-
-interface ProviderInfo {
-  id: string;
-  name: string;
-  models: string[];
-  default_model: string;
-  capabilities: {
-    supports_reasoning: boolean;
-    supports_json_mode: boolean;
-    supports_image_generation: boolean;
-  };
-  model_tiers?: Record<string, string>;
-}
-
-interface OpponentLLMConfig {
-  provider: string;
-  model: string;
-  reasoning_effort?: string;
 }
 
 interface LLMConfig {
@@ -60,9 +43,15 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Provider and model configuration state
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [providersLoading, setProvidersLoading] = useState(true);
+  // Provider and model configuration state - using 'user' scope for end-user game setup
+  const {
+    providers,
+    loading: providersLoading,
+    getModelsForProvider,
+    getDefaultModel,
+    providerSupportsReasoning,
+    formatModelLabel,
+  } = useLLMProviders({ scope: 'user' });
   const [defaultProvider, setDefaultProvider] = useState('openai');
   const [defaultModel, setDefaultModel] = useState('gpt-5-nano');
   const [reasoningLevels] = useState(['minimal', 'low']);
@@ -88,8 +77,16 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   useEffect(() => {
     fetchPersonalities();
-    fetchProviders();
   }, []);
+
+  // Initialize default provider/model when providers load
+  useEffect(() => {
+    if (providers.length > 0) {
+      const openaiProvider = providers.find(p => p.id === 'openai') || providers[0];
+      setDefaultProvider(openaiProvider.id);
+      setDefaultModel(openaiProvider.default_model);
+    }
+  }, [providers]);
 
   const fetchPersonalities = async () => {
     try {
@@ -105,65 +102,16 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
     }
   };
 
-  const fetchProviders = async () => {
-    setProvidersLoading(true);
-    try {
-      const response = await fetch(`${config.API_URL}/api/llm-providers`, { credentials: 'include' });
-      const data = await response.json();
-      if (data.providers?.length > 0) {
-        setProviders(data.providers);
-        const defaultProv = data.providers.find((p: ProviderInfo) => p.id === 'openai') || data.providers[0];
-        setDefaultProvider(defaultProv.id);
-        setDefaultModel(defaultProv.default_model);
-      }
-    } catch (err) {
-      console.warn('Provider fetch failed, using OpenAI fallback:', err);
-      // Fallback to OpenAI only
-      setProviders([{
-        id: 'openai',
-        name: 'OpenAI',
-        models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
-        default_model: 'gpt-5-nano',
-        capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: true }
-      }]);
-    } finally {
-      setProvidersLoading(false);
-    }
-  };
-
-  // Helper functions for provider management
-  const getModelsForProvider = (providerId: string): string[] => {
-    const provider = providers.find(p => p.id === providerId);
-    return provider?.models || [];
-  };
-
-  const providerSupportsReasoning = (providerId: string): boolean => {
-    const provider = providers.find(p => p.id === providerId);
-    return provider?.capabilities?.supports_reasoning ?? false;
-  };
-
-  const getModelTier = (providerId: string, model: string): string => {
-    const provider = providers.find(p => p.id === providerId);
-    return provider?.model_tiers?.[model] || '';
-  };
-
-  const formatModelLabel = (providerId: string, model: string): string => {
-    const tier = getModelTier(providerId, model);
-    return tier ? `${model} (${tier})` : model;
-  };
-
   const handleDefaultProviderChange = (newProvider: string) => {
     setDefaultProvider(newProvider);
-    const provider = providers.find(p => p.id === newProvider);
-    if (provider) {
-      // Cascade: reset model if current not available in new provider
-      if (!provider.models.includes(defaultModel)) {
-        setDefaultModel(provider.default_model);
-      }
-      // Reset reasoning if provider doesn't support it
-      if (!provider.capabilities?.supports_reasoning) {
-        setDefaultReasoning('minimal');
-      }
+    const models = getModelsForProvider(newProvider);
+    // Cascade: reset model if current not available in new provider
+    if (!models.includes(defaultModel)) {
+      setDefaultModel(getDefaultModel(newProvider));
+    }
+    // Reset reasoning if provider doesn't support it
+    if (!providerSupportsReasoning(newProvider)) {
+      setDefaultReasoning('minimal');
     }
   };
 
@@ -174,9 +122,9 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         delete next[name];
       } else {
         // Validate model is available for provider
-        const provider = providers.find(p => p.id === newConfig.provider);
-        if (provider && !provider.models.includes(newConfig.model)) {
-          newConfig.model = provider.default_model;
+        const models = getModelsForProvider(newConfig.provider);
+        if (models.length > 0 && !models.includes(newConfig.model)) {
+          newConfig.model = getDefaultModel(newConfig.provider);
         }
         next[name] = newConfig;
       }

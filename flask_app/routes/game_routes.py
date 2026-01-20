@@ -229,7 +229,7 @@ def api_game_state(game_id):
     if current_game_data:
         state_machine = current_game_data['state_machine']
         if not state_machine.game_state.awaiting_action and not current_game_data.get('game_started', False):
-            print(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
+            logger.debug(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
             current_game_data['game_started'] = True
             progress_game(game_id)
 
@@ -339,22 +339,23 @@ def api_game_state(game_id):
 
                 game_state = state_machine.game_state
                 current_player = game_state.current_player
-                print(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
+                logger.debug(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
                       f"awaiting_action: {game_state.awaiting_action}, "
                       f"current_player: {current_player.name} (human: {current_player.is_human})")
 
                 if not game_state.awaiting_action:
-                    print(f"[LOAD] Auto-advancing game {game_id} (not awaiting action)")
+                    logger.debug(f"[LOAD] Auto-advancing game {game_id} (not awaiting action)")
                     progress_game(game_id)
                 elif game_state.awaiting_action and not current_player.is_human:
-                    print(f"[LOAD] Resuming AI turn for {current_player.name} in game {game_id}")
+                    logger.debug(f"[LOAD] Resuming AI turn for {current_player.name} in game {game_id}")
                     progress_game(game_id)
             else:
                 return jsonify({'error': 'Game not found'}), 404
         except Exception as e:
-            print(f"Error loading game {game_id}: {str(e)}")
+            logger.warning(f"[LOAD] Error loading game {game_id}: {str(e)}")
             import traceback
             traceback.print_exc()
+            logger.debug(f"[LOAD] Error loading game {game_id}: {str(e)}")
             return jsonify({
                 'error': 'Game loading is currently unavailable',
                 'message': 'This feature is under development. Please start a new game.',
@@ -488,9 +489,13 @@ def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     return tiers
 
 
-@game_bp.route('/api/llm-providers', methods=['GET'])
-def api_llm_providers():
-    """Get available LLM providers and their models for game configuration."""
+@game_bp.route('/api/user-models', methods=['GET'])
+def api_user_models():
+    """Get LLM providers and models available for user-facing game configuration.
+
+    Returns models where BOTH enabled=1 AND user_enabled=1.
+    Use /api/system-models for admin tools that need system-only models.
+    """
     from core.llm import (
         AVAILABLE_PROVIDERS,
         PROVIDER_MODELS,
@@ -503,6 +508,9 @@ def api_llm_providers():
 
     # Get enabled models from database (if table exists)
     enabled_models = _get_enabled_models_map()
+
+    # Get model-level capabilities (supplements provider-level)
+    model_capabilities = _get_model_capabilities_map()
 
     providers = []
     for provider in AVAILABLE_PROVIDERS:
@@ -523,12 +531,91 @@ def api_llm_providers():
         if default_model not in models and models:
             default_model = models[0]
 
+        # Build model-specific capabilities for this provider
+        provider_model_caps = {
+            m: model_capabilities.get((provider, m), {})
+            for m in models
+            if (provider, m) in model_capabilities
+        }
+
         providers.append({
             'id': provider,
             'name': provider.title(),
             'models': models,
             'default_model': default_model,
             'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+            'model_capabilities': provider_model_caps,
+            'model_tiers': model_tiers.get(provider, {}),
+        })
+
+    return jsonify({
+        'providers': providers,
+        'default_provider': 'openai',
+    })
+
+
+@game_bp.route('/api/system-models', methods=['GET'])
+def api_system_models():
+    """Get LLM providers and models available for system/admin features.
+
+    Returns models where enabled=1 (ignores user_enabled).
+    This includes "System-only" models that admins can use but users cannot see.
+
+    Use this endpoint for:
+    - Experiment Designer
+    - Prompt Debugger
+    - Decision Analyzer
+    - Prompt Playground
+    """
+    from core.llm import (
+        AVAILABLE_PROVIDERS,
+        PROVIDER_MODELS,
+        PROVIDER_DEFAULT_MODELS,
+        PROVIDER_CAPABILITIES,
+    )
+
+    # Get cost tiers from pricing database
+    model_tiers = get_model_cost_tiers()
+
+    # Get system-enabled models (only checks enabled, ignores user_enabled)
+    enabled_models = _get_system_enabled_models_map()
+
+    # Get model-level capabilities (supplements provider-level)
+    model_capabilities = _get_model_capabilities_map()
+
+    providers = []
+    for provider in AVAILABLE_PROVIDERS:
+        all_models = PROVIDER_MODELS.get(provider, [])
+
+        # Filter by system-enabled models if we have the table
+        if enabled_models:
+            models = [m for m in all_models if enabled_models.get((provider, m), True)]
+        else:
+            models = all_models
+
+        # Skip providers with no enabled models
+        if not models:
+            continue
+
+        # Adjust default model if it's been disabled
+        default_model = PROVIDER_DEFAULT_MODELS.get(provider)
+        if default_model not in models and models:
+            default_model = models[0]
+
+        # Build model-specific capabilities for this provider
+        provider_model_caps = {
+            m: model_capabilities.get((provider, m), {})
+            for m in models
+            if (provider, m) in model_capabilities
+        }
+
+        providers.append({
+            'id': provider,
+            'name': provider.title(),
+            'models': models,
+            'default_model': default_model,
+            'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+            'model_capabilities': provider_model_caps,
             'model_tiers': model_tiers.get(provider, {}),
         })
 
@@ -539,7 +626,11 @@ def api_llm_providers():
 
 
 def _get_enabled_models_map():
-    """Get a map of (provider, model) -> enabled status.
+    """Get a map of (provider, model) -> enabled status for user-facing features.
+
+    For game setup and user-facing features, models must have BOTH:
+    - enabled = 1 (system enabled)
+    - user_enabled = 1 (user enabled)
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
@@ -557,10 +648,90 @@ def _get_enabled_models_map():
             if not cursor.fetchone():
                 return {}
 
+            # Only include models where BOTH enabled and user_enabled are true
+            cursor = conn.execute("""
+                SELECT provider, model, enabled, user_enabled FROM enabled_models
+            """)
+            return {
+                (row[0], row[1]): bool(row[2]) and bool(row[3] if row[3] is not None else True)
+                for row in cursor.fetchall()
+            }
+    except Exception:
+        return {}
+
+
+def _get_system_enabled_models_map():
+    """Get a map of (provider, model) -> enabled status for system/admin features.
+
+    For admin tools (experiments, playground, decision analyzer), models only need:
+    - enabled = 1 (system enabled)
+
+    This includes "System-only" models (enabled=1, user_enabled=0) that admins
+    can use but regular users cannot see in game setup.
+
+    Returns empty dict if enabled_models table doesn't exist yet.
+    """
+    from pathlib import Path
+
+    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            # Check if table exists
+            cursor = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='enabled_models'
+            """)
+            if not cursor.fetchone():
+                return {}
+
+            # Only check system enabled status (ignore user_enabled)
             cursor = conn.execute("""
                 SELECT provider, model, enabled FROM enabled_models
             """)
-            return {(row[0], row[1]): bool(row[2]) for row in cursor.fetchall()}
+            return {
+                (row[0], row[1]): bool(row[2])
+                for row in cursor.fetchall()
+            }
+    except Exception:
+        return {}
+
+
+def _get_model_capabilities_map():
+    """Get a map of (provider, model) -> capability flags.
+
+    Returns model-level capabilities (supports_img2img, etc.) from enabled_models table.
+    This supplements provider-level capabilities with model-specific flags.
+
+    Returns:
+        Dict mapping (provider, model) to dict of capability flags
+    """
+    from pathlib import Path
+
+    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            # Check if table and column exist
+            cursor = conn.execute("PRAGMA table_info(enabled_models)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'supports_img2img' not in columns:
+                return {}
+
+            cursor = conn.execute("""
+                SELECT provider, model, supports_reasoning, supports_json_mode,
+                       supports_image_gen, supports_img2img
+                FROM enabled_models
+            """)
+            return {
+                (row[0], row[1]): {
+                    'supports_reasoning': bool(row[2]),
+                    'supports_json_mode': bool(row[3]),
+                    'supports_image_generation': bool(row[4]),
+                    'supports_img2img': bool(row[5]) if row[5] is not None else False,
+                }
+                for row in cursor.fetchall()
+            }
     except Exception:
         return {}
 
@@ -883,7 +1054,7 @@ def end_game(game_id):
     try:
         persistence.delete_game(game_id)
     except Exception as e:
-        print(f"Error deleting game {game_id} from database: {e}")
+        logger.warning(f"[DELETE] Error deleting game {game_id} from database: {e}")
 
     return jsonify({'message': 'Game ended successfully'})
 
@@ -965,7 +1136,7 @@ def register_socket_events(sio):
     @sio.on('join_game')
     def on_join(game_id):
         join_room(game_id)
-        print(f"User joined room: {game_id}")
+        logger.debug(f"[SOCKET] User joined room: {game_id}")
         socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
         game_id_str = str(game_id)
@@ -973,7 +1144,7 @@ def register_socket_events(sio):
         if game_data:
             if not game_data.get('game_started', False):
                 game_data['game_started'] = True
-                print(f"Starting game progression for: {game_id_str}")
+                logger.debug(f"[SOCKET] Starting game progression for: {game_id_str}")
                 progress_game(game_id_str)
 
     @sio.on('player_action')

@@ -1,6 +1,6 @@
 """Response dataclasses for LLM operations."""
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -14,12 +14,15 @@ class LLMResponse:
     cached_tokens: int = 0
     reasoning_tokens: int = 0
     reasoning_effort: Optional[str] = None
+    reasoning_content: Optional[str] = None  # Thinking/reasoning text (DeepSeek thinking mode)
     max_tokens: Optional[int] = None  # Token limit used for this request
     latency_ms: float = 0
     finish_reason: str = ""
     status: str = "ok"
     error_code: Optional[str] = None
+    error_message: Optional[str] = None  # Full error message for debugging
     request_id: Optional[str] = None  # Vendor request ID for correlation
+    tool_calls: Optional[List[Dict[str, Any]]] = None  # Tool calls from the model
     raw_response: Any = field(default=None, repr=False)
 
     @property

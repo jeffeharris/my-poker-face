@@ -1,5 +1,5 @@
 name: decision
-version: 1.1.0
+version: 1.3.0
 sections:
   base: |-
     {message}
@@ -7,6 +7,13 @@ sections:
     CRITICAL: When raising, 'adding_to_pot' must be a positive number - the amount to raise BY.
     Example: If you say 'I raise by $500', then adding_to_pot should be 500.
     Example: If you say 'I raise to $500' and cost to call is $100, then adding_to_pot should be 400.
+
+    BETTING DISCIPLINE (ALL STREETS):
+    - Your equity % tells you your chance of winning. 0-10% equity = you cannot win. FOLD.
+    - BIG BETS (raises, all-in) require hand strength. Don't bluff big with nothing.
+    - WEAK hands (no pair, missed draws, high card only): check or fold, don't bet big.
+    - Your personality influences HOW you play, not WHETHER your cards justify the bet.
+    - Smart aggressive players pick their spots - they don't shove garbage.
 
   mind_games: |-
     MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? Trying to tilt you or bait you into a bad call? Use their words to read their hand - excessive trash talk often means weakness, while silence or short responses may signal strength. Let their table talk influence your decision.

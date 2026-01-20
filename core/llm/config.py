@@ -14,6 +14,12 @@ DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
 # Fast model for quick operations (chat suggestions, theme generation, etc.)
 FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL)
 
+# Model for assistants (experiment designer, etc.)
+# Default: DeepSeek Chat (supports tools + optional thinking mode)
+# Note: deepseek-reasoner does NOT support tool calling
+ASSISTANT_MODEL = os.environ.get("ASSISTANT_MODEL", "deepseek-chat")
+ASSISTANT_PROVIDER = os.environ.get("ASSISTANT_PROVIDER", "deepseek")
+
 # Default reasoning effort for GPT-5 models
 # Options: 'minimal', 'low', 'medium', 'high'
 DEFAULT_REASONING_EFFORT = "minimal"
@@ -34,10 +40,12 @@ GROQ_DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 # Available Groq models for UI selection
 # See: https://console.groq.com/docs/models
 GROQ_AVAILABLE_MODELS = [
-    "llama-3.3-70b-versatile",                       # Best overall, 128k context, 280 tok/s
-    "llama-3.1-8b-instant",                          # Fast, good for simple tasks, 560 tok/s
-    "meta-llama/llama-4-scout-17b-16e-instruct",    # Llama 4 Scout, 750 tok/s (preview)
-    "qwen/qwen3-32b",                                # Qwen 3 32B, 400 tok/s (preview)
+    "llama-3.3-70b-versatile",                   # Best overall, 131k context, 280 tok/s
+    "llama-3.1-8b-instant",                      # Fast, good for simple tasks, 560 tok/s
+    "openai/gpt-oss-20b",                        # GPT OSS 20B, 1000 tok/s
+    "openai/gpt-oss-120b",                       # GPT OSS 120B, 500 tok/s
+    "meta-llama/llama-4-scout-17b-16e-instruct", # Llama 4 Scout, 750 tok/s (lab)
+    "qwen/qwen3-32b",                            # Qwen3 32B, 400 tok/s (lab)
 ]
 
 # =============================================================================
@@ -59,13 +67,14 @@ ANTHROPIC_AVAILABLE_MODELS = [
 # DeepSeek Configuration
 # =============================================================================
 
-# Default DeepSeek model - V3 is extremely cheap with quality near GPT-4
-DEEPSEEK_DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+# Default DeepSeek model - unified model that auto-routes based on reasoning_effort
+DEEPSEEK_DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek")
 
 # Available DeepSeek models for UI selection
 # See: https://platform.deepseek.com/api-docs/
 DEEPSEEK_AVAILABLE_MODELS = [
-    "deepseek-chat",        # V3 - Best value, $0.28/$0.42 per M tokens
+    "deepseek",             # Unified - routes to chat or reasoner based on reasoning_effort
+    "deepseek-chat",        # V3 - Best value, $0.28/$0.42 per M tokens (no reasoning)
     "deepseek-reasoner",    # R1 - Reasoning model, $0.55/$2.19 per M tokens
 ]
 
@@ -122,11 +131,52 @@ XAI_AVAILABLE_MODELS = [
 ]
 
 # =============================================================================
+# Runware Configuration (Image-Only Provider)
+# =============================================================================
+
+# Default Runware model - FLUX Schnell is fast and good quality
+RUNWARE_DEFAULT_MODEL = os.environ.get("RUNWARE_MODEL", "runware:100@1")
+
+# Available Runware models for image generation
+# See: https://runware.ai/docs/image-inference/api-reference
+RUNWARE_AVAILABLE_MODELS = [
+    "runware:100@1",            # FLUX.1 [schnell] - fast ($0.0013/1024x1024)
+    "runware:400@1",            # FLUX.2 [dev] - higher quality ($0.0038/1024x1024)
+    "runware:400@4",            # FLUX.2 [klein] 4B - fast ($0.0006/1024x1024)
+    "runware:z-image@turbo",    # Z-Image Turbo ($0.0032/1024x1024)
+]
+
+# =============================================================================
+# Pollinations Configuration (Image-Only Provider)
+# =============================================================================
+
+# Default Pollinations model - flux is cheap and high quality
+POLLINATIONS_DEFAULT_MODEL = os.environ.get("POLLINATIONS_MODEL", "flux")
+
+# Rate limit delay between requests (in seconds)
+# Tier delays: anonymous=15, seed=5, flower=3, nectar=0
+# Set via POLLINATIONS_RATE_LIMIT_DELAY env var or defaults to 5 (seed tier with API key)
+POLLINATIONS_RATE_LIMIT_DELAY = float(os.environ.get("POLLINATIONS_RATE_LIMIT_DELAY", "5"))
+
+# Available Pollinations models for image generation
+# See: https://pollinations.ai/pricing
+POLLINATIONS_AVAILABLE_MODELS = [
+    "flux",                         # Flux Schnell - fast, good quality ($0.0002/image)
+    "zimage",                       # Z-Image Turbo - fast ($0.0002/image)
+    "turbo",                        # SDXL Turbo ($0.0003/image)
+    "klein",                        # FLUX.2 Klein 4B - supports img2img ($0.008/image)
+    "seedream",                     # Seedream 4.0 ($0.03/image)
+    "kontext",                      # FLUX.1 Kontext ($0.04/image)
+    "gptimage",                     # GPT Image 1 Mini ($0.008/image approx)
+    "nanobanana",                   # NanoBanana
+]
+
+# =============================================================================
 # Provider Registry
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai"]
+AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai", "pollinations", "runware"]
 
 # =============================================================================
 # Default Enabled Models (for new deployments)
@@ -151,6 +201,8 @@ PROVIDER_MODELS = {
     "mistral": MISTRAL_AVAILABLE_MODELS,
     "google": GOOGLE_AVAILABLE_MODELS,
     "xai": XAI_AVAILABLE_MODELS,
+    "pollinations": POLLINATIONS_AVAILABLE_MODELS,
+    "runware": RUNWARE_AVAILABLE_MODELS,
 }
 
 # Default model per provider
@@ -162,6 +214,8 @@ PROVIDER_DEFAULT_MODELS = {
     "mistral": MISTRAL_DEFAULT_MODEL,
     "google": GOOGLE_DEFAULT_MODEL,
     "xai": XAI_DEFAULT_MODEL,
+    "pollinations": POLLINATIONS_DEFAULT_MODEL,
+    "runware": RUNWARE_DEFAULT_MODEL,
 }
 
 # Provider capabilities
@@ -200,6 +254,18 @@ PROVIDER_CAPABILITIES = {
         "supports_reasoning": True,  # grok-3-mini only (low/high)
         "supports_json_mode": True,
         "supports_image_generation": False,
+    },
+    "pollinations": {
+        "supports_reasoning": False,
+        "supports_json_mode": False,
+        "supports_image_generation": True,  # Image-only provider
+        "image_only": True,  # Flag for image-only providers
+    },
+    "runware": {
+        "supports_reasoning": False,
+        "supports_json_mode": False,
+        "supports_image_generation": True,  # Image-only provider
+        "image_only": True,  # Flag for image-only providers
     },
 }
 

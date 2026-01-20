@@ -3,12 +3,15 @@ AI-powered personality generator for poker players.
 Uses LLM to generate unique personality configurations based on character names.
 """
 import json
+import logging
 import random
 from typing import Dict, Any, Optional
 from pathlib import Path
 
 from core.llm import LLMClient, CallType
 from .persistence import GamePersistence
+
+logger = logging.getLogger(__name__)
 
 
 class PersonalityGenerator:
@@ -110,23 +113,23 @@ Respond with ONLY a JSON object in this exact format:
         Returns:
             Personality configuration dict
         """
-        print(f"[PersonalityGenerator] Getting personality for: {name}")
+        logger.info(f"[PERSONALITY] Getting personality for: {name}")
 
         # Check cache first
         if name in self._cache and not force_generate:
-            print(f"[PersonalityGenerator] Found {name} in cache")
+            logger.info(f"[PERSONALITY] Found {name} in cache")
             return self._cache[name]
 
         # Check database (source of truth) unless forcing generation
         if not force_generate:
             db_personality = self.persistence.load_personality(name)
             if db_personality:
-                print(f"[PersonalityGenerator] Found {name} in database")
+                logger.info(f"[PERSONALITY] Found {name} in database")
                 self._cache[name] = db_personality
                 return db_personality
 
         # Generate new personality via AI
-        print(f"[PersonalityGenerator] Generating new personality for {name}")
+        logger.info(f"[PERSONALITY] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
 
         # Save to database
@@ -176,7 +179,7 @@ Respond with ONLY a JSON object in this exact format:
                 return self._create_default_personality(name)
 
         except Exception as e:
-            print(f"Error generating personality for {name}: {e}")
+            logger.info(f"[PERSONALITY] Error generating personality for {name}: {e}")
             return self._create_default_personality(name)
     
     def _create_default_personality(self, name: str) -> Dict[str, Any]:
@@ -282,3 +285,42 @@ Respond with ONLY a JSON object in this exact format:
             True if avatar image exists in database
         """
         return self.persistence.has_avatar_image(name, emotion)
+
+    # ==================== Reference Image Management ====================
+
+    def get_reference_image_id(self, name: str) -> Optional[str]:
+        """Get reference image ID for a personality.
+
+        The reference image is used for img2img generation to create
+        consistent avatar images based on a user-provided photo.
+
+        Args:
+            name: Character name
+
+        Returns:
+            Reference image ID string or None if not set
+        """
+        personality = self.get_personality(name)
+        return personality.get('reference_image_id')
+
+    def set_reference_image_id(self, name: str, reference_id: Optional[str]) -> None:
+        """Set reference image ID for a personality.
+
+        Args:
+            name: Character name
+            reference_id: Reference image ID for img2img generation (or None to clear)
+        """
+        # Update in cache
+        if name in self._cache:
+            if reference_id:
+                self._cache[name]['reference_image_id'] = reference_id
+            elif 'reference_image_id' in self._cache[name]:
+                del self._cache[name]['reference_image_id']
+
+        # Update in database (source of truth)
+        personality = self.get_personality(name)
+        if reference_id:
+            personality['reference_image_id'] = reference_id
+        elif 'reference_image_id' in personality:
+            del personality['reference_image_id']
+        self.persistence.save_personality(name, personality, source='updated')

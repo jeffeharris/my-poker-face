@@ -1,168 +1,244 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, FlaskConical, Microscope, Sliders, DollarSign, FileText, Bug, Settings } from 'lucide-react';
-import { PageLayout, PageHeader } from '../shared';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { AdminSidebar, type AdminTab, type SidebarItem } from './AdminSidebar';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
-import { ModelManager } from './ModelManager';
-import { PricingManager } from './PricingManager';
+import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
-import { CaptureSettings } from './CaptureSettings';
+import { UnifiedSettings } from './UnifiedSettings';
+import { AdminMenuContainer } from './AdminMenuContainer';
+import { PageLayout, PageHeader } from '../shared';
+import { useViewport } from '../../hooks/useViewport';
 import './AdminDashboard.css';
+import '../menus/GameMenu.css';
 
-type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'models' | 'pricing' | 'templates' | 'settings' | 'debug';
-
-interface TabConfig {
-  id: AdminTab;
-  label: string;
-  icon: React.ReactNode;
-  description: string;
-}
-
-const TABS: TabConfig[] = [
+export const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     id: 'personalities',
     label: 'Personalities',
-    icon: <Users size={18} />,
+    icon: <Users size={24} />,
     description: 'Create and customize AI opponents',
   },
   {
     id: 'analyzer',
     label: 'Decision Analyzer',
-    icon: <Microscope size={18} />,
+    icon: <Microscope size={24} />,
     description: 'Analyze and replay AI decision prompts',
   },
   {
     id: 'playground',
     label: 'Prompt Playground',
-    icon: <FlaskConical size={18} />,
+    icon: <FlaskConical size={24} />,
     description: 'View and replay any captured LLM prompt',
   },
   {
-    id: 'models',
-    label: 'Models',
-    icon: <Sliders size={18} />,
-    description: 'Enable or disable LLM models by provider',
-  },
-  {
-    id: 'pricing',
-    label: 'Pricing',
-    icon: <DollarSign size={18} />,
-    description: 'View and manage LLM pricing configuration',
+    id: 'experiments',
+    label: 'Experiments',
+    icon: <Beaker size={24} />,
+    description: 'Design and run AI tournament experiments',
   },
   {
     id: 'templates',
     label: 'Templates',
-    icon: <FileText size={18} />,
+    icon: <FileText size={24} />,
     description: 'Edit system prompt templates',
   },
   {
     id: 'settings',
     label: 'Settings',
-    icon: <Settings size={18} />,
-    description: 'Configure prompt capture and other settings',
+    icon: <Settings size={24} />,
+    description: 'Models, capture, storage, and pricing',
   },
   {
     id: 'debug',
     label: 'Debug',
-    icon: <Bug size={18} />,
+    icon: <Bug size={24} />,
     description: 'Inspect game state and AI internals',
   },
 ];
 
 interface AdminDashboardProps {
   onBack: () => void;
+  initialTab?: AdminTab;
+  onTabChange?: (tab: AdminTab) => void;
 }
 
-// Get initial tab from URL or default to 'personalities'
-function getInitialTab(): AdminTab {
-  const urlParams = new URLSearchParams(window.location.search);
-  const tabParam = urlParams.get('tab');
-  const validTabs = TABS.map(t => t.id);
-  if (tabParam && validTabs.includes(tabParam as AdminTab)) {
-    return tabParam as AdminTab;
-  }
-  return 'personalities';
-}
+export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboardProps) {
+  const { isMobile } = useViewport();
+  const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
+  const [isDesignMode, setIsDesignMode] = useState(false);
 
-// Update URL with current tab without page reload
-function updateUrlTab(tab: AdminTab) {
-  const url = new URL(window.location.href);
-  url.searchParams.set('view', 'admin');
-  url.searchParams.set('tab', tab);
-  window.history.replaceState({}, '', url.toString());
-}
+  // Sync activeTab with initialTab when it changes (URL navigation)
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
-export function AdminDashboard({ onBack }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AdminTab>(getInitialTab);
-
-  // Update URL when tab changes
+  // Wrapper to update both state and notify parent
   const handleTabChange = useCallback((tab: AdminTab) => {
     setActiveTab(tab);
-    updateUrlTab(tab);
+    onTabChange?.(tab);
+    // Clear assistant panel when switching away from experiments
+    if (tab !== 'experiments') {
+      setAssistantPanelProps(null);
+      setIsDesignMode(false);
+    }
+  }, [onTabChange]);
+
+  // Find active tab config for header
+  const activeTabConfig = SIDEBAR_ITEMS.find(t => t.id === activeTab);
+
+  // Keyboard shortcut to toggle sidebar
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      setSidebarCollapsed(prev => !prev);
+    }
   }, []);
 
-  // Set initial URL on mount
   useEffect(() => {
-    updateUrlTab(activeTab);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
-  // Find active tab config for subtitle
-  const activeTabConfig = TABS.find(t => t.id === activeTab);
+  // Tab content component
+  const renderTabContent = () => (
+    <>
+      {activeTab === 'personalities' && (
+        <PersonalityManager embedded />
+      )}
+      {activeTab === 'analyzer' && (
+        <DecisionAnalyzer embedded />
+      )}
+      {activeTab === 'playground' && (
+        <PromptPlayground embedded />
+      )}
+      {activeTab === 'experiments' && (
+        <ExperimentDesigner
+          embedded
+          onAssistantPanelChange={setAssistantPanelProps}
+          onDesignModeChange={setIsDesignMode}
+        />
+      )}
+      {activeTab === 'templates' && (
+        <TemplateEditor embedded />
+      )}
+      {activeTab === 'settings' && (
+        <UnifiedSettings embedded />
+      )}
+      {activeTab === 'debug' && (
+        <DebugTools embedded />
+      )}
+    </>
+  );
 
+  // Mobile layout - show menu if no tab selected, otherwise show content
+  if (isMobile) {
+    // No tab selected - show the menu using PageLayout (matches GameMenu style)
+    if (!activeTab) {
+      return (
+        <PageLayout variant="top" glowColor="gold">
+          <PageHeader
+            title="Admin Tools"
+            subtitle="Manage your poker game"
+            onBack={onBack}
+          />
+          <div className="game-menu__options">
+            {SIDEBAR_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                className="menu-option"
+                onClick={() => handleTabChange(item.id as AdminTab)}
+              >
+                {item.icon}
+                <div className="option-content">
+                  <h3>{item.label}</h3>
+                  <p>{item.description}</p>
+                </div>
+                <ChevronRight className="option-arrow" size={20} />
+              </button>
+            ))}
+          </div>
+        </PageLayout>
+      );
+    }
+
+    // Tab selected - show content with back to menu
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <AdminMenuContainer
+          title={activeTabConfig?.label || 'Admin'}
+          subtitle={activeTabConfig?.description}
+          onBack={onBack}
+          navItems={SIDEBAR_ITEMS}
+          activeNavId={activeTab}
+          onNavChange={(id) => handleTabChange(id as AdminTab)}
+        >
+          <div className="admin-main__content admin-main__content--mobile">
+            {renderTabContent()}
+          </div>
+        </AdminMenuContainer>
+      </div>
+    );
+  }
+
+  // Desktop layout - sidebar + main content + optional assistant panel
   return (
-    <PageLayout variant="top" glowColor="gold" maxWidth="xl">
-      <PageHeader
-        title="Admin Dashboard"
-        subtitle={activeTabConfig?.description || 'Manage your poker game'}
-        onBack={onBack}
-        titleVariant="primary"
+    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
+      {/* Sidebar Navigation */}
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
       />
 
-      {/* Tab Navigation */}
-      <div className="admin-tabs">
-        {TABS.map(tab => (
+      {/* Main Content Area */}
+      <main className="admin-main">
+        {/* Content Header */}
+        <header className="admin-main__header">
           <button
-            key={tab.id}
-            className={`admin-tab ${activeTab === tab.id ? 'admin-tab--active' : ''}`}
-            onClick={() => handleTabChange(tab.id)}
-            type="button"
+            className="admin-main__back"
+            onClick={onBack}
+            aria-label="Go back"
           >
-            <span className="admin-tab__icon">{tab.icon}</span>
-            <span className="admin-tab__label">{tab.label}</span>
+            <ArrowLeft size={20} />
           </button>
-        ))}
-      </div>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">{activeTabConfig?.label || 'Admin'}</h1>
+            <p className="admin-main__subtitle">{activeTabConfig?.description}</p>
+          </div>
+        </header>
 
-      {/* Tab Content */}
-      <div className="admin-content">
-        {activeTab === 'personalities' && (
-          <PersonalityManager embedded />
-        )}
-        {activeTab === 'analyzer' && (
-          <DecisionAnalyzer embedded />
-        )}
-        {activeTab === 'playground' && (
-          <PromptPlayground embedded />
-        )}
-        {activeTab === 'models' && (
-          <ModelManager embedded />
-        )}
-        {activeTab === 'pricing' && (
-          <PricingManager embedded />
-        )}
-        {activeTab === 'templates' && (
-          <TemplateEditor embedded />
-        )}
-        {activeTab === 'settings' && (
-          <CaptureSettings embedded />
-        )}
-        {activeTab === 'debug' && (
-          <DebugTools embedded />
-        )}
-      </div>
-    </PageLayout>
+        {/* Tab Content */}
+        <div className="admin-main__content">
+          {renderTabContent()}
+        </div>
+      </main>
+
+      {/* Docked Assistant Panel (page-level) - only in design mode */}
+      {activeTab === 'experiments' && isDesignMode && (
+        <div className="admin-assistant-panel admin-assistant-panel--docked">
+          <div className="admin-assistant-panel__header">
+            <h3>
+              <MessageSquare size={18} />
+              Lab Assistant
+            </h3>
+          </div>
+          {assistantPanelProps ? (
+            <ExperimentChat {...assistantPanelProps} />
+          ) : (
+            <div style={{ padding: '1rem', color: '#888' }}>
+              Loading chat...
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

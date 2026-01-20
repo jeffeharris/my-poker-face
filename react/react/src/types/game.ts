@@ -14,6 +14,8 @@ export interface GameState {
   player_options: string[];
   min_raise: number;
   big_blind: number;
+  small_blind: number;
+  hand_number: number;
   messages: ChatMessage[];
 }
 

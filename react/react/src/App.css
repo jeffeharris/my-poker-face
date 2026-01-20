@@ -66,3 +66,80 @@
   top: var(--space-3);
   right: var(--space-3);
 }
+
+/* ============================================
+   Max Games Error Modal
+   ============================================ */
+
+.max-games-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.max-games-modal__content {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  color: white;
+}
+
+.max-games-modal__icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.max-games-modal__title {
+  font-size: 24px;
+  margin-bottom: 12px;
+  color: #f1f5f9;
+}
+
+.max-games-modal__message {
+  color: #94a3b8;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.max-games-modal__actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.max-games-modal__btn {
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.max-games-modal__btn:hover {
+  transform: translateY(-1px);
+}
+
+.max-games-modal__btn--primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+}
+
+.max-games-modal__btn--secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}

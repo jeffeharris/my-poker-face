@@ -30,8 +30,17 @@ class OpenAIProvider(LLMProvider):
         """
         self._model = model or DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort or DEFAULT_REASONING_EFFORT
+
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "OpenAI API key not provided. Set OPENAI_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            api_key=resolved_key,
             http_client=shared_http_client,
         )
 
@@ -60,6 +69,8 @@ class OpenAIProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
         """Make a chat completion request."""
         kwargs = {
@@ -70,6 +81,12 @@ class OpenAIProvider(LLMProvider):
 
         if json_format:
             kwargs["response_format"] = {"type": "json_object"}
+
+        # Add tools if provided
+        if tools:
+            kwargs["tools"] = tools
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
 
         # GPT-5 models use reasoning_effort instead of temperature
         if self._model.startswith("gpt-5"):
@@ -85,8 +102,16 @@ class OpenAIProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
-        """Generate an image using DALL-E."""
+        """Generate an image using DALL-E.
+
+        Note: seed_image_url and strength are ignored - DALL-E 3 doesn't support img2img.
+        """
+        if seed_image_url:
+            logger.warning("DALL-E doesn't support img2img, ignoring seed_image_url")
         return self._client.images.generate(
             model=DEFAULT_IMAGE_MODEL,
             prompt=prompt,
@@ -147,3 +172,27 @@ class OpenAIProvider(LLMProvider):
         if request_id is None or not isinstance(request_id, str):
             return ''
         return request_id
+
+    def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls from OpenAI response."""
+        message = raw_response.choices[0].message
+
+        # Check if tool_calls exists and is a proper list (not a Mock or None)
+        tool_calls = getattr(message, 'tool_calls', None)
+        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+            return None
+
+        if len(tool_calls) == 0:
+            return None
+
+        return [
+            {
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,  # JSON string
+                }
+            }
+            for tc in tool_calls
+        ]

@@ -11,6 +11,15 @@
     position: fixed;
     inset: 0;
     overflow: hidden;
+    /* Fade in slow-to-fast: hides uneven paint during early low-opacity phase,
+       then quickly reveals once content has settled. cubic-bezier(0.7, 0, 1, 1)
+       keeps opacity low initially, accelerating toward the end. */
+    animation: gameTableFadeIn 2.5s cubic-bezier(0.7, 0, 1, 1);
+}
+
+@keyframes gameTableFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 /* Loading State */

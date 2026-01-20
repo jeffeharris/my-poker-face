@@ -44,10 +44,18 @@ class GoogleProvider(LLMProvider):
         self._model_name = model or GOOGLE_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
 
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("GOOGLE_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "Google API key not provided. Set GOOGLE_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         # Initialize the client with shared HTTP client for connection reuse
         http_options = types.HttpOptions(httpx_client=shared_http_client)
         self._client = genai.Client(
-            api_key=api_key or os.environ.get("GOOGLE_API_KEY"),
+            api_key=resolved_key,
             http_options=http_options,
         )
 
@@ -119,8 +127,13 @@ class GoogleProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
-        """Make a chat completion request."""
+        """Make a chat completion request.
+
+        Note: tools/tool_choice are accepted for interface compatibility but not used.
+        """
         if not messages:
             raise ValueError("No messages provided to complete()")
 
@@ -166,6 +179,9 @@ class GoogleProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """Generate image using Imagen."""
         # Imagen integration would go here

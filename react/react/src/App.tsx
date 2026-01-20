@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { type LucideIcon } from 'lucide-react'
-import { PokerTable } from './components/game/PokerTable'
-import { MobilePokerTable } from './components/mobile'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
-import { AdminDashboard } from './components/admin/AdminDashboard'
-import { GameMenu } from './components/menus/GameMenu'
+import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
 import { ElasticityDemo } from './components/debug/ElasticityDemo'
 import { PromptDebugger } from './components/debug/PromptDebugger'
 import { PromptPlayground } from './components/debug/PromptPlayground'
 import { LoginForm } from './components/auth/LoginForm'
+import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
 import { BackButton, UserBadge } from './components/shared'
+import { GamePage } from './components/game/GamePage'
+import { AdminRoutes } from './components/admin/AdminRoutes'
 import { useAuth } from './hooks/useAuth'
 import { useViewport } from './hooks/useViewport'
 import { config } from './config'
@@ -25,8 +26,6 @@ import './App.css'
 const MAX_GAMES_GUEST = 3;
 const MAX_GAMES_USER = 10;
 
-type ViewType = 'login' | 'name-entry' | 'game-menu' | 'selector' | 'table' | 'personalities' | 'themed-game' | 'custom-game' | 'elasticity-demo' | 'stats' | 'prompt-debugger' | 'prompt-playground' | 'admin-dashboard'
-
 interface Theme {
   id: string;
   name: string;
@@ -35,105 +34,74 @@ interface Theme {
   personalities?: string[];
 }
 
+// Route titles for document.title
+const ROUTE_TITLES: Record<string, string> = {
+  '/login': 'Login - My Poker Face',
+  '/name-entry': 'Choose Your Name - My Poker Face',
+  '/menu': 'Game Menu - My Poker Face',
+  '/games': 'Select Game - My Poker Face',
+  '/game': 'Playing - My Poker Face',
+  '/game/new/custom': 'Custom Game - My Poker Face',
+  '/game/new/themed': 'Themed Game - My Poker Face',
+  '/personalities': 'Manage Personalities - My Poker Face',
+  '/stats': 'My Stats - My Poker Face',
+  '/admin': 'Admin Dashboard - My Poker Face',
+  '/elasticity-demo': 'Elasticity Demo - My Poker Face',
+  '/prompt-debugger': 'Prompt Debugger - My Poker Face',
+  '/prompt-playground': 'Prompt Playground - My Poker Face'
+};
+
 function App() {
   const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
   const { isMobile } = useViewport();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // Check localStorage for saved state on initial load
-  const savedState = localStorage.getItem('pokerGameState');
-  const parsedState = savedState ? JSON.parse(savedState) : null;
-
-  // Check for active game that should be restored (from browser sleep/wake)
-  const activeGameId = localStorage.getItem('activePokerGameId');
-  // Check if user was logged in (auth will verify this, but we use it for initial view decision)
-  const storedUser = localStorage.getItem('currentUser');
-
-  // Determine initial view:
-  // 1. Check URL params for deep linking (view=admin, etc.)
-  // 2. If there's an active game AND a stored user, go straight to table
-  // 3. If there's an active game but no user, go to login (auth effect will restore game after login)
-  // 4. Otherwise use saved view (but not 'table' without an active game)
-  const getInitialView = (): ViewType => {
-    // Check URL params for deep linking
-    const urlParams = new URLSearchParams(window.location.search);
-    const viewParam = urlParams.get('view');
-    if (viewParam === 'admin') {
-      return 'admin-dashboard';
-    }
-
-    if (activeGameId && storedUser) {
-      console.log('[App] Restoring to table with active game:', activeGameId);
-      return 'table';
-    }
-    if (activeGameId && !storedUser) {
-      return 'login';
-    }
-    if (parsedState?.currentView === 'table') {
-      return 'login';
-    }
-    return parsedState?.currentView || 'login';
-  };
-
-  const [currentView, setCurrentView] = useState<ViewType>(getInitialView())
-  const [gameId, setGameId] = useState<string | null>(activeGameId && storedUser ? activeGameId : null)
-  const [playerName, setPlayerName] = useState<string>(parsedState?.playerName || '')
+const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
 
-  // Save state to localStorage whenever it changes
+  // Update player name when user changes
   useEffect(() => {
-    const stateToSave = {
-      currentView,
-      gameId,
-      playerName,
-      timestamp: Date.now()
-    };
-    localStorage.setItem('pokerGameState', JSON.stringify(stateToSave));
-  }, [currentView, gameId, playerName]);
-
-  // Update view based on auth state
-  useEffect(() => {
-    if (!authLoading && isAuthenticated && currentView === 'login') {
-      setPlayerName(user?.name || '');
-      // Check if there's an active game to restore after login
-      const activeGame = localStorage.getItem('activePokerGameId');
-      if (activeGame) {
-        console.log('[App] Restoring active game after login:', activeGame);
-        setGameId(activeGame);
-        setCurrentView('table');
-      } else {
-        setCurrentView('game-menu');
-      }
+    if (user?.name) {
+      setPlayerName(user.name);
     }
-  }, [authLoading, isAuthenticated, user, currentView]);
+  }, [user?.name]);
 
-  // Fetch saved games count when authenticated and on game-menu view
+  // Update page title based on current route
   useEffect(() => {
-    if (isAuthenticated && currentView === 'game-menu') {
+    const basePath = location.pathname.split('/').slice(0, 3).join('/');
+    // Check for game/:id pattern
+    if (location.pathname.startsWith('/game/') && !location.pathname.includes('/new/')) {
+      document.title = 'Playing - My Poker Face';
+    } else if (location.pathname.match(/^\/admin\/experiments\/\d+$/)) {
+      document.title = 'Experiment Details - My Poker Face';
+    } else if (location.pathname.startsWith('/admin')) {
+      document.title = 'Admin Dashboard - My Poker Face';
+    } else {
+      document.title = ROUTE_TITLES[location.pathname] || ROUTE_TITLES[basePath] || 'My Poker Face';
+    }
+  }, [location.pathname]);
+
+  // Fetch saved games count when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
       fetchSavedGamesCount();
     }
-  }, [isAuthenticated, currentView]);
+  }, [isAuthenticated]);
 
-  // Update page title based on current view
+  // Redirect to menu after login if on login page
   useEffect(() => {
-    const titles: Record<ViewType, string> = {
-      'login': 'Login - My Poker Face',
-      'name-entry': 'Choose Your Name - My Poker Face',
-      'game-menu': 'Game Menu - My Poker Face',
-      'selector': 'Select Game - My Poker Face',
-      'table': gameId ? 'Playing - My Poker Face' : 'New Game - My Poker Face',
-      'personalities': 'Manage Personalities - My Poker Face',
-      'themed-game': 'Themed Game - My Poker Face',
-      'custom-game': 'Custom Game - My Poker Face',
-      'elasticity-demo': 'Elasticity Demo - My Poker Face',
-      'stats': 'My Stats - My Poker Face',
-      'prompt-debugger': 'Prompt Debugger - My Poker Face',
-      'prompt-playground': 'Prompt Playground - My Poker Face',
-      'admin-dashboard': 'Admin Dashboard - My Poker Face'
-    };
-    
-    document.title = titles[currentView] || 'My Poker Face';
-  }, [currentView, gameId]);
+    if (!authLoading && isAuthenticated && location.pathname === '/login') {
+      // Check if there was a stored location to return to
+      const state = location.state as { from?: Location } | null;
+      if (state?.from?.pathname && state.from.pathname !== '/login') {
+        navigate(state.from.pathname, { replace: true });
+      } else {
+        navigate('/menu', { replace: true });
+      }
+    }
+  }, [authLoading, isAuthenticated, location.pathname, location.state, navigate]);
 
   const fetchSavedGamesCount = async () => {
     try {
@@ -158,61 +126,52 @@ function App() {
   };
 
   const handleSelectGame = (selectedGameId: string) => {
-    setGameId(selectedGameId);
-    setCurrentView('table');
+    navigate(`/game/${selectedGameId}`);
   };
 
   const handleNameSubmit = (name: string) => {
     setPlayerName(name);
-    setCurrentView('game-menu');
+    navigate('/menu');
   };
 
   const handleLogin = async (name: string, isGuest: boolean) => {
     const result = await login(name, isGuest);
     if (result.success) {
       setPlayerName(name);
-      setCurrentView('game-menu');
+      navigate('/menu');
     }
   };
 
-  const handleQuickPlay = async () => {
+  const handleQuickPlay = async (quickPlayConfig: QuickPlayConfig) => {
     try {
+      // Calculate starting stack based on big blinds
+      const bigBlind = 50;
+      const startingStack = quickPlayConfig.startingBB * bigBlind;
+
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ playerName }),
+        body: JSON.stringify({
+          playerName,
+          starting_stack: startingStack,
+          big_blind: bigBlind,
+          opponent_count: quickPlayConfig.opponents,
+        }),
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        setGameId(data.game_id);
-        setCurrentView('table');
+        navigate(`/game/${data.game_id}`);
       } else {
         checkMaxGamesError(response, data);
       }
     } catch (error) {
       console.error('Failed to create game:', error);
     }
-  };
-
-  const handleCustomGame = () => {
-    setCurrentView('custom-game');
-  };
-
-  const handleThemedGame = () => {
-    setCurrentView('themed-game');
-  };
-
-  const handleContinueGame = () => {
-    setCurrentView('selector');
-  };
-
-  const handleGamesChanged = () => {
-    fetchSavedGamesCount();
   };
 
   const handleStartCustomGame = async (
@@ -241,8 +200,7 @@ function App() {
       const data = await response.json();
 
       if (response.ok) {
-        setGameId(data.game_id);
-        setCurrentView('table');
+        navigate(`/game/${data.game_id}`);
       } else {
         checkMaxGamesError(response, data);
       }
@@ -285,22 +243,34 @@ function App() {
       throw new Error('Failed to create game. Please try again.');
     }
 
-    setGameId(data.game_id);
-    setCurrentView('table');
+    navigate(`/game/${data.game_id}`);
   };
+
+  const handleGamesChanged = () => {
+    fetchSavedGamesCount();
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  // Show loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner" />
+      </div>
+    );
+  }
 
   return (
     <>
-
-      {/* Navigation - only show when in table view on desktop */}
-      {currentView === 'table' && !isMobile && (
+      {/* Navigation - only show when in game view on desktop */}
+      {location.pathname.startsWith('/game/') && !location.pathname.includes('/new/') && !isMobile && (
         <div className="app-nav app-nav--left">
           <BackButton
-            onClick={() => {
-              setGameId(null);
-              localStorage.removeItem('activePokerGameId');
-              setCurrentView('game-menu');
-            }}
+            onClick={() => navigate('/menu')}
             label="Back to Menu"
             position="relative"
           />
@@ -308,166 +278,140 @@ function App() {
       )}
 
       {/* User info - only show on game menu screen */}
-      {isAuthenticated && user && currentView === 'game-menu' && (
+      {isAuthenticated && user && location.pathname === '/menu' && (
         <UserBadge
           name={user.name}
           isGuest={user.is_guest}
-          onLogout={async () => {
-            await logout();
-            localStorage.removeItem('activePokerGameId');
-            setCurrentView('login');
-            setGameId(null);
-          }}
+          onLogout={handleLogout}
           className="user-badge--fixed"
         />
       )}
 
-      {/* Views */}
-      {currentView === 'login' && (
-        <LoginForm onLogin={handleLogin} />
-      )}
-      {currentView === 'name-entry' && (
-        <PlayerNameEntry onSubmit={handleNameSubmit} />
-      )}
-      {currentView === 'game-menu' && (
-        <GameMenu
-          playerName={playerName}
-          onQuickPlay={handleQuickPlay}
-          onCustomGame={handleCustomGame}
-          onThemedGame={handleThemedGame}
-          onContinueGame={handleContinueGame}
-          onManagePersonalities={() => setCurrentView('personalities')}
-          onViewStats={() => setCurrentView('stats')}
-          onPromptDebugger={() => setCurrentView('prompt-debugger')}
-          onPromptPlayground={() => setCurrentView('prompt-playground')}
-          onAdminDashboard={() => setCurrentView('admin-dashboard')}
-          savedGamesCount={savedGamesCount}
-        />
-      )}
-      {currentView === 'selector' && (
-        <GameSelector
-          onSelectGame={handleSelectGame}
-          onBack={() => setCurrentView('game-menu')}
-          onGamesChanged={handleGamesChanged}
-        />
-      )}
-      {currentView === 'custom-game' && (
-        <CustomGameConfig 
-          onStartGame={handleStartCustomGame}
-          onBack={() => setCurrentView('game-menu')}
-        />
-      )}
-      {currentView === 'themed-game' && (
-        <ThemedGameSelector 
-          onSelectTheme={handleSelectTheme}
-          onBack={() => setCurrentView('game-menu')}
-        />
-      )}
-      {currentView === 'table' && (
-        isMobile ? (
-          <MobilePokerTable
-            gameId={gameId}
-            playerName={playerName}
-            onGameCreated={(newGameId) => setGameId(newGameId)}
-            onBack={() => {
-              setGameId(null);
-              localStorage.removeItem('activePokerGameId');
-              setCurrentView('game-menu');
-            }}
-          />
-        ) : (
-          <PokerTable
-            gameId={gameId}
-            playerName={playerName}
-            onGameCreated={(newGameId) => setGameId(newGameId)}
-          />
-        )
-      )}
-      {currentView === 'personalities' && (
-        <PersonalityManager onBack={() => setCurrentView('game-menu')} />
-      )}
-      {currentView === 'elasticity-demo' && <ElasticityDemo />}
-      {currentView === 'stats' && (
-        <CareerStats onBack={() => setCurrentView('game-menu')} />
-      )}
-      {currentView === 'prompt-debugger' && (
-        <PromptDebugger onBack={() => setCurrentView('game-menu')} />
-      )}
-      {currentView === 'prompt-playground' && (
-        <PromptPlayground onBack={() => setCurrentView('game-menu')} />
-      )}
-      {currentView === 'admin-dashboard' && (
-        <AdminDashboard onBack={() => setCurrentView('game-menu')} />
-      )}
+      {/* Routes */}
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={
+          isAuthenticated ? <Navigate to="/menu" replace /> : <LoginForm onLogin={handleLogin} />
+        } />
+        <Route path="/name-entry" element={
+          <PlayerNameEntry onSubmit={handleNameSubmit} />
+        } />
+
+        {/* Protected routes */}
+        <Route path="/menu" element={
+          <ProtectedRoute>
+            <GameMenu
+              playerName={playerName}
+              onQuickPlay={handleQuickPlay}
+              onCustomGame={() => navigate('/game/new/custom')}
+              onThemedGame={() => navigate('/game/new/themed')}
+              onContinueGame={() => navigate('/games')}
+              onViewStats={() => navigate('/stats')}
+              onPromptDebugger={() => navigate('/prompt-debugger')}
+              onPromptPlayground={() => navigate('/prompt-playground')}
+              onAdminDashboard={() => navigate('/admin')}
+              savedGamesCount={savedGamesCount}
+            />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/games" element={
+          <ProtectedRoute>
+            <GameSelector
+              onSelectGame={handleSelectGame}
+              onBack={() => navigate('/menu')}
+              onGamesChanged={handleGamesChanged}
+            />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/game/new/custom" element={
+          <ProtectedRoute>
+            <CustomGameConfig
+              onStartGame={handleStartCustomGame}
+              onBack={() => navigate('/menu')}
+            />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/game/new/themed" element={
+          <ProtectedRoute>
+            <ThemedGameSelector
+              onSelectTheme={handleSelectTheme}
+              onBack={() => navigate('/menu')}
+            />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/game/:gameId" element={
+          <ProtectedRoute>
+            <GamePage playerName={playerName} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/stats" element={
+          <ProtectedRoute>
+            <CareerStats onBack={() => navigate('/menu')} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/admin/*" element={
+          <ProtectedRoute>
+            <AdminRoutes />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/personalities" element={
+          <ProtectedRoute>
+            <PersonalityManager onBack={() => navigate('/menu')} />
+          </ProtectedRoute>
+        } />
+
+        {/* Debug routes */}
+        <Route path="/elasticity-demo" element={<ElasticityDemo />} />
+        <Route path="/prompt-debugger" element={
+          <ProtectedRoute>
+            <PromptDebugger onBack={() => navigate('/menu')} />
+          </ProtectedRoute>
+        } />
+        <Route path="/prompt-playground" element={
+          <ProtectedRoute>
+            <PromptPlayground onBack={() => navigate('/menu')} />
+          </ProtectedRoute>
+        } />
+
+        {/* Default redirect */}
+        <Route path="/" element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />} />
+        <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />} />
+      </Routes>
 
       {/* Max Games Error Modal */}
       {maxGamesError && (
-        <div className="modal-overlay" style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '20px'
-        }}>
-          <div className="modal-content" style={{
-            background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '16px',
-            padding: '32px',
-            maxWidth: '400px',
-            width: '100%',
-            textAlign: 'center',
-            color: 'white'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+        <div className="max-games-modal">
+          <div className="max-games-modal__content">
+            <div className="max-games-modal__icon">
               <span role="img" aria-label="warning">&#x26A0;&#xFE0F;</span>
             </div>
-            <h2 style={{ fontSize: '24px', marginBottom: '12px', color: '#f1f5f9' }}>
+            <h2 className="max-games-modal__title">
               Game Limit Reached
             </h2>
-            <p style={{ color: '#94a3b8', marginBottom: '24px', lineHeight: '1.6' }}>
+            <p className="max-games-modal__message">
               You have reached the maximum of {maxGamesError.maxGames} saved game{maxGamesError.maxGames > 1 ? 's' : ''}.
               Would you like to manage your saved games to make room for a new one?
             </p>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <div className="max-games-modal__actions">
               <button
+                className="max-games-modal__btn max-games-modal__btn--primary"
                 onClick={() => {
                   setMaxGamesError(null);
-                  setCurrentView('selector');
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '12px 24px',
-                  fontSize: '16px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'transform 0.2s, box-shadow 0.2s'
+                  navigate('/games');
                 }}
               >
                 Manage Games
               </button>
               <button
+                className="max-games-modal__btn max-games-modal__btn--secondary"
                 onClick={() => setMaxGamesError(null)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  color: '#94a3b8',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  padding: '12px 24px',
-                  fontSize: '16px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'transform 0.2s, box-shadow 0.2s'
-                }}
               >
                 Cancel
               </button>

@@ -13,10 +13,28 @@ from . import extensions
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Quiet noisy third-party loggers
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
+logging.getLogger("socketio").setLevel(logging.WARNING)
+logging.getLogger("engineio").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
+
+
+def recover_interrupted_experiments():
+    """Mark experiments that were running when server stopped as interrupted.
+
+    Called on startup to detect orphaned 'running' experiments and mark them
+    as 'interrupted' so users can manually resume them.
+
+    NOTE: Temporarily disabled during repository rollback.
+    """
+    # TODO: Re-enable after fixing experiment repository dependencies
+    pass
 
 
 def create_app():
@@ -32,6 +50,9 @@ def create_app():
 
     # Initialize extensions
     init_extensions(app)
+
+    # Mark any experiments that were running when server stopped as interrupted
+    recover_interrupted_experiments()
 
     # Register custom error handlers
     register_error_handlers(app)
@@ -62,7 +83,7 @@ def register_error_handlers(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
-    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp
+    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp, experiment_bp
 
     app.register_blueprint(game_bp)
     app.register_blueprint(debug_bp)
@@ -71,6 +92,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(stats_bp)
     app.register_blueprint(admin_dashboard_bp)
     app.register_blueprint(prompt_debug_bp)
+    app.register_blueprint(experiment_bp)
 
 
 def register_socket_handlers() -> None:

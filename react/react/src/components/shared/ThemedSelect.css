@@ -1,0 +1,24 @@
+/**
+ * ThemedSelect Styles
+ *
+ * Extends the global .themed-select styles from design-tokens.css
+ * with component-specific enhancements.
+ */
+
+/* Import design tokens for CSS variables */
+@import '../../styles/design-tokens.css';
+
+/* Full width modifier */
+.themed-select--full {
+  width: 100%;
+}
+
+/* Error state */
+.themed-select--error {
+  border-color: var(--color-ruby);
+}
+
+.themed-select--error:focus {
+  border-color: var(--color-ruby);
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.15);
+}

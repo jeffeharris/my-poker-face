@@ -10,17 +10,19 @@ interface ActionButtonsProps {
   bigBlind: number;
   potSize: number;
   onAction: (action: string, amount?: number) => void;
+  inline?: boolean;  // When true, disables fixed positioning for embedded use
 }
 
-export function ActionButtons({ 
-  playerOptions, 
-  currentPlayerStack, 
-  highestBet, 
+export function ActionButtons({
+  playerOptions,
+  currentPlayerStack,
+  highestBet,
   currentPlayerBet,
   minRaise,
   bigBlind,
   potSize,
-  onAction 
+  onAction,
+  inline = false,
 }: ActionButtonsProps) {
   const [showBetInterface, setShowBetInterface] = useState(false);
   const [betAmount, setBetAmount] = useState(minRaise || 0);
@@ -95,7 +97,7 @@ export function ActionButtons({
 
   if (showBetInterface) {
     return (
-      <div className="action-panel betting-interface">
+      <div className={`action-panel betting-interface ${inline ? 'inline' : ''}`}>
         <div className="bet-header">
           <div className="bet-title">
             {playerOptions.includes('raise') ? 'Raise' : 'Bet'}
@@ -338,7 +340,7 @@ export function ActionButtons({
   }
 
   return (
-    <div className="action-panel">
+    <div className={`action-panel ${inline ? 'inline' : ''}`}>
       <div className="action-buttons">
         {playerOptions.includes('fold') && (
           <button 
