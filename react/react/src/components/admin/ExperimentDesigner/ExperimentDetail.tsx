@@ -32,7 +32,7 @@ import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
 import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
 import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
-import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics, FailedTournament, ExperimentConfig } from './types';
+import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics, FailedTournament, ExperimentConfig, NextStepSuggestion } from './types';
 
 interface ExperimentDetailType {
   id: number;
@@ -63,7 +63,7 @@ interface ExperimentDetailType {
       summary: string;
       verdict: string;
       surprises: string[];
-      next_steps: string[];
+      next_steps: (string | NextStepSuggestion)[];
       // Legacy fields for backwards compatibility
       hypothesis_evaluation?: string;
       key_findings?: string[];
@@ -104,9 +104,10 @@ interface ExperimentDetailProps {
   experimentId: number;
   onBack: () => void;
   onEditInLabAssistant?: (experiment: ExperimentDetailType) => void;
+  onBuildFromSuggestion?: (experiment: ExperimentDetailType, suggestion: NextStepSuggestion) => void;
 }
 
-export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }: ExperimentDetailProps) {
+export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, onBuildFromSuggestion }: ExperimentDetailProps) {
   const [experiment, setExperiment] = useState<ExperimentDetailType | null>(null);
   const [games, setGames] = useState<ExperimentGame[]>([]);
   const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null);
@@ -629,11 +630,38 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
                   <Target size={14} />
                   Next Steps
                 </h4>
-                <ul className="experiment-detail__ai-list">
-                  {(summary.ai_interpretation.next_steps || summary.ai_interpretation.suggested_followups || []).map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
+                <div className="experiment-detail__suggestions-grid">
+                  {(summary.ai_interpretation.next_steps || summary.ai_interpretation.suggested_followups || []).map((item, idx) => {
+                    // Handle both structured suggestions and legacy string format
+                    const isStructured = typeof item === 'object' && item !== null && 'hypothesis' in item;
+                    const suggestion = isStructured ? item as NextStepSuggestion : null;
+
+                    if (suggestion && onBuildFromSuggestion) {
+                      return (
+                        <div key={idx} className="experiment-detail__suggestion-card">
+                          <div className="experiment-detail__suggestion-content">
+                            <p className="experiment-detail__suggestion-hypothesis">{suggestion.hypothesis}</p>
+                            <p className="experiment-detail__suggestion-description">{suggestion.description}</p>
+                          </div>
+                          <button
+                            className="experiment-detail__suggestion-action"
+                            onClick={() => onBuildFromSuggestion(experiment, suggestion)}
+                            type="button"
+                          >
+                            Build Experiment &rarr;
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    // Legacy string format - render as simple list item
+                    return (
+                      <div key={idx} className="experiment-detail__suggestion-card experiment-detail__suggestion-card--simple">
+                        <p className="experiment-detail__suggestion-text">{typeof item === 'string' ? item : JSON.stringify(item)}</p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

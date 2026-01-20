@@ -1683,10 +1683,25 @@ One sentence: Did the hypothesis hold? Which variant won (if A/B test)? Include 
 Only list genuinely unexpected or anomalous findings. If results were as expected, return an empty array.
 
 ## Next Steps
-2-3 concrete follow-up experiment ideas.
+Suggest 2-3 follow-up experiments that can be configured with these options:
+- num_tournaments: Number of tournaments to run (more = less variance)
+- hands_per_tournament: Hands per game (more = longer games)
+- model/provider: LLM model (gpt-4o-mini, claude-sonnet, gemini-flash, etc.)
+- personalities: Which AI personalities play
+- A/B testing: control vs variant configs with different models/providers
+- prompt_config: Toggle features like pot_odds, hand_strength, session_memory, strategic_reflection
+
+Return as objects with:
+- hypothesis: Testable hypothesis that can be verified by changing the above configs
+- description: What config changes to make and why
+
+Example hypotheses:
+- "GPT-4o-mini makes fewer mistakes than Claude Sonnet" → A/B test with model variants
+- "More hands per tournament reduces winner variance" → Increase hands_per_tournament
+- "Disabling strategic_reflection speeds up decisions without hurting quality" → A/B test prompt_config
 
 Be extremely concise. Don't repeat information across sections.
-Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array)"""
+Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array of {hypothesis, description})"""
 
             # Build results context
             results_context = {

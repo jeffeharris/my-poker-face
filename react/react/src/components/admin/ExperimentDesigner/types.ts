@@ -81,6 +81,8 @@ export interface ExperimentConfig {
   parallel_tournaments?: number;
   /** Delay in seconds between starting parallel tournaments (default 0) */
   stagger_start_delay?: number;
+  /** Parent experiment ID for lineage tracking (set when building from a suggestion) */
+  parent_experiment_id?: number;
 }
 
 export interface ExperimentSummary {
@@ -276,14 +278,39 @@ export interface FailedTournament {
 }
 
 /**
+ * A suggested follow-up experiment from AI analysis.
+ */
+export interface NextStepSuggestion {
+  hypothesis: string;
+  description: string;
+}
+
+/**
  * Context passed when editing a failed experiment in the Lab Assistant.
  */
 export interface FailureContext {
+  type: 'failure';
   experimentId: number;
   experimentName: string;
   errorMessage: string;
   failedTournaments: FailedTournament[];
 }
+
+/**
+ * Context passed when building a follow-up experiment from a suggestion.
+ */
+export interface SuggestionContext {
+  type: 'suggestion';
+  experimentId: number;
+  experimentName: string;
+  suggestion: NextStepSuggestion;
+  parentConfig: ExperimentConfig;
+}
+
+/**
+ * Union type for Lab Assistant context (failure analysis or suggestion follow-up).
+ */
+export type LabAssistantContext = FailureContext | SuggestionContext;
 
 /**
  * A snapshot of the config at a point in the chat conversation.

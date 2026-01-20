@@ -636,11 +636,38 @@ def chat_experiment_design():
         # Build context about current config
         config_context = f"\nCurrent experiment config:\n{json.dumps(current_config, indent=2)}"
 
-        # Build failure context if fixing a failed experiment
+        # Build failure context if fixing a failed experiment or building from suggestion
         failure_context_prompt = ""
         stored_failure_context = session_data.get('failure_context') or failure_context
         if stored_failure_context:
-            failure_context_prompt = f"""
+            context_type = stored_failure_context.get('type', 'failure')
+
+            if context_type == 'suggestion':
+                # Building a follow-up experiment from a suggestion
+                suggestion = stored_failure_context.get('suggestion', {})
+                failure_context_prompt = f"""
+
+## Building Follow-up Experiment
+
+**Parent experiment:** {stored_failure_context.get('experimentName', 'Unknown')}
+**Hypothesis to test:** {suggestion.get('hypothesis', 'Unknown')}
+**Description:** {suggestion.get('description', 'N/A')}
+
+RULES:
+1. Generate a complete config that tests this hypothesis
+2. Set parent_experiment_id to {stored_failure_context.get('experimentId')} in the config
+3. Auto-generate an appropriate experiment name (e.g., "{stored_failure_context.get('experimentName', 'experiment')}_followup")
+4. Use the parent config as a starting point, modify as needed for the hypothesis
+5. Be CONCISE - config updates and a brief explanation of what you're testing
+
+Response format (NO numbered list - the config_updates tag gets hidden from user):
+- One sentence explaining the hypothesis being tested
+- <config_updates>{{...}}</config_updates> (this will be hidden, config panel updates automatically)
+- One sentence explaining what changed from the parent config
+"""
+            else:
+                # Fixing a failed experiment (existing behavior)
+                failure_context_prompt = f"""
 
 ## Fixing Failed Experiment
 
@@ -901,6 +928,23 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
             context_parts.append(f"\nFailed tournaments: {len(failed)}")
             for ft in failed[:3]:  # Show first 3
                 context_parts.append(f"  - Tournament {ft.get('tournament_number')}: {ft.get('error_type')} - {ft.get('error', '')[:100]}")
+
+        # AI interpretation if available
+        ai_interpretation = summary.get('ai_interpretation')
+        if ai_interpretation and not ai_interpretation.get('error'):
+            context_parts.append("")
+            context_parts.append("### AI Analysis")
+            context_parts.append(f"Summary: {ai_interpretation.get('summary', 'N/A')}")
+            context_parts.append(f"Verdict: {ai_interpretation.get('verdict', 'N/A')}")
+            if ai_interpretation.get('next_steps'):
+                context_parts.append("Suggested next steps:")
+                for step in ai_interpretation['next_steps']:
+                    if isinstance(step, dict):
+                        context_parts.append(f"  - {step.get('hypothesis')}: {step.get('description')}")
+                    else:
+                        context_parts.append(f"  - {step}")
+        elif ai_interpretation and ai_interpretation.get('error'):
+            context_parts.append(f"\nAI interpretation failed: {ai_interpretation.get('error')}")
 
     return "\n".join(context_parts)
 
@@ -1247,8 +1291,11 @@ def create_experiment():
         if existing:
             return jsonify({'error': f"Experiment '{config_data['name']}' already exists"}), 400
 
-        # Create experiment record
-        experiment_id = persistence.create_experiment(config_data)
+        # Extract parent_experiment_id from config if present
+        parent_experiment_id = config_data.pop('parent_experiment_id', None)
+
+        # Create experiment record with optional lineage
+        experiment_id = persistence.create_experiment(config_data, parent_experiment_id=parent_experiment_id)
 
         # Save design chat history if session_id provided
         if design_session_id and design_session_id in _chat_sessions:

@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 # v46: (reserved)
 # v47: Add experiment_chat_sessions for design chat persistence
 #      Add design_chat_json and assistant_chat_json columns to experiments
-SCHEMA_VERSION = 47
+# v48: Add parent_experiment_id to experiments for experiment lineage tracking
+SCHEMA_VERSION = 48
 
 
 @dataclass
@@ -639,11 +640,13 @@ class GamePersistence:
                     completed_at TIMESTAMP,
                     summary_json TEXT,
                     design_chat_json TEXT,
-                    assistant_chat_json TEXT
+                    assistant_chat_json TEXT,
+                    parent_experiment_id INTEGER REFERENCES experiments(id)
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status)")
+            # Note: idx_experiments_parent is created in v48 migration (parent_experiment_id added there)
 
             # 25. Experiment games (v43) - links games to experiments with variant config
             conn.execute("""
@@ -773,6 +776,7 @@ class GamePersistence:
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
             47: (self._migrate_v47_add_chat_sessions, "Add experiment_chat_sessions table and chat columns to experiments"),
+            48: (self._migrate_v48_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2009,6 +2013,22 @@ class GamePersistence:
             logger.info("Added assistant_chat_json column to experiments table")
 
         logger.info("Migration v47 complete: Added experiment_chat_sessions table and chat columns")
+
+    def _migrate_v48_add_parent_experiment_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v48: Add parent_experiment_id to experiments for lineage tracking.
+
+        Enables tracking of experiment lineage when follow-up experiments are created
+        based on suggestions from previous experiments.
+        """
+        cursor = conn.execute("PRAGMA table_info(experiments)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'parent_experiment_id' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
+            logger.info("Added parent_experiment_id column to experiments table")
+
+        logger.info("Migration v48 complete: Added parent_experiment_id to experiments")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4629,7 +4649,7 @@ class GamePersistence:
 
     # ==================== Experiment Methods ====================
 
-    def create_experiment(self, config: Dict) -> int:
+    def create_experiment(self, config: Dict, parent_experiment_id: Optional[int] = None) -> int:
         """Create a new experiment record.
 
         Args:
@@ -4640,6 +4660,7 @@ class GamePersistence:
                 - tags: List of tags (optional)
                 - notes: Additional notes (optional)
                 - Additional config fields stored as config_json
+            parent_experiment_id: Optional ID of the parent experiment for lineage tracking
 
         Returns:
             The experiment_id of the created record
@@ -4653,8 +4674,8 @@ class GamePersistence:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json, parent_experiment_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 name,
                 config.get('description'),
@@ -4662,10 +4683,12 @@ class GamePersistence:
                 json.dumps(config.get('tags', [])),
                 config.get('notes'),
                 json.dumps(config),
+                parent_experiment_id,
             ))
             conn.commit()
             experiment_id = cursor.lastrowid
-            logger.info(f"Created experiment '{name}' with id {experiment_id}")
+            logger.info(f"Created experiment '{name}' with id {experiment_id}" +
+                       (f" (parent: {parent_experiment_id})" if parent_experiment_id else ""))
             return experiment_id
 
     def link_game_to_experiment(
@@ -4732,7 +4755,7 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT id, name, description, hypothesis, tags, notes, config_json,
-                       status, created_at, completed_at, summary_json
+                       status, created_at, completed_at, summary_json, parent_experiment_id
                 FROM experiments WHERE id = ?
             """, (experiment_id,))
             row = cursor.fetchone()
@@ -4751,6 +4774,7 @@ class GamePersistence:
                 'created_at': row[8],
                 'completed_at': row[9],
                 'summary': json.loads(row[10]) if row[10] else None,
+                'parent_experiment_id': row[11],
             }
 
     def get_experiment_by_name(self, name: str) -> Optional[Dict]:

@@ -6,7 +6,7 @@ import { ExperimentList } from './ExperimentList';
 import { ExperimentDetail } from './ExperimentDetail';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
-import type { ExperimentConfig, ExperimentSummary, FailureContext, ConfigVersion, ChatMessage } from './types';
+import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion } from './types';
 import { DEFAULT_EXPERIMENT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
 
@@ -50,7 +50,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   const [config, setConfig] = useState<ExperimentConfig>(DEFAULT_EXPERIMENT_CONFIG);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedExperimentId, setSelectedExperimentId] = useState<number | null>(null);
-  const [failureContext, setFailureContext] = useState<FailureContext | null>(null);
+  const [failureContext, setFailureContext] = useState<LabAssistantContext | null>(null);
   const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
   const [initialChatHistory, setInitialChatHistory] = useState<ChatMessage[] | undefined>(undefined);
@@ -168,10 +168,33 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     setConfigVersions([]);
     setCurrentVersionIndex(0);
     setFailureContext({
+      type: 'failure',
       experimentId: experiment.id,
       experimentName: experiment.name,
       errorMessage: experiment.notes || 'Unknown error',
       failedTournaments: experiment.summary?.failed_tournaments || [],
+    });
+    setMode('design');
+  }, []);
+
+  const handleBuildFromSuggestion = useCallback((experiment: ExperimentDetailForEdit, suggestion: NextStepSuggestion) => {
+    // Create a new config based on the parent experiment's config
+    const configToEdit: ExperimentConfig = {
+      ...experiment.config,
+      name: `${experiment.config.name || experiment.name}_followup`,  // Suggest follow-up name
+      parent_experiment_id: experiment.id,  // Track lineage
+    };
+
+    setConfig(configToEdit);
+    setSessionId(null);  // Fresh chat session
+    setConfigVersions([]);
+    setCurrentVersionIndex(0);
+    setFailureContext({
+      type: 'suggestion',
+      experimentId: experiment.id,
+      experimentName: experiment.name,
+      suggestion,
+      parentConfig: experiment.config,
     });
     setMode('design');
   }, []);
@@ -185,7 +208,9 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   // Compute initialMessage from failureContext (cleared after first render via state)
   const initialMessage = failureContext ? {
-    userMessage: `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
+    userMessage: failureContext.type === 'suggestion'
+      ? `Build a follow-up experiment to test: "${failureContext.suggestion.hypothesis}"`
+      : `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
     context: failureContext,
   } : null;
 
@@ -303,6 +328,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
             experimentId={selectedExperimentId}
             onBack={handleBackToList}
             onEditInLabAssistant={handleEditInLabAssistant}
+            onBuildFromSuggestion={handleBuildFromSuggestion}
           />
         )}
       </div>
