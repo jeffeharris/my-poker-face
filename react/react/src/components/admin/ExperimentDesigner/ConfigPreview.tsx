@@ -337,7 +337,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
       } else {
         alert(`Failed to launch: ${data.error}`);
       }
-    } catch (err) {
+    } catch {
       alert('Failed to connect to server');
     } finally {
       setLaunching(false);

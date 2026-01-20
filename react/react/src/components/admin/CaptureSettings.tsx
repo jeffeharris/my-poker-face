@@ -95,7 +95,7 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
       if (storageData.success) {
         setStorage(storageData.storage);
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setLoading(false);
@@ -133,7 +133,7 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to save setting' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setSaving(false);
@@ -157,7 +157,7 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to reset settings' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setSaving(false);

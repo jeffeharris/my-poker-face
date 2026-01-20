@@ -54,7 +54,7 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to load models' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setLoading(false);
@@ -83,7 +83,7 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to update model' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     }
   };
