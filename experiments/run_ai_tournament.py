@@ -342,6 +342,7 @@ class TournamentWorker:
             TournamentOutcome with result or error details
         """
         start_time = time.time()
+        runner = None
 
         try:
             # Check rate limit before starting
@@ -432,6 +433,11 @@ class TournamentWorker:
                 duration_seconds=duration,
             )
 
+        finally:
+            # Cleanup runner resources to prevent accumulation during parallel execution
+            if runner:
+                runner.cleanup()
+
 
 class AITournamentRunner:
     """Runs AI-only poker tournaments for experimentation."""
@@ -475,6 +481,18 @@ class AITournamentRunner:
                 logger.info(f"Pause requested for experiment {self.experiment_id}")
                 return True
         return False
+
+    def cleanup(self) -> None:
+        """Release resources held by the tournament runner.
+
+        Called automatically by TournamentWorker on failure or pause to ensure
+        resources don't accumulate during parallel execution.
+        """
+        # Clear any controller references to help garbage collection
+        # Controllers hold Assistant objects with conversation memory
+        if hasattr(self, '_controllers'):
+            self._controllers.clear()
+            self._controllers = None
 
     def _save_checkpoint(self, tournament_id: str, state_machine) -> None:
         """Save game checkpoint for resume capability."""
@@ -1330,6 +1348,14 @@ class AITournamentRunner:
                         logger.warning(
                             f"Tournament {task.tournament_id} failed: {outcome.error}"
                         )
+
+                        # If this was a pause, stop waiting for other workers
+                        # They'll detect the pause flag at their next checkpoint
+                        if outcome.error_type == 'TournamentPausedException':
+                            logger.info(
+                                "Pause detected, not waiting for remaining workers"
+                            )
+                            break
                 except Exception as e:
                     logger.error(
                         f"Unexpected error collecting result for {task.tournament_id}: {e}"
