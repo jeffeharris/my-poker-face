@@ -1686,7 +1686,24 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
                     'control_label': config['control'].get('label'),
                     'variant_labels': [v.get('label') for v in config.get('variants', [])],
                 }
-            if summary.get('variants'):
+
+            # Get live stats for rich per-variant data (includes cost metrics)
+            live_stats = self.persistence.get_experiment_live_stats(self.experiment_id)
+            if live_stats and live_stats.get('by_variant'):
+                per_variant = {}
+                for label, v in live_stats['by_variant'].items():
+                    per_variant[label] = {
+                        'model': v.get('model'),
+                        'provider': v.get('provider'),
+                        'total_decisions': v.get('decision_quality', {}).get('total', 0),
+                        'correct_pct': v.get('decision_quality', {}).get('correct_pct', 0),
+                        'avg_latency_ms': v.get('latency_metrics', {}).get('avg_ms'),
+                        'p95_latency_ms': v.get('latency_metrics', {}).get('p95_ms'),
+                        'total_cost': v.get('cost_metrics', {}).get('total_cost'),
+                        'avg_cost_per_decision': v.get('cost_metrics', {}).get('avg_cost_per_decision'),
+                    }
+                results_context['results']['per_variant_stats'] = per_variant
+            elif summary.get('variants'):
                 results_context['results']['per_variant_stats'] = summary['variants']
 
             # Add failure info if any
