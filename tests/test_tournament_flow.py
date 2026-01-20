@@ -79,7 +79,7 @@ def create_game_state(
     for p in players:
         pot[p.name] = p.bet
 
-    return PokerGameState(
+    return PokerGameState(deck=(),
         players=tuple(players),
         community_cards=community_cards,
         pot=pot,

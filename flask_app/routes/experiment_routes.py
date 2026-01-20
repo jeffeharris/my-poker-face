@@ -210,6 +210,7 @@ You help configure experiments with these parameters:
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
+- random_seed: Integer for reproducible A/B tests. Controls both personality selection AND deck shuffling. Same hand number across variants receives identical cards (dealt to seat positions, not player names). Essential for fair model comparisons.
 
 ## How hands_per_tournament and reset_on_elimination Compose
 

@@ -82,6 +82,7 @@ class ImmutableStateMachine:
     stats: StateMachineStats = field(default_factory=StateMachineStats)
     snapshots: Tuple[PokerGameState, ...] = field(default_factory=tuple)
     blind_config: BlindConfig = field(default_factory=BlindConfig)
+    current_hand_seed: Optional[int] = None  # For deterministic deck seeding in A/B experiments
     
     def with_game_state(self, game_state: PokerGameState) -> 'ImmutableStateMachine':
         """Return new state with updated game state."""
@@ -99,6 +100,10 @@ class ImmutableStateMachine:
         """Return new state with current game state added to snapshots."""
         new_snapshots = self.snapshots + (self.game_state,)
         return replace(self, snapshots=new_snapshots)
+
+    def with_hand_seed(self, seed: Optional[int]) -> 'ImmutableStateMachine':
+        """Return new state with updated hand seed."""
+        return replace(self, current_hand_seed=seed)
     
     @property
     def current_phase(self) -> PokerPhase:
@@ -253,7 +258,7 @@ def evaluating_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 
 def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for HAND_OVER phase transition."""
-    new_game_state = reset_game_state_for_new_hand(state.game_state)
+    new_game_state = reset_game_state_for_new_hand(state.game_state, deck_seed=state.current_hand_seed)
 
     # Increment hand count
     new_stats = state.stats.increment_hand_count()
@@ -396,7 +401,12 @@ class PokerStateMachine:
     def awaiting_action(self) -> bool:
         """Check if awaiting player action."""
         return self._state.game_state.awaiting_action
-    
+
+    @property
+    def current_hand_seed(self) -> Optional[int]:
+        """Get current hand seed for deterministic deck shuffling."""
+        return self._state.current_hand_seed
+
     # ========================================================================
     # Immutable update methods (return new instances)
     # ========================================================================
@@ -448,6 +458,11 @@ class PokerStateMachine:
     def phase(self, new_phase: PokerPhase) -> None:
         """Set phase (compatibility method for Flask)."""
         self._state = self._state.with_phase(new_phase)
+
+    @current_hand_seed.setter
+    def current_hand_seed(self, seed: Optional[int]) -> None:
+        """Set hand seed for deterministic deck shuffling (compatibility method)."""
+        self._state = self._state.with_hand_seed(seed)
 
     def advance_state(self) -> None:
         """

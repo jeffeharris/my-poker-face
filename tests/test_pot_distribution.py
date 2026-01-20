@@ -43,7 +43,7 @@ class TestSplitPots(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -104,7 +104,7 @@ class TestSplitPots(unittest.TestCase):
             Card('6', 'diamonds'),
         )
         # Alice is dealer (idx 0), Bob is to her left
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 201},
@@ -159,7 +159,7 @@ class TestSplitPots(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 300},
@@ -223,7 +223,7 @@ class TestSplitPots(unittest.TestCase):
             Card('6', 'diamonds'),
         )
         # Alice is dealer (idx 0)
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3, player4),
             community_cards=community_cards,
             pot={'total': 302},
@@ -286,7 +286,7 @@ class TestSidePots(unittest.TestCase):
             Card('2', 'hearts'),
             Card('3', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(short_stack, big_stack1, big_stack2),
             community_cards=community_cards,
             pot={'total': 450},
@@ -350,7 +350,7 @@ class TestSidePots(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(short_stack, big_stack1, big_stack2),
             community_cards=community_cards,
             pot={'total': 450},
@@ -409,7 +409,7 @@ class TestSidePots(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(tiny, small, medium),
             community_cards=community_cards,
             pot={'total': 190},
@@ -473,7 +473,7 @@ class TestSidePots(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(short_stack, big_stack1, big_stack2),
             community_cards=community_cards,
             pot={'total': 450},
@@ -544,7 +544,7 @@ class TestOddChipDistribution(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 101},
@@ -604,7 +604,7 @@ class TestOddChipDistribution(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3, player4),
             community_cards=community_cards,
             pot={'total': 101},
@@ -654,7 +654,7 @@ class TestChipConservation(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -708,7 +708,7 @@ class TestChipConservation(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(tiny, small, medium),
             community_cards=community_cards,
             pot={'total': 190},
@@ -762,7 +762,7 @@ class TestChipConservation(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 201},  # 201 / 3 = 67 remainder 0
@@ -807,7 +807,7 @@ class TestAwardPotWinnings(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -849,7 +849,7 @@ class TestAwardPotWinnings(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -898,7 +898,7 @@ class TestAwardPotWinnings(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(short_stack, big_stack, other),
             community_cards=community_cards,
             pot={'total': 450},
@@ -940,7 +940,7 @@ class TestEdgeCases(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -985,7 +985,7 @@ class TestEdgeCases(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 175},
@@ -1030,7 +1030,7 @@ class TestEdgeCases(unittest.TestCase):
             Card('J', 'hearts'),
             Card('2', 'diamonds'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 200},
@@ -1080,7 +1080,7 @@ class TestGameHandlerIntegration(unittest.TestCase):
             Card('Q', 'hearts'),
             Card('2', 'spades'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 60, 'Alice': 30, 'Bob': 30},
@@ -1129,7 +1129,7 @@ class TestGameHandlerIntegration(unittest.TestCase):
             Card('Q', 'hearts'),
             Card('2', 'spades'),
         )
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 60, 'Alice': 30, 'Bob': 30},

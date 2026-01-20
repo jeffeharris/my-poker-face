@@ -47,6 +47,7 @@ from poker.poker_game import (
     advance_to_next_active_player,
     determine_winner,
     award_pot_winnings,
+    create_deck,
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
@@ -374,6 +375,7 @@ class TournamentWorker:
                 tournament_id=task.tournament_id,
                 variant_label=task.variant_label,
                 variant_config=task.variant_config,
+                tournament_number=task.tournament_number,
             )
 
             # Save result to JSON
@@ -496,13 +498,15 @@ class AITournamentRunner:
     def create_game(
         self,
         tournament_id: str,
-        variant_config: Optional[Dict] = None
+        variant_config: Optional[Dict] = None,
+        tournament_number: int = 1
     ) -> Tuple[PokerStateMachine, Dict[str, AIPlayerController], AIMemoryManager]:
         """Create a new game with AI players only.
 
         Args:
             tournament_id: Unique identifier for this tournament
             variant_config: Optional variant-specific config (model, provider, prompt_config)
+            tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
 
         Returns:
             Tuple of (state_machine, controllers, memory_manager)
@@ -517,8 +521,21 @@ class AITournamentRunner:
             Player(name=name, stack=self.config.starting_stack, is_human=False)
             for name in player_names
         )
+
+        # Create deterministic deck if random_seed is set (for A/B experiments)
+        # Formula: base_seed + (tournament_number * 1000) + hand_number
+        # This ensures:
+        #   - Same tournament #, different variants → same decks (fair A/B comparison)
+        #   - Different tournament #, same variant → different decks (independent samples)
+        if self.config.random_seed is not None:
+            deck_seed = self.config.random_seed + (tournament_number * 1000) + 1  # hand_number=1
+        else:
+            deck_seed = None
+        initial_deck = create_deck(shuffled=True, random_seed=deck_seed)
+
         game_state = PokerGameState(
             players=ai_players,
+            deck=initial_deck,
             current_ante=self.config.big_blind,
             last_raise_amount=self.config.big_blind
         )
@@ -670,7 +687,8 @@ class AITournamentRunner:
                  memory_manager: AIMemoryManager,
                  hand_number: int,
                  tournament_id: Optional[str] = None,
-                 variant_config: Optional[Dict] = None):
+                 variant_config: Optional[Dict] = None,
+                 tournament_number: int = 1):
         """
         Run a single hand to completion.
 
@@ -681,6 +699,7 @@ class AITournamentRunner:
             hand_number: Current hand number
             tournament_id: Optional game ID for per-action saves (for pause/resume)
             variant_config: Optional variant-specific config with enable_psychology/enable_commentary flags
+            tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
 
         Returns:
             True if game should continue, False if tournament is paused,
@@ -695,6 +714,12 @@ class AITournamentRunner:
         if len(active_players) <= 1:
             logger.info(f"Tournament ending: {len(active_players)} player(s) with chips remaining")
             return False
+
+        # Set deterministic deck seed for this hand (for A/B experiments)
+        # Formula: base_seed + (tournament_number * 1000) + hand_number
+        # This ensures the same deck order for the same hand_number across variants
+        if self.config.random_seed is not None:
+            state_machine.current_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number
 
         # Notify memory manager of hand start (sets hand_count internally)
         memory_manager.on_hand_start(game_state, hand_number)
@@ -843,7 +868,13 @@ class AITournamentRunner:
                 memory_manager.generate_commentary_for_hand(ai_players_context)
 
         # Reset for next hand
-        game_state = reset_game_state_for_new_hand(game_state)
+        # Calculate seed for NEXT hand (hand_number + 1) if deterministic seeding is enabled
+        # Formula: base_seed + (tournament_number * 1000) + hand_number
+        if self.config.random_seed is not None:
+            next_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number + 1
+        else:
+            next_hand_seed = None
+        game_state = reset_game_state_for_new_hand(game_state, deck_seed=next_hand_seed)
         state_machine.game_state = game_state  # Use property setter
         state_machine.update_phase(PokerPhase.INITIALIZING_HAND)
 
@@ -857,7 +888,8 @@ class AITournamentRunner:
         self,
         tournament_id: str,
         variant_label: Optional[str] = None,
-        variant_config: Optional[Dict] = None
+        variant_config: Optional[Dict] = None,
+        tournament_number: int = 1
     ) -> TournamentResult:
         """Run a complete tournament to conclusion.
 
@@ -865,12 +897,13 @@ class AITournamentRunner:
             tournament_id: Unique identifier for this tournament
             variant_label: Optional variant label for A/B testing
             variant_config: Optional variant-specific config (model, provider, prompt_config)
+            tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
         """
         start_time = datetime.now()
         variant_info = f" [{variant_label}]" if variant_label else ""
         logger.info(f"Starting tournament {tournament_id}{variant_info}")
 
-        state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config)
+        state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config, tournament_number)
 
         # Store original players for reset scenarios (before any eliminations)
         original_players = state_machine.game_state.players
@@ -900,7 +933,8 @@ class AITournamentRunner:
             hand_result = self.run_hand(
                 state_machine, controllers, memory_manager, hand_number,
                 tournament_id=tournament_id,
-                variant_config=variant_config
+                variant_config=variant_config,
+                tournament_number=tournament_number
             )
 
             # Save game state for live monitoring (every hand)
@@ -1192,7 +1226,8 @@ class AITournamentRunner:
                 result = self.run_tournament(
                     task.tournament_id,
                     task.variant_label,
-                    task.variant_config
+                    task.variant_config,
+                    task.tournament_number
                 )
                 results.append(result)
 
