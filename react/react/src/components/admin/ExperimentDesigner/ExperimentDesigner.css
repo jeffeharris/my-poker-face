@@ -585,6 +585,25 @@
   font-size: 0.875rem;
 }
 
+.config-preview__estimate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  flex-shrink: 0;
+}
+
+.config-preview__estimate-hands {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e5e5e5;
+}
+
+.config-preview__estimate-time {
+  font-size: 0.75rem;
+  color: #737373;
+}
+
 /* ExperimentList */
 .experiment-list {
   display: flex;

@@ -314,6 +314,45 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
     return config.num_tournaments * numVariants;
   };
 
+  const getTotalHands = () => {
+    return getTotalTournaments() * config.hands_per_tournament;
+  };
+
+  // Rough time estimate based on ~20 seconds per hand baseline
+  // Factors: psychology/commentary add overhead, parallel tournaments reduce wall time
+  const getTimeEstimate = () => {
+    const totalHands = getTotalHands();
+    const parallelism = config.parallel_tournaments || 1;
+
+    // Base time per hand: ~20 seconds
+    // Psychology adds ~5 seconds (emotional state generation)
+    // Commentary adds ~5 seconds (LLM commentary generation)
+    const hasPsychology = config.control?.enable_psychology ||
+      config.variants?.some(v => v.enable_psychology);
+    const hasCommentary = config.control?.enable_commentary ||
+      config.variants?.some(v => v.enable_commentary);
+
+    let secondsPerHand = 20;
+    if (hasPsychology) secondsPerHand += 5;
+    if (hasCommentary) secondsPerHand += 5;
+
+    // Parallel execution reduces wall time
+    const effectiveHands = Math.ceil(totalHands / parallelism);
+    const totalSeconds = effectiveHands * secondsPerHand;
+
+    // Format as human-readable duration
+    if (totalSeconds < 60) {
+      return `~${totalSeconds}s`;
+    } else if (totalSeconds < 3600) {
+      const minutes = Math.round(totalSeconds / 60);
+      return `~${minutes}m`;
+    } else {
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.round((totalSeconds % 3600) / 60);
+      return minutes > 0 ? `~${hours}h ${minutes}m` : `~${hours}h`;
+    }
+  };
+
   const handleLaunch = async () => {
     if (!validation?.valid || launching) return;
 
@@ -1027,7 +1066,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
       </div>
 
       {/* Validation Messages */}
-      {validation && (
+      {validation && (validation.errors.length > 0 || validation.warnings.length > 0) && (
         <div className="config-preview__validation">
           {validation.errors.map((error, i) => (
             <div key={i} className="config-preview__validation-error">
@@ -1046,6 +1085,14 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
       {/* Launch Button */}
       <div className="config-preview__footer">
+        <div className="config-preview__estimate">
+          <span className="config-preview__estimate-hands">
+            {getTotalHands().toLocaleString()} hands
+          </span>
+          <span className="config-preview__estimate-time">
+            {getTimeEstimate()}
+          </span>
+        </div>
         <button
           className="config-preview__launch-btn"
           onClick={handleLaunch}
