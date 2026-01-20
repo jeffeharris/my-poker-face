@@ -35,11 +35,16 @@ export function LiveMonitoringView({
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
 
-  const fetchLiveGames = useCallback(async () => {
+  const fetchLiveGames = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch(
-        `${config.API_URL}/api/experiments/${experimentId}/live-games`
+        `${config.API_URL}/api/experiments/${experimentId}/live-games`,
+        { signal }
       );
+
+      // Don't update state if request was aborted
+      if (signal?.aborted) return;
+
       const data: LiveGamesResponse = await response.json();
 
       if (data.success) {
@@ -51,6 +56,8 @@ export function LiveMonitoringView({
         setError(data.error || 'Failed to load live games');
       }
     } catch (err) {
+      // Ignore abort errors - these are expected on unmount
+      if (err instanceof Error && err.name === 'AbortError') return;
       console.error('Failed to fetch live games:', err);
       setError('Failed to connect to server');
     } finally {
@@ -58,17 +65,23 @@ export function LiveMonitoringView({
     }
   }, [experimentId]);
 
-  // Initial load
+  // Initial load with cleanup
   useEffect(() => {
-    fetchLiveGames();
+    const abortController = new AbortController();
+    fetchLiveGames(abortController.signal);
+    return () => abortController.abort();
   }, [fetchLiveGames]);
 
   // Poll every 5 seconds while experiment is running
   useEffect(() => {
     if (experimentStatus !== 'running') return;
 
-    const interval = setInterval(fetchLiveGames, 5000);
-    return () => clearInterval(interval);
+    const abortController = new AbortController();
+    const interval = setInterval(() => fetchLiveGames(abortController.signal), 5000);
+    return () => {
+      clearInterval(interval);
+      abortController.abort();
+    };
   }, [experimentStatus, fetchLiveGames]);
 
   // Handle ESC key to close
