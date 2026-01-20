@@ -2658,6 +2658,58 @@
   cursor: not-allowed;
 }
 
+/* Assistant Mode Toggle Button */
+.experiment-detail__assistant-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #a3a3a3;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.experiment-detail__assistant-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Main Area (content + docked assistant layout) */
+.experiment-detail__main-area {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.experiment-detail__main-area > .experiment-detail__content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Docked Assistant Panel */
+.experiment-detail__assistant-panel--docked {
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  flex-shrink: 0;
+  background: #1e1e1e;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  animation: none;
+}
+
+/* Responsive: hide docked panel on small screens */
+@media (max-width: 900px) {
+  .experiment-detail__assistant-panel--docked {
+    display: none;
+  }
+}
+
 /* AI Interpretation Section */
 .experiment-detail__section--ai {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(59, 130, 246, 0.08));

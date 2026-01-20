@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 'lucide-react';
 import { AdminDashboard, SIDEBAR_ITEMS } from './AdminDashboard';
 import { AdminSidebar } from './AdminSidebar';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { useViewport } from '../../hooks/useViewport';
+import { config } from '../../config';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['personalities', 'analyzer', 'playground', 'experiments', 'templates', 'settings', 'debug'];
@@ -17,6 +18,90 @@ function ExperimentDetailWrapper() {
   const navigate = useNavigate();
   const { isMobile } = useViewport();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Page-level assistant state
+  const [showAssistant, setShowAssistant] = useState(false);
+  const [assistantMode, setAssistantMode] = useState<'overlay' | 'docked'>(() => {
+    const saved = localStorage.getItem('experimentAssistantMode');
+    return (saved === 'overlay' || saved === 'docked') ? saved : 'docked';
+  });
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const experimentIdNum = experimentId ? parseInt(experimentId, 10) : NaN;
+
+  // Load chat history when opening assistant
+  const handleOpenAssistant = async () => {
+    setShowAssistant(true);
+    if (chatMessages.length === 0 && !isNaN(experimentIdNum)) {
+      try {
+        const response = await fetch(`${config.API_URL}/api/experiments/${experimentIdNum}/chat/history`);
+        const data = await response.json();
+        if (data.success && data.history) {
+          setChatMessages(data.history);
+        }
+      } catch (err) {
+        console.error('Failed to load chat history:', err);
+      }
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || chatLoading || isNaN(experimentIdNum)) return;
+
+    const message = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: message }]);
+    setChatLoading(true);
+
+    try {
+      const response = await fetch(`${config.API_URL}/api/experiments/${experimentIdNum}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+      } else {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error}` }]);
+      }
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error: Failed to connect to server' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleClearChat = async () => {
+    if (isNaN(experimentIdNum)) return;
+    try {
+      await fetch(`${config.API_URL}/api/experiments/${experimentIdNum}/chat/clear`, {
+        method: 'POST',
+      });
+      setChatMessages([]);
+    } catch (err) {
+      console.error('Failed to clear chat history:', err);
+    }
+  };
+
+  const handleToggleMode = () => {
+    const newMode = assistantMode === 'overlay' ? 'docked' : 'overlay';
+    setAssistantMode(newMode);
+    localStorage.setItem('experimentAssistantMode', newMode);
+  };
+
+  // ESC key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showAssistant && assistantMode === 'overlay') {
+        setShowAssistant(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showAssistant, assistantMode]);
 
   const handleBack = () => {
     navigate('/admin/experiments');
@@ -33,11 +118,100 @@ function ExperimentDetailWrapper() {
     navigate('/admin/experiments', { state: { buildFromSuggestion: { experiment, suggestion } } });
   };
 
-  if (!experimentId || isNaN(parseInt(experimentId, 10))) {
+  if (!experimentId || isNaN(experimentIdNum)) {
     return <Navigate to="/admin/experiments" replace />;
   }
 
-  const experimentIdNum = parseInt(experimentId, 10);
+  const isDockedMode = assistantMode === 'docked';
+  const showDockedAssistant = isDockedMode && showAssistant;
+
+  // Assistant Panel component (shared between overlay and docked)
+  const AssistantPanel = ({ isDocked }: { isDocked: boolean }) => (
+    <div className={`admin-assistant-panel ${isDocked ? 'admin-assistant-panel--docked' : ''}`}>
+      <div className="admin-assistant-panel__header">
+        <h3>
+          <MessageSquare size={18} />
+          Experiment Assistant
+        </h3>
+        <div className="admin-assistant-panel__header-actions">
+          <button
+            type="button"
+            className="admin-assistant-panel__mode-btn"
+            onClick={handleToggleMode}
+            title={isDocked ? 'Switch to overlay mode' : 'Switch to docked mode'}
+          >
+            {isDocked ? <Maximize2 size={16} /> : <Columns2 size={16} />}
+          </button>
+          {chatMessages.length > 0 && (
+            <button
+              type="button"
+              className="admin-assistant-panel__clear-btn"
+              onClick={handleClearChat}
+              title="Clear chat history"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            className="admin-assistant-panel__close-btn"
+            onClick={() => setShowAssistant(false)}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+      <div className="admin-assistant-panel__messages">
+        {chatMessages.length === 0 && (
+          <div className="admin-assistant-panel__welcome">
+            <p>Ask me anything about this experiment:</p>
+            <ul>
+              <li>Why were certain configurations chosen?</li>
+              <li>What do the results mean?</li>
+              <li>How do the variants compare?</li>
+              <li>What follow-up experiments should I run?</li>
+            </ul>
+          </div>
+        )}
+        {chatMessages.map((msg, idx) => (
+          <div
+            key={idx}
+            className={`admin-assistant-panel__message admin-assistant-panel__message--${msg.role}`}
+          >
+            {msg.content.split('\n').map((line, i) => (
+              <p key={i}>{line || '\u00A0'}</p>
+            ))}
+          </div>
+        ))}
+        {chatLoading && (
+          <div className="admin-assistant-panel__message admin-assistant-panel__message--assistant">
+            <Loader2 size={16} className="animate-spin" />
+            <span>Thinking...</span>
+          </div>
+        )}
+      </div>
+      <form
+        className="admin-assistant-panel__input-area"
+        onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
+      >
+        <input
+          type="text"
+          className="admin-assistant-panel__input"
+          value={chatInput}
+          onChange={(e) => setChatInput(e.target.value)}
+          placeholder="Ask about this experiment..."
+          disabled={chatLoading}
+        />
+        <button
+          type="submit"
+          className="admin-assistant-panel__send-btn"
+          disabled={!chatInput.trim() || chatLoading}
+        >
+          <Send size={16} />
+        </button>
+      </form>
+    </div>
+  );
 
   // Mobile layout
   if (isMobile) {
@@ -49,15 +223,24 @@ function ExperimentDetailWrapper() {
             onBack={handleBack}
             onEditInLabAssistant={handleEditInLabAssistant}
             onBuildFromSuggestion={handleBuildFromSuggestion}
+            onOpenAssistant={handleOpenAssistant}
           />
         </div>
+        {/* Mobile always uses overlay */}
+        {showAssistant && (
+          <div className="admin-assistant-overlay" onClick={() => setShowAssistant(false)}>
+            <div onClick={(e) => e.stopPropagation()}>
+              <AssistantPanel isDocked={false} />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Desktop layout with sidebar
+  // Desktop layout with sidebar + content + optional docked assistant
   return (
-    <div className="admin-dashboard-layout">
+    <div className={`admin-dashboard-layout ${showDockedAssistant ? 'admin-dashboard-layout--with-assistant' : ''}`}>
       <AdminSidebar
         items={SIDEBAR_ITEMS}
         activeTab="experiments"
@@ -85,9 +268,22 @@ function ExperimentDetailWrapper() {
             onBack={handleBack}
             onEditInLabAssistant={handleEditInLabAssistant}
             onBuildFromSuggestion={handleBuildFromSuggestion}
+            onOpenAssistant={handleOpenAssistant}
           />
         </div>
       </main>
+
+      {/* Docked Assistant Panel (page-level) */}
+      {showDockedAssistant && <AssistantPanel isDocked={true} />}
+
+      {/* Overlay Assistant Panel */}
+      {showAssistant && !isDockedMode && (
+        <div className="admin-assistant-overlay" onClick={() => setShowAssistant(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <AssistantPanel isDocked={false} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
