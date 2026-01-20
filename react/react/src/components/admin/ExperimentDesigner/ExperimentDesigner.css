@@ -1603,6 +1603,26 @@
   border-left: 3px solid #10b981;
 }
 
+.config-preview__variant-card--color-0 {
+  border-left: 3px solid #8b5cf6;
+}
+
+.config-preview__variant-card--color-1 {
+  border-left: 3px solid #f97316;
+}
+
+.config-preview__variant-card--color-2 {
+  border-left: 3px solid #ec4899;
+}
+
+.config-preview__variant-card--color-3 {
+  border-left: 3px solid #06b6d4;
+}
+
+.config-preview__variant-card--color-4 {
+  border-left: 3px solid #3b82f6;
+}
+
 .config-preview__variant-header {
   display: flex;
   justify-content: space-between;
@@ -1625,6 +1645,31 @@
   color: #34d399;
 }
 
+.config-preview__variant-badge--color-0 {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.config-preview__variant-badge--color-1 {
+  background: rgba(249, 115, 22, 0.2);
+  color: #fb923c;
+}
+
+.config-preview__variant-badge--color-2 {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
+.config-preview__variant-badge--color-3 {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+}
+
+.config-preview__variant-badge--color-4 {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
 .config-preview__variant-remove {
   padding: 0.25rem;
   background: transparent;
@@ -1644,6 +1689,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.config-preview__variant-fields .config-preview__label--inline {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  align-items: center;
 }
 
 .config-preview__row--toggles {

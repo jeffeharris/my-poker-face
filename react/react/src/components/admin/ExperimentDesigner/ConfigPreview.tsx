@@ -626,7 +626,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                           <span className="config-preview__variant-badge config-preview__variant-badge--control">Control</span>
                         </div>
                         <div className="config-preview__variant-fields">
-                          <label className="config-preview__label">
+                          <label className="config-preview__label config-preview__label--inline">
                             Label
                             <input
                               type="text"
@@ -662,9 +662,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
                       {/* Variants */}
                       {config.variants?.map((variant, index) => (
-                        <div key={index} className="config-preview__variant-card">
+                        <div key={index} className={`config-preview__variant-card config-preview__variant-card--color-${index % 5}`}>
                           <div className="config-preview__variant-header">
-                            <span className="config-preview__variant-badge">Variant {index + 1}</span>
+                            <span className={`config-preview__variant-badge config-preview__variant-badge--color-${index % 5}`}>Variant {index + 1}</span>
                             <button
                               type="button"
                               className="config-preview__variant-remove"
@@ -675,7 +675,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                             </button>
                           </div>
                           <div className="config-preview__variant-fields">
-                            <label className="config-preview__label">
+                            <label className="config-preview__label config-preview__label--inline">
                               Label
                               <input
                                 type="text"
@@ -685,53 +685,51 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 placeholder={`Variant ${index + 1}`}
                               />
                             </label>
-                            <div className="config-preview__row">
-                              <label className="config-preview__label config-preview__label--inline">
-                                Provider
-                                <select
-                                  className="config-preview__select"
-                                  value={variant.provider || ''}
-                                  onChange={(e) => {
-                                    const newProvider = e.target.value;
-                                    if (newProvider === '') {
-                                      // Inherit from experiment - clear both provider and model
-                                      handleVariantUpdate(index, 'provider', '');
-                                      handleVariantUpdate(index, 'model', '');
-                                    } else {
-                                      const providerInfo = providers.find(p => p.id === newProvider);
-                                      // Update provider and set default model
-                                      const variants = [...(config.variants || [])];
-                                      variants[index] = {
-                                        ...variants[index],
-                                        provider: newProvider,
-                                        model: providerInfo?.default_model || '',
-                                      };
-                                      onConfigUpdate({ variants });
-                                    }
-                                  }}
-                                  disabled={providersLoading}
-                                >
-                                  <option value="">Same as Control</option>
-                                  {providers.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label className="config-preview__label config-preview__label--inline">
-                                Model
-                                <select
-                                  className="config-preview__select"
-                                  value={variant.model || ''}
-                                  onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
-                                  disabled={providersLoading || !variant.provider}
-                                >
-                                  <option value="">Same as Control</option>
-                                  {variant.provider && getModelsForProvider(variant.provider).map(model => (
-                                    <option key={model} value={model}>{model}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Provider
+                              <select
+                                className="config-preview__select"
+                                value={variant.provider || ''}
+                                onChange={(e) => {
+                                  const newProvider = e.target.value;
+                                  if (newProvider === '') {
+                                    // Inherit from experiment - clear both provider and model
+                                    handleVariantUpdate(index, 'provider', '');
+                                    handleVariantUpdate(index, 'model', '');
+                                  } else {
+                                    const providerInfo = providers.find(p => p.id === newProvider);
+                                    // Update provider and set default model
+                                    const variants = [...(config.variants || [])];
+                                    variants[index] = {
+                                      ...variants[index],
+                                      provider: newProvider,
+                                      model: providerInfo?.default_model || '',
+                                    };
+                                    onConfigUpdate({ variants });
+                                  }
+                                }}
+                                disabled={providersLoading}
+                              >
+                                <option value="">Same as Control</option>
+                                {providers.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Model
+                              <select
+                                className="config-preview__select"
+                                value={variant.model || ''}
+                                onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
+                                disabled={providersLoading || !variant.provider}
+                              >
+                                <option value="">Same as Control</option>
+                                {variant.provider && getModelsForProvider(variant.provider).map(model => (
+                                  <option key={model} value={model}>{model}</option>
+                                ))}
+                              </select>
+                            </label>
                             <div className="config-preview__row config-preview__row--toggles">
                               <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation. Inherits from control if not set.">
                                 <input
