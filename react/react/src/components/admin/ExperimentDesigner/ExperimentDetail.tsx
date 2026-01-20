@@ -24,6 +24,9 @@ import {
   MessageSquare,
   X,
   Send,
+  Brain,
+  Lightbulb,
+  FlaskRound,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
@@ -56,6 +59,20 @@ interface ExperimentDetailType {
     winners: Record<string, number>;
     variants?: Record<string, VariantResultSummary>;
     failed_tournaments?: FailedTournament[];
+    ai_interpretation?: {
+      summary: string;
+      verdict: string;
+      surprises: string[];
+      next_steps: string[];
+      // Legacy fields for backwards compatibility
+      hypothesis_evaluation?: string;
+      key_findings?: string[];
+      variant_comparison?: string | null;
+      suggested_followups?: string[];
+      generated_at: string;
+      model_used: string;
+      error?: string;
+    };
   } | null;
 }
 
@@ -548,6 +565,67 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* AI Interpretation */}
+      {summary?.ai_interpretation && !summary.ai_interpretation.error && (
+        <div className="experiment-detail__section experiment-detail__section--ai">
+          <h3 className="experiment-detail__section-title">
+            <Brain size={18} />
+            AI Analysis
+            <span className="experiment-detail__ai-meta">
+              {summary.ai_interpretation.model_used} • {new Date(summary.ai_interpretation.generated_at).toLocaleDateString()}
+            </span>
+          </h3>
+
+          <div className="experiment-detail__ai-content">
+            {/* Summary */}
+            <div className="experiment-detail__ai-summary">
+              <p>{summary.ai_interpretation.summary}</p>
+            </div>
+
+            {/* Verdict (new) or Hypothesis Evaluation (legacy) */}
+            {(summary.ai_interpretation.verdict || summary.ai_interpretation.hypothesis_evaluation) && (
+              <div className="experiment-detail__ai-block">
+                <h4>
+                  <FlaskRound size={14} />
+                  Verdict
+                </h4>
+                <p>{summary.ai_interpretation.verdict || summary.ai_interpretation.hypothesis_evaluation}</p>
+              </div>
+            )}
+
+            {/* Surprises (new) or Key Findings (legacy) - only show if non-empty */}
+            {((summary.ai_interpretation.surprises?.length ?? 0) > 0 || (summary.ai_interpretation.key_findings?.length ?? 0) > 0) && (
+              <div className="experiment-detail__ai-block">
+                <h4>
+                  <Lightbulb size={14} />
+                  {summary.ai_interpretation.surprises ? 'Surprises' : 'Key Findings'}
+                </h4>
+                <ul className="experiment-detail__ai-list">
+                  {(summary.ai_interpretation.surprises || summary.ai_interpretation.key_findings || []).map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Next Steps (new) or Suggested Follow-ups (legacy) */}
+            {((summary.ai_interpretation.next_steps?.length ?? 0) > 0 || (summary.ai_interpretation.suggested_followups?.length ?? 0) > 0) && (
+              <div className="experiment-detail__ai-block">
+                <h4>
+                  <Target size={14} />
+                  Next Steps
+                </h4>
+                <ul className="experiment-detail__ai-list">
+                  {(summary.ai_interpretation.next_steps || summary.ai_interpretation.suggested_followups || []).map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

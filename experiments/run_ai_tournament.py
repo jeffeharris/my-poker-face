@@ -57,7 +57,7 @@ from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
-from core.llm import LLMClient, CallType
+from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
 
 
 def make_experiment_owner_id(experiment_name: str) -> str:
@@ -1636,25 +1636,22 @@ class AITournamentRunner:
 
 {design_context}
 
-Given the experiment configuration and results, provide:
+Given the experiment configuration and results, provide a concise analysis:
 
 ## Summary
-A 2-3 sentence summary of what happened.
+1-2 sentences: What was tested and what was the outcome?
 
-## Hypothesis Evaluation
-Did the data support the hypothesis? Cite specific numbers.
+## Verdict
+One sentence: Did the hypothesis hold? Which variant won (if A/B test)? Include the key numbers.
 
-## Key Findings
-3-5 notable observations, especially surprising results.
+## Surprises
+Only list genuinely unexpected or anomalous findings. If results were as expected, return an empty array.
 
-## Variant Comparison (for A/B tests only)
-Which variant performed better? By how much?
+## Next Steps
+2-3 concrete follow-up experiment ideas.
 
-## Suggested Follow-ups
-2-3 ideas for follow-up experiments or data to investigate.
-
-Be concise and data-driven. Use specific numbers from the results.
-Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (array), variant_comparison (string or null), suggested_followups (array)"""
+Be extremely concise. Don't repeat information across sections.
+Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array)"""
 
             # Build results context
             results_context = {
@@ -1715,7 +1712,7 @@ Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (
             })
 
             # Make LLM call
-            client = LLMClient(model="gpt-4o")
+            client = LLMClient(model=ASSISTANT_MODEL, provider=ASSISTANT_PROVIDER)
             response = client.complete(
                 messages=messages,
                 json_format=True,
