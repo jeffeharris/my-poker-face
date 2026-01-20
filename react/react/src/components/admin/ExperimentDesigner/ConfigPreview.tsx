@@ -443,91 +443,95 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
             <div className="config-preview__section">
               <h5 className="config-preview__section-title">Tournament Settings</h5>
 
-              <div className="config-preview__row">
-                <label className="config-preview__label config-preview__label--inline">
-                  Tournaments
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.num_tournaments}
-                    onChange={(e) => handleNumberChange('num_tournaments', e.target.value)}
-                    onBlur={(e) => handleNumberBlur('num_tournaments', e.target.value)}
-                    min={1}
-                    max={20}
-                  />
-                </label>
+              <div className="config-preview__tournament-grid">
+                {/* Column 1: Game Structure */}
+                <div className="config-preview__tournament-col">
+                  <label className="config-preview__label config-preview__label--inline">
+                    Tournaments
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.num_tournaments}
+                      onChange={(e) => handleNumberChange('num_tournaments', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('num_tournaments', e.target.value)}
+                      min={1}
+                      max={20}
+                    />
+                  </label>
 
-                <label className="config-preview__label config-preview__label--inline">
-                  Hands
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.hands_per_tournament}
-                    onChange={(e) => handleNumberChange('hands_per_tournament', e.target.value)}
-                    onBlur={(e) => handleNumberBlur('hands_per_tournament', e.target.value)}
-                    min={5}
-                    max={500}
-                  />
-                </label>
+                  <label className="config-preview__label config-preview__label--inline">
+                    Hands
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.hands_per_tournament}
+                      onChange={(e) => handleNumberChange('hands_per_tournament', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('hands_per_tournament', e.target.value)}
+                      min={5}
+                      max={500}
+                    />
+                  </label>
 
-                <label className="config-preview__label config-preview__label--inline">
-                  Players
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.num_players}
-                    onChange={(e) => handleNumberChange('num_players', e.target.value)}
-                    onBlur={(e) => handleNumberBlur('num_players', e.target.value)}
-                    min={2}
-                    max={8}
-                  />
-                </label>
+                  <label className="config-preview__label config-preview__label--inline">
+                    Players
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.num_players}
+                      onChange={(e) => handleNumberChange('num_players', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('num_players', e.target.value)}
+                      min={2}
+                      max={8}
+                    />
+                  </label>
+                </div>
+
+                {/* Column 2: Chip Settings */}
+                <div className="config-preview__tournament-col">
+                  <label className="config-preview__label config-preview__label--inline">
+                    Starting Stack
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.starting_stack}
+                      onChange={(e) => handleNumberChange('starting_stack', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('starting_stack', e.target.value)}
+                      min={1000}
+                      max={100000}
+                      step={1000}
+                    />
+                  </label>
+
+                  <label className="config-preview__label config-preview__label--inline">
+                    Big Blind
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.big_blind}
+                      onChange={(e) => handleNumberChange('big_blind', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('big_blind', e.target.value)}
+                      min={10}
+                      max={1000}
+                      step={10}
+                    />
+                  </label>
+
+                  <label className="config-preview__toggle-label" title="When enabled, stacks reset on elimination ensuring exactly the configured number of hands. When disabled, tournament ends when one player wins all chips.">
+                    <input
+                      type="checkbox"
+                      checked={config.reset_on_elimination ?? false}
+                      onChange={(e) => handleFieldChange('reset_on_elimination', e.target.checked)}
+                    />
+                    Reset stacks on elimination
+                  </label>
+                </div>
               </div>
 
-              {/* Reset on elimination toggle with explanation */}
-              <label className="config-preview__toggle-label" title="When enabled, stacks reset on elimination ensuring exactly the configured number of hands. When disabled, tournament ends when one player wins all chips.">
-                <input
-                  type="checkbox"
-                  checked={config.reset_on_elimination ?? false}
-                  onChange={(e) => handleFieldChange('reset_on_elimination', e.target.checked)}
-                />
-                Reset stacks on elimination
-              </label>
-              <p className="config-preview__hint" style={{ marginTop: '4px', marginBottom: '0' }}>
+              <p className="config-preview__hint config-preview__hint--tournament">
                 {config.reset_on_elimination
                   ? `Plays exactly ${config.hands_per_tournament} hands per tournament (stacks reset when someone is eliminated)`
                   : `Plays up to ${config.hands_per_tournament} hands per tournament (ends early if one player wins all chips)`}
               </p>
-
-              <div className="config-preview__row">
-                <label className="config-preview__label config-preview__label--inline">
-                  Starting Stack
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.starting_stack}
-                    onChange={(e) => handleNumberChange('starting_stack', e.target.value)}
-                    onBlur={(e) => handleNumberBlur('starting_stack', e.target.value)}
-                    min={1000}
-                    max={100000}
-                    step={1000}
-                  />
-                </label>
-
-                <label className="config-preview__label config-preview__label--inline">
-                  Big Blind
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.big_blind}
-                    onChange={(e) => handleNumberChange('big_blind', e.target.value)}
-                    onBlur={(e) => handleNumberBlur('big_blind', e.target.value)}
-                    min={10}
-                    max={1000}
-                    step={10}
-                  />
-                </label>
-              </div>
             </div>
 
             {/* Model Settings */}

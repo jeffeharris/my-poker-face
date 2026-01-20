@@ -398,6 +398,40 @@
   gap: 1rem;
 }
 
+.config-preview__tournament-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.config-preview__tournament-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.config-preview__tournament-col .config-preview__label {
+  margin-bottom: 0;
+}
+
+.config-preview__tournament-col .config-preview__label--inline {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+}
+
+.config-preview__hint--tournament {
+  margin-top: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .config-preview__tournament-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+}
+
 .config-preview__section--collapsible {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
