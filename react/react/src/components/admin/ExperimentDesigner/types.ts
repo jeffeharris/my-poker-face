@@ -319,6 +319,8 @@ export interface ConfigVersion {
   timestamp: string;
   config: ExperimentConfig;
   message_index: number;
+  /** Optional label like 'Original' or 'Manual edit' */
+  label?: string;
 }
 
 export interface QuickPrompt {

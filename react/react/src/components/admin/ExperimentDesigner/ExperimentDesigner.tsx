@@ -72,7 +72,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   useEffect(() => {
     const fetchLatestSession = async () => {
       try {
-        const response = await fetch(`${appConfig.apiUrl}/api/experiments/chat/latest`);
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/chat/latest`);
         if (!response.ok) return;
         const data = await response.json();
         if (data.success && data.session) {
@@ -124,7 +124,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     // Archive the pending session
     if (pendingSession) {
       try {
-        await fetch(`${appConfig.apiUrl}/api/experiments/chat/archive`, {
+        await fetch(`${appConfig.API_URL}/api/experiments/chat/archive`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: pendingSession.session_id }),
@@ -210,6 +210,10 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   const handleVersionChange = useCallback((index: number) => {
     if (index >= 0 && index < configVersions.length) {
+      // Simply navigate to the selected version
+      // Auto-saving was too fragile due to form state drift (e.g., model select
+      // showing empty before providers load). Users can preserve edits by
+      // sending a chat message, which creates a new version.
       setCurrentVersionIndex(index);
       setConfig(configVersions[index].config);
     }

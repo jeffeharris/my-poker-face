@@ -747,6 +747,16 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
 
         # Track config version if there were updates
         if config_updates:
+            # On first update, save original config as v0 if it was meaningful (had a name)
+            # This allows reverting when editing a previous experiment
+            if not config_versions and current_config.get('name'):
+                config_versions.append({
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'config': current_config.copy(),
+                    'message_index': 0,
+                    'label': 'Original',
+                })
+            # Save the updated config
             config_versions.append({
                 'timestamp': datetime.utcnow().isoformat(),
                 'config': merged_config.copy(),
