@@ -1,115 +1,47 @@
-# my-poker-face
-A poker game with LLMs where you can define who you are playing against 
-and have a conversation with them while you play.
+# My Poker Face
 
-## 🚀 Quick Start
+A poker game with AI personalities — and an experimentation platform for testing LLM capabilities at scale.
 
-**First time playing?** Check out our **[Quick Start Guide](QUICK_START.md)** - get playing in under 5 minutes!
+## The Game
 
-For the v1.0 release notes and known issues, see [RELEASE_NOTES_v1.0.md](RELEASE_NOTES_v1.0.md).
+Play Texas Hold'em against AI characters like Gordon Ramsay, Batman, and Eeyore. Each has unique speech patterns, playing styles, and dynamic behaviors that evolve during gameplay.
 
-## Key Features
+**Play now**: [mypokerfacegame.com](https://mypokerfacegame.com)
 
-- **AI-Powered Personalities**: Play against famous personalities (Gordon Ramsay, Eeyore, Batman, etc.) powered by OpenAI
-- **Dynamic Personality System**: AI personalities now change during gameplay! Their traits (aggression, bluff tendency) adapt based on wins, losses, and game events
-- **Modern Web Interface**: React frontend with Flask API backend
-- **Persistent Games**: Save and resume games with full state preservation
-- **Immersive Experience**: Each AI player has unique speech patterns, physical gestures, and playing styles
-- **Personality Elasticity** *(NEW)*: AI moods and traits dynamically respond to game events, creating more realistic opponents
+## The Experiment Manager
 
-## Tech Stack
-- **Frontend**: React with TypeScript, Vite, Socket.IO client
-- **Backend**: Python Flask API with Socket.IO for real-time updates
-- **AI**: OpenAI GPT models for personality-driven gameplay
-- **Database**: SQLite for game persistence
+Run automated AI tournaments to compare models, test prompt variations, and analyze decision quality. Features include:
 
-## run the game locally
-### optional: create a venv to run the game
+- **Multi-provider support**: OpenAI, Anthropic, Groq, DeepSeek, Mistral, Google, xAI
+- **A/B testing**: Compare models head-to-head with deterministic seeding
+- **Decision analysis**: Evaluate AI choices against optimal play (equity, EV)
+- **Cost tracking**: Per-call usage logging with detailed breakdowns
 
-- use the following commands to create a venv. first switch to the root 
-directory of the project and then run the following. Depending on your 
-python interpreter, you may need to switch 'python' to 'python3' below
-
-`python -m venv my_poker_face_venv`
-
-`source my_poker_face_venv/bin/activate`
-
-`pip install -r requirements.txt`
-
-### set up your `.env` file
-Create a local `.env` file and add your `OPENAI_API_KEY` to it. 
-This will be enabled to use the AI PLayers and Assistants.
-
-Once the environment is configured:
-
-### Running with Docker Compose (Recommended)
+## Quick Start
 
 ```bash
-# Start all services
-make up
+cp .env.example .env    # Add your API keys
+make up                 # Start with Docker
+```
 
-# Stop all services
-make down
+Open [http://localhost:5173](http://localhost:5173)
+
+## Documentation
+
+- [Quick Start Guide](docs/QUICK_START.md) — Setup options and first game
+- [Game Vision](docs/vision/GAME_VISION.md) — Design philosophy
+- [DevOps Guide](docs/DEVOPS.md) — Production deployment
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — Common issues
+
+## Development
+
+```bash
+# Run tests
+docker compose exec backend python -m pytest tests/ -v
 
 # View logs
 make logs
 
-# With custom ports (if defaults are in use)
-FRONTEND_PORT=3173 BACKEND_PORT=5001 make up
+# Stop services
+make down
 ```
-
-Access the game at http://localhost:5173
-
-The Docker setup includes:
-- React frontend (port 5173)
-- Flask API backend (port 5000)
-- Redis for session management and rate limiting (port 6379)
-- Hot-reloading for development
-- API rate limiting for cost control
-
-### Admin Dashboard
-
-The admin dashboard provides LLM usage analytics, cost tracking, and debugging tools.
-
-**Access:**
-- Available only in development mode (`FLASK_ENV=development`)
-- **Browser:** `http://localhost:5000/admin/`
-- **API:** `curl http://localhost:5000/admin/api/summary`
-
-**Optional Token Authentication:**
-For extra security in development, set `ADMIN_REQUIRE_TOKEN=true` and provide an `ADMIN_TOKEN`:
-```bash
-ADMIN_TOKEN=my-poker-face-admin
-ADMIN_REQUIRE_TOKEN=true
-```
-
-**Features:**
-- Cost analysis by provider and model
-- Performance metrics (latency percentiles, error rates)
-- Prompt viewer with filtering and pagination
-- Model management (enable/disable models)
-- Pricing configuration
-
-### Development Setup (Manual)
-
-For developers who need to run services independently:
-
-<details>
-<summary>Click to expand manual setup instructions</summary>
-
-1. **Backend API**:
-```bash
-python -m flask_app.ui_web
-```
-
-2. **Frontend** (in a new terminal):
-```bash
-cd react/react
-npm install
-npm run dev
-```
-
-3. **Access**:
-- Frontend: http://localhost:5173
-- API: http://localhost:5000
-</details>

@@ -1,134 +1,83 @@
-# My Poker Face - Quick Start Guide 🃏
+# Quick Start Guide
 
-Get playing in under 5 minutes! This guide will help you start your first poker game.
+Get playing in under 5 minutes.
 
-## Option 1: Docker Setup (Recommended) 🐳
+## Prerequisites
 
-The easiest way to play is using Docker, which handles all the setup for you.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- An API key from [OpenAI](https://platform.openai.com/api-keys), [Anthropic](https://console.anthropic.com/), or another supported provider
 
-### Prerequisites
-- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- Get an OpenAI API key from [OpenAI](https://platform.openai.com/api-keys) (optional - for AI chat)
+## Setup
 
-### Step 1: Download and Extract
-1. Download the My Poker Face zip file
-2. Extract it to a folder on your computer
-
-### Step 2: Set Up Environment
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# Clone the repository
+git clone https://github.com/jeffeharris/my-poker-face.git
+cd my-poker-face
 
-# Edit .env and add your OpenAI API key (optional)
-# OPENAI_API_KEY=your-key-here
+# Configure environment
+cp .env.example .env
 ```
 
-### Step 3: Start the Game
-```bash
-# Start all services
-docker-compose up -d
+Edit `.env` and add at least one API key:
+```
+OPENAI_API_KEY=sk-...
+# Or use other providers:
+# ANTHROPIC_API_KEY=sk-ant-...
+# GROQ_API_KEY=gsk_...
+```
 
-# Or use the Makefile
+## Start the Game
+
+```bash
 make up
 ```
 
-### Step 4: Play!
-Open your web browser and go to: **http://localhost:5173**
+Open [http://localhost:5173](http://localhost:5173)
 
-You'll see a modern poker interface where you can play against AI personalities!
+## Playing
 
-## Option 2: Manual Setup (For Developers) 💻
+1. **Create a game** — Choose your opponents from the personality gallery
+2. **Place bets** — Use the action buttons (Fold, Check, Call, Raise)
+3. **Chat with AI** — Each opponent responds in character
+4. **Games auto-save** — Come back anytime to continue
 
-If you prefer to run without Docker or need to modify the code:
+## Manual Setup (Without Docker)
 
-### Prerequisites
-- Python 3.8+ installed
-- Node.js 16+ installed
-- OpenAI API key (optional)
+For development or if you prefer not to use Docker:
 
-### Backend Setup
+**Backend** (Terminal 1):
 ```bash
-# Create virtual environment
-python -m venv my_poker_face_venv
-source my_poker_face_venv/bin/activate  # On Windows: my_poker_face_venv\Scripts\activate
-
-# Install dependencies
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Create .env file
-echo "OPENAI_API_KEY=your-key-here" > .env
-
-# Start the backend
 python -m flask_app.ui_web
 ```
 
-### Frontend Setup (New Terminal)
+**Frontend** (Terminal 2):
 ```bash
-# Navigate to React app
 cd react/react
-
-# Install dependencies
 npm install
-
-# Start the frontend
 npm run dev
 ```
 
-### Play!
-Open your browser to: **http://localhost:5173**
+## Troubleshooting
 
-## Game Controls 🎮
+**Port already in use**
+```bash
+# Use different ports
+FRONTEND_PORT=3173 BACKEND_PORT=5001 make up
+```
 
-- **Number Keys (1-5)**: Select menu options
-- **Enter**: Confirm selections
-- **Ctrl+C**: Quit game (progress is auto-saved)
-
-## Choosing Your Game Mode 🎯
-
-When you start, you'll see:
-1. **Quick Game** - Jump right in with 3 AI opponents
-2. **Custom Game** - Choose number of opponents and personalities
-3. **Load Game** - Resume a previous game
-
-## Tips for New Players 🌟
-
-1. **Start with Quick Game** to learn the controls
-2. **Watch the pot odds** displayed on screen - they help with betting decisions
-3. **Each AI has a personality** - Gordon Ramsay is aggressive, Bob Ross is chill
-4. **Your chip count** is shown at the bottom of the screen
-5. **The game auto-saves** after each hand
-
-## Troubleshooting Quick Fixes 🔧
-
-**"Python not found"**
-- Make sure Python 3.8+ is installed
-- On Windows, try `py` instead of `python`
-
-**"No module named..."**
-- Make sure you activated the virtual environment
-- Re-run `pip install -r requirements.txt`
+**API errors**
+- Check your API key is set correctly in `.env`
+- Verify you have credits with your provider
 
 **Game seems frozen**
-- AI might be "thinking" - wait a few seconds
-- Press Ctrl+C to safely exit
+- AI responses can take a few seconds
+- Check browser console for errors
 
-**Can't see cards properly**
-- Your terminal needs Unicode support
-- Try Windows Terminal (not Command Prompt) on Windows
-- Terminal app on Mac/Linux should work fine
+## Next Steps
 
-## Next Steps 📚
-
-- Try different AI personalities in Custom Game mode
-- Read [RELEASE_NOTES_v1.0.md](RELEASE_NOTES_v1.0.md) for full feature list
-- Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed help
-- Share feedback about your experience!
-
-## Need Help? 🆘
-
-If you're stuck, the game includes:
-- Detailed error messages with suggestions
-- Auto-recovery from most errors
-- Save files in the `data/` folder if you need to share for debugging
-
-Enjoy your game! May the best hand win! 🏆
+- [Game Vision](vision/GAME_VISION.md) — Design philosophy and roadmap
+- [Troubleshooting](TROUBLESHOOTING.md) — More detailed help
+- [DevOps Guide](DEVOPS.md) — Production deployment
