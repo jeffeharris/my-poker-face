@@ -618,6 +618,30 @@ def chat_experiment_design():
                 'config_versions': [],
                 'failure_context': failure_context,
             }
+        elif session_id not in _chat_sessions:
+            # Session exists but not in memory - try to restore from database
+            db_session = persistence.get_chat_session(session_id)
+            if db_session:
+                # Convert UI messages back to history format
+                history_from_db = [
+                    {'role': msg['role'], 'content': msg['content']}
+                    for msg in db_session.get('messages', [])
+                ]
+                _chat_sessions[session_id] = {
+                    'history': history_from_db,
+                    'last_config': db_session.get('config', {}),
+                    'config_versions': db_session.get('config_versions') or [],
+                    'failure_context': failure_context,
+                }
+                logger.info(f"Restored chat session {session_id} from database")
+            else:
+                # Session ID provided but not found anywhere - create new
+                _chat_sessions[session_id] = {
+                    'history': [],
+                    'last_config': {},
+                    'config_versions': [],
+                    'failure_context': failure_context,
+                }
 
         # Get session data (handle legacy format)
         session_data = _chat_sessions.get(session_id, {'history': [], 'last_config': {}, 'config_versions': []})

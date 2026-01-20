@@ -5137,6 +5137,42 @@ class GamePersistence:
             conn.commit()
             logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
 
+    def get_chat_session(self, session_id: str) -> Optional[Dict]:
+        """Get a chat session by its ID.
+
+        Args:
+            session_id: The session ID to retrieve
+
+        Returns:
+            Dict with session data or None if not found:
+            {
+                'session_id': str,
+                'messages': List[Dict],
+                'config': Dict,
+                'config_versions': List[Dict] | None,
+                'updated_at': str
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                FROM experiment_chat_sessions
+                WHERE id = ?
+            """, (session_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'session_id': row['id'],
+                'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
+                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
+                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'updated_at': row['updated_at'],
+            }
+
     def get_latest_chat_session(self, owner_id: str) -> Optional[Dict]:
         """Get the most recent non-archived chat session for an owner.
 
