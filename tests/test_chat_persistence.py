@@ -97,6 +97,39 @@ class TestChatSessionPersistence(unittest.TestCase):
         result = self.persistence.get_latest_chat_session('nonexistent_user')
         self.assertIsNone(result)
 
+    def test_get_chat_session_by_id(self):
+        """Test get_chat_session retrieves a session by its ID."""
+        session_id = 'specific_session_123'
+        owner_id = 'user_456'
+        config_versions = [
+            {'timestamp': '2024-01-01T00:00:00', 'config': {'name': 'v1'}, 'message_index': 0},
+            {'timestamp': '2024-01-01T00:01:00', 'config': {'name': 'v2'}, 'message_index': 2},
+        ]
+
+        # Save a session
+        self.persistence.save_chat_session(
+            session_id=session_id,
+            owner_id=owner_id,
+            messages=[{'role': 'user', 'content': 'Hello'}],
+            config_snapshot={'name': 'test_config'},
+            config_versions=config_versions,
+        )
+
+        # Retrieve by ID
+        result = self.persistence.get_chat_session(session_id)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['session_id'], session_id)
+        self.assertEqual(result['config']['name'], 'test_config')
+        self.assertEqual(len(result['config_versions']), 2)
+        self.assertEqual(result['config_versions'][0]['config']['name'], 'v1')
+        self.assertEqual(result['config_versions'][1]['config']['name'], 'v2')
+
+    def test_get_chat_session_not_found(self):
+        """Test get_chat_session returns None for nonexistent session."""
+        result = self.persistence.get_chat_session('nonexistent_session')
+        self.assertIsNone(result)
+
     def test_archive_chat_session(self):
         """Test archiving a chat session hides it from latest."""
         owner_id = 'user_123'

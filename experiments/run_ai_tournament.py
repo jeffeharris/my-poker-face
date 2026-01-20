@@ -47,6 +47,7 @@ from poker.poker_game import (
     advance_to_next_active_player,
     determine_winner,
     award_pot_winnings,
+    create_deck,
 )
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.controllers import AIPlayerController
@@ -194,10 +195,10 @@ class ExperimentConfig:
         # A/B testing mode: control + variants
         result = []
 
-        # Control is always first
+        # Control is always first - always uses experiment-level model/provider
         control_config = {
-            'model': self.control.get('model') or self.model,
-            'provider': self.control.get('provider') or self.provider,
+            'model': self.model,      # Always use experiment-level
+            'provider': self.provider, # Always use experiment-level
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
             'enable_commentary': self.control.get('enable_commentary', False),
@@ -206,11 +207,12 @@ class ExperimentConfig:
         control_label = self.control.get('label', 'Control')
         result.append((control_label, control_config))
 
-        # Add variants (inherit from control, override specified fields)
+        # Add variants (inherit model/provider from experiment, other settings from control)
         for variant in (self.variants or []):
             variant_config = {
-                'model': variant.get('model') or control_config['model'],
-                'provider': variant.get('provider') or control_config['provider'],
+                # Model/provider inherit from experiment-level, not control
+                'model': variant.get('model') or self.model,
+                'provider': variant.get('provider') or self.provider,
                 # Use explicit None check - empty dict {} is a valid config
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified
@@ -374,6 +376,7 @@ class TournamentWorker:
                 tournament_id=task.tournament_id,
                 variant_label=task.variant_label,
                 variant_config=task.variant_config,
+                tournament_number=task.tournament_number,
             )
 
             # Save result to JSON
@@ -496,13 +499,15 @@ class AITournamentRunner:
     def create_game(
         self,
         tournament_id: str,
-        variant_config: Optional[Dict] = None
+        variant_config: Optional[Dict] = None,
+        tournament_number: int = 1
     ) -> Tuple[PokerStateMachine, Dict[str, AIPlayerController], AIMemoryManager]:
         """Create a new game with AI players only.
 
         Args:
             tournament_id: Unique identifier for this tournament
             variant_config: Optional variant-specific config (model, provider, prompt_config)
+            tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
 
         Returns:
             Tuple of (state_machine, controllers, memory_manager)
@@ -517,8 +522,21 @@ class AITournamentRunner:
             Player(name=name, stack=self.config.starting_stack, is_human=False)
             for name in player_names
         )
+
+        # Create deterministic deck if random_seed is set (for A/B experiments)
+        # Formula: base_seed + (tournament_number * 1000) + hand_number
+        # This ensures:
+        #   - Same tournament #, different variants → same decks (fair A/B comparison)
+        #   - Different tournament #, same variant → different decks (independent samples)
+        if self.config.random_seed is not None:
+            deck_seed = self.config.random_seed + (tournament_number * 1000) + 1  # hand_number=1
+        else:
+            deck_seed = None
+        initial_deck = create_deck(shuffled=True, random_seed=deck_seed)
+
         game_state = PokerGameState(
             players=ai_players,
+            deck=initial_deck,
             current_ante=self.config.big_blind,
             last_raise_amount=self.config.big_blind
         )
@@ -670,7 +688,8 @@ class AITournamentRunner:
                  memory_manager: AIMemoryManager,
                  hand_number: int,
                  tournament_id: Optional[str] = None,
-                 variant_config: Optional[Dict] = None):
+                 variant_config: Optional[Dict] = None,
+                 tournament_number: int = 1):
         """
         Run a single hand to completion.
 
@@ -681,6 +700,7 @@ class AITournamentRunner:
             hand_number: Current hand number
             tournament_id: Optional game ID for per-action saves (for pause/resume)
             variant_config: Optional variant-specific config with enable_psychology/enable_commentary flags
+            tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
 
         Returns:
             True if game should continue, False if tournament is paused,
@@ -695,6 +715,12 @@ class AITournamentRunner:
         if len(active_players) <= 1:
             logger.info(f"Tournament ending: {len(active_players)} player(s) with chips remaining")
             return False
+
+        # Set deterministic deck seed for this hand (for A/B experiments)
+        # Formula: base_seed + (tournament_number * 1000) + hand_number
+        # This ensures the same deck order for the same hand_number across variants
+        if self.config.random_seed is not None:
+            state_machine.current_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number
 
         # Notify memory manager of hand start (sets hand_count internally)
         memory_manager.on_hand_start(game_state, hand_number)
@@ -843,7 +869,13 @@ class AITournamentRunner:
                 memory_manager.generate_commentary_for_hand(ai_players_context)
 
         # Reset for next hand
-        game_state = reset_game_state_for_new_hand(game_state)
+        # Calculate seed for NEXT hand (hand_number + 1) if deterministic seeding is enabled
+        # Formula: base_seed + (tournament_number * 1000) + hand_number
+        if self.config.random_seed is not None:
+            next_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number + 1
+        else:
+            next_hand_seed = None
+        game_state = reset_game_state_for_new_hand(game_state, deck_seed=next_hand_seed)
         state_machine.game_state = game_state  # Use property setter
         state_machine.update_phase(PokerPhase.INITIALIZING_HAND)
 
@@ -857,7 +889,8 @@ class AITournamentRunner:
         self,
         tournament_id: str,
         variant_label: Optional[str] = None,
-        variant_config: Optional[Dict] = None
+        variant_config: Optional[Dict] = None,
+        tournament_number: int = 1
     ) -> TournamentResult:
         """Run a complete tournament to conclusion.
 
@@ -865,12 +898,13 @@ class AITournamentRunner:
             tournament_id: Unique identifier for this tournament
             variant_label: Optional variant label for A/B testing
             variant_config: Optional variant-specific config (model, provider, prompt_config)
+            tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
         """
         start_time = datetime.now()
         variant_info = f" [{variant_label}]" if variant_label else ""
         logger.info(f"Starting tournament {tournament_id}{variant_info}")
 
-        state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config)
+        state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config, tournament_number)
 
         # Store original players for reset scenarios (before any eliminations)
         original_players = state_machine.game_state.players
@@ -900,7 +934,8 @@ class AITournamentRunner:
             hand_result = self.run_hand(
                 state_machine, controllers, memory_manager, hand_number,
                 tournament_id=tournament_id,
-                variant_config=variant_config
+                variant_config=variant_config,
+                tournament_number=tournament_number
             )
 
             # Save game state for live monitoring (every hand)
@@ -1192,7 +1227,8 @@ class AITournamentRunner:
                 result = self.run_tournament(
                     task.tournament_id,
                     task.variant_label,
-                    task.variant_config
+                    task.variant_config,
+                    task.tournament_number
                 )
                 results.append(result)
 
@@ -1648,10 +1684,25 @@ One sentence: Did the hypothesis hold? Which variant won (if A/B test)? Include 
 Only list genuinely unexpected or anomalous findings. If results were as expected, return an empty array.
 
 ## Next Steps
-2-3 concrete follow-up experiment ideas.
+Suggest 2-3 follow-up experiments that can be configured with these options:
+- num_tournaments: Number of tournaments to run (more = less variance)
+- hands_per_tournament: Hands per game (more = longer games)
+- model/provider: LLM model (gpt-4o-mini, claude-sonnet, gemini-flash, etc.)
+- personalities: Which AI personalities play
+- A/B testing: control vs variant configs with different models/providers
+- prompt_config: Toggle features like pot_odds, hand_strength, session_memory, strategic_reflection
+
+Return as objects with:
+- hypothesis: Testable hypothesis that can be verified by changing the above configs
+- description: What config changes to make and why
+
+Example hypotheses:
+- "GPT-4o-mini makes fewer mistakes than Claude Sonnet" → A/B test with model variants
+- "More hands per tournament reduces winner variance" → Increase hands_per_tournament
+- "Disabling strategic_reflection speeds up decisions without hurting quality" → A/B test prompt_config
 
 Be extremely concise. Don't repeat information across sections.
-Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array)"""
+Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array of {hypothesis, description})"""
 
             # Build results context
             results_context = {

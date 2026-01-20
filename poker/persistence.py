@@ -25,10 +25,12 @@ logger = logging.getLogger(__name__)
 # v45: Add users table for Google OAuth authentication
 # v46: Add error_message column to api_usage table
 # v47: Add experiment_chat_sessions for design chat persistence
+#      Add design_chat_json and assistant_chat_json columns to experiments
 # v48: Add Pollinations image models to enabled_models table
 # v49: Add Runware image models to enabled_models table
 # v50: Add user_enabled column to enabled_models for dual toggle support
-SCHEMA_VERSION = 50
+# v51: Add parent_experiment_id to experiments for experiment lineage tracking
+SCHEMA_VERSION = 51
 
 
 @dataclass
@@ -642,11 +644,13 @@ class GamePersistence:
                     completed_at TIMESTAMP,
                     summary_json TEXT,
                     design_chat_json TEXT,
-                    assistant_chat_json TEXT
+                    assistant_chat_json TEXT,
+                    parent_experiment_id INTEGER REFERENCES experiments(id)
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status)")
+            # Note: idx_experiments_parent is created in v48 migration (parent_experiment_id added there)
 
             # 25. Experiment games (v43) - links games to experiments with variant config
             conn.execute("""
@@ -779,6 +783,7 @@ class GamePersistence:
             48: (self._migrate_v48_add_pollinations_models, "Add Pollinations image models to enabled_models"),
             49: (self._migrate_v49_add_runware_models, "Add Runware image models to enabled_models"),
             50: (self._migrate_v50_add_user_enabled, "Add user_enabled column to enabled_models for dual toggle"),
+            51: (self._migrate_v51_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2091,6 +2096,22 @@ class GamePersistence:
         """)
 
         logger.info("Migration v50 complete: Added user_enabled column to enabled_models")
+
+    def _migrate_v51_add_parent_experiment_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v51: Add parent_experiment_id to experiments for lineage tracking.
+
+        Enables tracking of experiment lineage when follow-up experiments are created
+        based on suggestions from previous experiments.
+        """
+        cursor = conn.execute("PRAGMA table_info(experiments)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'parent_experiment_id' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
+            logger.info("Added parent_experiment_id column to experiments table")
+
+        logger.info("Migration v51 complete: Added parent_experiment_id to experiments")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4711,7 +4732,7 @@ class GamePersistence:
 
     # ==================== Experiment Methods ====================
 
-    def create_experiment(self, config: Dict) -> int:
+    def create_experiment(self, config: Dict, parent_experiment_id: Optional[int] = None) -> int:
         """Create a new experiment record.
 
         Args:
@@ -4722,6 +4743,7 @@ class GamePersistence:
                 - tags: List of tags (optional)
                 - notes: Additional notes (optional)
                 - Additional config fields stored as config_json
+            parent_experiment_id: Optional ID of the parent experiment for lineage tracking
 
         Returns:
             The experiment_id of the created record
@@ -4735,8 +4757,8 @@ class GamePersistence:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json, parent_experiment_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 name,
                 config.get('description'),
@@ -4744,10 +4766,12 @@ class GamePersistence:
                 json.dumps(config.get('tags', [])),
                 config.get('notes'),
                 json.dumps(config),
+                parent_experiment_id,
             ))
             conn.commit()
             experiment_id = cursor.lastrowid
-            logger.info(f"Created experiment '{name}' with id {experiment_id}")
+            logger.info(f"Created experiment '{name}' with id {experiment_id}" +
+                       (f" (parent: {parent_experiment_id})" if parent_experiment_id else ""))
             return experiment_id
 
     def link_game_to_experiment(
@@ -4814,7 +4838,7 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT id, name, description, hypothesis, tags, notes, config_json,
-                       status, created_at, completed_at, summary_json
+                       status, created_at, completed_at, summary_json, parent_experiment_id
                 FROM experiments WHERE id = ?
             """, (experiment_id,))
             row = cursor.fetchone()
@@ -4833,6 +4857,7 @@ class GamePersistence:
                 'created_at': row[8],
                 'completed_at': row[9],
                 'summary': json.loads(row[10]) if row[10] else None,
+                'parent_experiment_id': row[11],
             }
 
     def get_experiment_by_name(self, name: str) -> Optional[Dict]:
@@ -5194,6 +5219,42 @@ class GamePersistence:
             ))
             conn.commit()
             logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
+
+    def get_chat_session(self, session_id: str) -> Optional[Dict]:
+        """Get a chat session by its ID.
+
+        Args:
+            session_id: The session ID to retrieve
+
+        Returns:
+            Dict with session data or None if not found:
+            {
+                'session_id': str,
+                'messages': List[Dict],
+                'config': Dict,
+                'config_versions': List[Dict] | None,
+                'updated_at': str
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                FROM experiment_chat_sessions
+                WHERE id = ?
+            """, (session_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'session_id': row['id'],
+                'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
+                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
+                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'updated_at': row['updated_at'],
+            }
 
     def get_latest_chat_session(self, owner_id: str) -> Optional[Dict]:
         """Get the most recent non-archived chat session for an owner.

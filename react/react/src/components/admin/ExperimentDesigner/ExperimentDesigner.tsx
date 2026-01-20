@@ -6,9 +6,18 @@ import { ExperimentList } from './ExperimentList';
 import { ExperimentDetail } from './ExperimentDetail';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
-import type { ExperimentConfig, ExperimentSummary, FailureContext, ConfigVersion, ChatMessage } from './types';
+import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion } from './types';
 import { DEFAULT_EXPERIMENT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
+import { generateSeed } from './seedWords';
+
+/** Create a fresh experiment config with a new random seed */
+function createFreshConfig(): ExperimentConfig {
+  return {
+    ...DEFAULT_EXPERIMENT_CONFIG,
+    random_seed: generateSeed(),
+  };
+}
 
 /** Data returned from the /chat/latest endpoint */
 interface PendingSession {
@@ -47,10 +56,10 @@ interface ExperimentDesignerProps {
 export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps) {
   const { isMobile } = useViewport();
   const [mode, setMode] = useState<ExperimentMode>('list');
-  const [config, setConfig] = useState<ExperimentConfig>(DEFAULT_EXPERIMENT_CONFIG);
+  const [config, setConfig] = useState<ExperimentConfig>(() => createFreshConfig());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedExperimentId, setSelectedExperimentId] = useState<number | null>(null);
-  const [failureContext, setFailureContext] = useState<FailureContext | null>(null);
+  const [failureContext, setFailureContext] = useState<LabAssistantContext | null>(null);
   const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
   const [initialChatHistory, setInitialChatHistory] = useState<ChatMessage[] | undefined>(undefined);
@@ -63,7 +72,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   useEffect(() => {
     const fetchLatestSession = async () => {
       try {
-        const response = await fetch(`${appConfig.apiUrl}/api/experiments/chat/latest`);
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/chat/latest`);
         if (!response.ok) return;
         const data = await response.json();
         if (data.success && data.session) {
@@ -86,8 +95,8 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
       setShowResumePrompt(true);
       return;
     }
-    // No pending session, start fresh
-    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    // No pending session, start fresh with new seed
+    setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -115,7 +124,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     // Archive the pending session
     if (pendingSession) {
       try {
-        await fetch(`${appConfig.apiUrl}/api/experiments/chat/archive`, {
+        await fetch(`${appConfig.API_URL}/api/experiments/chat/archive`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: pendingSession.session_id }),
@@ -125,8 +134,8 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
       }
     }
 
-    // Start fresh
-    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    // Start fresh with new seed
+    setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -149,7 +158,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   const handleExperimentLaunched = useCallback(() => {
     setMode('list');
-    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -168,6 +177,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     setConfigVersions([]);
     setCurrentVersionIndex(0);
     setFailureContext({
+      type: 'failure',
       experimentId: experiment.id,
       experimentName: experiment.name,
       errorMessage: experiment.notes || 'Unknown error',
@@ -176,8 +186,34 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     setMode('design');
   }, []);
 
+  const handleBuildFromSuggestion = useCallback((experiment: ExperimentDetailForEdit, suggestion: NextStepSuggestion) => {
+    // Create a new config based on the parent experiment's config
+    const configToEdit: ExperimentConfig = {
+      ...experiment.config,
+      name: `${experiment.config.name || experiment.name}_followup`,  // Suggest follow-up name
+      parent_experiment_id: experiment.id,  // Track lineage
+    };
+
+    setConfig(configToEdit);
+    setSessionId(null);  // Fresh chat session
+    setConfigVersions([]);
+    setCurrentVersionIndex(0);
+    setFailureContext({
+      type: 'suggestion',
+      experimentId: experiment.id,
+      experimentName: experiment.name,
+      suggestion,
+      parentConfig: experiment.config,
+    });
+    setMode('design');
+  }, []);
+
   const handleVersionChange = useCallback((index: number) => {
     if (index >= 0 && index < configVersions.length) {
+      // Simply navigate to the selected version
+      // Auto-saving was too fragile due to form state drift (e.g., model select
+      // showing empty before providers load). Users can preserve edits by
+      // sending a chat message, which creates a new version.
       setCurrentVersionIndex(index);
       setConfig(configVersions[index].config);
     }
@@ -185,7 +221,9 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   // Compute initialMessage from failureContext (cleared after first render via state)
   const initialMessage = failureContext ? {
-    userMessage: `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
+    userMessage: failureContext.type === 'suggestion'
+      ? `Build a follow-up experiment to test: "${failureContext.suggestion.hypothesis}"`
+      : `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
     context: failureContext,
   } : null;
 
@@ -214,48 +252,20 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   return (
     <div className={`experiment-designer ${embedded ? 'experiment-designer--embedded' : ''}`}>
-      {/* Mode Header - hidden on mobile for list/detail (handled by parent) */}
-      {(!isMobile || mode === 'design') && (
+      {/* Mode Header - only for design and detail modes */}
+      {(mode === 'design' || (mode === 'detail' && !isMobile)) && (
         <div className="experiment-designer__header">
-          {mode === 'design' && (
-            <>
-              <button
-                className="experiment-designer__back-btn"
-                onClick={handleBackToList}
-                type="button"
-              >
-                <ArrowLeft size={16} />
-                Back to List
-              </button>
-              <h3 className="experiment-designer__title">Design New Experiment</h3>
-            </>
-          )}
-          {mode === 'list' && (
-            <>
-              <h3 className="experiment-designer__title">Experiments</h3>
-              <button
-                className="experiment-designer__new-btn"
-                onClick={handleNewExperiment}
-                type="button"
-              >
-                <Plus size={16} />
-                New Experiment
-              </button>
-            </>
-          )}
-          {mode === 'detail' && (
-            <>
-              <button
-                className="experiment-designer__back-btn"
-                onClick={handleBackToList}
-                type="button"
-              >
-                <ArrowLeft size={16} />
-                Back to List
-              </button>
-              <h3 className="experiment-designer__title">Experiment Details</h3>
-            </>
-          )}
+          <button
+            className="experiment-designer__back-btn"
+            onClick={handleBackToList}
+            type="button"
+          >
+            <ArrowLeft size={16} />
+            Back to List
+          </button>
+          <h3 className="experiment-designer__title">
+            {mode === 'design' ? 'Design New Experiment' : 'Experiment Details'}
+          </h3>
         </div>
       )}
 
@@ -303,6 +313,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
             experimentId={selectedExperimentId}
             onBack={handleBackToList}
             onEditInLabAssistant={handleEditInLabAssistant}
+            onBuildFromSuggestion={handleBuildFromSuggestion}
           />
         )}
       </div>

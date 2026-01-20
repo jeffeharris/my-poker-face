@@ -29,7 +29,7 @@ def create_test_state(players_data: list, phase: PokerPhase = PokerPhase.FLOP,
         for p in players_data
     )
 
-    game_state = PokerGameState(
+    game_state = PokerGameState(deck=(),
         players=players,
         community_cards=community_cards,
         current_player_idx=0,

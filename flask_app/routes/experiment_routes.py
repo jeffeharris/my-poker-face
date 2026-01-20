@@ -210,6 +210,7 @@ You help configure experiments with these parameters:
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
+- random_seed: Integer for reproducible experiments. Controls both personality selection AND deck shuffling. Same hand number across variants receives identical cards (dealt to seat positions, not player names). **Enabled by default in the UI.** IMPORTANT: For A/B testing, always recommend keeping this enabled to ensure fair comparisons between variants.
 
 ## How hands_per_tournament and reset_on_elimination Compose
 
@@ -222,25 +223,28 @@ Key insight: `reset_on_elimination` determines if hand count is a maximum or exa
 
 ## A/B Testing with Control + Variants
 
-For comparing models, prompts, or other configurations, use the control/variants structure:
+For comparing models, prompts, or other configurations, use the control/variants structure.
+
+**IMPORTANT**: For A/B tests, always ensure `random_seed` is set (enabled by default in UI). This guarantees all variants receive identical card distributions for the same hand number, eliminating card-luck as a confounding variable.
 
 - control: The baseline configuration (required for A/B tests)
   - label: Name shown in results (e.g., "GPT-4o Baseline")
-  - model: Model to use (optional, defaults to experiment's model)
-  - provider: Provider to use (optional, defaults to experiment's provider)
   - prompt_config: Prompt settings for control (optional)
   - enable_psychology: Enable tilt/emotional state generation (default false, ~4 LLM calls/hand)
   - enable_commentary: Enable commentary generation (default false, ~4 LLM calls/hand)
+  - NOTE: Control always uses the experiment-level model/provider settings
 
 - variants: List of variations to compare against control
-  - Each variant inherits from control and only needs to specify what's different
-  - Same structure as control: label, model, provider, prompt_config, enable_psychology, enable_commentary
+  - Each variant can override model/provider to test different LLMs
+  - Variants inherit psychology/commentary settings from control if not specified
+  - Fields: label (required), model, provider, prompt_config, enable_psychology, enable_commentary
 
 ## Real Examples from Successful Experiments
 
 ### Example 1: Psychology Impact Test (6 variants, multi-model) ✓ COMPLETED
 Tests whether psychology/commentary improves decision quality across different models.
-Uses reset_on_elimination to ensure exactly 15 hands per variant for fair comparison:
+Uses reset_on_elimination to ensure exactly 15 hands per variant for fair comparison.
+NOTE: Control uses the top-level model/provider (gpt-5-nano/openai). Variants can override.
 {
   "name": "psychology_impact_test_v2",
   "description": "Test impact of psychology and commentary on decision quality",
@@ -252,21 +256,19 @@ Uses reset_on_elimination to ensure exactly 15 hands per variant for fair compar
   "num_players": 6,
   "starting_stack": 10000,
   "big_blind": 250,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "parallel_tournaments": 6,
   "stagger_start_delay": 2,
   "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond", "Daniel Negreanu"],
   "control": {
     "label": "GPT-5 Nano (no psych)",
-    "model": "gpt-5-nano",
-    "provider": "openai",
     "enable_psychology": false,
     "enable_commentary": false
   },
   "variants": [
     {
       "label": "GPT-5 Nano (with psych)",
-      "model": "gpt-5-nano",
-      "provider": "openai",
       "enable_psychology": true,
       "enable_commentary": true
     },
@@ -322,7 +324,8 @@ Simple test with specific poker pro personalities using a single model:
 }
 
 ### Example 3: Fast Model Comparison (5 providers) ✓ COMPLETED
-Compare decision quality across 5 fast/budget models with parallel execution:
+Compare decision quality across 5 fast/budget models with parallel execution.
+NOTE: Control uses top-level model/provider. Each variant overrides to test different models.
 {
   "name": "preflop_discipline_test_v1",
   "description": "Test pre-flop raising discipline prompt - compare fast models",
@@ -333,14 +336,14 @@ Compare decision quality across 5 fast/budget models with parallel execution:
   "num_players": 5,
   "starting_stack": 10000,
   "big_blind": 250,
+  "model": "mistral-small-latest",
+  "provider": "mistral",
   "capture_prompts": true,
   "parallel_tournaments": 5,
   "stagger_start_delay": 2.0,
   "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond"],
   "control": {
-    "label": "Mistral Small",
-    "provider": "mistral",
-    "model": "mistral-small-latest"
+    "label": "Mistral Small"
   },
   "variants": [
     {
@@ -367,7 +370,8 @@ Compare decision quality across 5 fast/budget models with parallel execution:
 }
 
 ### Example 4: Groq Model Size Comparison ✓ COMPLETED
-Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant):
+Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant).
+NOTE: Control uses top-level model/provider. Variant overrides to test larger model.
 {
   "name": "reset_fix_v2",
   "num_tournaments": 1,
@@ -376,13 +380,13 @@ Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant):
   "num_players": 5,
   "starting_stack": 10000,
   "big_blind": 250,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
   "parallel_tournaments": 2,
   "stagger_start_delay": 1.0,
   "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond"],
   "control": {
-    "label": "Groq 8B",
-    "provider": "groq",
-    "model": "llama-3.1-8b-instant"
+    "label": "Groq 8B"
   },
   "variants": [
     {
@@ -614,6 +618,30 @@ def chat_experiment_design():
                 'config_versions': [],
                 'failure_context': failure_context,
             }
+        elif session_id not in _chat_sessions:
+            # Session exists but not in memory - try to restore from database
+            db_session = persistence.get_chat_session(session_id)
+            if db_session:
+                # Convert UI messages back to history format
+                history_from_db = [
+                    {'role': msg['role'], 'content': msg['content']}
+                    for msg in db_session.get('messages', [])
+                ]
+                _chat_sessions[session_id] = {
+                    'history': history_from_db,
+                    'last_config': db_session.get('config', {}),
+                    'config_versions': db_session.get('config_versions') or [],
+                    'failure_context': failure_context,
+                }
+                logger.info(f"Restored chat session {session_id} from database")
+            else:
+                # Session ID provided but not found anywhere - create new
+                _chat_sessions[session_id] = {
+                    'history': [],
+                    'last_config': {},
+                    'config_versions': [],
+                    'failure_context': failure_context,
+                }
 
         # Get session data (handle legacy format)
         session_data = _chat_sessions.get(session_id, {'history': [], 'last_config': {}, 'config_versions': []})
@@ -635,11 +663,38 @@ def chat_experiment_design():
         # Build context about current config
         config_context = f"\nCurrent experiment config:\n{json.dumps(current_config, indent=2)}"
 
-        # Build failure context if fixing a failed experiment
+        # Build failure context if fixing a failed experiment or building from suggestion
         failure_context_prompt = ""
         stored_failure_context = session_data.get('failure_context') or failure_context
         if stored_failure_context:
-            failure_context_prompt = f"""
+            context_type = stored_failure_context.get('type', 'failure')
+
+            if context_type == 'suggestion':
+                # Building a follow-up experiment from a suggestion
+                suggestion = stored_failure_context.get('suggestion', {})
+                failure_context_prompt = f"""
+
+## Building Follow-up Experiment
+
+**Parent experiment:** {stored_failure_context.get('experimentName', 'Unknown')}
+**Hypothesis to test:** {suggestion.get('hypothesis', 'Unknown')}
+**Description:** {suggestion.get('description', 'N/A')}
+
+RULES:
+1. Generate a complete config that tests this hypothesis
+2. Set parent_experiment_id to {stored_failure_context.get('experimentId')} in the config
+3. Auto-generate an appropriate experiment name (e.g., "{stored_failure_context.get('experimentName', 'experiment')}_followup")
+4. Use the parent config as a starting point, modify as needed for the hypothesis
+5. Be CONCISE - config updates and a brief explanation of what you're testing
+
+Response format (NO numbered list - the config_updates tag gets hidden from user):
+- One sentence explaining the hypothesis being tested
+- <config_updates>{{...}}</config_updates> (this will be hidden, config panel updates automatically)
+- One sentence explaining what changed from the parent config
+"""
+            else:
+                # Fixing a failed experiment (existing behavior)
+                failure_context_prompt = f"""
 
 ## Fixing Failed Experiment
 
@@ -717,6 +772,16 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
 
         # Track config version if there were updates
         if config_updates:
+            # On first update, save original config as v0 if it was meaningful (had a name)
+            # This allows reverting when editing a previous experiment
+            if not config_versions and current_config.get('name'):
+                config_versions.append({
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'config': current_config.copy(),
+                    'message_index': 0,
+                    'label': 'Original',
+                })
+            # Save the updated config
             config_versions.append({
                 'timestamp': datetime.utcnow().isoformat(),
                 'config': merged_config.copy(),
@@ -900,6 +965,23 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
             context_parts.append(f"\nFailed tournaments: {len(failed)}")
             for ft in failed[:3]:  # Show first 3
                 context_parts.append(f"  - Tournament {ft.get('tournament_number')}: {ft.get('error_type')} - {ft.get('error', '')[:100]}")
+
+        # AI interpretation if available
+        ai_interpretation = summary.get('ai_interpretation')
+        if ai_interpretation and not ai_interpretation.get('error'):
+            context_parts.append("")
+            context_parts.append("### AI Analysis")
+            context_parts.append(f"Summary: {ai_interpretation.get('summary', 'N/A')}")
+            context_parts.append(f"Verdict: {ai_interpretation.get('verdict', 'N/A')}")
+            if ai_interpretation.get('next_steps'):
+                context_parts.append("Suggested next steps:")
+                for step in ai_interpretation['next_steps']:
+                    if isinstance(step, dict):
+                        context_parts.append(f"  - {step.get('hypothesis')}: {step.get('description')}")
+                    else:
+                        context_parts.append(f"  - {step}")
+        elif ai_interpretation and ai_interpretation.get('error'):
+            context_parts.append(f"\nAI interpretation failed: {ai_interpretation.get('error')}")
 
     return "\n".join(context_parts)
 
@@ -1246,8 +1328,11 @@ def create_experiment():
         if existing:
             return jsonify({'error': f"Experiment '{config_data['name']}' already exists"}), 400
 
-        # Create experiment record
-        experiment_id = persistence.create_experiment(config_data)
+        # Extract parent_experiment_id from config if present
+        parent_experiment_id = config_data.pop('parent_experiment_id', None)
+
+        # Create experiment record with optional lineage
+        experiment_id = persistence.create_experiment(config_data, parent_experiment_id=parent_experiment_id)
 
         # Save design chat history if session_id provided
         if design_session_id and design_session_id in _chat_sessions:

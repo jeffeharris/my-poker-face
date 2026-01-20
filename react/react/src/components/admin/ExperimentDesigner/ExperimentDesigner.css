@@ -385,10 +385,51 @@
   border-color: #ef4444;
 }
 
+.config-preview__textarea {
+  resize: vertical;
+  min-height: 4.5em;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
 .config-preview__row {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
+}
+
+.config-preview__tournament-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.config-preview__tournament-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.config-preview__tournament-col .config-preview__label {
+  margin-bottom: 0;
+}
+
+.config-preview__tournament-col .config-preview__label--inline {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+}
+
+.config-preview__hint--tournament {
+  margin-top: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .config-preview__tournament-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
 }
 
 .config-preview__section--collapsible {
@@ -544,6 +585,25 @@
   font-size: 0.875rem;
 }
 
+.config-preview__estimate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  flex-shrink: 0;
+}
+
+.config-preview__estimate-hands {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e5e5e5;
+}
+
+.config-preview__estimate-time {
+  font-size: 0.75rem;
+  color: #737373;
+}
+
 /* ExperimentList */
 .experiment-list {
   display: flex;
@@ -580,8 +640,28 @@
 
 .experiment-list__filters {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.experiment-list__new-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  margin-left: auto;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+
+.experiment-list__new-btn:hover {
+  background: linear-gradient(135deg, #059669, #047857);
 }
 
 .experiment-list__filter-select {
@@ -1542,6 +1622,26 @@
   border-left: 3px solid #10b981;
 }
 
+.config-preview__variant-card--color-0 {
+  border-left: 3px solid #8b5cf6;
+}
+
+.config-preview__variant-card--color-1 {
+  border-left: 3px solid #f97316;
+}
+
+.config-preview__variant-card--color-2 {
+  border-left: 3px solid #ec4899;
+}
+
+.config-preview__variant-card--color-3 {
+  border-left: 3px solid #06b6d4;
+}
+
+.config-preview__variant-card--color-4 {
+  border-left: 3px solid #3b82f6;
+}
+
 .config-preview__variant-header {
   display: flex;
   justify-content: space-between;
@@ -1564,6 +1664,31 @@
   color: #34d399;
 }
 
+.config-preview__variant-badge--color-0 {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.config-preview__variant-badge--color-1 {
+  background: rgba(249, 115, 22, 0.2);
+  color: #fb923c;
+}
+
+.config-preview__variant-badge--color-2 {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
+.config-preview__variant-badge--color-3 {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+}
+
+.config-preview__variant-badge--color-4 {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
 .config-preview__variant-remove {
   padding: 0.25rem;
   background: transparent;
@@ -1583,6 +1708,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.config-preview__variant-fields .config-preview__label--inline {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  align-items: center;
 }
 
 .config-preview__row--toggles {
@@ -1671,6 +1802,61 @@
   margin: 0;
 }
 
+/* Seed Section */
+.config-preview__seed-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 1rem;
+}
+
+.config-preview__seed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 1.5rem;
+}
+
+.config-preview__seed-label {
+  font-size: 0.8125rem;
+  color: #a3a3a3;
+  min-width: 32px;
+}
+
+.config-preview__seed-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.config-preview__input--seed {
+  width: 140px;
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+
+.config-preview__regenerate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  color: #a3a3a3;
+  transition: all 0.2s;
+}
+
+.config-preview__regenerate-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #e5e5e5;
+}
+
 /* Tags Section */
 .config-preview__tags-section {
   display: flex;
@@ -1680,7 +1866,17 @@
 
 .config-preview__tags-input-row {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.config-preview__tags-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: #a3a3a3;
+  white-space: nowrap;
 }
 
 .config-preview__tags-input-row .config-preview__input {
@@ -2537,4 +2733,97 @@
 
 .experiment-detail__ai-list li:last-child {
   margin-bottom: 0;
+}
+
+/* Suggestion Cards Grid */
+.experiment-detail__suggestions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.experiment-detail__suggestion-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 8px;
+  padding: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.experiment-detail__suggestion-card:hover {
+  background: rgba(139, 92, 246, 0.12);
+  border-color: rgba(139, 92, 246, 0.35);
+}
+
+.experiment-detail__suggestion-card--simple {
+  /* Simple text cards (legacy format) don't have action button */
+}
+
+.experiment-detail__suggestion-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.experiment-detail__suggestion-hypothesis {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.4;
+}
+
+.experiment-detail__suggestion-description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+}
+
+.experiment-detail__suggestion-text {
+  margin: 0;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.5;
+}
+
+.experiment-detail__suggestion-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #fff;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: auto;
+}
+
+.experiment-detail__suggestion-action:hover {
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  transform: translateY(-1px);
+}
+
+.experiment-detail__suggestion-action:active {
+  transform: translateY(0);
+}
+
+/* Mobile responsiveness for suggestion cards */
+@media (max-width: 640px) {
+  .experiment-detail__suggestions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .experiment-detail__suggestion-card {
+    padding: 0.75rem;
+  }
 }

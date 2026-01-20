@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Loader2, Archive } from 'lucide-react';
+import { RefreshCw, Loader2, Archive, Plus } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
 import { formatDate } from '../../../utils/formatters';
@@ -140,6 +140,15 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
           title="Refresh"
         >
           <RefreshCw size={16} />
+        </button>
+
+        <button
+          className="experiment-list__new-btn"
+          onClick={onNewExperiment}
+          type="button"
+        >
+          <Plus size={16} />
+          New Experiment
         </button>
       </div>
 

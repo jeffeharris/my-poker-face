@@ -1292,7 +1292,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           <div className="admin-loading__spinner" />
           <span className="admin-loading__text">Loading personalities...</span>
         </div>
-      ) : isTablet ? (
+      ) : !isMobile ? (
         /* ==========================================
            TABLET & DESKTOP: Master-Detail Layout
            ========================================== */

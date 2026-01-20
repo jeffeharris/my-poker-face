@@ -27,11 +27,12 @@ export interface PlayerConfig {
 
 /**
  * Control (baseline) configuration for A/B testing experiments.
+ * NOTE: model and provider are inherited from the experiment-level settings.
+ * Only variant-specific options (psychology, commentary, prompt_config) are set here.
  */
 export interface ControlConfig {
   label: string;
-  model?: string;
-  provider?: string;
+  // model and provider removed - always uses experiment-level settings
   prompt_config?: Partial<PromptConfig>;
   /** Enable tilt + emotional state generation (~4 LLM calls/hand). Default: false */
   enable_psychology?: boolean;
@@ -81,6 +82,8 @@ export interface ExperimentConfig {
   parallel_tournaments?: number;
   /** Delay in seconds between starting parallel tournaments (default 0) */
   stagger_start_delay?: number;
+  /** Parent experiment ID for lineage tracking (set when building from a suggestion) */
+  parent_experiment_id?: number;
 }
 
 export interface ExperimentSummary {
@@ -276,14 +279,39 @@ export interface FailedTournament {
 }
 
 /**
+ * A suggested follow-up experiment from AI analysis.
+ */
+export interface NextStepSuggestion {
+  hypothesis: string;
+  description: string;
+}
+
+/**
  * Context passed when editing a failed experiment in the Lab Assistant.
  */
 export interface FailureContext {
+  type: 'failure';
   experimentId: number;
   experimentName: string;
   errorMessage: string;
   failedTournaments: FailedTournament[];
 }
+
+/**
+ * Context passed when building a follow-up experiment from a suggestion.
+ */
+export interface SuggestionContext {
+  type: 'suggestion';
+  experimentId: number;
+  experimentName: string;
+  suggestion: NextStepSuggestion;
+  parentConfig: ExperimentConfig;
+}
+
+/**
+ * Union type for Lab Assistant context (failure analysis or suggestion follow-up).
+ */
+export type LabAssistantContext = FailureContext | SuggestionContext;
 
 /**
  * A snapshot of the config at a point in the chat conversation.
@@ -292,6 +320,8 @@ export interface ConfigVersion {
   timestamp: string;
   config: ExperimentConfig;
   message_index: number;
+  /** Optional label like 'Original' or 'Manual edit' */
+  label?: string;
 }
 
 export interface QuickPrompt {
@@ -320,7 +350,7 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   model: 'gpt-5-nano',
   provider: 'openai',
   personalities: null,
-  random_seed: null,
+  random_seed: 42,  // Placeholder - will be regenerated when starting new experiment
   prompt_config: null,
   player_configs: null,
   control: null,
