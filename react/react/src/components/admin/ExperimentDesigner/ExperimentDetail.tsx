@@ -172,6 +172,17 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
     return () => clearInterval(interval);
   }, [experiment?.status, fetchExperiment]);
 
+  // ESC key handler for assistant chat
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showAssistantChat) {
+        setShowAssistantChat(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showAssistantChat]);
+
   const handlePause = async () => {
     setPauseLoading(true);
     try {
@@ -966,8 +977,14 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant }:
 
       {/* Experiment Assistant Chat Panel */}
       {showAssistantChat && (
-        <div className="experiment-detail__assistant-overlay">
-          <div className="experiment-detail__assistant-panel">
+        <div
+          className="experiment-detail__assistant-overlay"
+          onClick={() => setShowAssistantChat(false)}
+        >
+          <div
+            className="experiment-detail__assistant-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="experiment-detail__assistant-header">
               <h3>
                 <MessageSquare size={18} />
