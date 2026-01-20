@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 # v45: Add users table for Google OAuth authentication
 # v46: Add experiment manager features (error tracking, chat sessions, image models,
 #      experiment lineage, image capture support)
-SCHEMA_VERSION = 46
+# v47: Add prompt_presets table for reusable prompt configurations
+SCHEMA_VERSION = 47
 
 
 @dataclass
@@ -737,6 +738,22 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)")
 
+            # 28. Prompt presets (v47) - Saved, reusable prompt configurations
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS prompt_presets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    prompt_config TEXT,
+                    guidance_injection TEXT,
+                    owner_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)")
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with sqlite3.connect(self.db_path) as conn:
@@ -804,6 +821,7 @@ class GamePersistence:
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
+            47: (self._migrate_v47_add_prompt_presets, "Add prompt_presets table for reusable prompt configurations"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2106,6 +2124,37 @@ class GamePersistence:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
 
         logger.info("Migration v46 complete: Added experiment manager features")
+
+    def _migrate_v47_add_prompt_presets(self, conn: sqlite3.Connection) -> None:
+        """Migration v47: Add prompt_presets table for reusable prompt configurations.
+
+        This table stores saved prompt configurations that can be applied to
+        tournament variants or replay experiments for A/B testing.
+        """
+        # Check if table already exists (for fresh databases)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='prompt_presets'"
+        )
+        if cursor.fetchone():
+            logger.info("prompt_presets table already exists, skipping creation")
+        else:
+            conn.execute("""
+                CREATE TABLE prompt_presets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    prompt_config TEXT,
+                    guidance_injection TEXT,
+                    owner_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)")
+            logger.info("Created prompt_presets table")
+
+        logger.info("Migration v47 complete: Added prompt_presets table")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -6164,4 +6213,243 @@ class GamePersistence:
                 return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Failed to delete setting '{key}': {e}")
+            return False
+
+    # ========================================
+    # Prompt Preset Methods (v47)
+    # ========================================
+
+    def create_prompt_preset(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        prompt_config: Optional[Dict[str, Any]] = None,
+        guidance_injection: Optional[str] = None,
+        owner_id: Optional[str] = None
+    ) -> int:
+        """Create a new prompt preset.
+
+        Args:
+            name: Unique name for the preset
+            description: Optional description of the preset
+            prompt_config: PromptConfig toggles as dict
+            guidance_injection: Extra guidance text to append to prompts
+            owner_id: Optional owner ID for multi-tenant support
+
+        Returns:
+            The ID of the created preset
+
+        Raises:
+            ValueError: If a preset with the same name already exists
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("""
+                    INSERT INTO prompt_presets (name, description, prompt_config, guidance_injection, owner_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    name,
+                    description,
+                    json.dumps(prompt_config) if prompt_config else None,
+                    guidance_injection,
+                    owner_id
+                ))
+                conn.commit()
+                preset_id = cursor.lastrowid
+                logger.info(f"Created prompt preset '{name}' with ID {preset_id}")
+                return preset_id
+        except sqlite3.IntegrityError:
+            raise ValueError(f"Prompt preset with name '{name}' already exists")
+
+    def get_prompt_preset(self, preset_id: int) -> Optional[Dict[str, Any]]:
+        """Get a prompt preset by ID.
+
+        Args:
+            preset_id: The preset ID
+
+        Returns:
+            Preset data as dict, or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, name, description, prompt_config, guidance_injection,
+                       owner_id, created_at, updated_at
+                FROM prompt_presets
+                WHERE id = ?
+            """, (preset_id,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+                    'guidance_injection': row['guidance_injection'],
+                    'owner_id': row['owner_id'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                }
+            return None
+
+    def get_prompt_preset_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get a prompt preset by name.
+
+        Args:
+            name: The preset name
+
+        Returns:
+            Preset data as dict, or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, name, description, prompt_config, guidance_injection,
+                       owner_id, created_at, updated_at
+                FROM prompt_presets
+                WHERE name = ?
+            """, (name,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+                    'guidance_injection': row['guidance_injection'],
+                    'owner_id': row['owner_id'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                }
+            return None
+
+    def list_prompt_presets(
+        self,
+        owner_id: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """List all prompt presets.
+
+        Args:
+            owner_id: Optional filter by owner ID
+            limit: Maximum number of results
+
+        Returns:
+            List of preset data dicts
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if owner_id:
+                cursor = conn.execute("""
+                    SELECT id, name, description, prompt_config, guidance_injection,
+                           owner_id, created_at, updated_at
+                    FROM prompt_presets
+                    WHERE owner_id = ? OR owner_id IS NULL
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                """, (owner_id, limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT id, name, description, prompt_config, guidance_injection,
+                           owner_id, created_at, updated_at
+                    FROM prompt_presets
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                """, (limit,))
+
+            return [
+                {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+                    'guidance_injection': row['guidance_injection'],
+                    'owner_id': row['owner_id'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def update_prompt_preset(
+        self,
+        preset_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        prompt_config: Optional[Dict[str, Any]] = None,
+        guidance_injection: Optional[str] = None
+    ) -> bool:
+        """Update a prompt preset.
+
+        Args:
+            preset_id: The preset ID to update
+            name: Optional new name
+            description: Optional new description
+            prompt_config: Optional new prompt config
+            guidance_injection: Optional new guidance text
+
+        Returns:
+            True if the preset was updated, False if not found
+
+        Raises:
+            ValueError: If the new name conflicts with an existing preset
+        """
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if prompt_config is not None:
+            updates.append("prompt_config = ?")
+            params.append(json.dumps(prompt_config))
+        if guidance_injection is not None:
+            updates.append("guidance_injection = ?")
+            params.append(guidance_injection)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(preset_id)
+
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ?",
+                    params
+                )
+                conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated prompt preset ID {preset_id}")
+                    return True
+                return False
+        except sqlite3.IntegrityError:
+            raise ValueError(f"Prompt preset with name '{name}' already exists")
+
+    def delete_prompt_preset(self, preset_id: int) -> bool:
+        """Delete a prompt preset.
+
+        Args:
+            preset_id: The preset ID to delete
+
+        Returns:
+            True if the preset was deleted, False if not found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM prompt_presets WHERE id = ?",
+                    (preset_id,)
+                )
+                conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"Deleted prompt preset ID {preset_id}")
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Failed to delete prompt preset {preset_id}: {e}")
             return False

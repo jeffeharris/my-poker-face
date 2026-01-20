@@ -1,0 +1,601 @@
+/**
+ * Prompt Preset Manager - Reusable Prompt Configurations
+ *
+ * Styles for managing prompt presets used in experiments
+ */
+
+/* ============================================
+   Container
+   ============================================ */
+
+.ppm-container {
+  padding: var(--space-4);
+}
+
+.ppm-container--embedded {
+  padding: 0;
+}
+
+/* ============================================
+   Alert Toast
+   ============================================ */
+
+.ppm-alert {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(16px);
+  z-index: var(--z-toast);
+  animation: ppmAlertSlideIn 0.4s var(--ease-out-expo);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+@keyframes ppmAlertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ppm-alert--success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--color-emerald);
+}
+
+.ppm-alert--error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.ppm-alert--info {
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  color: var(--color-gold-light);
+}
+
+.ppm-alert__icon {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+}
+
+.ppm-alert__message {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.ppm-alert__close {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.ppm-alert__close:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.ppm-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-16);
+  color: var(--color-text-muted);
+}
+
+.ppm-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 193, 7, 0.1);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: ppmSpin 1s linear infinite;
+}
+
+@keyframes ppmSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.ppm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.ppm-header__text {
+  flex: 1;
+}
+
+.ppm-header__title {
+  color: var(--color-gold);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.ppm-header__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.ppm-header__add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-gold);
+  color: var(--color-black);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.ppm-header__add:hover:not(:disabled) {
+  background: var(--color-gold-light);
+  transform: translateY(-1px);
+}
+
+.ppm-header__add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   Editor Form
+   ============================================ */
+
+.ppm-editor {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 193, 7, 0.25);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-6);
+  overflow: hidden;
+}
+
+.ppm-editor__header {
+  padding: var(--space-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ppm-editor__header h3 {
+  margin: 0;
+  color: var(--color-gold);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ppm-editor__form {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ppm-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================
+   Form Fields
+   ============================================ */
+
+.ppm-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ppm-field label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.ppm-field input[type="text"],
+.ppm-field textarea {
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  transition: border-color 0.2s ease;
+}
+
+.ppm-field input[type="text"]:focus,
+.ppm-field textarea:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+
+.ppm-field textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.ppm-field__hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  opacity: 0.7;
+}
+
+/* ============================================
+   Config Options
+   ============================================ */
+
+.ppm-config-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+}
+
+.ppm-config-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.ppm-config-option:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ppm-config-option input[type="checkbox"] {
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--color-gold);
+}
+
+.ppm-config-option__label {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  min-width: 140px;
+}
+
+.ppm-config-option__desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  flex: 1;
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+.ppm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ppm-btn--primary {
+  background: var(--color-gold);
+  color: var(--color-black);
+}
+
+.ppm-btn--primary:hover {
+  background: var(--color-gold-light);
+}
+
+.ppm-btn--secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
+}
+
+.ppm-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.ppm-btn--danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.ppm-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.ppm-btn--small {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+}
+
+/* ============================================
+   Preset List
+   ============================================ */
+
+.ppm-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ppm-empty {
+  text-align: center;
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+}
+
+.ppm-preset {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.ppm-preset:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.ppm-preset--expanded {
+  border-color: rgba(255, 193, 7, 0.25);
+}
+
+.ppm-preset__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ppm-preset__header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ppm-preset__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ppm-preset__name {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.ppm-preset__description {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ppm-preset__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ppm-preset__action {
+  padding: var(--space-2);
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.ppm-preset__action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
+}
+
+.ppm-preset__action--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.ppm-preset__action:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ppm-preset__chevron {
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+}
+
+/* ============================================
+   Preset Details
+   ============================================ */
+
+.ppm-preset__details {
+  padding: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+  animation: ppmSlideDown 0.2s ease-out;
+}
+
+@keyframes ppmSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ppm-preset__section {
+  margin-bottom: var(--space-4);
+}
+
+.ppm-preset__section:last-child {
+  margin-bottom: 0;
+}
+
+.ppm-preset__section h4 {
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ppm-preset__config-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ppm-tag {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+}
+
+.ppm-tag--enabled {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-emerald);
+}
+
+.ppm-tag--default {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-muted);
+}
+
+.ppm-preset__guidance {
+  margin: 0;
+  padding: var(--space-3);
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.ppm-preset__meta {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+/* ============================================
+   Delete Confirmation
+   ============================================ */
+
+.ppm-preset__delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(239, 68, 68, 0.1);
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
+  font-size: var(--font-size-sm);
+  color: #ef4444;
+}
+
+.ppm-preset__delete-confirm span {
+  flex: 1;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  .ppm-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ppm-header__add {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ppm-config-option {
+    flex-wrap: wrap;
+  }
+
+  .ppm-config-option__label {
+    min-width: 100%;
+  }
+
+  .ppm-config-option__desc {
+    padding-left: calc(16px + var(--space-3));
+  }
+}
+
+@media (max-width: 480px) {
+  .ppm-preset__actions {
+    gap: var(--space-1);
+  }
+
+  .ppm-preset__meta {
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+}
