@@ -540,7 +540,11 @@ def api_llm_providers():
 
 
 def _get_enabled_models_map():
-    """Get a map of (provider, model) -> enabled status.
+    """Get a map of (provider, model) -> enabled status for user-facing features.
+
+    For game setup and user-facing features, models must have BOTH:
+    - enabled = 1 (system enabled)
+    - user_enabled = 1 (user enabled)
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
@@ -558,10 +562,14 @@ def _get_enabled_models_map():
             if not cursor.fetchone():
                 return {}
 
+            # Only include models where BOTH enabled and user_enabled are true
             cursor = conn.execute("""
-                SELECT provider, model, enabled FROM enabled_models
+                SELECT provider, model, enabled, user_enabled FROM enabled_models
             """)
-            return {(row[0], row[1]): bool(row[2]) for row in cursor.fetchall()}
+            return {
+                (row[0], row[1]): bool(row[2]) and bool(row[3] if row[3] is not None else True)
+                for row in cursor.fetchall()
+            }
     except Exception:
         return {}
 

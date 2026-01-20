@@ -24,6 +24,7 @@ interface Model {
   provider: string;
   model: string;
   enabled: boolean;
+  user_enabled: boolean;
   display_name: string | null;
   notes: string | null;
   supports_reasoning: boolean;
@@ -208,19 +209,20 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     }
   }, [models, expandedProviders.size]);
 
-  const toggleModel = async (modelId: number, enabled: boolean) => {
+  const toggleModel = async (modelId: number, enabled: boolean, field: 'enabled' | 'user_enabled' = 'enabled') => {
     try {
       const response = await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify({ field, enabled }),
       });
 
       const data = await response.json();
 
       if (data.success) {
         await refreshModels();
-        showAlert('success', `Model ${enabled ? 'enabled' : 'disabled'}`);
+        const label = field === 'enabled' ? 'System' : 'User';
+        showAlert('success', `${label} ${enabled ? 'enabled' : 'disabled'}`);
       } else {
         showAlert('error', data.error || 'Failed to update model');
       }
@@ -808,17 +810,36 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
                         )}
                       </div>
                     </div>
-                    <label className="admin-toggle">
-                      <input
-                        type="checkbox"
-                        className="admin-toggle__input"
-                        checked={model.enabled}
-                        onChange={(e) => toggleModel(model.id, e.target.checked)}
-                      />
-                      <span className="admin-toggle__switch">
-                        <span className="admin-toggle__slider" />
-                      </span>
-                    </label>
+                    <div className="us-model__toggles">
+                      <div className="us-model__toggle-group">
+                        <span className="us-model__toggle-label">System</span>
+                        <label className="admin-toggle admin-toggle--sm">
+                          <input
+                            type="checkbox"
+                            className="admin-toggle__input"
+                            checked={model.enabled}
+                            onChange={(e) => toggleModel(model.id, e.target.checked, 'enabled')}
+                          />
+                          <span className="admin-toggle__switch">
+                            <span className="admin-toggle__slider" />
+                          </span>
+                        </label>
+                      </div>
+                      <div className="us-model__toggle-group">
+                        <span className="us-model__toggle-label">User</span>
+                        <label className="admin-toggle admin-toggle--sm">
+                          <input
+                            type="checkbox"
+                            className="admin-toggle__input"
+                            checked={model.user_enabled}
+                            onChange={(e) => toggleModel(model.id, e.target.checked, 'user_enabled')}
+                          />
+                          <span className="admin-toggle__switch">
+                            <span className="admin-toggle__slider" />
+                          </span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

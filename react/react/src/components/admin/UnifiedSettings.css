@@ -248,6 +248,28 @@
   flex-shrink: 0;
 }
 
+/* Dual toggle layout for System/User toggles */
+.us-model__toggles {
+  display: flex;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.us-model__toggle-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.us-model__toggle-label {
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .us-cap {
   width: 20px;
   height: 20px;

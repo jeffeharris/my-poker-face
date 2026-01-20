@@ -589,6 +589,22 @@
   color: var(--color-text-primary);
 }
 
+/* Small Toggle Variant */
+.admin-toggle--sm .admin-toggle__switch {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+}
+
+.admin-toggle--sm .admin-toggle__slider {
+  width: 16px;
+  height: 16px;
+}
+
+.admin-toggle--sm .admin-toggle__input:checked + .admin-toggle__switch .admin-toggle__slider {
+  transform: translateX(16px);
+}
+
 /* ==========================================================================
    Alert / Toast
    ========================================================================== */

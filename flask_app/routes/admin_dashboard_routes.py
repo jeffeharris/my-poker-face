@@ -422,22 +422,62 @@ def _render_models(rows):
 @admin_dashboard_bp.route('/api/models/<int:model_id>/toggle', methods=['POST'])
 @_dev_only
 def api_toggle_model(model_id):
-    """Toggle a model's enabled status."""
+    """Toggle a model's enabled or user_enabled status.
+
+    Request body:
+        field: 'enabled' or 'user_enabled' (default: 'enabled')
+        enabled: boolean - the new value
+
+    Cascade logic:
+        - If field=user_enabled and enabled=true: also set enabled=1 (System must be ON for User to be ON)
+        - If field=enabled and enabled=false: also set user_enabled=0 (User must be OFF if System is OFF)
+    """
     data = request.get_json()
+    field = data.get('field', 'enabled')
     enabled = data.get('enabled', False)
+
+    # Validate field parameter
+    if field not in ('enabled', 'user_enabled'):
+        return jsonify({'success': False, 'error': 'Invalid field. Must be "enabled" or "user_enabled"'}), 400
 
     try:
         with sqlite3.connect(_get_db_path()) as conn:
-            cursor = conn.execute("""
-                UPDATE enabled_models
-                SET enabled = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (1 if enabled else 0, model_id))
+            conn.row_factory = sqlite3.Row
 
-            if cursor.rowcount == 0:
+            # Get current state for cascade logic
+            current = conn.execute(
+                "SELECT enabled, user_enabled FROM enabled_models WHERE id = ?",
+                (model_id,)
+            ).fetchone()
+
+            if not current:
                 return jsonify({'success': False, 'error': 'Model not found'}), 404
 
-            return jsonify({'success': True, 'enabled': enabled})
+            new_enabled = current['enabled']
+            new_user_enabled = current['user_enabled']
+
+            if field == 'enabled':
+                new_enabled = 1 if enabled else 0
+                # Cascade: if turning system OFF, also turn user OFF
+                if not enabled:
+                    new_user_enabled = 0
+            else:  # field == 'user_enabled'
+                new_user_enabled = 1 if enabled else 0
+                # Cascade: if turning user ON, also turn system ON
+                if enabled:
+                    new_enabled = 1
+
+            conn.execute("""
+                UPDATE enabled_models
+                SET enabled = ?, user_enabled = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (new_enabled, new_user_enabled, model_id))
+
+            return jsonify({
+                'success': True,
+                'enabled': bool(new_enabled),
+                'user_enabled': bool(new_user_enabled)
+            })
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -463,7 +503,7 @@ def api_list_models():
                 }), 503
 
             cursor = conn.execute("""
-                SELECT id, provider, model, enabled, display_name, notes,
+                SELECT id, provider, model, enabled, user_enabled, display_name, notes,
                        supports_reasoning, supports_json_mode, supports_image_gen,
                        sort_order, updated_at
                 FROM enabled_models

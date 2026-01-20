@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 # v47: Add experiment_chat_sessions for design chat persistence
 # v48: Add Pollinations image models to enabled_models table
 # v49: Add Runware image models to enabled_models table
-SCHEMA_VERSION = 49
+# v50: Add user_enabled column to enabled_models for dual toggle support
+SCHEMA_VERSION = 50
 
 
 @dataclass
@@ -499,13 +500,14 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)")
 
-            # 20. Enabled models (v38)
+            # 20. Enabled models (v38, v50 adds user_enabled)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS enabled_models (
                     id INTEGER PRIMARY KEY,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     enabled INTEGER DEFAULT 1,
+                    user_enabled INTEGER DEFAULT 1,
                     display_name TEXT,
                     notes TEXT,
                     supports_reasoning INTEGER DEFAULT 0,
@@ -776,6 +778,7 @@ class GamePersistence:
             47: (self._migrate_v47_add_chat_sessions, "Add experiment_chat_sessions table and chat columns to experiments"),
             48: (self._migrate_v48_add_pollinations_models, "Add Pollinations image models to enabled_models"),
             49: (self._migrate_v49_add_runware_models, "Add Runware image models to enabled_models"),
+            50: (self._migrate_v50_add_user_enabled, "Add user_enabled column to enabled_models for dual toggle"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2059,6 +2062,36 @@ class GamePersistence:
 
         logger.info("Migration v49 complete: Added Runware image models to enabled_models")
 
+    def _migrate_v50_add_user_enabled(self, conn: sqlite3.Connection) -> None:
+        """Migration v50: Add user_enabled column to enabled_models for dual toggle support.
+
+        This allows admins to control model visibility separately:
+        - enabled (system): Model is available for admin/internal use (experiments, playground)
+        - user_enabled: Model is available for users (game setup)
+
+        Toggle logic:
+        - User ON → System automatically turns ON
+        - System OFF → User automatically turns OFF
+        - System ON alone = admin-only model
+        - User OFF alone = remove user access, keep system access
+        """
+        # Add user_enabled column
+        try:
+            conn.execute("""
+                ALTER TABLE enabled_models ADD COLUMN user_enabled INTEGER DEFAULT 1
+            """)
+        except sqlite3.OperationalError:
+            # Column might already exist if fresh install ran _init_db
+            pass
+
+        # Sync user_enabled with enabled for all existing models
+        # This ensures consistent state regardless of SQLite version behavior
+        conn.execute("""
+            UPDATE enabled_models SET user_enabled = enabled
+        """)
+
+        logger.info("Migration v50 complete: Added user_enabled column to enabled_models")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2412,12 +2445,12 @@ class GamePersistence:
         """Get all models with their enabled status.
 
         Returns:
-            List of dicts with provider, model, enabled, display_name, etc.
+            List of dicts with provider, model, enabled, user_enabled, display_name, etc.
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT id, provider, model, enabled, display_name, notes,
+                SELECT id, provider, model, enabled, user_enabled, display_name, notes,
                        supports_reasoning, supports_json_mode, supports_image_gen,
                        sort_order, created_at, updated_at
                 FROM enabled_models
