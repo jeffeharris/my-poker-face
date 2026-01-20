@@ -10,12 +10,13 @@ from typing import Dict, Any, Optional, List
 
 from flask import Blueprint, jsonify, request, session
 
-from core.llm import LLMClient, CallType
+from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
 from poker.persistence import GamePersistence
 from poker.prompt_config import PromptConfig
 from ..extensions import persistence, limiter
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,253 @@ def detect_orphaned_experiments():
 
 # Detect orphaned experiments on module load
 detect_orphaned_experiments()
+
+
+def _complete_experiment_with_summary(experiment_id: int) -> None:
+    """Generate summary from DB data and complete experiment.
+
+    This function is used to properly complete experiments that would otherwise
+    be marked as completed without a summary (e.g., after resume when all
+    tournaments are done, or when run_experiment_background has empty results).
+
+    It queries live stats from the database, builds a summary structure,
+    attempts to generate an AI interpretation, and then marks the experiment
+    as completed with the full summary.
+
+    Args:
+        experiment_id: The experiment ID to complete
+    """
+    try:
+        # Get experiment data
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            logger.error(f"Cannot complete experiment {experiment_id}: not found")
+            return
+
+        exp_config = experiment.get('config', {})
+
+        # Get live stats (queries DB directly)
+        live_stats = persistence.get_experiment_live_stats(experiment_id)
+
+        # Compute totals from live_stats
+        overall = live_stats.get('overall', {})
+        by_variant = live_stats.get('by_variant', {})
+
+        # Calculate hands and tournaments from by_variant
+        total_hands = 0
+        total_api_calls = 0
+        tournaments = 0
+        winners = {}
+
+        for variant_label, variant_stats in by_variant.items():
+            progress = variant_stats.get('progress', {})
+            total_hands += progress.get('current_hands', 0)
+            tournaments += progress.get('games_count', 0)
+            # API calls from latency metrics
+            latency = variant_stats.get('latency_metrics', {})
+            total_api_calls += latency.get('count', 0)
+
+        # Build summary structure
+        summary = {
+            'tournaments': tournaments,
+            'total_hands': total_hands,
+            'total_api_calls': total_api_calls,
+            'total_duration_seconds': 0,  # Not available from live_stats
+            'avg_hands_per_tournament': round(total_hands / tournaments, 1) if tournaments > 0 else 0,
+            'winners': winners,  # Would need to query games table for winners
+        }
+
+        # Add decision quality from overall stats
+        if overall.get('decision_quality'):
+            dq = overall['decision_quality']
+            summary['decision_quality'] = {
+                'total_decisions': dq.get('total', 0),
+                'correct': dq.get('correct', 0),
+                'marginal': dq.get('marginal', 0),
+                'mistakes': dq.get('mistakes', 0),
+                'correct_pct': dq.get('correct_pct', 0),
+                'avg_ev_lost': dq.get('avg_ev_lost', 0),
+            }
+
+        # Build per-variant summary
+        if by_variant:
+            variants_summary = {}
+            for label, v_stats in by_variant.items():
+                v_progress = v_stats.get('progress', {})
+                v_dq = v_stats.get('decision_quality', {})
+                v_latency = v_stats.get('latency_metrics', {})
+                v_cost = v_stats.get('cost_metrics', {})
+
+                variants_summary[label] = {
+                    'tournaments': v_progress.get('games_count', 0),
+                    'total_hands': v_progress.get('current_hands', 0),
+                    'total_api_calls': v_latency.get('count', 0),
+                    'winners': {},  # Would need per-variant winner tracking
+                    'decision_quality': {
+                        'total': v_dq.get('total', 0),
+                        'correct': v_dq.get('correct', 0),
+                        'correct_pct': v_dq.get('correct_pct', 0),
+                        'mistakes': v_dq.get('mistakes', 0),
+                        'avg_ev_lost': v_dq.get('avg_ev_lost', 0),
+                    } if v_dq else None,
+                    'latency': {
+                        'avg_ms': v_latency.get('avg_ms', 0),
+                        'p50_ms': v_latency.get('p50_ms', 0),
+                        'p95_ms': v_latency.get('p95_ms', 0),
+                    } if v_latency else None,
+                    'cost': {
+                        'total_cost': v_cost.get('total_cost', 0),
+                        'cost_per_hand': v_cost.get('cost_per_hand', 0),
+                    } if v_cost else None,
+                }
+            summary['variants'] = variants_summary
+
+        # Generate AI interpretation (best-effort)
+        summary = _generate_ai_interpretation_standalone(experiment_id, summary)
+
+        # Complete the experiment
+        persistence.complete_experiment(experiment_id, summary)
+        logger.info(f"Completed experiment {experiment_id} with generated summary")
+
+    except Exception as e:
+        logger.error(f"Error completing experiment {experiment_id} with summary: {e}", exc_info=True)
+        # Fall back to completing without summary
+        persistence.update_experiment_status(experiment_id, 'completed')
+
+
+def _generate_ai_interpretation_standalone(experiment_id: int, summary: Dict) -> Dict:
+    """Generate AI interpretation of experiment results (standalone version).
+
+    This is a standalone version of AITournamentRunner._generate_ai_interpretation
+    that can be called without an active runner instance.
+
+    Args:
+        experiment_id: The experiment ID
+        summary: The computed experiment summary
+
+    Returns:
+        Updated summary dict with 'ai_interpretation' field added
+    """
+    # Skip if no tournaments completed
+    if summary.get('tournaments', 0) == 0:
+        logger.info("Skipping AI interpretation: no completed tournaments")
+        return summary
+
+    try:
+        # Get experiment data
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            logger.warning("Could not retrieve experiment data for AI interpretation")
+            return summary
+
+        exp_config = experiment.get('config', {})
+
+        # Build system prompt for analysis
+        system_prompt = """You are the experiment design assistant for AI poker tournament testing. You helped design this experiment, and now you're analyzing the results.
+
+Given the experiment configuration and results, provide a concise analysis:
+
+## Summary
+1-2 sentences: What was tested and what was the outcome?
+
+## Verdict
+One sentence: Did the hypothesis hold? Which variant won (if A/B test)? Include the key numbers.
+
+## Surprises
+Only list genuinely unexpected or anomalous findings. If results were as expected, return an empty array.
+
+## Next Steps
+Suggest 2-3 follow-up experiments that can be configured with these options:
+- num_tournaments: Number of tournaments to run (more = less variance)
+- hands_per_tournament: Hands per game (more = longer games)
+- model/provider: LLM model (gpt-4o-mini, claude-sonnet, gemini-flash, etc.)
+- personalities: Which AI personalities play
+- A/B testing: control vs variant configs with different models/providers
+- prompt_config: Toggle features like pot_odds, hand_strength, session_memory, strategic_reflection
+
+Return as objects with:
+- hypothesis: Testable hypothesis that can be verified by changing the above configs
+- description: What config changes to make and why
+
+Be extremely concise. Don't repeat information across sections.
+Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array of {hypothesis, description})"""
+
+        # Build results context
+        results_context = {
+            'experiment': {
+                'name': exp_config.get('name'),
+                'description': exp_config.get('description'),
+                'hypothesis': exp_config.get('hypothesis'),
+                'tags': exp_config.get('tags'),
+            },
+            'config': {
+                'num_tournaments': exp_config.get('num_tournaments'),
+                'hands_per_tournament': exp_config.get('hands_per_tournament'),
+                'num_players': exp_config.get('num_players'),
+                'model': exp_config.get('model'),
+                'provider': exp_config.get('provider'),
+            },
+            'results': {
+                'tournaments_completed': summary.get('tournaments', 0),
+                'total_hands': summary.get('total_hands', 0),
+                'total_duration_seconds': summary.get('total_duration_seconds', 0),
+                'winners_distribution': summary.get('winners', {}),
+            },
+        }
+
+        # Add decision quality if available
+        if summary.get('decision_quality'):
+            results_context['results']['decision_quality'] = summary['decision_quality']
+
+        # Add A/B test info if present
+        if exp_config.get('control'):
+            results_context['ab_test'] = {
+                'control_label': exp_config['control'].get('label'),
+                'variant_labels': [v.get('label') for v in exp_config.get('variants', [])],
+            }
+
+        # Add per-variant stats if available
+        if summary.get('variants'):
+            results_context['results']['per_variant_stats'] = summary['variants']
+
+        # Build messages array
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"The experiment has completed. Here are the results:\n\n{json.dumps(results_context, indent=2)}\n\nPlease analyze these results."}
+        ]
+
+        # Make LLM call
+        client = LLMClient(model=ASSISTANT_MODEL, provider=ASSISTANT_PROVIDER)
+        response = client.complete(
+            messages=messages,
+            json_format=True,
+            call_type=CallType.EXPERIMENT_ANALYSIS,
+            game_id=f"experiment_{experiment_id}",
+        )
+
+        # Parse response
+        interpretation = json.loads(response.content)
+        interpretation['generated_at'] = datetime.now().isoformat()
+        interpretation['model_used'] = client.model
+
+        summary['ai_interpretation'] = interpretation
+        logger.info(f"Generated AI interpretation for experiment {experiment_id}")
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse AI interpretation response: {e}")
+        summary['ai_interpretation'] = {
+            'error': f'Failed to parse AI response: {str(e)}',
+            'generated_at': datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.warning(f"AI interpretation failed for experiment {experiment_id}: {e}")
+        summary['ai_interpretation'] = {
+            'error': str(e),
+            'generated_at': datetime.now().isoformat(),
+        }
+
+    return summary
+
 
 # Store chat sessions for experiment design
 # Each session stores:
@@ -1296,8 +1544,10 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             persistence.complete_experiment(experiment_id, summary)
             logger.info(f"Experiment {experiment_id} completed successfully")
         else:
-            logger.info(f"Experiment {experiment_id} completed with no results")
-            persistence.update_experiment_status(experiment_id, 'completed')
+            # No results from runner (e.g., all tournaments already complete)
+            # Generate summary from DB data before completing
+            logger.info(f"Experiment {experiment_id} completed with no results, generating summary from DB")
+            _complete_experiment_with_summary(experiment_id)
 
     except Exception as e:
         logger.error(f"Experiment {experiment_id} failed: {e}")
@@ -1615,12 +1865,12 @@ def resume_experiment(experiment_id: int):
         incomplete = persistence.get_incomplete_tournaments(experiment_id)
 
         if not incomplete:
-            # No incomplete tournaments - mark as completed
-            logger.info(f"No incomplete tournaments for experiment {experiment_id}, marking as completed")
-            persistence.update_experiment_status(experiment_id, 'completed')
+            # No incomplete tournaments - generate summary and complete
+            logger.info(f"No incomplete tournaments for experiment {experiment_id}, generating summary and completing")
+            _complete_experiment_with_summary(experiment_id)
             return jsonify({
                 'success': True,
-                'message': 'No incomplete tournaments found. Experiment marked as completed.',
+                'message': 'No incomplete tournaments found. Experiment completed with summary.',
                 'experiment_id': experiment_id,
             })
 
@@ -1703,6 +1953,41 @@ def unarchive_experiment(experiment_id: int):
 
     except Exception as e:
         logger.error(f"Error unarchiving experiment {experiment_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/regenerate-summary', methods=['POST'])
+def regenerate_summary(experiment_id: int):
+    """Regenerate summary for a completed experiment.
+
+    Useful for experiments that were completed without a summary (e.g., due to
+    interruption/resume cycles) or to regenerate the AI interpretation with a
+    newer model.
+    """
+    try:
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            return jsonify({'error': 'Experiment not found'}), 404
+
+        if experiment.get('status') != 'completed':
+            return jsonify({
+                'error': f"Only completed experiments can regenerate summary. Current status: {experiment.get('status')}"
+            }), 400
+
+        logger.info(f"Regenerating summary for experiment {experiment_id}")
+        _complete_experiment_with_summary(experiment_id)
+
+        # Fetch the updated experiment
+        updated = persistence.get_experiment(experiment_id)
+
+        return jsonify({
+            'success': True,
+            'experiment_id': experiment_id,
+            'summary': updated.get('summary') if updated else None,
+        })
+
+    except Exception as e:
+        logger.error(f"Error regenerating summary for experiment {experiment_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1884,8 +2169,9 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
             persistence.update_experiment_status(experiment_id, 'paused')
             logger.info(f"Experiment {experiment_id} paused again")
         else:
-            persistence.update_experiment_status(experiment_id, 'completed')
-            logger.info(f"Experiment {experiment_id} resume completed")
+            # Generate summary from DB data before completing
+            logger.info(f"Experiment {experiment_id} resume completed, generating summary")
+            _complete_experiment_with_summary(experiment_id)
 
     except Exception as e:
         logger.error(f"Error in resume_experiment_background for {experiment_id}: {e}", exc_info=True)

@@ -2735,6 +2735,37 @@
   margin-bottom: 0;
 }
 
+/* AI Analysis Placeholder States */
+.experiment-detail__section--placeholder {
+  opacity: 0.8;
+}
+
+.experiment-detail__ai-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.875rem;
+}
+
+.experiment-detail__ai-placeholder p {
+  margin: 0;
+}
+
+.experiment-detail__ai-placeholder svg {
+  flex-shrink: 0;
+  color: #a78bfa;
+}
+
+.experiment-detail__section--error .experiment-detail__ai-placeholder {
+  color: rgba(239, 68, 68, 0.8);
+}
+
+.experiment-detail__ai-placeholder--error svg {
+  color: #ef4444;
+}
+
 /* Suggestion Cards Grid */
 .experiment-detail__suggestions-grid {
   display: grid;

@@ -581,6 +581,35 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
       )}
 
       {/* AI Interpretation */}
+      {/* Show error state if AI interpretation failed */}
+      {experiment.status === 'completed' && summary?.ai_interpretation?.error && (
+        <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--error">
+          <h3 className="experiment-detail__section-title">
+            <Brain size={18} />
+            AI Analysis
+          </h3>
+          <div className="experiment-detail__ai-placeholder experiment-detail__ai-placeholder--error">
+            <AlertTriangle size={20} />
+            <p>Failed to generate AI analysis: {summary.ai_interpretation.error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Show loading state if completed but no summary or no AI interpretation yet */}
+      {experiment.status === 'completed' && (!summary || !summary.ai_interpretation) && (
+        <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--placeholder">
+          <h3 className="experiment-detail__section-title">
+            <Brain size={18} />
+            AI Analysis
+          </h3>
+          <div className="experiment-detail__ai-placeholder">
+            <Loader2 size={20} className="animate-spin" />
+            <p>Generating AI analysis...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Show actual AI interpretation when available */}
       {summary?.ai_interpretation && !summary.ai_interpretation.error && (
         <div className="experiment-detail__section experiment-detail__section--ai">
           <h3 className="experiment-detail__section-title">
