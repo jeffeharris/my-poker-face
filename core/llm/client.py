@@ -1,4 +1,5 @@
 """Unified LLM client with built-in tracking."""
+import re
 import time
 import logging
 from typing import List, Dict, Optional, Any, Callable
@@ -218,6 +219,19 @@ class LLMClient:
                 tool_calls=final_tool_calls,
                 raw_response=raw_response,
             )
+
+            # Warn if tools were provided but the model output XML-style tool calls
+            # This indicates the provider didn't properly pass tools to the API
+            if tools and content:
+                xml_tool_pattern = r'<(?:tool_call|function_call|[a-z_]+)>\s*(?:<[a-z_]+>|\{)'
+                if re.search(xml_tool_pattern, content, re.IGNORECASE):
+                    logger.warning(
+                        f"Model output appears to contain XML-style tool calls in text. "
+                        f"This usually means the provider ({self._provider.provider_name}) "
+                        f"did not properly pass tools to the API, or the model "
+                        f"({self._provider.model}) does not support function calling. "
+                        f"Check provider implementation."
+                    )
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000

@@ -1540,10 +1540,15 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             logger.info(f"Experiment {experiment_id} paused")
             persistence.update_experiment_status(experiment_id, 'paused')
         elif results:
-            # Complete the experiment (runner already does this, but ensure it's done)
-            summary = runner._compute_experiment_summary(results)
-            persistence.complete_experiment(experiment_id, summary)
-            logger.info(f"Experiment {experiment_id} completed successfully")
+            # Runner already completes the experiment with summary + AI interpretation
+            # in run_experiment() - just verify it completed successfully
+            exp = persistence.get_experiment(experiment_id)
+            if exp and exp.get('status') == 'completed' and exp.get('summary'):
+                logger.info(f"Experiment {experiment_id} completed successfully by runner")
+            else:
+                # Runner didn't complete it (maybe error in completion code) - do it here
+                logger.info(f"Experiment {experiment_id} needs completion, generating summary")
+                _complete_experiment_with_summary(experiment_id)
         else:
             # No results from runner (e.g., all tournaments already complete)
             # Generate summary from DB data before completing
