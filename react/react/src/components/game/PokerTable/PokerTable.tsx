@@ -316,8 +316,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                         </>
                       ) : (
                         <>
-                          <HoleCard visible={false} />
-                          <HoleCard visible={false} />
+                          <HoleCard visible={false} size="xsmall" />
+                          <HoleCard visible={false} size="xsmall" />
                         </>
                       )}
                     </div>

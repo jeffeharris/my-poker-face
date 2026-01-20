@@ -316,7 +316,7 @@ export function GameMenu({
 
           {config.ENABLE_DEBUG && onPromptDebugger && (
             <button
-              className="menu-option prompt-debugger"
+              className="menu-option"
               onClick={onPromptDebugger}
               onMouseEnter={() => setHoveredOption('debugger')}
               onMouseLeave={() => setHoveredOption(null)}
