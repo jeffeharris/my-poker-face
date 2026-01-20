@@ -248,26 +248,51 @@
   flex-shrink: 0;
 }
 
-/* Dual toggle layout for System/User toggles */
-.us-model__toggles {
+/* 3-state visibility segmented control */
+.us-model__visibility {
   display: flex;
-  gap: var(--space-4);
   flex-shrink: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--color-border-default);
 }
 
-.us-model__toggle-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.us-model__toggle-label {
-  font-size: 10px;
+.us-visibility__btn {
+  padding: var(--space-1) var(--space-2);
+  font-size: 11px;
   font-weight: var(--font-weight-medium);
+  background: transparent;
+  border: none;
   color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 52px;
+}
+
+.us-visibility__btn:not(:last-child) {
+  border-right: 1px solid var(--color-border-default);
+}
+
+.us-visibility__btn:hover:not(.us-visibility__btn--active) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-secondary);
+}
+
+.us-visibility__btn--active {
+  color: var(--color-bg-void);
+  font-weight: var(--font-weight-semibold);
+}
+
+.us-visibility__btn--off.us-visibility__btn--active {
+  background: var(--color-text-muted);
+}
+
+.us-visibility__btn--system.us-visibility__btn--active {
+  background: var(--color-gold);
+}
+
+.us-visibility__btn--users.us-visibility__btn--active {
+  background: #4ade80;
 }
 
 .us-cap {

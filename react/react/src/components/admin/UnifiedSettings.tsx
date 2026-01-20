@@ -216,41 +216,46 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     }
   }, [models, expandedProviders.size]);
 
-  const toggleModel = async (modelId: number, enabled: boolean, field: 'enabled' | 'user_enabled' = 'enabled') => {
-    // Optimistic update - update local state immediately
-    setModels(prev => prev?.map(m => {
-      if (m.id !== modelId) return m;
+  // Model visibility states: 'off' | 'system' | 'users'
+  type ModelVisibility = 'off' | 'system' | 'users';
 
-      // Apply cascade logic locally
-      if (field === 'enabled' && !enabled) {
-        // System OFF -> User OFF
-        return { ...m, enabled: false, user_enabled: false };
-      } else if (field === 'user_enabled' && enabled) {
-        // User ON -> System ON
-        return { ...m, enabled: true, user_enabled: true };
-      } else {
-        return { ...m, [field]: enabled };
-      }
-    }) ?? null);
+  const getModelVisibility = (model: Model): ModelVisibility => {
+    if (!model.enabled) return 'off';
+    if (!model.user_enabled) return 'system';
+    return 'users';
+  };
+
+  const setModelVisibility = async (modelId: number, visibility: ModelVisibility) => {
+    const newEnabled = visibility !== 'off';
+    const newUserEnabled = visibility === 'users';
+
+    // Optimistic update
+    setModels(prev => prev?.map(m =>
+      m.id === modelId
+        ? { ...m, enabled: newEnabled, user_enabled: newUserEnabled }
+        : m
+    ) ?? null);
 
     try {
+      // Set both flags via two API calls (or we could add a new endpoint)
       const response = await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field, enabled }),
+        body: JSON.stringify({ field: 'enabled', enabled: newEnabled }),
       });
 
       const data = await response.json();
 
-      if (data.success) {
-        // Update with server response to ensure consistency
-        setModels(prev => prev?.map(m =>
-          m.id === modelId
-            ? { ...m, enabled: data.enabled, user_enabled: data.user_enabled }
-            : m
-        ) ?? null);
-      } else {
-        // Revert on error - refetch to get correct state
+      if (data.success && visibility === 'system') {
+        // Need to explicitly turn off user_enabled
+        await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: 'user_enabled', enabled: false }),
+        });
+      }
+
+      if (!data.success) {
         showAlert('error', data.error || 'Failed to update model');
       }
     } catch {
@@ -837,35 +842,23 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
                         )}
                       </div>
                     </div>
-                    <div className="us-model__toggles">
-                      <div className="us-model__toggle-group">
-                        <span className="us-model__toggle-label">System</span>
-                        <label className="admin-toggle admin-toggle--sm">
-                          <input
-                            type="checkbox"
-                            className="admin-toggle__input"
-                            checked={model.enabled}
-                            onChange={(e) => toggleModel(model.id, e.target.checked, 'enabled')}
-                          />
-                          <span className="admin-toggle__switch">
-                            <span className="admin-toggle__slider" />
-                          </span>
-                        </label>
-                      </div>
-                      <div className="us-model__toggle-group">
-                        <span className="us-model__toggle-label">User</span>
-                        <label className="admin-toggle admin-toggle--sm">
-                          <input
-                            type="checkbox"
-                            className="admin-toggle__input"
-                            checked={model.user_enabled ?? model.enabled}
-                            onChange={(e) => toggleModel(model.id, e.target.checked, 'user_enabled')}
-                          />
-                          <span className="admin-toggle__switch">
-                            <span className="admin-toggle__slider" />
-                          </span>
-                        </label>
-                      </div>
+                    <div className="us-model__visibility">
+                      {(['off', 'system', 'users'] as const).map((state) => {
+                        const current = getModelVisibility(model);
+                        // "System" appears enabled when current is 'system' OR 'users'
+                        const isEnabled = state === current ||
+                          (state === 'system' && current === 'users');
+                        return (
+                          <button
+                            key={state}
+                            type="button"
+                            className={`us-visibility__btn us-visibility__btn--${state} ${isEnabled ? 'us-visibility__btn--active' : ''}`}
+                            onClick={() => setModelVisibility(model.id, state)}
+                          >
+                            {state === 'off' ? 'Off' : state === 'system' ? 'System' : 'Users'}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
