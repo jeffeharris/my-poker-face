@@ -481,11 +481,32 @@
 /* Select */
 .admin-select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23ffffff60' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  /* Solid dark background for select - ensures readability in dropdowns */
+  background-color: var(--color-bg-tertiary, #151820);
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23d4a574' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
   background-position: right var(--space-2) center;
   background-repeat: no-repeat;
   background-size: 20px;
   padding-right: var(--space-8);
+  cursor: pointer;
+}
+
+/* Select options - dark theme styling for dropdown */
+.admin-select option {
+  background-color: var(--color-bg-elevated, #1a1a1f);
+  color: var(--color-text-primary, #e5e5e5);
+  padding: var(--space-2);
+}
+
+.admin-select option:hover,
+.admin-select option:focus,
+.admin-select option:checked {
+  background-color: var(--color-bg-surface, #252530);
+  color: var(--color-text-primary, #e5e5e5);
+}
+
+.admin-select option:disabled {
+  color: var(--color-text-disabled, #666);
 }
 
 /* Checkbox */
@@ -587,6 +608,22 @@
 .admin-toggle__label {
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
+}
+
+/* Small Toggle Variant */
+.admin-toggle--sm .admin-toggle__switch {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+}
+
+.admin-toggle--sm .admin-toggle__slider {
+  width: 16px;
+  height: 16px;
+}
+
+.admin-toggle--sm .admin-toggle__input:checked + .admin-toggle__switch .admin-toggle__slider {
+  transform: translateX(16px);
 }
 
 /* ==========================================================================

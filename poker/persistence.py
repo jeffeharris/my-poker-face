@@ -23,11 +23,16 @@ logger = logging.getLogger(__name__)
 # v43: Add experiments and experiment_games tables for experiment tracking
 # v44: Add app_settings table for dynamic configuration
 # v45: Add users table for Google OAuth authentication
-# v46: (reserved)
+# v46: Add error_message column to api_usage table
 # v47: Add experiment_chat_sessions for design chat persistence
 #      Add design_chat_json and assistant_chat_json columns to experiments
-# v48: Add parent_experiment_id to experiments for experiment lineage tracking
-SCHEMA_VERSION = 48
+# v48: Add Pollinations image models to enabled_models table
+# v49: Add Runware image models to enabled_models table
+# v50: Add user_enabled column to enabled_models for dual toggle support
+# v51: Add parent_experiment_id to experiments for experiment lineage tracking
+# v52: Add supports_img2img column to enabled_models for image-to-image capability
+# v53: Add image capture support to prompt_captures and reference_images table
+SCHEMA_VERSION = 53
 
 
 @dataclass
@@ -499,18 +504,20 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)")
 
-            # 20. Enabled models (v38)
+            # 20. Enabled models (v38, v50 adds user_enabled, v52 adds supports_img2img)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS enabled_models (
                     id INTEGER PRIMARY KEY,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     enabled INTEGER DEFAULT 1,
+                    user_enabled INTEGER DEFAULT 1,
                     display_name TEXT,
                     notes TEXT,
                     supports_reasoning INTEGER DEFAULT 0,
                     supports_json_mode INTEGER DEFAULT 1,
                     supports_image_gen INTEGER DEFAULT 0,
+                    supports_img2img INTEGER DEFAULT 0,
                     sort_order INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -519,7 +526,7 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)")
 
-            # 21. Prompt captures (v18, v19, v24, v30, v33, v39)
+            # 21. Prompt captures (v18, v19, v24, v30, v33, v39, v53)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_captures (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -556,6 +563,16 @@ class GamePersistence:
                     original_request_id TEXT,
                     provider TEXT DEFAULT 'openai',
                     call_type TEXT,
+                    is_image_capture INTEGER DEFAULT 0,
+                    image_prompt TEXT,
+                    image_url TEXT,
+                    image_data BLOB,
+                    image_size TEXT,
+                    image_width INTEGER,
+                    image_height INTEGER,
+                    target_personality TEXT,
+                    target_emotion TEXT,
+                    reference_image_id TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -565,13 +582,32 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
-            # These indexes are on columns added by migrations v33 and v39
+            # These indexes are on columns added by migrations v33, v39, and v53
             # Use try-except to handle older databases that haven't been migrated yet
             try:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
+
+            # 21b. Reference images (v53) - for image-to-image generation
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS reference_images (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    image_data BLOB NOT NULL,
+                    width INTEGER,
+                    height INTEGER,
+                    content_type TEXT DEFAULT 'image/png',
+                    source TEXT,
+                    original_url TEXT,
+                    owner_id TEXT,
+                    expires_at TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
             # 22. Player decision analysis (v20, v22, v23)
             conn.execute("""
@@ -776,7 +812,12 @@ class GamePersistence:
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
             47: (self._migrate_v47_add_chat_sessions, "Add experiment_chat_sessions table and chat columns to experiments"),
-            48: (self._migrate_v48_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
+            48: (self._migrate_v48_add_pollinations_models, "Add Pollinations image models to enabled_models"),
+            49: (self._migrate_v49_add_runware_models, "Add Runware image models to enabled_models"),
+            50: (self._migrate_v50_add_user_enabled, "Add user_enabled column to enabled_models for dual toggle"),
+            51: (self._migrate_v51_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
+            52: (self._migrate_v52_add_supports_img2img, "Add supports_img2img column to enabled_models"),
+            53: (self._migrate_v53_add_image_capture_support, "Add image capture support to prompt_captures and reference_images table"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2014,8 +2055,84 @@ class GamePersistence:
 
         logger.info("Migration v47 complete: Added experiment_chat_sessions table and chat columns")
 
-    def _migrate_v48_add_parent_experiment_id(self, conn: sqlite3.Connection) -> None:
-        """Migration v48: Add parent_experiment_id to experiments for lineage tracking.
+    def _migrate_v48_add_pollinations_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v48: Add Pollinations image models to enabled_models table.
+
+        Pollinations.ai is an image-only provider with extremely cheap pricing (~$0.0002/image).
+        This migration adds Pollinations models to the enabled_models table with:
+        - flux and zimage enabled by default (most commonly used)
+        - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
+        """
+        from core.llm.config import POLLINATIONS_AVAILABLE_MODELS
+
+        # Models that should be enabled by default (cheapest: $0.0002/image)
+        default_enabled = {"flux", "zimage"}
+
+        for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
+            enabled = 1 if model in default_enabled else 0
+            conn.execute("""
+                INSERT OR REPLACE INTO enabled_models
+                (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
+
+        logger.info("Migration v48 complete: Added Pollinations image models to enabled_models")
+
+    def _migrate_v49_add_runware_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v49: Add Runware image models to enabled_models table.
+
+        Runware.ai is an image-only provider with fast FLUX model generation.
+        This migration adds Runware models to the enabled_models table with:
+        - runware:101@1 (FLUX Schnell) enabled by default
+        - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
+        """
+        from core.llm.config import RUNWARE_AVAILABLE_MODELS
+
+        # Models that should be enabled by default
+        default_enabled = {"runware:101@1"}  # FLUX Schnell - fast and good quality
+
+        for sort_order, model in enumerate(RUNWARE_AVAILABLE_MODELS):
+            enabled = 1 if model in default_enabled else 0
+            conn.execute("""
+                INSERT OR REPLACE INTO enabled_models
+                (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, ("runware", model, enabled, 0, 0, 1, sort_order))
+
+        logger.info("Migration v49 complete: Added Runware image models to enabled_models")
+
+    def _migrate_v50_add_user_enabled(self, conn: sqlite3.Connection) -> None:
+        """Migration v50: Add user_enabled column to enabled_models for dual toggle support.
+
+        This allows admins to control model visibility separately:
+        - enabled (system): Model is available for admin/internal use (experiments, playground)
+        - user_enabled: Model is available for users (game setup)
+
+        Toggle logic:
+        - User ON → System automatically turns ON
+        - System OFF → User automatically turns OFF
+        - System ON alone = admin-only model
+        - User OFF alone = remove user access, keep system access
+        """
+        # Add user_enabled column
+        try:
+            conn.execute("""
+                ALTER TABLE enabled_models ADD COLUMN user_enabled INTEGER DEFAULT 1
+            """)
+        except sqlite3.OperationalError:
+            # Column might already exist if fresh install ran _init_db
+            pass
+
+        # Sync user_enabled with enabled for all existing models
+        # This ensures consistent state regardless of SQLite version behavior
+        conn.execute("""
+            UPDATE enabled_models SET user_enabled = enabled
+        """)
+
+        logger.info("Migration v50 complete: Added user_enabled column to enabled_models")
+
+    def _migrate_v51_add_parent_experiment_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v51: Add parent_experiment_id to experiments for lineage tracking.
 
         Enables tracking of experiment lineage when follow-up experiments are created
         based on suggestions from previous experiments.
@@ -2028,7 +2145,76 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
             logger.info("Added parent_experiment_id column to experiments table")
 
-        logger.info("Migration v48 complete: Added parent_experiment_id to experiments")
+        logger.info("Migration v51 complete: Added parent_experiment_id to experiments")
+
+    def _migrate_v52_add_supports_img2img(self, conn: sqlite3.Connection) -> None:
+        """Migration v52: Add supports_img2img column to enabled_models.
+
+        This adds image-to-image capability tracking at the model level.
+        Models like Pollinations klein/kontext and Runware FLUX.2 support img2img.
+        """
+        # Add supports_img2img column
+        try:
+            conn.execute("""
+                ALTER TABLE enabled_models ADD COLUMN supports_img2img INTEGER DEFAULT 0
+            """)
+        except sqlite3.OperationalError:
+            # Column might already exist if fresh install ran _init_db
+            pass
+
+        logger.info("Migration v52 complete: Added supports_img2img column to enabled_models")
+
+    def _migrate_v53_add_image_capture_support(self, conn: sqlite3.Connection) -> None:
+        """Migration v53: Add image capture support to prompt_captures and reference_images table.
+
+        This migration:
+        1. Creates the reference_images table for storing uploaded/generated reference images
+        2. Adds image-specific columns to prompt_captures for capturing image generation prompts
+        """
+        # 1. Create reference_images table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reference_images (
+                id TEXT PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                image_data BLOB NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                content_type TEXT DEFAULT 'image/png',
+                source TEXT,
+                original_url TEXT,
+                owner_id TEXT,
+                expires_at TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
+
+        # 2. Add image-specific columns to prompt_captures
+        cursor = conn.execute("PRAGMA table_info(prompt_captures)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        image_columns = [
+            ("is_image_capture", "INTEGER DEFAULT 0"),
+            ("image_prompt", "TEXT"),
+            ("image_url", "TEXT"),
+            ("image_data", "BLOB"),
+            ("image_size", "TEXT"),
+            ("image_width", "INTEGER"),
+            ("image_height", "INTEGER"),
+            ("target_personality", "TEXT"),
+            ("target_emotion", "TEXT"),
+            ("reference_image_id", "TEXT"),
+        ]
+
+        for col_name, col_type in image_columns:
+            if col_name not in columns:
+                conn.execute(f"ALTER TABLE prompt_captures ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Added {col_name} column to prompt_captures")
+
+        # 3. Add index for filtering image captures
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
+
+        logger.info("Migration v53 complete: Added image capture support")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -2396,12 +2582,12 @@ class GamePersistence:
         """Get all models with their enabled status.
 
         Returns:
-            List of dicts with provider, model, enabled, display_name, etc.
+            List of dicts with provider, model, enabled, user_enabled, display_name, etc.
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT id, provider, model, enabled, display_name, notes,
+                SELECT id, provider, model, enabled, user_enabled, display_name, notes,
                        supports_reasoning, supports_json_mode, supports_image_gen,
                        sort_order, created_at, updated_at
                 FROM enabled_models
@@ -4072,6 +4258,19 @@ class GamePersistence:
                         capture[field] = json.loads(capture[field])
                     except json.JSONDecodeError:
                         logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+
+            # Handle image_data BLOB - convert to base64 data URL for JSON serialization
+            if capture.get('is_image_capture') and capture.get('image_data'):
+                import base64
+                img_bytes = capture['image_data']
+                if isinstance(img_bytes, bytes):
+                    b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                    capture['image_url'] = f"data:image/png;base64,{b64_data}"
+                # Remove raw bytes from response (not JSON serializable)
+                del capture['image_data']
+            elif 'image_data' in capture:
+                # Remove even if None/empty to avoid serialization issues
+                del capture['image_data']
             return capture
 
     def list_prompt_captures(
@@ -4331,7 +4530,9 @@ class GamePersistence:
                        phase, call_type, action_taken,
                        model, provider, reasoning_effort,
                        latency_ms, input_tokens, output_tokens,
-                       tags, notes
+                       tags, notes,
+                       is_image_capture, image_size, image_width, image_height,
+                       target_personality, target_emotion
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC

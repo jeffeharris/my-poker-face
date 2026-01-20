@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Any, Callable
 
 from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
 from .response import LLMResponse, ImageResponse
-from .tracking import UsageTracker, CallType, capture_prompt
+from .tracking import UsageTracker, CallType, capture_prompt, capture_image_prompt
 from .providers.base import LLMProvider
 from .providers.openai import OpenAIProvider
 from .providers.groq import GroqProvider
@@ -15,6 +15,8 @@ from .providers.deepseek import DeepSeekProvider
 from .providers.mistral import MistralProvider
 from .providers.google import GoogleProvider
 from .providers.xai import XAIProvider
+from .providers.pollinations import PollinationsProvider
+from .providers.runware import RunwareProvider
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,8 @@ class LLMClient:
             "mistral": lambda: MistralProvider(model=model, reasoning_effort=reasoning_effort),
             "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
             "xai": lambda: XAIProvider(model=model, reasoning_effort=reasoning_effort),
+            "pollinations": lambda: PollinationsProvider(model=model, reasoning_effort=reasoning_effort),
+            "runware": lambda: RunwareProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
         if provider not in provider_registry:
@@ -288,6 +292,12 @@ class LLMClient:
         call_type: CallType = CallType.IMAGE_GENERATION,
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
+        target_personality: Optional[str] = None,
+        target_emotion: Optional[str] = None,
+        reference_image_id: Optional[str] = None,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
         **context: Any,
     ) -> ImageResponse:
         """Generate an image.
@@ -298,6 +308,13 @@ class LLMClient:
             call_type: Type of call for tracking
             game_id: Game ID for tracking
             owner_id: User ID for tracking
+            target_personality: Optional personality name (for avatar generation)
+            target_emotion: Optional emotion (for avatar generation)
+            reference_image_id: Optional reference image ID (for img2img)
+            seed_image_url: Optional URL to base image for img2img generation
+            strength: How much to transform the seed image (0.0-1.0).
+                      Lower = more like original, higher = more creative.
+            negative_prompt: Optional negative prompt for things to avoid
             **context: Additional tracking context
 
         Returns:
@@ -306,7 +323,13 @@ class LLMClient:
         start_time = time.time()
 
         try:
-            raw_response = self._provider.generate_image(prompt=prompt, size=size)
+            raw_response = self._provider.generate_image(
+                prompt=prompt,
+                size=size,
+                seed_image_url=seed_image_url,
+                strength=strength,
+                negative_prompt=negative_prompt,
+            )
             latency_ms = (time.time() - start_time) * 1000
 
             url = self._provider.extract_image_url(raw_response)
@@ -354,5 +377,18 @@ class LLMClient:
             player_name=context.get("player_name"),
             prompt_template=context.get("prompt_template"),
         )
+
+        # Capture image prompt for playground (if enabled via LLM_PROMPT_CAPTURE env var)
+        if response.status == "ok":
+            capture_image_prompt(
+                prompt=prompt,
+                response=response,
+                call_type=call_type,
+                target_personality=target_personality or context.get("player_name"),
+                target_emotion=target_emotion or context.get("target_emotion"),
+                reference_image_id=reference_image_id,
+                game_id=game_id,
+                owner_id=owner_id,
+            )
 
         return response

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, ProviderInfo } from './types';
+import { useLLMProviders } from '../../../hooks/useLLMProviders';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
 import { InterrogationChat } from './InterrogationChat';
 import './DecisionAnalyzer.css';
 
@@ -49,35 +50,12 @@ export function DecisionAnalyzer({ onBack, embedded = false }: DecisionAnalyzerP
   const [interrogateReasoningEffort, setInterrogateReasoningEffort] = useState('minimal');
 
   // Provider and model configuration (fetched from API)
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [availableModels, setAvailableModels] = useState<string[]>(['gpt-5-nano', 'gpt-5-mini', 'gpt-5']);
+  // Using 'system' scope to include system-only models for admin tools
+  const {
+    providers,
+    getModelsForProvider,
+  } = useLLMProviders({ scope: 'system' });
   const reasoningLevels = ['minimal', 'low', 'medium', 'high'];
-
-  const fetchProviders = useCallback(async () => {
-    try {
-      const response = await fetch(`${config.API_URL}/api/llm-providers`, { credentials: 'include' });
-      const data = await response.json();
-      if (data.providers && data.providers.length > 0) {
-        setProviders(data.providers);
-        // Set default models from first provider
-        setAvailableModels(data.providers[0].models);
-      }
-    } catch (err) {
-      console.debug('Failed to fetch providers, using defaults:', err);
-    }
-  }, []);
-
-  const fetchModels = useCallback(async () => {
-    try {
-      const response = await fetch(`${config.API_URL}/api/models`, { credentials: 'include' });
-      const data = await response.json();
-      if (data.success && data.models) {
-        setAvailableModels(data.models);
-      }
-    } catch (err) {
-      console.debug('Failed to fetch models, using defaults:', err);
-    }
-  }, []);
 
   // Build the raw request messages array
   const buildRawRequest = useCallback((capture: PromptCapture) => {
@@ -179,33 +157,31 @@ export function DecisionAnalyzer({ onBack, embedded = false }: DecisionAnalyzerP
   useEffect(() => {
     fetchCaptures();
     fetchAnalysisStats();
-    fetchProviders();
-    fetchModels();
-  }, [fetchCaptures, fetchAnalysisStats, fetchProviders, fetchModels]);
+  }, [fetchCaptures, fetchAnalysisStats]);
 
-  // Get models for a specific provider
-  const getModelsForProvider = useCallback((providerId: string): string[] => {
-    const provider = providers.find(p => p.id === providerId);
-    return provider?.models || availableModels;
-  }, [providers, availableModels]);
+  // Get models for a specific provider (with fallback)
+  const getModelsForProviderWithFallback = useCallback((providerId: string): string[] => {
+    const models = getModelsForProvider(providerId);
+    return models.length > 0 ? models : ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
+  }, [getModelsForProvider]);
 
   // Handle provider change for replay
   const handleReplayProviderChange = useCallback((newProvider: string) => {
     setReplayProvider(newProvider);
-    const models = getModelsForProvider(newProvider);
+    const models = getModelsForProviderWithFallback(newProvider);
     if (models.length > 0 && !models.includes(replayModel)) {
       setReplayModel(models[0]);
     }
-  }, [getModelsForProvider, replayModel]);
+  }, [getModelsForProviderWithFallback, replayModel]);
 
   // Handle provider change for interrogate
   const handleInterrogateProviderChange = useCallback((newProvider: string) => {
     setInterrogateProvider(newProvider);
-    const models = getModelsForProvider(newProvider);
+    const models = getModelsForProviderWithFallback(newProvider);
     if (models.length > 0 && !models.includes(interrogateModel)) {
       setInterrogateModel(models[0]);
     }
-  }, [getModelsForProvider, interrogateModel]);
+  }, [getModelsForProviderWithFallback, interrogateModel]);
 
   const fetchCaptureDetail = async (captureId: number) => {
     try {
@@ -808,7 +784,7 @@ export function DecisionAnalyzer({ onBack, embedded = false }: DecisionAnalyzerP
                         value={replayModel}
                         onChange={(e) => setReplayModel(e.target.value)}
                       >
-                        {getModelsForProvider(replayProvider).map(model => (
+                        {getModelsForProviderWithFallback(replayProvider).map(model => (
                           <option key={model} value={model}>{model}</option>
                         ))}
                       </select>
@@ -876,7 +852,7 @@ export function DecisionAnalyzer({ onBack, embedded = false }: DecisionAnalyzerP
                   reasoningEffort={interrogateReasoningEffort}
                   onReasoningEffortChange={setInterrogateReasoningEffort}
                   providers={providers}
-                  getModelsForProvider={getModelsForProvider}
+                  getModelsForProvider={getModelsForProviderWithFallback}
                   reasoningLevels={reasoningLevels}
                 />
               )}
