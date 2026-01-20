@@ -28,6 +28,25 @@ sections:
     - Your personality doesn't override survival math
     - If you have 1 BB or less, almost NEVER fold pre-flop
 
+  # Strong made hand guidance (80%+ equity)
+  # Firm tone for clear-headed players
+  made_hand_strong_firm: |-
+    🎰 STRONG HAND: You have {hand_name} (~{equity}% equity).
+    Folding is almost never correct - you beat most hands at showdown.
+
+  # Soft tone for tilted players
+  made_hand_strong_soft: |-
+    You have {hand_name} - this is a strong hand worth considering.
+
+  # Moderate made hand guidance (65-79% equity)
+  # Firm tone for clear-headed players
+  made_hand_moderate_firm: |-
+    You have {hand_name} with decent showdown value (~{equity}% equity).
+
+  # Soft tone for tilted players (very light touch)
+  made_hand_moderate_soft: |-
+    You have {hand_name}.
+
   mind_games: |-
     MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? Trying to tilt you or bait you into a bad call? Use their words to read their hand - excessive trash talk often means weakness, while silence or short responses may signal strength. Let their table talk influence your decision.
 

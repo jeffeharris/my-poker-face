@@ -416,7 +416,8 @@ class PromptManager:
         include_mind_games: bool = True,
         include_persona_response: bool = True,
         pot_committed_info: dict | None = None,
-        short_stack_info: dict | None = None
+        short_stack_info: dict | None = None,
+        made_hand_info: dict | None = None
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -428,6 +429,7 @@ class PromptManager:
             include_persona_response: Whether to include PERSONA RESPONSE instruction
             pot_committed_info: Dict with {pot_odds, required_equity, already_bet} if pot-committed
             short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
+            made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
 
         Returns:
             Rendered decision prompt
@@ -454,6 +456,21 @@ class PromptManager:
             sections_to_render.append(template.sections['short_stack'].format(
                 stack_bb=short_stack_info.get('stack_bb', 0)
             ))
+
+        # Include made hand guidance if applicable
+        # Tier determines strong (80%+) vs moderate (65-79%)
+        # is_tilted determines firm vs soft tone
+        if made_hand_info:
+            tier = made_hand_info.get('tier', 'strong')  # 'strong' or 'moderate'
+            is_tilted = made_hand_info.get('is_tilted', False)
+            tone = 'soft' if is_tilted else 'firm'
+            section_name = f'made_hand_{tier}_{tone}'
+
+            if section_name in template.sections:
+                sections_to_render.append(template.sections[section_name].format(
+                    hand_name=made_hand_info.get('hand_name', 'a strong hand'),
+                    equity=made_hand_info.get('equity', 0)
+                ))
 
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])

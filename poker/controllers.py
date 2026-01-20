@@ -84,6 +84,53 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
         return None
 
 
+def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
+                           num_simulations: int = 300) -> Optional[float]:
+    """
+    Calculate quick equity estimate against random opponent hands.
+
+    Uses Monte Carlo simulation with eval7. Returns equity as 0.0-1.0.
+    ~30-50ms for 300 simulations - acceptable for real-time use.
+    """
+    if not community_cards:
+        return None
+
+    try:
+        import eval7
+
+        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
+        board_cards = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+
+        wins = 0
+        for _ in range(num_simulations):
+            deck = eval7.Deck()
+            for c in hand + board_cards:
+                deck.cards.remove(c)
+            deck.shuffle()
+            opp_hand = list(deck.deal(2))
+
+            # Complete board if needed (flop/turn)
+            remaining = 5 - len(board_cards)
+            full_board = board_cards + list(deck.deal(remaining))
+
+            hero_score = eval7.evaluate(hand + full_board)
+            opp_score = eval7.evaluate(opp_hand + full_board)
+
+            # Higher score = better hand in eval7
+            if hero_score > opp_score:
+                wins += 1
+            elif hero_score == opp_score:
+                wins += 0.5
+
+        return wins / num_simulations
+
+    except ImportError:
+        return None
+    except Exception as e:
+        logger.debug(f"Equity calculation failed: {e}")
+        return None
+
+
 # Preflop hand rankings - neutral/informational only
 # Based on standard poker hand rankings (169 unique starting hands)
 PREMIUM_HANDS = {'AA', 'KK', 'QQ', 'JJ', 'AKs'}  # Top ~3%
@@ -542,13 +589,48 @@ class AIPlayerController:
         if stack_bb < 3:
             short_stack_info = {'stack_bb': round(stack_bb, 1)}
 
+        # Made hand guidance: help prevent folding strong hands
+        # Calculate equity and provide guidance based on thresholds
+        # Tone varies based on emotional state (tilted = softer guidance)
+        made_hand_info = None
+        if community_cards:  # Post-flop only
+            equity = calculate_quick_equity(hole_cards, community_cards)
+            if equity is not None:
+                # Get emotional state - negative valence = tilted
+                is_tilted = False
+                if self.psychology and self.psychology.emotional_state:
+                    valence = self.psychology.emotional_state.valence
+                    is_tilted = valence < -0.2  # Negative mood threshold
+
+                # Determine guidance tier based on equity
+                # 80%+ = strong guidance, 65-79% = moderate guidance
+                if equity >= 0.80:
+                    hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+                    hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
+                    made_hand_info = {
+                        'hand_name': hand_name,
+                        'equity': round(equity * 100),
+                        'is_tilted': is_tilted,
+                        'tier': 'strong'
+                    }
+                elif equity >= 0.65:
+                    hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+                    hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a decent hand'
+                    made_hand_info = {
+                        'hand_name': hand_name,
+                        'equity': round(equity * 100),
+                        'is_tilted': is_tilted,
+                        'tier': 'moderate'
+                    }
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
             include_persona_response=self.prompt_config.persona_response,
             pot_committed_info=pot_committed_info,
-            short_stack_info=short_stack_info
+            short_stack_info=short_stack_info,
+            made_hand_info=made_hand_info
         )
 
         # Store capture_id via callback (keeps LLM layer decoupled from capture)
