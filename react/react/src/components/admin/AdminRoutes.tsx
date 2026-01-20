@@ -1,17 +1,13 @@
+import { useState } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Beaker } from 'lucide-react';
-import { AdminDashboard } from './AdminDashboard';
-import { AdminSidebar, type SidebarItem } from './AdminSidebar';
+import { ArrowLeft } from 'lucide-react';
+import { AdminDashboard, SIDEBAR_ITEMS } from './AdminDashboard';
+import { AdminSidebar } from './AdminSidebar';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { useViewport } from '../../hooks/useViewport';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['personalities', 'analyzer', 'playground', 'experiments', 'templates', 'settings', 'debug'];
-
-// Minimal sidebar items for context when viewing experiment detail
-const SIDEBAR_ITEMS: SidebarItem[] = [
-  { id: 'experiments', label: 'Experiments', icon: <Beaker size={24} />, description: 'Design and run AI tournament experiments' },
-];
 
 /**
  * Wrapper for experiment detail view with URL params
@@ -20,13 +16,10 @@ function ExperimentDetailWrapper() {
   const { experimentId } = useParams<{ experimentId: string }>();
   const navigate = useNavigate();
   const { isMobile } = useViewport();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const handleBack = () => {
     navigate('/admin/experiments');
-  };
-
-  const handleBackToMenu = () => {
-    navigate('/menu');
   };
 
   const handleEditInLabAssistant = (experiment: Parameters<NonNullable<React.ComponentProps<typeof ExperimentDetail>['onEditInLabAssistant']>>[0]) => {
@@ -68,16 +61,16 @@ function ExperimentDetailWrapper() {
       <AdminSidebar
         items={SIDEBAR_ITEMS}
         activeTab="experiments"
-        onTabChange={() => navigate('/admin/experiments')}
-        collapsed={false}
-        onCollapsedChange={() => {}}
+        onTabChange={(tab) => navigate(`/admin/${tab}`)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
       />
       <main className="admin-main">
         <header className="admin-main__header">
           <button
             className="admin-main__back"
-            onClick={handleBackToMenu}
-            aria-label="Go back to menu"
+            onClick={handleBack}
+            aria-label="Go back to experiments"
           >
             <ArrowLeft size={20} />
           </button>

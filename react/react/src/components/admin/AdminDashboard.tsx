@@ -14,7 +14,7 @@ import { useViewport } from '../../hooks/useViewport';
 import './AdminDashboard.css';
 import '../menus/GameMenu.css';
 
-const SIDEBAR_ITEMS: SidebarItem[] = [
+export const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     id: 'personalities',
     label: 'Personalities',
