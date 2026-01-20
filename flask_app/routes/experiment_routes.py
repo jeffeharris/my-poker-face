@@ -940,18 +940,17 @@ def experiment_assistant_chat(experiment_id: int):
         experiment_context = _build_experiment_assistant_context(experiment)
 
         # Build system prompt
-        system_prompt = f"""You are an AI assistant helping analyze a poker AI experiment. You have full context about this experiment's design, configuration, and results.
+        system_prompt = f"""You are an AI assistant helping analyze a poker AI experiment.
 
 {experiment_context}
 
-Help the user understand the experiment results, answer questions about the configuration, and provide insights. Be concise but thorough. If the user asks about data you don't have, say so clearly.
-
-You can help with:
-- Explaining why certain configurations were chosen
-- Analyzing the results and what they mean
-- Comparing variant performance in A/B tests
-- Suggesting follow-up experiments
-- Identifying patterns or anomalies in the data"""
+IMPORTANT - Response style:
+- Be brief and conversational. Match the length of your response to the complexity of the question.
+- For yes/no questions, start with yes or no, then add 1-2 sentences of context if needed.
+- Don't dump all possible information at once. Answer the specific question asked.
+- If a question is ambiguous, ask a short clarifying question rather than covering all possibilities.
+- Use bullet points sparingly - prefer short prose for simple answers.
+- If suggesting follow-up experiments, offer 2-3 brief options and ask which interests them."""
 
         # Build messages for LLM
         llm_messages = [{"role": "system", "content": system_prompt}]
