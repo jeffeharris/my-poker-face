@@ -35,7 +35,7 @@ export function LiveMonitoringView({
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
 
-  const fetchLiveGames = useCallback(async (signal?: AbortSignal) => {
+  const fetchLiveGames = useCallback(async (signal?: AbortSignal): Promise<void> => {
     try {
       const response = await fetch(
         `${config.API_URL}/api/experiments/${experimentId}/live-games`,
@@ -155,7 +155,7 @@ export function LiveMonitoringView({
         <div className="live-monitor__error">
           <XCircle size={32} />
           <span>{error}</span>
-          <button onClick={fetchLiveGames} type="button">
+          <button onClick={() => fetchLiveGames()} type="button">
             Retry
           </button>
         </div>
@@ -204,7 +204,7 @@ export function LiveMonitoringView({
           {getStatusIndicator()}
           <button
             className="live-monitor__refresh-btn"
-            onClick={fetchLiveGames}
+            onClick={() => fetchLiveGames()}
             type="button"
             title="Refresh"
           >

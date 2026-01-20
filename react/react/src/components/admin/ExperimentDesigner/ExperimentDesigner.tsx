@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, ArrowLeft, History, Sparkles } from 'lucide-react';
-import { ExperimentChat } from './ExperimentChat';
+import { ArrowLeft, History, Sparkles } from 'lucide-react';
+import type { InitialMessage } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
 import { ExperimentList } from './ExperimentList';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
@@ -55,10 +55,7 @@ export interface AssistantPanelProps {
   sessionId: string | null;
   onSessionIdChange: (sessionId: string) => void;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
-  initialMessage?: {
-    userMessage: string;
-    context?: LabAssistantContext;
-  } | null;
+  initialMessage?: InitialMessage | null;
   initialChatHistory?: ChatMessage[];
   configVersions: ConfigVersion[];
   onConfigVersionsChange: (versions: ConfigVersion[]) => void;

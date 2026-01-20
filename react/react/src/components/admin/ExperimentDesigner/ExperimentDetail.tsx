@@ -30,7 +30,7 @@ import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
 import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
 import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
-import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics, FailedTournament, ExperimentConfig, NextStepSuggestion } from './types';
+import type { VariantResultSummary, LiveStats, FailedTournament, ExperimentConfig, NextStepSuggestion } from './types';
 
 interface ExperimentDetailType {
   id: number;

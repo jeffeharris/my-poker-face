@@ -18,7 +18,7 @@ export function AvatarAssignmentModal({
   imageUrl,
   defaultPersonality,
   defaultEmotion,
-  captureId,
+  captureId: _captureId,
   onAssign,
   onClose,
 }: Props) {

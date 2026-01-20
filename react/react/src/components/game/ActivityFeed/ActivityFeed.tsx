@@ -11,7 +11,7 @@ interface ActivityFeedProps {
 export function ActivityFeed({
   messages,
   onSendMessage,
-  playerName = 'You',
+  playerName: _playerName = 'You',
 }: ActivityFeedProps) {
   const [inputValue, setInputValue] = useState('');
   const [isInputExpanded, setIsInputExpanded] = useState(false);

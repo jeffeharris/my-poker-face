@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ArrowLeft, Menu, Check } from 'lucide-react';
 import { useViewport } from '../../hooks/useViewport';
 import { MobileFilterSheet } from './shared/MobileFilterSheet';

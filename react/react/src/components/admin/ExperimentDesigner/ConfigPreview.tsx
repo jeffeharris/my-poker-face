@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X, Shuffle } from 'lucide-react';
 import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';

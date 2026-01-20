@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import type { GameState, Player } from '../types';
 import { config } from '../config';
 

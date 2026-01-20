@@ -3,7 +3,6 @@
  * Shows all games in a traditional table format with rows and columns
  */
 
-import { Hash } from 'lucide-react';
 import type { GameSnapshot } from './types';
 
 interface GameMonitorTableProps {

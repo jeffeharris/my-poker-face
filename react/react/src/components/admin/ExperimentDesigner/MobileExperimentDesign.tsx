@@ -1,14 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Settings, ArrowLeft, CheckCircle } from 'lucide-react';
-import { ExperimentChat } from './ExperimentChat';
+import { ExperimentChat, type InitialMessage } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
-import type { ExperimentConfig, FailureContext, ConfigVersion, ChatMessage } from './types';
+import type { ExperimentConfig, ConfigVersion, ChatMessage } from './types';
 import './MobileExperimentDesign.css';
-
-interface InitialMessage {
-  userMessage: string;
-  context?: FailureContext;
-}
 
 type DesignTab = 'chat' | 'configure';
 

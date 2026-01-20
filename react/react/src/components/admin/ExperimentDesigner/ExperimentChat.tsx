@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles, GitCompare } from 'lucide-react';
-import type { ExperimentConfig, FailureContext, ConfigVersion, ChatMessage } from './types';
+import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage } from './types';
 import { config as appConfig } from '../../../config';
 
 interface QuickPrompt {
@@ -9,16 +9,18 @@ interface QuickPrompt {
   prompt: string;
 }
 
-interface ExperimentChatProps {
+export interface InitialMessage {
+  userMessage: string;
+  context?: LabAssistantContext;
+}
+
+export interface ExperimentChatProps {
   config: ExperimentConfig;
   sessionId: string | null;
   onSessionIdChange: (sessionId: string) => void;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
   /** Initial message to send on mount (e.g., for failure analysis) */
-  initialMessage?: {
-    userMessage: string;
-    context?: FailureContext;
-  } | null;
+  initialMessage?: InitialMessage | null;
   /** Chat history to restore from a previous session */
   initialChatHistory?: ChatMessage[];
   configVersions?: ConfigVersion[];
@@ -34,9 +36,9 @@ export function ExperimentChat({
   onConfigUpdate,
   initialMessage,
   initialChatHistory,
-  configVersions,
+  configVersions: _configVersions,
   onConfigVersionsChange,
-  currentVersionIndex,
+  currentVersionIndex: _currentVersionIndex,
   onCurrentVersionIndexChange,
 }: ExperimentChatProps) {
   // Initialize messages from initial history if provided
@@ -70,7 +72,7 @@ export function ExperimentChat({
   }, [messages]);
 
   // Define sendMessage BEFORE the useEffect that uses it
-  const sendMessage = useCallback(async (messageText: string, contextForFailure?: FailureContext | null) => {
+  const sendMessage = useCallback(async (messageText: string, contextForFailure?: LabAssistantContext | null) => {
     if (!messageText.trim() || loading) return;
 
     // Add user message to display

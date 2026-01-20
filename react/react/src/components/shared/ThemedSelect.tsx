@@ -8,10 +8,10 @@
  *   </ThemedSelect>
  */
 
-import { SelectHTMLAttributes, forwardRef } from 'react';
+import { forwardRef, type SelectHTMLAttributes } from 'react';
 import './ThemedSelect.css';
 
-export interface ThemedSelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+export interface ThemedSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
   /** Size variant */
   size?: 'sm' | 'md' | 'lg';
   /** Full width */

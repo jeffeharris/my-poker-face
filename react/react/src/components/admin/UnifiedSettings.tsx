@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
 import { config } from '../../config';
-import { useAdminResource, useAdminMutation } from '../../hooks/useAdminResource';
+import { useAdminResource } from '../../hooks/useAdminResource';
 import './AdminShared.css';
 import './UnifiedSettings.css';
 
