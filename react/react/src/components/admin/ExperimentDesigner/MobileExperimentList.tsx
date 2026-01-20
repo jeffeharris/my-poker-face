@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Plus, Filter, RefreshCw, Check, Beaker } from 'lucide-react';
+import { Plus, Filter, RefreshCw, Check, Beaker, Archive } from 'lucide-react';
 import { ExperimentCard } from './ExperimentCard';
 import { MobileFilterSheet } from '../shared/MobileFilterSheet';
 import type { ExperimentSummary } from './types';
@@ -12,6 +12,8 @@ interface MobileExperimentListProps {
   error: string | null;
   statusFilter: ExperimentStatus | 'all';
   onStatusFilterChange: (status: ExperimentStatus | 'all') => void;
+  includeArchived: boolean;
+  onIncludeArchivedChange: (include: boolean) => void;
   onRefresh: () => void;
   onViewExperiment: (experiment: ExperimentSummary) => void;
   onNewExperiment: () => void;
@@ -23,6 +25,7 @@ const FILTER_OPTIONS: { value: ExperimentStatus | 'all'; label: string }[] = [
   { value: 'pending', label: 'Pending' },
   { value: 'running', label: 'Running' },
   { value: 'paused', label: 'Paused' },
+  { value: 'interrupted', label: 'Interrupted' },
   { value: 'completed', label: 'Completed' },
   { value: 'failed', label: 'Failed' },
 ];
@@ -43,6 +46,8 @@ export function MobileExperimentList({
   error,
   statusFilter,
   onStatusFilterChange,
+  includeArchived,
+  onIncludeArchivedChange,
   onRefresh,
   onViewExperiment,
   onNewExperiment,
@@ -262,6 +267,22 @@ export function MobileExperimentList({
               )}
             </button>
           ))}
+          {/* Archive toggle */}
+          <div className="mobile-experiment-list__archive-toggle">
+            <button
+              className={`mobile-experiment-list__filter-option ${
+                includeArchived ? 'mobile-experiment-list__filter-option--selected' : ''
+              }`}
+              onClick={() => onIncludeArchivedChange(!includeArchived)}
+              type="button"
+            >
+              <Archive size={16} />
+              <span>Show archived</span>
+              {includeArchived && (
+                <Check size={18} className="mobile-experiment-list__filter-check" />
+              )}
+            </button>
+          </div>
         </div>
       </MobileFilterSheet>
     </div>

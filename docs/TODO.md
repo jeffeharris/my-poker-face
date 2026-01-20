@@ -44,6 +44,7 @@
 | Assistant to_dict Bug | Uses `__name__` instead of `type` | 🔴 Open | Medium | `core/assistants.py:211` |
 | Generic Exception | Using generic Exception instead of specific error types | 🔴 Open | Low | `poker_state_machine.py:123` |
 | WebSocket Error Handling | No error handling for WebSocket disconnections | 🔴 Open | Medium | `flask_app/ui_web.py` |
+| Flask Dev Server Hang | Dev server becomes unresponsive under heavy experiment load (SocketIO threading + ThreadPoolExecutor). Pause requests can't be processed. Consider Gunicorn for local dev or investigate Werkzeug stability | 🔴 Open | Medium | `flask_app/extensions.py`, experiment routes |
 | Game State Persistence | No mechanism to save/restore game state | 🔴 Open | Low | Feature request |
 | Spectator Mode | No support for observers who don't play | 🔴 Open | Low | Feature request |
 

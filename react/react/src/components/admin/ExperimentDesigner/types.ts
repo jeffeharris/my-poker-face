@@ -2,7 +2,7 @@
  * TypeScript interfaces for the Experiment Designer
  */
 
-export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
 
 export type ExperimentMode = 'design' | 'list' | 'detail';
 
@@ -208,6 +208,10 @@ export interface ExperimentResultSummary {
   };
   // Per-variant stats for A/B testing experiments
   variants?: Record<string, VariantResultSummary>;
+  // Failed tournament details for failed experiments
+  failed_tournaments?: FailedTournament[];
+  total_failed?: number;
+  success_rate?: number;
 }
 
 export interface ExperimentDetail extends ExperimentSummary {
@@ -242,6 +246,8 @@ export interface DecisionStats {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** Human-readable diff of config changes (only for assistant messages) */
+  configDiff?: string;
 }
 
 export interface ChatResponse {
@@ -249,8 +255,43 @@ export interface ChatResponse {
   response: string;
   session_id: string;
   config_updates: Partial<ExperimentConfig> | null;
+  /** Human-readable diff of what changed in the config */
+  config_diff?: string | null;
   merged_config: ExperimentConfig;
   config_complete: boolean;
+  config_versions?: ConfigVersion[];
+  current_version_index?: number;
+}
+
+/**
+ * Details about a tournament that failed during experiment execution.
+ */
+export interface FailedTournament {
+  tournament_id: string;
+  tournament_number: number;
+  variant: string | null;
+  error: string;
+  error_type: string;
+  duration_seconds: number;
+}
+
+/**
+ * Context passed when editing a failed experiment in the Lab Assistant.
+ */
+export interface FailureContext {
+  experimentId: number;
+  experimentName: string;
+  errorMessage: string;
+  failedTournaments: FailedTournament[];
+}
+
+/**
+ * A snapshot of the config at a point in the chat conversation.
+ */
+export interface ConfigVersion {
+  timestamp: string;
+  config: ExperimentConfig;
+  message_index: number;
 }
 
 export interface QuickPrompt {

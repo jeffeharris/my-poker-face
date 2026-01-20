@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 # v44: Add app_settings table for dynamic configuration
 # v45: Add users table for Google OAuth authentication
 # v46: Add error_message column to api_usage table
-# v47: Add Pollinations image models to enabled_models table
-# v48: Add Runware image models to enabled_models table
-SCHEMA_VERSION = 48
+# v47: Add experiment_chat_sessions for design chat persistence
+# v48: Add Pollinations image models to enabled_models table
+# v49: Add Runware image models to enabled_models table
+SCHEMA_VERSION = 49
 
 
 @dataclass
@@ -637,7 +638,9 @@ class GamePersistence:
                     status TEXT DEFAULT 'running',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
-                    summary_json TEXT
+                    summary_json TEXT,
+                    design_chat_json TEXT,
+                    assistant_chat_json TEXT
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
@@ -661,7 +664,23 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
 
-            # 26. App settings (v44) - Dynamic configuration
+            # 26. Experiment chat sessions (v47) - Persists design chat history
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    messages_json TEXT NOT NULL,
+                    config_snapshot_json TEXT NOT NULL,
+                    config_versions_json TEXT,
+                    is_archived BOOLEAN DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+
+            # 27. App settings (v44) - Dynamic configuration
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
@@ -754,8 +773,9 @@ class GamePersistence:
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
-            47: (self._migrate_v47_add_pollinations_models, "Add Pollinations image models to enabled_models"),
-            48: (self._migrate_v48_add_runware_models, "Add Runware image models to enabled_models"),
+            47: (self._migrate_v47_add_chat_sessions, "Add experiment_chat_sessions table and chat columns to experiments"),
+            48: (self._migrate_v48_add_pollinations_models, "Add Pollinations image models to enabled_models"),
+            49: (self._migrate_v49_add_runware_models, "Add Runware image models to enabled_models"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1957,17 +1977,49 @@ class GamePersistence:
 
         logger.info("Migration v46 complete: error_message column added")
 
-    def _migrate_v47_add_pollinations_models(self, conn: sqlite3.Connection) -> None:
-        """Migration v47: Add Pollinations image models to enabled_models table.
+    def _migrate_v47_add_chat_sessions(self, conn: sqlite3.Connection) -> None:
+        """Migration v47: Add experiment_chat_sessions table and chat columns to experiments.
+
+        Creates the experiment_chat_sessions table for persisting design chat history,
+        and adds design_chat_json and assistant_chat_json columns to experiments.
+        """
+        # Create experiment_chat_sessions table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                messages_json TEXT NOT NULL,
+                config_snapshot_json TEXT NOT NULL,
+                config_versions_json TEXT,
+                is_archived BOOLEAN DEFAULT 0
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+
+        # Add chat columns to experiments table
+        cursor = conn.execute("PRAGMA table_info(experiments)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'design_chat_json' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN design_chat_json TEXT")
+            logger.info("Added design_chat_json column to experiments table")
+
+        if 'assistant_chat_json' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN assistant_chat_json TEXT")
+            logger.info("Added assistant_chat_json column to experiments table")
+
+        logger.info("Migration v47 complete: Added experiment_chat_sessions table and chat columns")
+
+    def _migrate_v48_add_pollinations_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v48: Add Pollinations image models to enabled_models table.
 
         Pollinations.ai is an image-only provider with extremely cheap pricing (~$0.0002/image).
         This migration adds Pollinations models to the enabled_models table with:
-        - flux and flux-realism enabled by default (most commonly used)
+        - flux and zimage enabled by default (most commonly used)
         - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
-
-        Note: We use INSERT OR REPLACE to ensure correct enabled status, since v38 may have
-        already created these rows with enabled=0 (for new databases where Pollinations
-        is in PROVIDER_MODELS but not in DEFAULT_ENABLED_MODELS).
         """
         from core.llm.config import POLLINATIONS_AVAILABLE_MODELS
 
@@ -1976,17 +2028,16 @@ class GamePersistence:
 
         for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
             enabled = 1 if model in default_enabled else 0
-            # Use INSERT OR REPLACE to update existing rows (from v38) with correct enabled status
             conn.execute("""
                 INSERT OR REPLACE INTO enabled_models
                 (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
 
-        logger.info("Migration v47 complete: Added Pollinations image models to enabled_models")
+        logger.info("Migration v48 complete: Added Pollinations image models to enabled_models")
 
-    def _migrate_v48_add_runware_models(self, conn: sqlite3.Connection) -> None:
-        """Migration v48: Add Runware image models to enabled_models table.
+    def _migrate_v49_add_runware_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v49: Add Runware image models to enabled_models table.
 
         Runware.ai is an image-only provider with fast FLUX model generation.
         This migration adds Runware models to the enabled_models table with:
@@ -2000,14 +2051,13 @@ class GamePersistence:
 
         for sort_order, model in enumerate(RUNWARE_AVAILABLE_MODELS):
             enabled = 1 if model in default_enabled else 0
-            # Use INSERT OR REPLACE to update existing rows with correct enabled status
             conn.execute("""
                 INSERT OR REPLACE INTO enabled_models
                 (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, ("runware", model, enabled, 0, 0, 1, sort_order))
 
-        logger.info("Migration v48 complete: Added Runware image models to enabled_models")
+        logger.info("Migration v49 complete: Added Runware image models to enabled_models")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -2082,7 +2132,7 @@ class GamePersistence:
                     phase_value = int(phase_value)
                 phase = PokerPhase(phase_value)
             except (ValueError, KeyError):
-                print(f"Warning: Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
+                logger.warning(f"[RESTORE] Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
@@ -4879,6 +4929,7 @@ class GamePersistence:
     def list_experiments(
         self,
         status: Optional[str] = None,
+        include_archived: bool = False,
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict]:
@@ -4886,6 +4937,7 @@ class GamePersistence:
 
         Args:
             status: Optional status filter ('pending', 'running', 'completed', 'failed')
+            include_archived: If False (default), filter out experiments with _archived tag
             limit: Maximum number of experiments to return
             offset: Number of experiments to skip for pagination
 
@@ -4893,9 +4945,19 @@ class GamePersistence:
             List of experiment dictionaries with basic info and progress
         """
         with sqlite3.connect(self.db_path) as conn:
-            # Build query with optional status filter
-            where_clause = "WHERE status = ?" if status else ""
-            params = [status] if status else []
+            # Build query with optional filters
+            conditions = []
+            params = []
+
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+
+            if not include_archived:
+                # Filter out experiments with _archived tag
+                conditions.append("(tags IS NULL OR tags NOT LIKE '%\"_archived\"%')")
+
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
             cursor = conn.execute(f"""
                 SELECT
@@ -4984,6 +5046,21 @@ class GamePersistence:
             conn.commit()
             logger.info(f"Updated experiment {experiment_id} status to {status}")
 
+    def update_experiment_tags(self, experiment_id: int, tags: List[str]) -> None:
+        """Update experiment tags.
+
+        Args:
+            experiment_id: The experiment ID
+            tags: List of tags to set (replaces existing tags)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET tags = ? WHERE id = ?",
+                (json.dumps(tags), experiment_id)
+            )
+            conn.commit()
+            logger.info(f"Updated experiment {experiment_id} tags to {tags}")
+
     def mark_running_experiments_interrupted(self) -> int:
         """Mark all 'running' experiments as 'interrupted'.
 
@@ -4997,7 +5074,7 @@ class GamePersistence:
             cursor = conn.execute("""
                 UPDATE experiments
                 SET status = 'interrupted',
-                    notes = COALESCE(notes || '\n', '') || 'Server restarted while experiment was running.'
+                    notes = 'Server restarted while experiment was running. Click Resume to continue.'
                 WHERE status = 'running'
             """)
             count = cursor.rowcount
@@ -5046,6 +5123,181 @@ class GamePersistence:
                 })
 
             return incomplete
+
+    # ==================== Experiment Chat Session Methods ====================
+
+    def save_chat_session(
+        self,
+        session_id: str,
+        owner_id: str,
+        messages: List[Dict],
+        config_snapshot: Dict,
+        config_versions: Optional[List[Dict]] = None
+    ) -> None:
+        """Save or update a chat session.
+
+        Args:
+            session_id: Unique session identifier
+            owner_id: User/owner identifier
+            messages: List of chat messages [{role, content, configDiff?}]
+            config_snapshot: Current config state
+            config_versions: List of config version snapshots
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO experiment_chat_sessions (id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    messages_json = excluded.messages_json,
+                    config_snapshot_json = excluded.config_snapshot_json,
+                    config_versions_json = excluded.config_versions_json,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                session_id,
+                owner_id,
+                json.dumps(messages),
+                json.dumps(config_snapshot),
+                json.dumps(config_versions) if config_versions else None,
+            ))
+            conn.commit()
+            logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
+
+    def get_latest_chat_session(self, owner_id: str) -> Optional[Dict]:
+        """Get the most recent non-archived chat session for an owner.
+
+        Args:
+            owner_id: User/owner identifier
+
+        Returns:
+            Dict with session data or None if no session exists:
+            {
+                'session_id': str,
+                'messages': List[Dict],
+                'config': Dict,
+                'config_versions': List[Dict] | None,
+                'updated_at': str
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                FROM experiment_chat_sessions
+                WHERE owner_id = ? AND is_archived = 0
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """, (owner_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'session_id': row['id'],
+                'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
+                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
+                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'updated_at': row['updated_at'],
+            }
+
+    def archive_chat_session(self, session_id: str) -> None:
+        """Archive a chat session so it won't be returned by get_latest_chat_session.
+
+        Args:
+            session_id: The session ID to archive
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiment_chat_sessions SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,)
+            )
+            conn.commit()
+            logger.debug(f"Archived chat session {session_id}")
+
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete a chat session entirely.
+
+        Args:
+            session_id: The session ID to delete
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM experiment_chat_sessions WHERE id = ?", (session_id,))
+            conn.commit()
+            logger.debug(f"Deleted chat session {session_id}")
+
+    # ==================== Experiment Chat Storage Methods ====================
+
+    def save_experiment_design_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
+        """Store the design chat history with an experiment.
+
+        Called when an experiment is created to preserve the conversation that led to its design.
+
+        Args:
+            experiment_id: The experiment ID
+            chat_history: List of chat messages from the design session
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET design_chat_json = ? WHERE id = ?",
+                (json.dumps(chat_history), experiment_id)
+            )
+            conn.commit()
+            logger.info(f"Saved design chat ({len(chat_history)} messages) to experiment {experiment_id}")
+
+    def get_experiment_design_chat(self, experiment_id: int) -> Optional[List[Dict]]:
+        """Get the design chat history for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of chat messages or None if no design chat stored
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT design_chat_json FROM experiments WHERE id = ?",
+                (experiment_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
+
+    def save_experiment_assistant_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
+        """Store the ongoing assistant chat history for an experiment.
+
+        Used for the experiment-scoped assistant that can query results and answer questions.
+
+        Args:
+            experiment_id: The experiment ID
+            chat_history: List of chat messages from the assistant session
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET assistant_chat_json = ? WHERE id = ?",
+                (json.dumps(chat_history), experiment_id)
+            )
+            conn.commit()
+            logger.debug(f"Saved assistant chat ({len(chat_history)} messages) to experiment {experiment_id}")
+
+    def get_experiment_assistant_chat(self, experiment_id: int) -> Optional[List[Dict]]:
+        """Get the assistant chat history for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of chat messages or None if no assistant chat stored
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT assistant_chat_json FROM experiments WHERE id = ?",
+                (experiment_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
 
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.
@@ -5173,36 +5425,26 @@ class GamePersistence:
                 else:
                     decision_quality = None
 
-                # 3. Progress - count games and max hand number per variant
+                # 3. Progress - sum hands across all games for this variant
+                # Query gets max hand per game, then we sum them up
+                # This correctly handles parallel execution where multiple games
+                # may be in progress simultaneously
                 cursor = conn.execute(f"""
                     SELECT
-                        COUNT(DISTINCT eg.game_id) as games_count,
-                        MAX(au.hand_number) as max_hand
+                        eg.game_id,
+                        COALESCE(MAX(au.hand_number), 0) as max_hand
                     FROM experiment_games eg
                     LEFT JOIN api_usage au ON au.game_id = eg.game_id
                     WHERE eg.experiment_id = ? {variant_clause}
+                    GROUP BY eg.game_id
                 """, [experiment_id] + variant_params)
-                row = cursor.fetchone()
-                games_count = row[0] or 0
-                current_max_hand = row[1] or 0
+                games_data = cursor.fetchall()
+                games_count = len(games_data)
+                # Sum actual hands played in each game (capped at max_hands per game)
+                current_hands = sum(min(row[1], max_hands) for row in games_data)
 
-                # Calculate progress: completed games * max_hands + current hand
                 # For a variant, expected tournaments = num_tournaments
                 variant_max_hands = num_tournaments * max_hands
-                if games_count > 0:
-                    # Estimate: (completed_games - 1) * max_hands + current_max_hand
-                    # But we don't know which games are complete, so use games_count directly
-                    # Approximation: if max_hand is less than max_hands, game is in progress
-                    completed_games = max(0, games_count - 1) if current_max_hand < max_hands else games_count
-                    current_hands = completed_games * max_hands + (current_max_hand if current_max_hand < max_hands else 0)
-                    # Simpler approach: just use games_count * average hands if we have a summary
-                    # For now, use a rough estimate
-                    current_hands = min(games_count * max_hands, variant_max_hands)
-                    # Refine: if game is in progress, add current hand
-                    if current_max_hand > 0 and current_max_hand < max_hands:
-                        current_hands = (games_count - 1) * max_hands + current_max_hand
-                else:
-                    current_hands = 0
 
                 progress = {
                     'current_hands': current_hands,

@@ -57,7 +57,7 @@ from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
-from core.llm import LLMClient, CallType
+from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
 
 
 def make_experiment_owner_id(experiment_name: str) -> str:
@@ -78,11 +78,12 @@ class TournamentPausedException(Exception):
         super().__init__(f"{message} at hand {hand_number}")
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Configure logging (only if not already configured, e.g., when imported)
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
 logger = logging.getLogger(__name__)
 
 
@@ -1115,6 +1116,10 @@ class AITournamentRunner:
     ) -> List[TournamentTask]:
         """Build queue of tournament tasks for execution.
 
+        Tasks are ordered to run all variants once before starting second
+        tournament of any variant. This ensures early data from all variants
+        and graceful degradation if experiment is interrupted.
+
         Args:
             variant_configs: List of (label, config) tuples from get_variant_configs()
 
@@ -1125,8 +1130,10 @@ class AITournamentRunner:
         global_tournament_num = 0
         base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        for variant_label, variant_config in variant_configs:
-            for i in range(self.config.num_tournaments):
+        # Iterate tournaments first, then variants within each tournament round
+        # This ensures all variants get run before any variant repeats
+        for tournament_round in range(self.config.num_tournaments):
+            for variant_label, variant_config in variant_configs:
                 global_tournament_num += 1
 
                 # Create unique tournament ID including variant label if present
@@ -1629,25 +1636,22 @@ class AITournamentRunner:
 
 {design_context}
 
-Given the experiment configuration and results, provide:
+Given the experiment configuration and results, provide a concise analysis:
 
 ## Summary
-A 2-3 sentence summary of what happened.
+1-2 sentences: What was tested and what was the outcome?
 
-## Hypothesis Evaluation
-Did the data support the hypothesis? Cite specific numbers.
+## Verdict
+One sentence: Did the hypothesis hold? Which variant won (if A/B test)? Include the key numbers.
 
-## Key Findings
-3-5 notable observations, especially surprising results.
+## Surprises
+Only list genuinely unexpected or anomalous findings. If results were as expected, return an empty array.
 
-## Variant Comparison (for A/B tests only)
-Which variant performed better? By how much?
+## Next Steps
+2-3 concrete follow-up experiment ideas.
 
-## Suggested Follow-ups
-2-3 ideas for follow-up experiments or data to investigate.
-
-Be concise and data-driven. Use specific numbers from the results.
-Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (array), variant_comparison (string or null), suggested_followups (array)"""
+Be extremely concise. Don't repeat information across sections.
+Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array)"""
 
             # Build results context
             results_context = {
@@ -1682,7 +1686,24 @@ Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (
                     'control_label': config['control'].get('label'),
                     'variant_labels': [v.get('label') for v in config.get('variants', [])],
                 }
-            if summary.get('variants'):
+
+            # Get live stats for rich per-variant data (includes cost metrics)
+            live_stats = self.persistence.get_experiment_live_stats(self.experiment_id)
+            if live_stats and live_stats.get('by_variant'):
+                per_variant = {}
+                for label, v in live_stats['by_variant'].items():
+                    per_variant[label] = {
+                        'model': v.get('model'),
+                        'provider': v.get('provider'),
+                        'total_decisions': v.get('decision_quality', {}).get('total', 0),
+                        'correct_pct': v.get('decision_quality', {}).get('correct_pct', 0),
+                        'avg_latency_ms': v.get('latency_metrics', {}).get('avg_ms'),
+                        'p95_latency_ms': v.get('latency_metrics', {}).get('p95_ms'),
+                        'total_cost': v.get('cost_metrics', {}).get('total_cost'),
+                        'avg_cost_per_decision': v.get('cost_metrics', {}).get('avg_cost_per_decision'),
+                    }
+                results_context['results']['per_variant_stats'] = per_variant
+            elif summary.get('variants'):
                 results_context['results']['per_variant_stats'] = summary['variants']
 
             # Add failure info if any
@@ -1708,7 +1729,7 @@ Respond in JSON format with keys: summary, hypothesis_evaluation, key_findings (
             })
 
             # Make LLM call
-            client = LLMClient(model="gpt-4o")
+            client = LLMClient(model=ASSISTANT_MODEL, provider=ASSISTANT_PROVIDER)
             response = client.complete(
                 messages=messages,
                 json_format=True,

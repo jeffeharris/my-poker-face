@@ -3,12 +3,15 @@ AI-powered personality generator for poker players.
 Uses LLM to generate unique personality configurations based on character names.
 """
 import json
+import logging
 import random
 from typing import Dict, Any, Optional
 from pathlib import Path
 
 from core.llm import LLMClient, CallType
 from .persistence import GamePersistence
+
+logger = logging.getLogger(__name__)
 
 
 class PersonalityGenerator:
@@ -110,23 +113,23 @@ Respond with ONLY a JSON object in this exact format:
         Returns:
             Personality configuration dict
         """
-        print(f"[PersonalityGenerator] Getting personality for: {name}")
+        logger.info(f"[PERSONALITY] Getting personality for: {name}")
 
         # Check cache first
         if name in self._cache and not force_generate:
-            print(f"[PersonalityGenerator] Found {name} in cache")
+            logger.info(f"[PERSONALITY] Found {name} in cache")
             return self._cache[name]
 
         # Check database (source of truth) unless forcing generation
         if not force_generate:
             db_personality = self.persistence.load_personality(name)
             if db_personality:
-                print(f"[PersonalityGenerator] Found {name} in database")
+                logger.info(f"[PERSONALITY] Found {name} in database")
                 self._cache[name] = db_personality
                 return db_personality
 
         # Generate new personality via AI
-        print(f"[PersonalityGenerator] Generating new personality for {name}")
+        logger.info(f"[PERSONALITY] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
 
         # Save to database
@@ -176,7 +179,7 @@ Respond with ONLY a JSON object in this exact format:
                 return self._create_default_personality(name)
 
         except Exception as e:
-            print(f"Error generating personality for {name}: {e}")
+            logger.info(f"[PERSONALITY] Error generating personality for {name}: {e}")
             return self._create_default_personality(name)
     
     def _create_default_personality(self, name: str) -> Dict[str, Any]:

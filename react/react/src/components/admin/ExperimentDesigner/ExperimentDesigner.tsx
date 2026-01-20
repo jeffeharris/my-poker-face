@@ -1,13 +1,23 @@
-import { useState, useCallback } from 'react';
-import { Plus, ArrowLeft } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Plus, ArrowLeft, History, Sparkles } from 'lucide-react';
 import { ExperimentChat } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
 import { ExperimentList } from './ExperimentList';
 import { ExperimentDetail } from './ExperimentDetail';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
-import type { ExperimentConfig, ExperimentSummary, FailureContext, ConfigVersion } from './types';
+import type { ExperimentConfig, ExperimentSummary, FailureContext, ConfigVersion, ChatMessage } from './types';
 import { DEFAULT_EXPERIMENT_CONFIG } from './types';
+import { config as appConfig } from '../../../config';
+
+/** Data returned from the /chat/latest endpoint */
+interface PendingSession {
+  session_id: string;
+  messages: ChatMessage[];
+  config: ExperimentConfig;
+  config_versions: ConfigVersion[] | null;
+  updated_at: string;
+}
 
 // Interface for experiment detail passed from ExperimentDetail
 interface ExperimentDetailForEdit {
@@ -43,19 +53,89 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   const [failureContext, setFailureContext] = useState<FailureContext | null>(null);
   const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
+  const [initialChatHistory, setInitialChatHistory] = useState<ChatMessage[] | undefined>(undefined);
+
+  // Session resume state
+  const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
+
+  // Fetch latest chat session on mount
+  useEffect(() => {
+    const fetchLatestSession = async () => {
+      try {
+        const response = await fetch(`${appConfig.apiUrl}/api/experiments/chat/latest`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.success && data.session) {
+          setPendingSession(data.session);
+        }
+      } catch (error) {
+        console.error('Error fetching latest chat session:', error);
+      }
+    };
+    fetchLatestSession();
+  }, []);
 
   const handleConfigUpdate = useCallback((updates: Partial<ExperimentConfig>) => {
     setConfig(prev => ({ ...prev, ...updates }));
   }, []);
 
   const handleNewExperiment = useCallback(() => {
+    // Check if there's a pending session to resume
+    if (pendingSession) {
+      setShowResumePrompt(true);
+      return;
+    }
+    // No pending session, start fresh
     setConfig(DEFAULT_EXPERIMENT_CONFIG);
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
     setCurrentVersionIndex(0);
+    setInitialChatHistory(undefined);
     setMode('design');
-  }, []);
+  }, [pendingSession]);
+
+  const handleResumeSession = useCallback(() => {
+    if (!pendingSession) return;
+
+    // Load the pending session data
+    setConfig(pendingSession.config);
+    setSessionId(pendingSession.session_id);
+    setInitialChatHistory(pendingSession.messages);
+    setConfigVersions(pendingSession.config_versions || []);
+    setCurrentVersionIndex(pendingSession.config_versions ? pendingSession.config_versions.length - 1 : 0);
+    setFailureContext(null);
+    setShowResumePrompt(false);
+    setPendingSession(null);
+    setMode('design');
+  }, [pendingSession]);
+
+  const handleStartFresh = useCallback(async () => {
+    // Archive the pending session
+    if (pendingSession) {
+      try {
+        await fetch(`${appConfig.apiUrl}/api/experiments/chat/archive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: pendingSession.session_id }),
+        });
+      } catch (error) {
+        console.error('Error archiving session:', error);
+      }
+    }
+
+    // Start fresh
+    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    setSessionId(null);
+    setFailureContext(null);
+    setConfigVersions([]);
+    setCurrentVersionIndex(0);
+    setInitialChatHistory(undefined);
+    setShowResumePrompt(false);
+    setPendingSession(null);
+    setMode('design');
+  }, [pendingSession]);
 
   const handleViewExperiment = useCallback((experiment: ExperimentSummary) => {
     setSelectedExperimentId(experiment.id);
@@ -121,6 +201,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
           onLaunch={handleExperimentLaunched}
           onBack={handleBackToList}
           initialMessage={initialMessage}
+          initialChatHistory={initialChatHistory}
           configVersions={configVersions}
           onConfigVersionsChange={setConfigVersions}
           currentVersionIndex={currentVersionIndex}
@@ -189,6 +270,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
                 onSessionIdChange={setSessionId}
                 onConfigUpdate={handleConfigUpdate}
                 initialMessage={initialMessage}
+                initialChatHistory={initialChatHistory}
                 configVersions={configVersions}
                 onConfigVersionsChange={setConfigVersions}
                 currentVersionIndex={currentVersionIndex}
@@ -200,6 +282,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
                 config={config}
                 onConfigUpdate={handleConfigUpdate}
                 onLaunch={handleExperimentLaunched}
+                sessionId={sessionId}
                 configVersions={configVersions}
                 currentVersionIndex={currentVersionIndex}
                 onVersionChange={handleVersionChange}
@@ -223,6 +306,48 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
           />
         )}
       </div>
+
+      {/* Resume Session Prompt Modal */}
+      {showResumePrompt && pendingSession && (
+        <div className="experiment-designer__resume-overlay">
+          <div className="experiment-designer__resume-modal">
+            <div className="experiment-designer__resume-icon">
+              <History size={32} />
+            </div>
+            <h3 className="experiment-designer__resume-title">Resume Previous Session?</h3>
+            <p className="experiment-designer__resume-text">
+              You have an unfinished experiment design session from{' '}
+              <strong>{new Date(pendingSession.updated_at).toLocaleString()}</strong>.
+            </p>
+            {pendingSession.config.name && (
+              <p className="experiment-designer__resume-config">
+                Experiment: <strong>{pendingSession.config.name}</strong>
+              </p>
+            )}
+            <p className="experiment-designer__resume-messages">
+              {pendingSession.messages.length} messages in conversation
+            </p>
+            <div className="experiment-designer__resume-actions">
+              <button
+                className="experiment-designer__resume-btn experiment-designer__resume-btn--continue"
+                onClick={handleResumeSession}
+                type="button"
+              >
+                <History size={18} />
+                Continue Session
+              </button>
+              <button
+                className="experiment-designer__resume-btn experiment-designer__resume-btn--fresh"
+                onClick={handleStartFresh}
+                type="button"
+              >
+                <Sparkles size={18} />
+                Start Fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

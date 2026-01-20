@@ -37,6 +37,7 @@ REDIS_URL = os.environ.get('REDIS_URL')
 
 # AI model configuration - import from centralized config
 from core.llm import FAST_MODEL as FAST_AI_MODEL
+from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
 
 # Database path
 def get_db_path():

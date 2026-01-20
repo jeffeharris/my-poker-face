@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X } from 'lucide-react';
-import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig } from './types';
+import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X } from 'lucide-react';
+import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
 
@@ -37,6 +37,11 @@ interface ConfigPreviewProps {
   config: ExperimentConfig;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
   onLaunch: () => void;
+  /** Session ID for the design chat, passed to backend to save design history */
+  sessionId?: string | null;
+  configVersions?: ConfigVersion[];
+  currentVersionIndex?: number;
+  onVersionChange?: (index: number) => void;
 }
 
 type ViewMode = 'form' | 'json';
@@ -55,7 +60,7 @@ const PROMPT_CONFIG_LABELS: Record<keyof PromptConfig, string> = {
   memory_keep_exchanges: 'Memory Exchanges',
 };
 
-export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPreviewProps) {
+export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, configVersions, currentVersionIndex, onVersionChange }: ConfigPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -315,7 +320,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
       const response = await fetch(`${appConfig.API_URL}/api/experiments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({
+          config,
+          session_id: sessionId,  // Pass design chat session for history preservation
+        }),
       });
 
       const data = await response.json();
@@ -339,7 +347,35 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     <div className="config-preview">
       {/* Header */}
       <div className="config-preview__header">
-        <h4 className="config-preview__title">Experiment Config</h4>
+        <div className="config-preview__header-left">
+          <h4 className="config-preview__title">Experiment Config</h4>
+          {/* Version Navigation */}
+          {configVersions && configVersions.length > 1 && (
+            <div className="config-preview__version-nav">
+              <button
+                className="config-preview__version-btn"
+                onClick={() => onVersionChange?.(currentVersionIndex! - 1)}
+                disabled={currentVersionIndex === undefined || currentVersionIndex <= 0}
+                title="Previous version"
+                type="button"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="config-preview__version-label">
+                v{(currentVersionIndex ?? 0) + 1}/{configVersions.length}
+              </span>
+              <button
+                className="config-preview__version-btn"
+                onClick={() => onVersionChange?.(currentVersionIndex! + 1)}
+                disabled={currentVersionIndex === undefined || currentVersionIndex >= configVersions.length - 1}
+                title="Next version"
+                type="button"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="config-preview__view-toggle">
           <button
             className={`config-preview__view-btn ${viewMode === 'form' ? 'config-preview__view-btn--active' : ''}`}

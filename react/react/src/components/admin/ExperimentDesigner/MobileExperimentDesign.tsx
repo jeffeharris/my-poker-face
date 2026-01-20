@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Settings, ArrowLeft, CheckCircle } from 'lucide-react';
 import { ExperimentChat } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
-import type { ExperimentConfig, FailureContext, ConfigVersion } from './types';
+import type { ExperimentConfig, FailureContext, ConfigVersion, ChatMessage } from './types';
 import './MobileExperimentDesign.css';
 
 interface InitialMessage {
@@ -20,6 +20,7 @@ interface MobileExperimentDesignProps {
   onLaunch: () => void;
   onBack: () => void;
   initialMessage?: InitialMessage | null;
+  initialChatHistory?: ChatMessage[];
   configVersions?: ConfigVersion[];
   onConfigVersionsChange?: (versions: ConfigVersion[]) => void;
   currentVersionIndex?: number;
@@ -44,6 +45,7 @@ export function MobileExperimentDesign({
   onLaunch,
   onBack,
   initialMessage,
+  initialChatHistory,
   configVersions,
   onConfigVersionsChange,
   currentVersionIndex,
@@ -133,6 +135,7 @@ export function MobileExperimentDesign({
               onSessionIdChange={onSessionIdChange}
               onConfigUpdate={onConfigUpdate}
               initialMessage={initialMessage}
+              initialChatHistory={initialChatHistory}
               configVersions={configVersions}
               onConfigVersionsChange={onConfigVersionsChange}
               currentVersionIndex={currentVersionIndex}

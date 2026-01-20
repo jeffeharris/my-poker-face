@@ -229,7 +229,7 @@ def api_game_state(game_id):
     if current_game_data:
         state_machine = current_game_data['state_machine']
         if not state_machine.game_state.awaiting_action and not current_game_data.get('game_started', False):
-            print(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
+            logger.debug(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
             current_game_data['game_started'] = True
             progress_game(game_id)
 
@@ -339,22 +339,23 @@ def api_game_state(game_id):
 
                 game_state = state_machine.game_state
                 current_player = game_state.current_player
-                print(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
+                logger.debug(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
                       f"awaiting_action: {game_state.awaiting_action}, "
                       f"current_player: {current_player.name} (human: {current_player.is_human})")
 
                 if not game_state.awaiting_action:
-                    print(f"[LOAD] Auto-advancing game {game_id} (not awaiting action)")
+                    logger.debug(f"[LOAD] Auto-advancing game {game_id} (not awaiting action)")
                     progress_game(game_id)
                 elif game_state.awaiting_action and not current_player.is_human:
-                    print(f"[LOAD] Resuming AI turn for {current_player.name} in game {game_id}")
+                    logger.debug(f"[LOAD] Resuming AI turn for {current_player.name} in game {game_id}")
                     progress_game(game_id)
             else:
                 return jsonify({'error': 'Game not found'}), 404
         except Exception as e:
-            print(f"Error loading game {game_id}: {str(e)}")
+            logger.warning(f"[LOAD] Error loading game {game_id}: {str(e)}")
             import traceback
             traceback.print_exc()
+            logger.debug(f"[LOAD] Error loading game {game_id}: {str(e)}")
             return jsonify({
                 'error': 'Game loading is currently unavailable',
                 'message': 'This feature is under development. Please start a new game.',
@@ -883,7 +884,7 @@ def end_game(game_id):
     try:
         persistence.delete_game(game_id)
     except Exception as e:
-        print(f"Error deleting game {game_id} from database: {e}")
+        logger.warning(f"[DELETE] Error deleting game {game_id} from database: {e}")
 
     return jsonify({'message': 'Game ended successfully'})
 
@@ -965,7 +966,7 @@ def register_socket_events(sio):
     @sio.on('join_game')
     def on_join(game_id):
         join_room(game_id)
-        print(f"User joined room: {game_id}")
+        logger.debug(f"[SOCKET] User joined room: {game_id}")
         socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
         game_id_str = str(game_id)
@@ -973,7 +974,7 @@ def register_socket_events(sio):
         if game_data:
             if not game_data.get('game_started', False):
                 game_data['game_started'] = True
-                print(f"Starting game progression for: {game_id_str}")
+                logger.debug(f"[SOCKET] Starting game progression for: {game_id_str}")
                 progress_game(game_id_str)
 
     @sio.on('player_action')

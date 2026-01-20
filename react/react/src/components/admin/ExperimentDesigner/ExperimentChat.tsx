@@ -1,17 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Loader2, Sparkles } from 'lucide-react';
-import type { ExperimentConfig, FailureContext, ConfigVersion } from './types';
+import { Send, Loader2, Sparkles, GitCompare } from 'lucide-react';
+import type { ExperimentConfig, FailureContext, ConfigVersion, ChatMessage } from './types';
 import { config as appConfig } from '../../../config';
 
 interface QuickPrompt {
   id: string;
   label: string;
   prompt: string;
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
 }
 
 interface ExperimentChatProps {
@@ -24,6 +19,8 @@ interface ExperimentChatProps {
     userMessage: string;
     context?: FailureContext;
   } | null;
+  /** Chat history to restore from a previous session */
+  initialChatHistory?: ChatMessage[];
   configVersions?: ConfigVersion[];
   onConfigVersionsChange?: (versions: ConfigVersion[]) => void;
   currentVersionIndex?: number;
@@ -36,12 +33,14 @@ export function ExperimentChat({
   onSessionIdChange,
   onConfigUpdate,
   initialMessage,
+  initialChatHistory,
   configVersions,
   onConfigVersionsChange,
   currentVersionIndex,
   onCurrentVersionIndexChange,
 }: ExperimentChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Initialize messages from initial history if provided
+  const [messages, setMessages] = useState<ChatMessage[]>(initialChatHistory || []);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [quickPrompts, setQuickPrompts] = useState<QuickPrompt[]>([]);
@@ -100,10 +99,11 @@ export function ExperimentChat({
           onSessionIdChange(data.session_id);
         }
 
-        // Add assistant response
+        // Add assistant response with optional config diff
         const assistantMessage: ChatMessage = {
           role: 'assistant',
           content: data.response,
+          configDiff: data.config_diff || undefined,
         };
         setMessages(prev => [...prev, assistantMessage]);
 
@@ -151,9 +151,9 @@ export function ExperimentChat({
     }
   }, [initialMessage, sendMessage]);
 
-  // Add initial welcome message (only on mount when messages is empty)
+  // Add initial welcome message (only on mount when messages is empty and no initial history)
   useEffect(() => {
-    if (messages.length === 0 && !initialMessage) {
+    if (messages.length === 0 && !initialMessage && !initialChatHistory) {
       setMessages([
         {
           role: 'assistant',
@@ -193,6 +193,18 @@ export function ExperimentChat({
                 <p key={i}>{line || '\u00A0'}</p>
               ))}
             </div>
+            {/* Show config diff for assistant messages with config updates */}
+            {message.configDiff && (
+              <div className="experiment-chat__config-diff">
+                <div className="experiment-chat__config-diff-header">
+                  <GitCompare size={14} />
+                  <span>Config updated</span>
+                </div>
+                <pre className="experiment-chat__config-diff-content">
+                  {message.configDiff}
+                </pre>
+              </div>
+            )}
           </div>
         ))}
 

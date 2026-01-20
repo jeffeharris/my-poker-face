@@ -14,6 +14,11 @@ DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
 # Fast model for quick operations (chat suggestions, theme generation, etc.)
 FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL)
 
+# Reasoning model for assistants that need to think through problems
+# Default: DeepSeek R1 (cheapest reasoning model at $0.28/$0.42 per 1M)
+ASSISTANT_MODEL = os.environ.get("ASSISTANT_MODEL", "deepseek-reasoner")
+ASSISTANT_PROVIDER = os.environ.get("ASSISTANT_PROVIDER", "deepseek")
+
 # Default reasoning effort for GPT-5 models
 # Options: 'minimal', 'low', 'medium', 'high'
 DEFAULT_REASONING_EFFORT = "minimal"

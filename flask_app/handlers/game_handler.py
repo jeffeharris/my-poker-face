@@ -163,7 +163,7 @@ def restore_ai_controllers(game_id: str, state_machine, persistence_layer,
                         controller.ai_player.confidence = ps.get('confidence', 'Normal')
                         controller.ai_player.attitude = ps.get('attitude', 'Neutral')
 
-                print(f"Restored AI state for {player.name} with {len(saved_state.get('messages', []))} messages")
+                logger.debug(f"[RESTORE] AI state for {player.name} with {len(saved_state.get('messages', []))} messages")
 
             if player.name in controller_states:
                 ctrl_state = controller_states[player.name]
@@ -1038,7 +1038,7 @@ def progress_game(game_id: str) -> None:
                 continue  # Continue loop to deal next cards
 
             if not game_state.current_player.is_human and game_state.awaiting_action:
-                print(f"AI turn: {game_state.current_player.name}")
+                logger.info(f"[AI_TURN] {game_state.current_player.name}")
                 handle_ai_action(game_id)
                 continue  # Re-evaluate game state after AI action
 
@@ -1097,10 +1097,10 @@ def detect_and_apply_pressure(game_id: str, event_type: str, **kwargs) -> None:
 
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
-    print(f"[handle_ai_action] Starting AI action for game {game_id}")
+    logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
     current_game_data = game_state_service.get_game(game_id)
     if not current_game_data:
-        print(f"[handle_ai_action] No game data found for {game_id}")
+        logger.debug(f"[AI_ACTION] No game data found for {game_id}")
         return
 
     state_machine = current_game_data['state_machine']
@@ -1108,7 +1108,7 @@ def handle_ai_action(game_id: str) -> None:
     ai_controllers = current_game_data['ai_controllers']
 
     current_player = state_machine.game_state.current_player
-    print(f"[handle_ai_action] Current AI player: {current_player.name}")
+    logger.debug(f"[AI_ACTION] Current AI player: {current_player.name}")
     controller = ai_controllers[current_player.name]
 
     # Set current hand number for tracking
@@ -1125,7 +1125,7 @@ def handle_ai_action(game_id: str) -> None:
         player_physical_description = player_response_dict.get('physical', '')
 
     except Exception as e:
-        print(f"[handle_ai_action] Critical error getting AI decision: {e}")
+        logger.debug(f"[AI_ACTION] Critical error getting AI decision: {e}")
 
         valid_actions = state_machine.game_state.current_player_options
         personality_traits = getattr(controller, 'personality_traits', {})
