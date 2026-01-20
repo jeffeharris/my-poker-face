@@ -139,16 +139,23 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('models');
   const [alert, setAlert] = useState<AlertState | null>(null);
 
-  // Models state - using hook
+  // Models state - using hook for initial fetch, local state for optimistic updates
   const {
-    data: models,
+    data: fetchedModels,
     loading: modelsLoading,
-    refresh: refreshModels
   } = useAdminResource<Model[]>('/admin/api/models', {
     transform: (result) => (result as { models: Model[] }).models,
     onError: (err) => showAlert('error', err),
   });
+  const [models, setModels] = useState<Model[] | null>(null);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
+
+  // Sync local models with fetched data
+  useEffect(() => {
+    if (fetchedModels) {
+      setModels(fetchedModels);
+    }
+  }, [fetchedModels]);
 
   // Capture state
   const [captureSettings, setCaptureSettings] = useState<CaptureSettingsData | null>(null);
@@ -210,6 +217,22 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   }, [models, expandedProviders.size]);
 
   const toggleModel = async (modelId: number, enabled: boolean, field: 'enabled' | 'user_enabled' = 'enabled') => {
+    // Optimistic update - update local state immediately
+    setModels(prev => prev?.map(m => {
+      if (m.id !== modelId) return m;
+
+      // Apply cascade logic locally
+      if (field === 'enabled' && !enabled) {
+        // System OFF -> User OFF
+        return { ...m, enabled: false, user_enabled: false };
+      } else if (field === 'user_enabled' && enabled) {
+        // User ON -> System ON
+        return { ...m, enabled: true, user_enabled: true };
+      } else {
+        return { ...m, [field]: enabled };
+      }
+    }) ?? null);
+
     try {
       const response = await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
         method: 'POST',
@@ -220,10 +243,14 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       const data = await response.json();
 
       if (data.success) {
-        await refreshModels();
-        const label = field === 'enabled' ? 'System' : 'User';
-        showAlert('success', `${label} ${enabled ? 'enabled' : 'disabled'}`);
+        // Update with server response to ensure consistency
+        setModels(prev => prev?.map(m =>
+          m.id === modelId
+            ? { ...m, enabled: data.enabled, user_enabled: data.user_enabled }
+            : m
+        ) ?? null);
       } else {
+        // Revert on error - refetch to get correct state
         showAlert('error', data.error || 'Failed to update model');
       }
     } catch {
@@ -831,7 +858,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
                           <input
                             type="checkbox"
                             className="admin-toggle__input"
-                            checked={model.user_enabled}
+                            checked={model.user_enabled ?? model.enabled}
                             onChange={(e) => toggleModel(model.id, e.target.checked, 'user_enabled')}
                           />
                           <span className="admin-toggle__switch">
