@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { config } from '../../config';
+import { adminFetch } from '../../utils/api';
 import { PageLayout, PageHeader } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import './AdminShared.css';
@@ -337,7 +338,7 @@ function ImageLightbox({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${config.API_URL}/admin/api/reference-images`, {
+      const response = await adminFetch('/admin/api/reference-images', {
         method: 'POST',
         body: formData,
       });
@@ -364,9 +365,8 @@ function ImageLightbox({
     setUploadError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/reference-images`, {
+      const response = await adminFetch('/admin/api/reference-images', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: urlInput.trim() }),
       });
 

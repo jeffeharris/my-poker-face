@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { config } from '../config';
+import { adminFetch } from '../utils/api';
 
 interface UseAdminResourceOptions<T> {
   /** Transform the response data before setting state */
@@ -66,7 +66,7 @@ export function useAdminResource<T>(
     setError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}${endpoint}`);
+      const response = await adminFetch(endpoint);
       const result = await response.json();
 
       if (!mountedRef.current) return;
@@ -139,9 +139,8 @@ export function useAdminMutation<TPayload = unknown, TResponse = unknown>() {
     setError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}${endpoint}`, {
+      const response = await adminFetch(endpoint, {
         method,
-        headers: payload ? { 'Content-Type': 'application/json' } : undefined,
         body: payload ? JSON.stringify(payload) : undefined,
       });
 
