@@ -1018,6 +1018,39 @@ def api_playground_replay_image(capture_id: int):
         size = data.get('size', capture.get('image_size', '512x512'))
         reference_image_id = data.get('reference_image_id')
 
+        # Check if model supports img2img when reference image is provided
+        seed_image_url = None
+        if reference_image_id:
+            # Check model's img2img support
+            with sqlite3.connect(_get_db_path()) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    "SELECT supports_img2img FROM enabled_models WHERE provider = ? AND model = ?",
+                    (provider, model)
+                )
+                model_row = cursor.fetchone()
+                supports_img2img = model_row['supports_img2img'] if model_row else False
+
+                if not supports_img2img:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Model "{model}" does not support image-to-image generation. Please select a model that supports img2img, or remove the reference image.',
+                    }), 400
+
+                # Fetch the reference image and convert to data URI
+                cursor = conn.execute(
+                    "SELECT image_data, content_type FROM reference_images WHERE id = ?",
+                    (reference_image_id,)
+                )
+                ref_row = cursor.fetchone()
+                if ref_row and ref_row['image_data']:
+                    content_type = ref_row['content_type'] or 'image/png'
+                    b64_data = base64.b64encode(ref_row['image_data']).decode('utf-8')
+                    seed_image_url = f"data:{content_type};base64,{b64_data}"
+                    logger.info(f"Using reference image for img2img: {reference_image_id} ({len(b64_data)} bytes base64)")
+                else:
+                    logger.warning(f"Reference image not found: {reference_image_id}")
+
         # Create LLM client for the provider
         client = LLMClient(provider=provider, model=model)
 
@@ -1026,6 +1059,7 @@ def api_playground_replay_image(capture_id: int):
             prompt=prompt,
             size=size,
             call_type=CallType.DEBUG_REPLAY,
+            seed_image_url=seed_image_url,
         )
 
         if response.is_error:

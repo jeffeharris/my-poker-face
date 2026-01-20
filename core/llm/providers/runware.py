@@ -115,6 +115,8 @@ class RunwareProvider(LLMProvider):
         prompt: str,
         size: str = "512x512",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
     ) -> RunwareImageResponse:
         """Generate an image using Runware.ai.
 
@@ -122,6 +124,10 @@ class RunwareProvider(LLMProvider):
             prompt: Image generation prompt
             size: Image size (e.g., '512x512', '1024x1024')
             n: Number of images (only 1 supported)
+            seed_image_url: Optional URL to base image for img2img generation
+            strength: How much to transform the seed image (0.0-1.0).
+                      Lower = more like original, higher = more creative.
+                      Default 0.75 provides good balance.
 
         Returns:
             RunwareImageResponse with image URL
@@ -157,8 +163,18 @@ class RunwareProvider(LLMProvider):
             }
         ]
 
-        logger.debug("Generating image with Runware: model=%s, size=%dx%d",
-                     self._model, width, height)
+        # Add img2img parameters if seed image provided
+        # Runware uses inputs.referenceImages array for img2img
+        if seed_image_url:
+            payload[0]["inputs"] = {
+                "referenceImages": [seed_image_url]
+            }
+            # Log seed image info (truncate data URIs)
+            seed_info = seed_image_url[:50] + "..." if len(seed_image_url) > 50 else seed_image_url
+            logger.info("Using img2img with reference image: %s", seed_info)
+
+        logger.info("Generating image with Runware: model=%s, size=%dx%d, img2img=%s",
+                     self._model, width, height, bool(seed_image_url))
 
         last_exception = None
         for attempt in range(MAX_RETRIES + 1):
@@ -210,12 +226,28 @@ class RunwareProvider(LLMProvider):
                         f"Runware API timeout after {MAX_RETRIES + 1} attempts"
                     )
             except requests.exceptions.HTTPError as e:
+                # Extract status code and error details
+                status_code = e.response.status_code if e.response is not None else 0
+                error_text = ""
+                if e.response is not None:
+                    try:
+                        # Try to get JSON error details
+                        error_json = e.response.json()
+                        if error_json.get("errors"):
+                            error_text = str(error_json["errors"])[:500]
+                        else:
+                            error_text = e.response.text[:500]
+                    except Exception:
+                        error_text = e.response.text[:500] if e.response.text else str(e)
+                else:
+                    error_text = str(e)
+
+                logger.error(f"Runware HTTP error: status={status_code}, error={error_text}")
+
                 # Don't retry client errors (4xx)
-                status_code = e.response.status_code if e.response else 0
-                error_text = e.response.text[:200] if e.response else str(e)
                 if 400 <= status_code < 500:
                     raise Exception(f"Runware API error ({status_code}): {error_text}")
-                # Retry server errors (5xx)
+                # Retry server errors (5xx) or unknown errors
                 last_exception = e
                 if attempt < MAX_RETRIES:
                     delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)

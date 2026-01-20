@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { AvatarAssignmentModal } from './AvatarAssignmentModal';
+import { ReferenceImageInput } from './ReferenceImageInput';
 import type {
   PlaygroundCapture,
   PlaygroundCaptureDetail,
@@ -61,6 +62,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   const [imageReplaySize, setImageReplaySize] = useState('512x512');
   const [modifiedImagePrompt, setModifiedImagePrompt] = useState('');
   const [imageReplayResult, setImageReplayResult] = useState<ImageReplayResponse | null>(null);
+  const [referenceImageId, setReferenceImageId] = useState<string | null>(null);
 
   // Avatar assignment modal state
   const [showAvatarModal, setShowAvatarModal] = useState(false);
@@ -209,6 +211,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
             provider: imageReplayProvider,
             model: imageReplayModel || undefined,
             size: imageReplaySize,
+            reference_image_id: referenceImageId || undefined,
           }),
         }
       );
@@ -582,6 +585,34 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                           ))}
                         </select>
                       </div>
+                    </div>
+
+                    {/* Reference Image for img2img */}
+                    <div className="prompt-section">
+                      <h3>Reference Image (optional)</h3>
+                      <ReferenceImageInput
+                        value={referenceImageId}
+                        onChange={setReferenceImageId}
+                        disabled={replaying}
+                      />
+                      {referenceImageId && (
+                        <p className="helper-text">
+                          The AI will use this image as a starting point and transform it based on your prompt.
+                        </p>
+                      )}
+                      {referenceImageId && (() => {
+                        const selectedModel = imageProviders
+                          .find(p => p.id === imageReplayProvider)
+                          ?.models.find(m => m.id === imageReplayModel);
+                        const providerDefault = imageProviders.find(p => p.id === imageReplayProvider);
+                        const supportsImg2img = selectedModel?.supports_img2img ??
+                          providerDefault?.models[0]?.supports_img2img ?? false;
+                        return !supportsImg2img && (
+                          <div className="img2img-warning">
+                            Selected model doesn't support image-to-image. Reference image will be ignored.
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="prompt-section">

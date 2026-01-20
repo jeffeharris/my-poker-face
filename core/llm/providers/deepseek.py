@@ -123,6 +123,7 @@ class DeepSeekProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
     ) -> Any:
         """DeepSeek doesn't support image generation."""
         raise NotImplementedError("DeepSeek does not support image generation")

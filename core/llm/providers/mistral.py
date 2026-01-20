@@ -90,6 +90,7 @@ class MistralProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
     ) -> Any:
         """Mistral doesn't support image generation."""
         raise NotImplementedError("Mistral does not support image generation")

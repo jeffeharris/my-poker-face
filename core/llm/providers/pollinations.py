@@ -107,6 +107,7 @@ class PollinationsProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
     ) -> PollinationsImageResponse:
         """Generate an image using Pollinations.ai.
 
@@ -114,6 +115,7 @@ class PollinationsProvider(LLMProvider):
             prompt: Image generation prompt
             size: Image size (e.g., '512x512', '1024x1024')
             n: Number of images (only 1 supported)
+            seed_image_url: Ignored - Pollinations doesn't support img2img
 
         Returns:
             PollinationsImageResponse with data URL
@@ -121,6 +123,8 @@ class PollinationsProvider(LLMProvider):
         Raises:
             Exception: If image generation fails
         """
+        if seed_image_url:
+            logger.warning("Pollinations doesn't support img2img, ignoring seed_image_url")
         if n > 1:
             logger.warning("Pollinations only supports n=1, ignoring n=%d", n)
 

@@ -281,6 +281,7 @@ class LLMClient:
         target_personality: Optional[str] = None,
         target_emotion: Optional[str] = None,
         reference_image_id: Optional[str] = None,
+        seed_image_url: Optional[str] = None,
         **context: Any,
     ) -> ImageResponse:
         """Generate an image.
@@ -294,6 +295,7 @@ class LLMClient:
             target_personality: Optional personality name (for avatar generation)
             target_emotion: Optional emotion (for avatar generation)
             reference_image_id: Optional reference image ID (for img2img)
+            seed_image_url: Optional URL to base image for img2img generation
             **context: Additional tracking context
 
         Returns:
@@ -302,7 +304,11 @@ class LLMClient:
         start_time = time.time()
 
         try:
-            raw_response = self._provider.generate_image(prompt=prompt, size=size)
+            raw_response = self._provider.generate_image(
+                prompt=prompt,
+                size=size,
+                seed_image_url=seed_image_url,
+            )
             latency_ms = (time.time() - start_time) * 1000
 
             url = self._provider.extract_image_url(raw_response)

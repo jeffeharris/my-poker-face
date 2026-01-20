@@ -59,6 +59,7 @@ class LLMProvider(ABC):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
     ) -> Any:
         """Generate an image.
 
@@ -66,6 +67,7 @@ class LLMProvider(ABC):
             prompt: Image generation prompt
             size: Image size (e.g., '1024x1024')
             n: Number of images to generate
+            seed_image_url: Optional URL to base image for img2img generation
 
         Returns:
             Raw provider response object
