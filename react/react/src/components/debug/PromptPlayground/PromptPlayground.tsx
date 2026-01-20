@@ -104,7 +104,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   // Fetch image providers
   const fetchImageProviders = useCallback(async () => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/image-providers`);
+      const response = await adminAPI.fetch('/admin/api/image-providers');
       const data = await response.json();
       if (data.success) {
         setImageProviders(data.providers || []);
@@ -201,11 +201,10 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
     setImageReplayResult(null);
 
     try {
-      const response = await fetch(
-        `${config.API_URL}/admin/api/playground/captures/${selectedCapture.id}/replay-image`,
+      const response = await adminAPI.fetch(
+        `/admin/api/playground/captures/${selectedCapture.id}/replay-image`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: modifiedImagePrompt,
             provider: imageReplayProvider,
@@ -242,11 +241,10 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   const handleAssignAvatar = async (personality: string, emotion: string) => {
     if (!selectedCapture) throw new Error('No capture selected');
 
-    const response = await fetch(
-      `${config.API_URL}/admin/api/playground/captures/${selectedCapture.id}/assign-avatar`,
+    const response = await adminAPI.fetch(
+      `/admin/api/playground/captures/${selectedCapture.id}/assign-avatar`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           personality_name: personality,
           emotion: emotion,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
 import { config } from '../../config';
+import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
 import './AdminShared.css';
 import './UnifiedSettings.css';
@@ -238,9 +239,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
     try {
       // Set both flags via two API calls (or we could add a new endpoint)
-      const response = await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
+      const response = await adminFetch(`/admin/api/models/${modelId}/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ field: 'enabled', enabled: newEnabled }),
       });
 
@@ -248,7 +248,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
       if (data.success && visibility === 'system') {
         // Need to explicitly turn off user_enabled
-        await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
+        await adminFetch(`/admin/api/models/${modelId}/toggle`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ field: 'user_enabled', enabled: false }),
@@ -307,8 +307,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     try {
       setCaptureLoading(true);
       const [settingsRes, statsRes] = await Promise.all([
-        fetch(`${config.API_URL}/admin/api/settings`),
-        fetch(`${config.API_URL}/admin/api/playground/stats`),
+        adminFetch(`/admin/api/settings`),
+        adminFetch(`/admin/api/playground/stats`),
       ]);
 
       const settingsData = await settingsRes.json();
@@ -340,7 +340,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       const updates: Promise<Response>[] = [];
 
       if (editedCapture !== captureSettings.LLM_PROMPT_CAPTURE.value) {
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'LLM_PROMPT_CAPTURE', value: editedCapture }),
@@ -348,7 +348,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       }
 
       if (editedRetention !== captureSettings.LLM_PROMPT_RETENTION_DAYS.value) {
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'LLM_PROMPT_RETENTION_DAYS', value: editedRetention }),
@@ -374,7 +374,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const resetCaptureSettings = async () => {
     setCaptureSaving(true);
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/settings/reset`, {
+      const response = await adminFetch(`/admin/api/settings/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -406,7 +406,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const fetchSystemData = useCallback(async () => {
     try {
       setSystemLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/api/settings`);
+      const response = await adminFetch(`/admin/api/settings`);
       const data = await response.json();
 
       if (data.success) {
@@ -438,12 +438,12 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       const generalModel = generalModelParts.join(':');
       const originalGeneral = `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}`;
       if (editedGeneralModel !== originalGeneral) {
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'DEFAULT_PROVIDER', value: generalProvider }),
         }));
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'DEFAULT_MODEL', value: generalModel }),
@@ -455,12 +455,12 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       const imageModel = imageModelParts.join(':');
       const originalImage = `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}`;
       if (editedImageModel !== originalImage) {
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'IMAGE_PROVIDER', value: imageProvider }),
         }));
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'IMAGE_MODEL', value: imageModel }),
@@ -472,12 +472,12 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       const assistantModel = assistantModelParts.join(':');
       const originalAssistant = `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`;
       if (editedAssistantModel !== originalAssistant) {
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'ASSISTANT_PROVIDER', value: assistantProvider }),
         }));
-        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+        updates.push(adminFetch(`/admin/api/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'ASSISTANT_MODEL', value: assistantModel }),
@@ -504,7 +504,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
       ];
       await Promise.all(keys.map(key =>
-        fetch(`${config.API_URL}/admin/api/settings/reset`, {
+        adminFetch(`/admin/api/settings/reset`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key }),
@@ -532,7 +532,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const fetchStorage = useCallback(async () => {
     try {
       setStorageLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/api/settings/storage`);
+      const response = await adminFetch(`/admin/api/settings/storage`);
       const data = await response.json();
 
       if (data.success) {
@@ -558,7 +558,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       if (filterProvider) params.append('provider', filterProvider);
       if (currentOnly) params.append('current_only', 'true');
 
-      const response = await fetch(`${config.API_URL}/admin/pricing?${params}`);
+      const response = await adminFetch(`/admin/pricing?${params}`);
       const data = await response.json();
 
       if (data.success) {
@@ -575,7 +575,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
   const fetchPricingProviders = useCallback(async () => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/pricing/providers`);
+      const response = await adminFetch(`/admin/pricing/providers`);
       const data = await response.json();
       if (data.success) {
         setPricingProviders(data.providers.map((p: { provider: string }) => p.provider));
@@ -592,9 +592,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     }
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/pricing`, {
+      const response = await adminFetch(`/admin/pricing`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: newPricing.provider,
           model: newPricing.model,
@@ -622,7 +621,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
   const handleDeletePricing = async (id: number) => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/pricing/${id}`, {
+      const response = await adminFetch(`/admin/pricing/${id}`, {
         method: 'DELETE',
       });
 

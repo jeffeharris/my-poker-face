@@ -6,6 +6,7 @@
  */
 import { useState, useCallback, useRef } from 'react';
 import { config } from '../../../config';
+import { adminFetch } from '../../../utils/api';
 
 interface ReferenceImageUploadResponse {
   success: boolean;
@@ -50,7 +51,7 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${config.API_URL}/admin/api/reference-images`, {
+      const response = await adminFetch('/admin/api/reference-images', {
         method: 'POST',
         body: formData,
       });
@@ -78,9 +79,8 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
     setError(null);
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/reference-images`, {
+      const response = await adminFetch('/admin/api/reference-images', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: urlInput.trim() }),
       });
 

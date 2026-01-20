@@ -6,29 +6,68 @@ const fetchOptions: RequestInit = {
   credentials: 'include',
 };
 
-// Admin API authentication - reads token from URL query param
+// Admin token storage key
+const ADMIN_TOKEN_KEY = 'admin_token';
+
+/**
+ * Get the admin token from URL (first priority) or localStorage (fallback).
+ * If found in URL, it's automatically persisted to localStorage.
+ */
+export function getAdminToken(): string | null {
+  // First check URL for token (allows override/initial auth)
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('admin_token');
+
+  if (urlToken) {
+    // Store in localStorage for persistence across navigation
+    localStorage.setItem(ADMIN_TOKEN_KEY, urlToken);
+    return urlToken;
+  }
+
+  // Fall back to localStorage
+  return localStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+/**
+ * Clear the stored admin token (for logout)
+ */
+export function clearAdminToken(): void {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+/**
+ * Authenticated fetch wrapper for admin endpoints.
+ * Automatically includes the admin token as Bearer auth header.
+ */
+export async function adminFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAdminToken();
+  const headers: HeadersInit = {
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Add Content-Type for JSON if body is present, not already set, and not FormData
+  // (FormData needs browser to set Content-Type with boundary automatically)
+  const isFormData = options.body instanceof FormData;
+  if (options.body && !headers['Content-Type'] && !isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return fetch(`${config.API_URL}${endpoint}`, {
+    ...fetchOptions,
+    ...options,
+    headers,
+  });
+}
+
+// Legacy adminAPI object for backward compatibility
 export const adminAPI = {
-  getToken: (): string | null => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('admin_token');
-  },
-
-  fetch: async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
-    const token = adminAPI.getToken();
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    return fetch(`${config.API_URL}${endpoint}`, {
-      ...fetchOptions,
-      ...options,
-      headers,
-    });
-  },
+  getToken: getAdminToken,
+  clearToken: clearAdminToken,
+  fetch: adminFetch,
 };
 
 export const gameAPI = {
