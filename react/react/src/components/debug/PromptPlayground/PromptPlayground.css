@@ -2142,6 +2142,10 @@
     gap: 0.75rem;
   }
 
+  .image-comparison.with-reference {
+    grid-template-columns: 1fr;
+  }
+
   .image-comparison img {
     max-height: 200px;
   }
@@ -2313,6 +2317,30 @@
   border: 1px solid var(--pg-border-accent);
   object-fit: contain;
   background: var(--pg-bg-deep);
+}
+
+/* Reference image in view mode */
+.image-preview-container.reference-image {
+  border: 2px solid var(--pg-info);
+  background: var(--pg-info-bg);
+}
+
+/* Reference image in replay results */
+.image-comparison.with-reference {
+  grid-template-columns: 1fr 1fr;
+}
+
+.image-comparison .reference {
+  display: flex;
+  flex-direction: column;
+}
+
+.image-comparison .reference h4 {
+  color: var(--pg-info);
+}
+
+.image-comparison .reference img {
+  border: 2px solid var(--pg-info);
 }
 
 .reference-image-clear {

@@ -455,6 +455,20 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                       </div>
                     </div>
 
+                    {selectedCapture.reference_image_id && (
+                      <div className="image-preview-section">
+                        <h3>Reference Image (Source)</h3>
+                        <div className="image-preview-container reference-image">
+                          <img
+                            src={`${config.API_URL}/admin/api/reference-images/${selectedCapture.reference_image_id}`}
+                            alt="Reference"
+                            className="captured-image"
+                          />
+                        </div>
+                        <p className="helper-text">This image was used as the source for img2img generation.</p>
+                      </div>
+                    )}
+
                     <div className="prompt-section">
                       <h3>Image Prompt</h3>
                       <pre className="prompt-content">{selectedCapture.image_prompt || selectedCapture.user_message}</pre>
@@ -650,7 +664,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                           <>
                             <div className="image-comparison">
                               <div className="original">
-                                <h4>Original Image</h4>
+                                <h4>Original</h4>
                                 {imageReplayResult.original_image_url ? (
                                   <img src={imageReplayResult.original_image_url} alt="Original" />
                                 ) : (
@@ -658,9 +672,9 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                                 )}
                               </div>
                               <div className="new">
-                                <h4>New Image ({imageReplayResult.model_used})</h4>
+                                <h4>Generated ({imageReplayResult.model_used})</h4>
                                 {imageReplayResult.new_image_url ? (
-                                  <img src={imageReplayResult.new_image_url} alt="New" />
+                                  <img src={imageReplayResult.new_image_url} alt="Generated" />
                                 ) : (
                                   <div className="no-image">Not available</div>
                                 )}

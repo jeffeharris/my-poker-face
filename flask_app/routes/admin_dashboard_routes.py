@@ -1060,6 +1060,7 @@ def api_playground_replay_image(capture_id: int):
             size=size,
             call_type=CallType.DEBUG_REPLAY,
             seed_image_url=seed_image_url,
+            reference_image_id=reference_image_id,
         )
 
         if response.is_error:
