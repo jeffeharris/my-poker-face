@@ -503,11 +503,52 @@ class AIPlayerController:
         # Store context for fallback
         self._fallback_context = context
 
+        # Calculate pot-committed and short-stack conditions
+        game_state = self.state_machine.game_state
+        player = game_state.current_player
+        cost_to_call = context.get('call_amount', 0)
+        pot_total = game_state.pot.get('total', 0)
+        already_bet = player.bet  # Amount already invested this hand
+        player_stack = player.stack
+        big_blind = game_state.current_ante or 250  # Default to 250 if not set
+
+        # Convert everything to BB for normalized reasoning
+        already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
+        stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
+        cost_to_call_bb = cost_to_call / big_blind if big_blind > 0 else 0
+
+        # Pot-committed: invested more BB than remaining stack AND facing a bet
+        # Also trigger for extreme pot odds (>20:1) with small calls (<5 BB)
+        pot_committed_info = None
+        if cost_to_call > 0:
+            pot_odds = pot_total / cost_to_call
+            required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
+
+            # Trigger if: invested more than remaining OR extreme pot odds with small call
+            is_pot_committed = already_bet_bb > stack_bb
+            is_extreme_odds = pot_odds >= 20 and cost_to_call_bb < 5
+
+            if is_pot_committed or is_extreme_odds:
+                pot_committed_info = {
+                    'pot_odds': round(pot_odds, 0),
+                    'required_equity': round(required_equity, 1),
+                    'already_bet_bb': round(already_bet_bb, 1),
+                    'stack_bb': round(stack_bb, 1),
+                    'cost_to_call_bb': round(cost_to_call_bb, 1)
+                }
+
+        # Short-stack: less than 3 big blinds
+        short_stack_info = None
+        if stack_bb < 3:
+            short_stack_info = {'stack_bb': round(stack_bb, 1)}
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
-            include_persona_response=self.prompt_config.persona_response
+            include_persona_response=self.prompt_config.persona_response,
+            pot_committed_info=pot_committed_info,
+            short_stack_info=short_stack_info
         )
 
         # Store capture_id via callback (keeps LLM layer decoupled from capture)
