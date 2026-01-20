@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../../config';
+import { adminAPI } from '../../../utils/api';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { AvatarAssignmentModal } from './AvatarAssignmentModal';
 import { ReferenceImageInput } from './ReferenceImageInput';
@@ -83,7 +84,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
       if (filters.limit) params.append('limit', String(filters.limit));
       if (filters.offset) params.append('offset', String(filters.offset));
 
-      const response = await fetch(`${config.API_URL}/admin/api/playground/captures?${params}`);
+      const response = await adminAPI.fetch(`/admin/api/playground/captures?${params}`);
       const data = await response.json();
 
       if (data.success) {
@@ -116,7 +117,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   // Fetch single capture details
   const fetchCaptureDetail = async (id: number) => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/api/playground/captures/${id}`);
+      const response = await adminAPI.fetch(`/admin/api/playground/captures/${id}`);
       const data = await response.json();
 
       if (data.success) {
@@ -154,11 +155,10 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
     setReplayResult(null);
 
     try {
-      const response = await fetch(
-        `${config.API_URL}/admin/api/playground/captures/${selectedCapture.id}/replay`,
+      const response = await adminAPI.fetch(
+        `/admin/api/playground/captures/${selectedCapture.id}/replay`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             system_prompt: modifiedSystemPrompt,
             user_message: modifiedUserMessage,

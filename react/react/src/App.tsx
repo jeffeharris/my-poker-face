@@ -57,7 +57,7 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [playerName, setPlayerName] = useState<string>(user?.name || '')
+const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
 
