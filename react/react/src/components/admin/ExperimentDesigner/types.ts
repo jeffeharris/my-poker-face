@@ -6,6 +6,19 @@ export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 
 
 export type ExperimentMode = 'design' | 'list' | 'detail';
 
+/**
+ * Saved prompt configuration preset.
+ */
+export interface PromptPreset {
+  id: number;
+  name: string;
+  description?: string;
+  prompt_config?: Partial<PromptConfig>;
+  guidance_injection?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PromptConfig {
   pot_odds: boolean;
   hand_strength: boolean;
@@ -47,7 +60,13 @@ export interface VariantConfig {
   label: string;
   model?: string;
   provider?: string;
+  /** Per-variant personality assignment (does not inherit from control) */
+  personality?: string;
+  /** Load prompt config from a saved preset */
+  prompt_preset_id?: number;
   prompt_config?: Partial<PromptConfig>;
+  /** Extra text appended to decision prompts for this variant */
+  guidance_injection?: string;
   /** Enable tilt + emotional state generation. Inherits from control if not set. */
   enable_psychology?: boolean;
   /** Enable commentary generation. Inherits from control if not set. */
