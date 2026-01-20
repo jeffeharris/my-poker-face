@@ -294,8 +294,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
               onThemedGame={() => navigate('/game/new/themed')}
               onContinueGame={() => navigate('/games')}
               onViewStats={() => navigate('/stats')}
-              onPromptDebugger={() => navigate('/prompt-debugger')}
-              onPromptPlayground={() => navigate('/prompt-playground')}
               onAdminDashboard={() => navigate('/admin')}
               savedGamesCount={savedGamesCount}
             />
