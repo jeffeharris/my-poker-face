@@ -35,6 +35,19 @@ interface DebugToolsProps {
 }
 
 // ============================================
+// Constants
+// ============================================
+
+const TABS: { id: DebugTab; label: string; endpoint: string }[] = [
+  { id: 'diagnostic', label: 'Diagnostic', endpoint: 'diagnostic' },
+  { id: 'psychology', label: 'Psychology', endpoint: 'psychology' },
+  { id: 'tilt', label: 'Tilt System', endpoint: 'tilt-debug' },
+  { id: 'memory', label: 'Memory', endpoint: 'memory-debug' },
+  { id: 'elasticity', label: 'Elasticity', endpoint: 'elasticity' },
+  { id: 'pressure', label: 'Pressure Stats', endpoint: 'pressure-stats' },
+];
+
+// ============================================
 // Main Component
 // ============================================
 
@@ -47,15 +60,6 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [loadingGames, setLoadingGames] = useState(false);
-
-  const TABS: { id: DebugTab; label: string; endpoint: string }[] = [
-    { id: 'diagnostic', label: 'Diagnostic', endpoint: 'diagnostic' },
-    { id: 'psychology', label: 'Psychology', endpoint: 'psychology' },
-    { id: 'tilt', label: 'Tilt System', endpoint: 'tilt-debug' },
-    { id: 'memory', label: 'Memory', endpoint: 'memory-debug' },
-    { id: 'elasticity', label: 'Elasticity', endpoint: 'elasticity' },
-    { id: 'pressure', label: 'Pressure Stats', endpoint: 'pressure-stats' },
-  ];
 
   // Fetch active games
   const fetchActiveGames = useCallback(async () => {
@@ -71,8 +75,8 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
           setGameId(data.games[0].game_id);
         }
       }
-    } catch (error) {
-      console.error('Failed to fetch active games:', error);
+    } catch {
+      // Failed to fetch active games - silently ignore
     } finally {
       setLoadingGames(false);
     }
@@ -107,13 +111,13 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
         setResult(null);
         setAlert({ type: 'error', message: data.error || 'Failed to fetch data' });
       }
-    } catch (error) {
+    } catch {
       setResult(null);
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setLoading(false);
     }
-  }, [gameId, activeTab, TABS]);
+  }, [gameId, activeTab]);
 
   // Auto-refresh
   useEffect(() => {

@@ -131,7 +131,7 @@ export function ExperimentChat({
           },
         ]);
       }
-    } catch (err) {
+    } catch {
       setMessages(prev => [
         ...prev,
         {
