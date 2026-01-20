@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, ArrowLeft, History, Sparkles } from 'lucide-react';
 import { ExperimentChat } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
 import { ExperimentList } from './ExperimentList';
-import { ExperimentDetail } from './ExperimentDetail';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
 import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion } from './types';
@@ -47,18 +47,28 @@ interface ExperimentDetailForEdit {
 }
 import './ExperimentDesigner.css';
 
-type ExperimentMode = 'design' | 'list' | 'detail';
+type ExperimentMode = 'design' | 'list';
 
 interface ExperimentDesignerProps {
   embedded?: boolean;
 }
 
+// Location state types for navigation from experiment detail
+interface LocationState {
+  editExperiment?: ExperimentDetailForEdit;
+  buildFromSuggestion?: {
+    experiment: ExperimentDetailForEdit;
+    suggestion: NextStepSuggestion;
+  };
+}
+
 export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps) {
   const { isMobile } = useViewport();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [mode, setMode] = useState<ExperimentMode>('list');
   const [config, setConfig] = useState<ExperimentConfig>(() => createFreshConfig());
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [selectedExperimentId, setSelectedExperimentId] = useState<number | null>(null);
   const [failureContext, setFailureContext] = useState<LabAssistantContext | null>(null);
   const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
@@ -67,6 +77,61 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   // Session resume state
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
+
+  // Handle navigation state from experiment detail (edit/build actions)
+  useEffect(() => {
+    const state = location.state as LocationState | null;
+    if (!state) return;
+
+    if (state.editExperiment) {
+      // Handle "Edit in Lab Assistant" from experiment detail
+      const experiment = state.editExperiment;
+      const configToEdit: ExperimentConfig = {
+        ...experiment.config,
+        name: `${experiment.config.name || experiment.name}_v2`,
+      };
+
+      setConfig(configToEdit);
+      setSessionId(null);
+      setConfigVersions([]);
+      setCurrentVersionIndex(0);
+      setFailureContext({
+        type: 'failure',
+        experimentId: experiment.id,
+        experimentName: experiment.name,
+        errorMessage: experiment.notes || 'Unknown error',
+        failedTournaments: experiment.summary?.failed_tournaments || [],
+      });
+      setMode('design');
+
+      // Clear the state to prevent re-triggering
+      navigate(location.pathname, { replace: true, state: null });
+    } else if (state.buildFromSuggestion) {
+      // Handle "Build from Suggestion" from experiment detail
+      const { experiment, suggestion } = state.buildFromSuggestion;
+      const configToEdit: ExperimentConfig = {
+        ...experiment.config,
+        name: `${experiment.config.name || experiment.name}_followup`,
+        parent_experiment_id: experiment.id,
+      };
+
+      setConfig(configToEdit);
+      setSessionId(null);
+      setConfigVersions([]);
+      setCurrentVersionIndex(0);
+      setFailureContext({
+        type: 'suggestion',
+        experimentId: experiment.id,
+        experimentName: experiment.name,
+        suggestion,
+        parentConfig: experiment.config,
+      });
+      setMode('design');
+
+      // Clear the state to prevent re-triggering
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   // Fetch latest chat session on mount
   useEffect(() => {
@@ -147,12 +212,10 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   }, [pendingSession]);
 
   const handleViewExperiment = useCallback((experiment: ExperimentSummary) => {
-    setSelectedExperimentId(experiment.id);
-    setMode('detail');
-  }, []);
+    navigate(`/admin/experiments/${experiment.id}`);
+  }, [navigate]);
 
   const handleBackToList = useCallback(() => {
-    setSelectedExperimentId(null);
     setMode('list');
   }, []);
 
@@ -165,48 +228,6 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     setCurrentVersionIndex(0);
   }, []);
 
-  const handleEditInLabAssistant = useCallback((experiment: ExperimentDetailForEdit) => {
-    // Create a new config based on the failed experiment's config
-    const configToEdit: ExperimentConfig = {
-      ...experiment.config,
-      name: `${experiment.config.name || experiment.name}_v2`,  // Suggest new name
-    };
-
-    setConfig(configToEdit);
-    setSessionId(null);  // Fresh chat session
-    setConfigVersions([]);
-    setCurrentVersionIndex(0);
-    setFailureContext({
-      type: 'failure',
-      experimentId: experiment.id,
-      experimentName: experiment.name,
-      errorMessage: experiment.notes || 'Unknown error',
-      failedTournaments: experiment.summary?.failed_tournaments || [],
-    });
-    setMode('design');
-  }, []);
-
-  const handleBuildFromSuggestion = useCallback((experiment: ExperimentDetailForEdit, suggestion: NextStepSuggestion) => {
-    // Create a new config based on the parent experiment's config
-    const configToEdit: ExperimentConfig = {
-      ...experiment.config,
-      name: `${experiment.config.name || experiment.name}_followup`,  // Suggest follow-up name
-      parent_experiment_id: experiment.id,  // Track lineage
-    };
-
-    setConfig(configToEdit);
-    setSessionId(null);  // Fresh chat session
-    setConfigVersions([]);
-    setCurrentVersionIndex(0);
-    setFailureContext({
-      type: 'suggestion',
-      experimentId: experiment.id,
-      experimentName: experiment.name,
-      suggestion,
-      parentConfig: experiment.config,
-    });
-    setMode('design');
-  }, []);
 
   const handleVersionChange = useCallback((index: number) => {
     if (index >= 0 && index < configVersions.length) {
@@ -252,8 +273,8 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   return (
     <div className={`experiment-designer ${embedded ? 'experiment-designer--embedded' : ''}`}>
-      {/* Mode Header - only for design and detail modes */}
-      {(mode === 'design' || (mode === 'detail' && !isMobile)) && (
+      {/* Mode Header - only for design mode */}
+      {mode === 'design' && (
         <div className="experiment-designer__header">
           <button
             className="experiment-designer__back-btn"
@@ -264,7 +285,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
             Back to List
           </button>
           <h3 className="experiment-designer__title">
-            {mode === 'design' ? 'Design New Experiment' : 'Experiment Details'}
+            Design New Experiment
           </h3>
         </div>
       )}
@@ -305,15 +326,6 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
           <ExperimentList
             onViewExperiment={handleViewExperiment}
             onNewExperiment={handleNewExperiment}
-          />
-        )}
-
-        {mode === 'detail' && selectedExperimentId && (
-          <ExperimentDetail
-            experimentId={selectedExperimentId}
-            onBack={handleBackToList}
-            onEditInLabAssistant={handleEditInLabAssistant}
-            onBuildFromSuggestion={handleBuildFromSuggestion}
           />
         )}
       </div>

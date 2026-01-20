@@ -74,6 +74,8 @@ function App() {
     // Check for game/:id pattern
     if (location.pathname.startsWith('/game/') && !location.pathname.includes('/new/')) {
       document.title = 'Playing - My Poker Face';
+    } else if (location.pathname.match(/^\/admin\/experiments\/\d+$/)) {
+      document.title = 'Experiment Details - My Poker Face';
     } else if (location.pathname.startsWith('/admin')) {
       document.title = 'Admin Dashboard - My Poker Face';
     } else {
