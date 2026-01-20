@@ -47,6 +47,115 @@
   gap: var(--space-4);
 }
 
+/* Default Models Section (3-across grid) */
+.us-defaults-section {
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+  padding: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.us-defaults-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.us-defaults-section__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.us-defaults-section__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.us-defaults-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.us-defaults-grid--loading {
+  min-height: 140px;
+}
+
+.us-default-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.us-default-card--skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-surface) 25%,
+    rgba(255, 255, 255, 0.05) 50%,
+    var(--color-bg-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.us-default-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.us-default-card__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.us-default-card__desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.us-default-card__select {
+  width: 100%;
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.us-default-card__default {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  opacity: 0.8;
+}
+
+/* Available Models Section */
+.us-available-section {
+  padding-bottom: var(--space-2);
+}
+
+.us-available-section__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
 .us-provider {
   background: var(--admin-card-bg);
   border: 1px solid var(--admin-card-border);
@@ -538,7 +647,27 @@
    Responsive
    ========================================================================== */
 
+@media (max-width: 1024px) {
+  .us-defaults-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 767px) {
+  .us-defaults-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .us-defaults-section__header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .us-defaults-section__actions {
+    justify-content: flex-end;
+  }
+
   .us-pricing__header {
     flex-direction: column;
     align-items: stretch;

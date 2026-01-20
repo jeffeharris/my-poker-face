@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Sliders, Database, HardDrive, DollarSign, Settings } from 'lucide-react';
+import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
 import { config } from '../../config';
 import { useAdminResource, useAdminMutation } from '../../hooks/useAdminResource';
 import './AdminShared.css';
@@ -9,7 +9,7 @@ import './UnifiedSettings.css';
 // Types
 // ============================================
 
-type SettingsCategory = 'models' | 'system' | 'capture' | 'storage' | 'pricing';
+type SettingsCategory = 'models' | 'capture' | 'storage' | 'pricing';
 
 interface CategoryConfig {
   id: SettingsCategory;
@@ -107,14 +107,8 @@ const CATEGORIES: CategoryConfig[] = [
   {
     id: 'models',
     label: 'Models',
-    description: 'Enable or disable LLM models',
+    description: 'Model defaults and availability',
     icon: <Sliders size={20} />,
-  },
-  {
-    id: 'system',
-    label: 'System',
-    description: 'System-wide model defaults',
-    icon: <Settings size={20} />,
   },
   {
     id: 'capture',
@@ -259,9 +253,9 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   }, [models]);
 
   // Filtered models for system settings
-  // General: enabled text models (not image-only)
+  // General: all enabled models (excludes image-only models like DALL-E, Runware)
   const generalModels = useMemo(() =>
-    models?.filter(m => m.enabled && !m.supports_image_gen) || [], [models]);
+    models?.filter(m => m.enabled) || [], [models]);
 
   // Image: models that support image generation
   const imageModels = useMemo(() =>
@@ -614,7 +608,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
   // Load data when category changes (models handled by useAdminResource hook)
   useEffect(() => {
-    if (activeCategory === 'system' && !systemSettings) {
+    if (activeCategory === 'models' && !systemSettings) {
+      // Load system settings alongside models (they're now in the same tab)
       fetchSystemData();
     } else if (activeCategory === 'capture' && !captureSettings) {
       fetchCaptureData();
@@ -649,8 +644,132 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       );
     }
 
+    // Helper to render a compact model selector card
+    const renderModelSelectorCard = (
+      label: string,
+      description: string,
+      value: string,
+      onChange: (value: string) => void,
+      availableModels: Model[],
+      providerSetting: SettingConfig | undefined,
+      modelSetting: SettingConfig | undefined
+    ) => {
+      const isOverridden = providerSetting?.is_db_override || modelSetting?.is_db_override;
+      const defaultValue = providerSetting && modelSetting
+        ? `${providerSetting.env_default}:${modelSetting.env_default}`
+        : '';
+
+      return (
+        <div className="us-default-card">
+          <div className="us-default-card__header">
+            <h4 className="us-default-card__title">{label}</h4>
+            {isOverridden && (
+              <span className="admin-badge admin-badge--primary admin-badge--sm">Custom</span>
+            )}
+          </div>
+          <p className="us-default-card__desc">{description}</p>
+          <select
+            className="admin-input admin-select us-default-card__select"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={systemSaving}
+          >
+            {availableModels.length === 0 ? (
+              <option value="">No enabled models</option>
+            ) : (
+              availableModels.map((m) => (
+                <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>
+                  {m.provider} / {m.display_name || m.model}
+                </option>
+              ))
+            )}
+          </select>
+          {defaultValue && defaultValue !== ':' && (
+            <span className="us-default-card__default">
+              Default: {defaultValue.replace(':', ' / ')}
+            </span>
+          )}
+        </div>
+      );
+    };
+
     return (
       <div className="us-models">
+        {/* Default Model Settings - 3 cards in a row */}
+        {systemSettings && (
+          <div className="us-defaults-section">
+            <div className="us-defaults-section__header">
+              <h3 className="us-defaults-section__title">Default Models</h3>
+              <div className="us-defaults-section__actions">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--primary admin-btn--sm"
+                  onClick={saveSystemSettings}
+                  disabled={systemSaving || !hasSystemChanges}
+                >
+                  {systemSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--ghost admin-btn--sm"
+                  onClick={resetSystemSettings}
+                  disabled={systemSaving}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div className="us-defaults-grid">
+              {renderModelSelectorCard(
+                'General',
+                'Chat suggestions, themes, general use',
+                editedGeneralModel,
+                setEditedGeneralModel,
+                generalModels,
+                systemSettings.DEFAULT_PROVIDER,
+                systemSettings.DEFAULT_MODEL
+              )}
+              {renderModelSelectorCard(
+                'Image',
+                'AI player avatar generation',
+                editedImageModel,
+                setEditedImageModel,
+                imageModels,
+                systemSettings.IMAGE_PROVIDER,
+                systemSettings.IMAGE_MODEL
+              )}
+              {renderModelSelectorCard(
+                'Assistant',
+                'Experiment design reasoning',
+                editedAssistantModel,
+                setEditedAssistantModel,
+                reasoningModels,
+                systemSettings.ASSISTANT_PROVIDER,
+                systemSettings.ASSISTANT_MODEL
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Loading state for system settings */}
+        {!systemSettings && systemLoading && (
+          <div className="us-defaults-section">
+            <div className="us-defaults-section__header">
+              <h3 className="us-defaults-section__title">Default Models</h3>
+            </div>
+            <div className="us-defaults-grid us-defaults-grid--loading">
+              <div className="us-default-card us-default-card--skeleton" />
+              <div className="us-default-card us-default-card--skeleton" />
+              <div className="us-default-card us-default-card--skeleton" />
+            </div>
+          </div>
+        )}
+
+        {/* Available Models Section */}
+        <div className="us-available-section">
+          <h3 className="us-available-section__title">Available Models</h3>
+        </div>
+
         {Object.entries(modelsByProvider).map(([provider, providerModels]) => (
           <div key={provider} className="us-provider">
             <button
@@ -712,119 +831,6 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
           <span className="us-cap us-cap--reasoning">R</span> Reasoning
           <span className="us-cap us-cap--json">J</span> JSON Mode
           <span className="us-cap us-cap--image">I</span> Image Gen
-        </div>
-      </div>
-    );
-  };
-
-  const renderSystemSection = () => {
-    if (systemLoading || !systemSettings) {
-      return (
-        <div className="admin-loading">
-          <div className="admin-loading__spinner" />
-          <span className="admin-loading__text">Loading system settings...</span>
-        </div>
-      );
-    }
-
-    // Helper to render a model selector
-    const renderModelSelector = (
-      label: string,
-      description: string,
-      value: string,
-      onChange: (value: string) => void,
-      availableModels: Model[],
-      providerSetting: SettingConfig,
-      modelSetting: SettingConfig
-    ) => {
-      const isOverridden = providerSetting.is_db_override || modelSetting.is_db_override;
-      const defaultValue = `${providerSetting.env_default}:${modelSetting.env_default}`;
-
-      return (
-        <div className="admin-card">
-          <div className="admin-card__header">
-            <h3 className="admin-card__title">{label}</h3>
-            {isOverridden && (
-              <span className="admin-badge admin-badge--primary">Custom</span>
-            )}
-          </div>
-          <p className="admin-card__subtitle">{description}</p>
-          <div className="us-system__selector">
-            <select
-              className="admin-input admin-select us-system__select"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              disabled={systemSaving}
-            >
-              {availableModels.length === 0 ? (
-                <option value="">No enabled models available</option>
-              ) : (
-                availableModels.map((m) => (
-                  <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>
-                    {m.provider} / {m.display_name || m.model}
-                  </option>
-                ))
-              )}
-            </select>
-            {defaultValue && defaultValue !== ':' && (
-              <span className="us-system__default">
-                Default: {defaultValue.replace(':', ' / ')}
-              </span>
-            )}
-          </div>
-        </div>
-      );
-    };
-
-    return (
-      <div className="us-system">
-        {renderModelSelector(
-          'General Model',
-          'Default LLM for chat suggestions, themes, and general use',
-          editedGeneralModel,
-          setEditedGeneralModel,
-          generalModels,
-          systemSettings.DEFAULT_PROVIDER,
-          systemSettings.DEFAULT_MODEL
-        )}
-
-        {renderModelSelector(
-          'Image Model',
-          'Model for generating AI player avatars',
-          editedImageModel,
-          setEditedImageModel,
-          imageModels,
-          systemSettings.IMAGE_PROVIDER,
-          systemSettings.IMAGE_MODEL
-        )}
-
-        {renderModelSelector(
-          'Assistant Model',
-          'Reasoning model for experiment design assistant',
-          editedAssistantModel,
-          setEditedAssistantModel,
-          reasoningModels,
-          systemSettings.ASSISTANT_PROVIDER,
-          systemSettings.ASSISTANT_MODEL
-        )}
-
-        <div className="us-system__actions">
-          <button
-            type="button"
-            className="admin-btn admin-btn--primary"
-            onClick={saveSystemSettings}
-            disabled={systemSaving || !hasSystemChanges}
-          >
-            {systemSaving ? 'Saving...' : 'Save Changes'}
-          </button>
-          <button
-            type="button"
-            className="admin-btn admin-btn--secondary"
-            onClick={resetSystemSettings}
-            disabled={systemSaving}
-          >
-            Reset to Defaults
-          </button>
         </div>
       </div>
     );
@@ -1109,8 +1115,6 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     switch (activeCategory) {
       case 'models':
         return renderModelsSection();
-      case 'system':
-        return renderSystemSection();
       case 'capture':
         return renderCaptureSection();
       case 'storage':

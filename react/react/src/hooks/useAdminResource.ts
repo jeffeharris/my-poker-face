@@ -52,6 +52,15 @@ export function useAdminResource<T>(
   // Track if component is mounted to avoid state updates after unmount
   const mountedRef = useRef(true);
 
+  // Store callbacks in refs to avoid triggering re-fetches when they change.
+  // This prevents infinite loops when inline functions are passed as options.
+  const transformRef = useRef(transform);
+  const onErrorRef = useRef(onError);
+
+  // Keep refs up-to-date without triggering re-fetches
+  transformRef.current = transform;
+  onErrorRef.current = onError;
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -65,26 +74,26 @@ export function useAdminResource<T>(
       if (result.success) {
         // Apply transform if provided, otherwise use the result directly
         // Common patterns: result.models, result.pricing, result.settings, etc.
-        const extractedData = transform
-          ? transform(result)
+        const extractedData = transformRef.current
+          ? transformRef.current(result)
           : (result.data ?? result.models ?? result.pricing ?? result.settings ?? result.storage ?? result);
         setData(extractedData as T);
       } else {
         const errorMessage = result.error || 'Failed to load data';
         setError(errorMessage);
-        onError?.(errorMessage);
+        onErrorRef.current?.(errorMessage);
       }
     } catch (err) {
       if (!mountedRef.current) return;
       const errorMessage = 'Failed to connect to server';
       setError(errorMessage);
-      onError?.(errorMessage);
+      onErrorRef.current?.(errorMessage);
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
     }
-  }, [endpoint, transform, onError]);
+  }, [endpoint]);
 
   // Auto-fetch on mount and when dependencies change
   useEffect(() => {
