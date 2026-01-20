@@ -2,6 +2,12 @@
 # Base pricing data - dashboard can add newer entries with valid_from timestamps
 # Prices are per 1M tokens (USD) unless otherwise noted
 #
+# Capabilities:
+#   reasoning: Chain-of-thought reasoning support
+#   json: Structured JSON output mode
+#   img_gen: Can generate images
+#   img2img: Image-to-image transformation
+#
 # Source: Consolidated from database migrations v14, v31, v32, v36, v37
 # Last updated: 2026-01
 
@@ -16,6 +22,8 @@ providers:
       cached_input_tokens_1m: 1.25
       batch_input_tokens_1m: 1.25
       batch_output_tokens_1m: 5.00
+      capabilities:
+        json: true
 
     # GPT-4o-mini
     gpt-4o-mini:
@@ -24,55 +32,80 @@ providers:
       cached_input_tokens_1m: 0.075
       batch_input_tokens_1m: 0.075
       batch_output_tokens_1m: 0.30
+      capabilities:
+        json: true
 
     # GPT-4-turbo
     gpt-4-turbo:
       input_tokens_1m: 10.00
       output_tokens_1m: 30.00
+      capabilities:
+        json: true
 
     # GPT-4
     gpt-4:
       input_tokens_1m: 30.00
       output_tokens_1m: 60.00
+      capabilities:
+        json: true
 
     # GPT-3.5-turbo
     gpt-3.5-turbo:
       input_tokens_1m: 0.50
       output_tokens_1m: 1.50
+      capabilities:
+        json: true
 
     # o1-preview (reasoning model)
     o1-preview:
       input_tokens_1m: 15.00
       output_tokens_1m: 60.00
       cached_input_tokens_1m: 7.50
+      capabilities:
+        reasoning: true
+        json: true
 
     # o1-mini (reasoning model)
     o1-mini:
       input_tokens_1m: 3.00
       output_tokens_1m: 12.00
       cached_input_tokens_1m: 1.50
+      capabilities:
+        reasoning: true
+        json: true
 
     # GPT-5 family (from v37)
     gpt-5:
       input_tokens_1m: 1.25
       output_tokens_1m: 10.00
       cached_input_tokens_1m: 0.125
+      capabilities:
+        reasoning: true
+        json: true
 
     gpt-5-mini:
       input_tokens_1m: 0.25
       output_tokens_1m: 2.00
       cached_input_tokens_1m: 0.025
+      capabilities:
+        reasoning: true
+        json: true
 
     gpt-5-nano:
       input_tokens_1m: 0.05
       output_tokens_1m: 0.40
       cached_input_tokens_1m: 0.005
+      capabilities:
+        reasoning: true
+        json: true
 
     # DALL-E 2 (price per image)
     dall-e-2:
       image_256x256: 0.016
       image_512x512: 0.018
       image_1024x1024: 0.020
+      capabilities:
+        img_gen: true
 
     # DALL-E 3 (price per image)
     dall-e-3:
@@ -82,6 +115,8 @@ providers:
       image_hd_1024x1024: 0.080
       image_hd_1024x1792: 0.120
       image_hd_1792x1024: 0.120
+      capabilities:
+        img_gen: true
 
   anthropic:
     # Claude 3.5 Sonnet
@@ -89,70 +124,99 @@ providers:
       input_tokens_1m: 3.00
       output_tokens_1m: 15.00
       cached_input_tokens_1m: 0.30
+      capabilities:
+        json: true
 
     # Claude 3.5 Haiku
     claude-3-5-haiku-20241022:
       input_tokens_1m: 0.80
       output_tokens_1m: 4.00
       cached_input_tokens_1m: 0.08
+      capabilities:
+        json: true
 
     # Claude 3 Opus
     claude-3-opus-20240229:
       input_tokens_1m: 15.00
       output_tokens_1m: 75.00
       cached_input_tokens_1m: 1.50
+      capabilities:
+        json: true
 
     # Claude 4.5 family (from v31)
     claude-sonnet-4-5-20250929:
       input_tokens_1m: 3.00
       output_tokens_1m: 15.00
       cached_input_tokens_1m: 0.30
+      capabilities:
+        reasoning: true
+        json: true
 
     claude-opus-4-5-20251101:
       input_tokens_1m: 15.00
       output_tokens_1m: 75.00
       cached_input_tokens_1m: 1.50
+      capabilities:
+        reasoning: true
+        json: true
 
     claude-haiku-4-5-20251001:
       input_tokens_1m: 1.00
       output_tokens_1m: 5.00
       cached_input_tokens_1m: 0.10
+      capabilities:
+        reasoning: true
+        json: true
 
   groq:
     # GPT OSS 20B
     openai/gpt-oss-20b:
       input_tokens_1m: 0.075
       output_tokens_1m: 0.30
+      capabilities:
+        json: true
 
     # GPT OSS 120B
     openai/gpt-oss-120b:
       input_tokens_1m: 0.15
       output_tokens_1m: 0.60
+      capabilities:
+        json: true
 
     # Llama Guard 4 12B
     meta-llama/llama-guard-4-12b:
       input_tokens_1m: 0.20
       output_tokens_1m: 0.20
+      capabilities:
+        json: true
 
     # Llama 4 Scout 17B 16E (lab)
     meta-llama/llama-4-scout-17b-16e-instruct:
       input_tokens_1m: 0.11
       output_tokens_1m: 0.34
+      capabilities:
+        json: true
 
     # Qwen3-32B (lab)
     qwen/qwen3-32b:
       input_tokens_1m: 0.29
       output_tokens_1m: 0.59
+      capabilities:
+        json: true
 
     # Llama 3.3 70B Versatile 128k
     llama-3.3-70b-versatile:
       input_tokens_1m: 0.59
       output_tokens_1m: 0.79
+      capabilities:
+        json: true
 
     # Llama 3.1 8B Instant 128k
     llama-3.1-8b-instant:
       input_tokens_1m: 0.05
       output_tokens_1m: 0.08
+      capabilities:
+        json: true
 
   deepseek:
     # DeepSeek V3 Chat
@@ -160,81 +224,117 @@ providers:
       input_tokens_1m: 0.28
       output_tokens_1m: 0.42
       cached_input_tokens_1m: 0.028
+      capabilities:
+        json: true
 
     # DeepSeek R1 Reasoner (same price as chat since 2026-01)
     deepseek-reasoner:
       input_tokens_1m: 0.28
       output_tokens_1m: 0.42
+      capabilities:
+        reasoning: true
+        json: true
 
   mistral:
     # Mistral Small
     mistral-small-latest:
       input_tokens_1m: 0.20
       output_tokens_1m: 0.60
+      capabilities:
+        json: true
 
     # Mistral Medium
     mistral-medium-latest:
       input_tokens_1m: 0.80
       output_tokens_1m: 2.40
+      capabilities:
+        json: true
 
     # Mistral Large
     mistral-large-latest:
       input_tokens_1m: 2.00
       output_tokens_1m: 6.00
+      capabilities:
+        json: true
 
   google:
     # Gemini 2.0 Flash
     gemini-2.0-flash:
       input_tokens_1m: 0.10
       output_tokens_1m: 0.40
+      capabilities:
+        json: true
 
     # Gemini 2.5 Flash
     gemini-2.5-flash:
       input_tokens_1m: 0.30
       output_tokens_1m: 2.50
+      capabilities:
+        reasoning: true
+        json: true
 
     # Gemini 2.5 Pro
     gemini-2.5-pro:
       input_tokens_1m: 1.25
       output_tokens_1m: 10.00
       cached_input_tokens_1m: 0.125
+      capabilities:
+        reasoning: true
+        json: true
 
   xai:
     # Grok-3 (main production model)
     grok-3:
       input_tokens_1m: 3.00
       output_tokens_1m: 15.00
+      capabilities:
+        json: true
 
     # Grok-3-mini (budget with reasoning)
     grok-3-mini:
       input_tokens_1m: 0.30
       output_tokens_1m: 0.50
       reasoning_tokens_1m: 0.50
+      capabilities:
+        reasoning: true
+        json: true
 
     # Grok-4 (flagship)
     grok-4:
       input_tokens_1m: 3.00
       output_tokens_1m: 15.00
+      capabilities:
+        reasoning: true
+        json: true
 
     # Grok-4-fast-reasoning
     grok-4-fast-reasoning:
       input_tokens_1m: 0.20
       output_tokens_1m: 0.50
       reasoning_tokens_1m: 0.50
+      capabilities:
+        reasoning: true
+        json: true
 
     # Grok-4-fast-non-reasoning
     grok-4-fast-non-reasoning:
       input_tokens_1m: 0.20
       output_tokens_1m: 0.50
+      capabilities:
+        json: true
 
     # Grok-2-vision
     grok-2-vision-1212:
       input_tokens_1m: 2.00
       output_tokens_1m: 10.00
+      capabilities:
+        json: true
 
     # Grok-2-image (price per image)
     grok-2-image-1212:
       image_1024x1024: 0.07
+      capabilities:
+        img_gen: true
 
   pollinations:
     # Pollinations.ai image models
@@ -242,27 +342,81 @@ providers:
     flux:
       image_512x512: 0.0002
       image_1024x1024: 0.0002
+      capabilities:
+        img_gen: true
 
     zimage:
       image_512x512: 0.0002
       image_1024x1024: 0.0002
+      capabilities:
+        img_gen: true
 
     turbo:
       image_512x512: 0.0003
       image_1024x1024: 0.0003
+      capabilities:
+        img_gen: true
+
+    klein:
+      image_512x512: 0.008
+      image_1024x1024: 0.008
+      capabilities:
+        img_gen: true
+        img2img: true
 
     seedream:
       image_512x512: 0.03
       image_1024x1024: 0.03
+      capabilities:
+        img_gen: true
 
     kontext:
       image_512x512: 0.04
       image_1024x1024: 0.04
+      capabilities:
+        img_gen: true
+        img2img: true
 
     gptimage:
       image_512x512: 0.008
       image_1024x1024: 0.008
+      capabilities:
+        img_gen: true
 
     nanobanana:
       image_512x512: 0.01
       image_1024x1024: 0.01
+      capabilities:
+        img_gen: true
+
+  runware:
+    # Runware.ai image models
+    # See: https://runware.ai/docs/image-inference/api-reference
+    runware:100@1:
+      display_name: "FLUX.1 [schnell]"
+      image_512x512: 0.0006
+      image_1024x1024: 0.0013
+      capabilities:
+        img_gen: true
+
+    runware:400@1:
+      display_name: "FLUX.2 [dev]"
+      image_512x512: 0.0019
+      image_1024x1024: 0.0038
+      capabilities:
+        img_gen: true
+        img2img: true
+
+    runware:400@4:
+      display_name: "FLUX.2 [klein] 4B"
+      image_1024x1024: 0.0006
+      capabilities:
+        img_gen: true
+        img2img: true
+
+    runware:z-image@turbo:
+      display_name: "Z-Image Turbo"
+      image_512x512: 0.0013
+      image_1024x1024: 0.0032
+      capabilities:
+        img_gen: true

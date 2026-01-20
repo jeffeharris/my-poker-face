@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 # v49: Add Runware image models to enabled_models table
 # v50: Add user_enabled column to enabled_models for dual toggle support
 # v51: Add parent_experiment_id to experiments for experiment lineage tracking
-SCHEMA_VERSION = 51
+# v52: Add supports_img2img column to enabled_models for image-to-image capability
+SCHEMA_VERSION = 52
 
 
 @dataclass
@@ -502,7 +503,7 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)")
 
-            # 20. Enabled models (v38, v50 adds user_enabled)
+            # 20. Enabled models (v38, v50 adds user_enabled, v52 adds supports_img2img)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS enabled_models (
                     id INTEGER PRIMARY KEY,
@@ -515,6 +516,7 @@ class GamePersistence:
                     supports_reasoning INTEGER DEFAULT 0,
                     supports_json_mode INTEGER DEFAULT 1,
                     supports_image_gen INTEGER DEFAULT 0,
+                    supports_img2img INTEGER DEFAULT 0,
                     sort_order INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -784,6 +786,7 @@ class GamePersistence:
             49: (self._migrate_v49_add_runware_models, "Add Runware image models to enabled_models"),
             50: (self._migrate_v50_add_user_enabled, "Add user_enabled column to enabled_models for dual toggle"),
             51: (self._migrate_v51_add_parent_experiment_id, "Add parent_experiment_id to experiments for lineage tracking"),
+            52: (self._migrate_v52_add_supports_img2img, "Add supports_img2img column to enabled_models"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2112,6 +2115,23 @@ class GamePersistence:
             logger.info("Added parent_experiment_id column to experiments table")
 
         logger.info("Migration v51 complete: Added parent_experiment_id to experiments")
+
+    def _migrate_v52_add_supports_img2img(self, conn: sqlite3.Connection) -> None:
+        """Migration v52: Add supports_img2img column to enabled_models.
+
+        This adds image-to-image capability tracking at the model level.
+        Models like Pollinations klein/kontext and Runware FLUX.2 support img2img.
+        """
+        # Add supports_img2img column
+        try:
+            conn.execute("""
+                ALTER TABLE enabled_models ADD COLUMN supports_img2img INTEGER DEFAULT 0
+            """)
+        except sqlite3.OperationalError:
+            # Column might already exist if fresh install ran _init_db
+            pass
+
+        logger.info("Migration v52 complete: Added supports_img2img column to enabled_models")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,

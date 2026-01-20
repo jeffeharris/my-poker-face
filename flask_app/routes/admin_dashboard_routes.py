@@ -505,7 +505,7 @@ def api_list_models():
             cursor = conn.execute("""
                 SELECT id, provider, model, enabled, user_enabled, display_name, notes,
                        supports_reasoning, supports_json_mode, supports_image_gen,
-                       sort_order, updated_at
+                       supports_img2img, sort_order, updated_at
                 FROM enabled_models
                 ORDER BY provider, sort_order
             """)

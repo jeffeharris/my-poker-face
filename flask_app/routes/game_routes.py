@@ -509,6 +509,9 @@ def api_user_models():
     # Get enabled models from database (if table exists)
     enabled_models = _get_enabled_models_map()
 
+    # Get model-level capabilities (supplements provider-level)
+    model_capabilities = _get_model_capabilities_map()
+
     providers = []
     for provider in AVAILABLE_PROVIDERS:
         all_models = PROVIDER_MODELS.get(provider, [])
@@ -528,12 +531,20 @@ def api_user_models():
         if default_model not in models and models:
             default_model = models[0]
 
+        # Build model-specific capabilities for this provider
+        provider_model_caps = {
+            m: model_capabilities.get((provider, m), {})
+            for m in models
+            if (provider, m) in model_capabilities
+        }
+
         providers.append({
             'id': provider,
             'name': provider.title(),
             'models': models,
             'default_model': default_model,
             'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+            'model_capabilities': provider_model_caps,
             'model_tiers': model_tiers.get(provider, {}),
         })
 
@@ -569,6 +580,9 @@ def api_system_models():
     # Get system-enabled models (only checks enabled, ignores user_enabled)
     enabled_models = _get_system_enabled_models_map()
 
+    # Get model-level capabilities (supplements provider-level)
+    model_capabilities = _get_model_capabilities_map()
+
     providers = []
     for provider in AVAILABLE_PROVIDERS:
         all_models = PROVIDER_MODELS.get(provider, [])
@@ -588,12 +602,20 @@ def api_system_models():
         if default_model not in models and models:
             default_model = models[0]
 
+        # Build model-specific capabilities for this provider
+        provider_model_caps = {
+            m: model_capabilities.get((provider, m), {})
+            for m in models
+            if (provider, m) in model_capabilities
+        }
+
         providers.append({
             'id': provider,
             'name': provider.title(),
             'models': models,
             'default_model': default_model,
             'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+            'model_capabilities': provider_model_caps,
             'model_tiers': model_tiers.get(provider, {}),
         })
 
@@ -669,6 +691,45 @@ def _get_system_enabled_models_map():
             """)
             return {
                 (row[0], row[1]): bool(row[2])
+                for row in cursor.fetchall()
+            }
+    except Exception:
+        return {}
+
+
+def _get_model_capabilities_map():
+    """Get a map of (provider, model) -> capability flags.
+
+    Returns model-level capabilities (supports_img2img, etc.) from enabled_models table.
+    This supplements provider-level capabilities with model-specific flags.
+
+    Returns:
+        Dict mapping (provider, model) to dict of capability flags
+    """
+    from pathlib import Path
+
+    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            # Check if table and column exist
+            cursor = conn.execute("PRAGMA table_info(enabled_models)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'supports_img2img' not in columns:
+                return {}
+
+            cursor = conn.execute("""
+                SELECT provider, model, supports_reasoning, supports_json_mode,
+                       supports_image_gen, supports_img2img
+                FROM enabled_models
+            """)
+            return {
+                (row[0], row[1]): {
+                    'supports_reasoning': bool(row[2]),
+                    'supports_json_mode': bool(row[3]),
+                    'supports_image_generation': bool(row[4]),
+                    'supports_img2img': bool(row[5]) if row[5] is not None else False,
+                }
                 for row in cursor.fetchall()
             }
     except Exception:

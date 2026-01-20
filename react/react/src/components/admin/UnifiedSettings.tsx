@@ -733,7 +733,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         {systemSettings && (
           <div className="us-defaults-section">
             <div className="us-defaults-section__header">
-              <h3 className="us-defaults-section__title">Default Models</h3>
+              <h3 className="us-defaults-section__title">System Models</h3>
               <div className="us-defaults-section__actions">
                 <button
                   type="button"
@@ -789,7 +789,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         {!systemSettings && systemLoading && (
           <div className="us-defaults-section">
             <div className="us-defaults-section__header">
-              <h3 className="us-defaults-section__title">Default Models</h3>
+              <h3 className="us-defaults-section__title">System Models</h3>
             </div>
             <div className="us-defaults-grid us-defaults-grid--loading">
               <div className="us-default-card us-default-card--skeleton" />

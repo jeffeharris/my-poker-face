@@ -3,12 +3,23 @@
  */
 
 /**
- * Capabilities of an LLM provider.
+ * Capabilities of an LLM provider (provider-level defaults).
  */
 export interface ProviderCapabilities {
   supports_reasoning: boolean;
   supports_json_mode: boolean;
   supports_image_generation: boolean;
+  image_only?: boolean;
+}
+
+/**
+ * Model-specific capabilities (supplements provider-level).
+ */
+export interface ModelCapabilities {
+  supports_reasoning?: boolean;
+  supports_json_mode?: boolean;
+  supports_image_generation?: boolean;
+  supports_img2img?: boolean;
 }
 
 /**
@@ -20,6 +31,7 @@ export interface ProviderInfo {
   models: string[];
   default_model: string;
   capabilities?: ProviderCapabilities;
+  model_capabilities?: Record<string, ModelCapabilities>;
   model_tiers?: Record<string, string>;
 }
 

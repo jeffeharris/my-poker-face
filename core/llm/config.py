@@ -134,13 +134,15 @@ XAI_AVAILABLE_MODELS = [
 # =============================================================================
 
 # Default Runware model - FLUX Schnell is fast and good quality
-RUNWARE_DEFAULT_MODEL = os.environ.get("RUNWARE_MODEL", "runware:101@1")
+RUNWARE_DEFAULT_MODEL = os.environ.get("RUNWARE_MODEL", "runware:100@1")
 
 # Available Runware models for image generation
 # See: https://runware.ai/docs/image-inference/api-reference
 RUNWARE_AVAILABLE_MODELS = [
-    "runware:101@1",            # FLUX Schnell - fast, good quality
-    "runware:100@1",            # FLUX Dev - slower, higher quality
+    "runware:100@1",            # FLUX.1 [schnell] - fast ($0.0013/1024x1024)
+    "runware:400@1",            # FLUX.2 [dev] - higher quality ($0.0038/1024x1024)
+    "runware:400@4",            # FLUX.2 [klein] 4B - fast ($0.0006/1024x1024)
+    "runware:z-image@turbo",    # Z-Image Turbo ($0.0032/1024x1024)
 ]
 
 # =============================================================================
@@ -161,6 +163,7 @@ POLLINATIONS_AVAILABLE_MODELS = [
     "flux",                         # Flux Schnell - fast, good quality ($0.0002/image)
     "zimage",                       # Z-Image Turbo - fast ($0.0002/image)
     "turbo",                        # SDXL Turbo ($0.0003/image)
+    "klein",                        # FLUX.2 Klein 4B - supports img2img ($0.008/image)
     "seedream",                     # Seedream 4.0 ($0.03/image)
     "kontext",                      # FLUX.1 Kontext ($0.04/image)
     "gptimage",                     # GPT Image 1 Mini ($0.008/image approx)

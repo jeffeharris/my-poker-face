@@ -47,7 +47,7 @@
   gap: var(--space-4);
 }
 
-/* Default Models Section (3-across grid) */
+/* System Models Section (3-across grid) */
 .us-defaults-section {
   background: var(--admin-card-bg);
   border: 1px solid var(--admin-card-border);
