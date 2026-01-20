@@ -9,6 +9,15 @@ import { useViewport } from '../../../hooks/useViewport';
 import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion } from './types';
 import { DEFAULT_EXPERIMENT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
+import { generateSeed } from './seedWords';
+
+/** Create a fresh experiment config with a new random seed */
+function createFreshConfig(): ExperimentConfig {
+  return {
+    ...DEFAULT_EXPERIMENT_CONFIG,
+    random_seed: generateSeed(),
+  };
+}
 
 /** Data returned from the /chat/latest endpoint */
 interface PendingSession {
@@ -47,7 +56,7 @@ interface ExperimentDesignerProps {
 export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps) {
   const { isMobile } = useViewport();
   const [mode, setMode] = useState<ExperimentMode>('list');
-  const [config, setConfig] = useState<ExperimentConfig>(DEFAULT_EXPERIMENT_CONFIG);
+  const [config, setConfig] = useState<ExperimentConfig>(() => createFreshConfig());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedExperimentId, setSelectedExperimentId] = useState<number | null>(null);
   const [failureContext, setFailureContext] = useState<LabAssistantContext | null>(null);
@@ -86,8 +95,8 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
       setShowResumePrompt(true);
       return;
     }
-    // No pending session, start fresh
-    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    // No pending session, start fresh with new seed
+    setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -125,8 +134,8 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
       }
     }
 
-    // Start fresh
-    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    // Start fresh with new seed
+    setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -149,7 +158,7 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   const handleExperimentLaunched = useCallback(() => {
     setMode('list');
-    setConfig(DEFAULT_EXPERIMENT_CONFIG);
+    setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);

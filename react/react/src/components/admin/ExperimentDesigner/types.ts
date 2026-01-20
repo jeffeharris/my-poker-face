@@ -347,7 +347,7 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   model: 'gpt-5-nano',
   provider: 'openai',
   personalities: null,
-  random_seed: null,
+  random_seed: 42,  // Placeholder - will be regenerated when starting new experiment
   prompt_config: null,
   player_configs: null,
   control: null,

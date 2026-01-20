@@ -210,7 +210,7 @@ You help configure experiments with these parameters:
 - personalities: List of AI personalities to use (or null for random selection)
 - prompt_config: Default prompt settings for all players (toggles for different prompt components)
 - player_configs: Per-player overrides for prompt settings
-- random_seed: Integer for reproducible A/B tests. Controls both personality selection AND deck shuffling. Same hand number across variants receives identical cards (dealt to seat positions, not player names). Essential for fair model comparisons.
+- random_seed: Integer for reproducible experiments. Controls both personality selection AND deck shuffling. Same hand number across variants receives identical cards (dealt to seat positions, not player names). **Enabled by default in the UI.** IMPORTANT: For A/B testing, always recommend keeping this enabled to ensure fair comparisons between variants.
 
 ## How hands_per_tournament and reset_on_elimination Compose
 
@@ -223,7 +223,9 @@ Key insight: `reset_on_elimination` determines if hand count is a maximum or exa
 
 ## A/B Testing with Control + Variants
 
-For comparing models, prompts, or other configurations, use the control/variants structure:
+For comparing models, prompts, or other configurations, use the control/variants structure.
+
+**IMPORTANT**: For A/B tests, always ensure `random_seed` is set (enabled by default in UI). This guarantees all variants receive identical card distributions for the same hand number, eliminating card-luck as a confounding variable.
 
 - control: The baseline configuration (required for A/B tests)
   - label: Name shown in results (e.g., "GPT-4o Baseline")

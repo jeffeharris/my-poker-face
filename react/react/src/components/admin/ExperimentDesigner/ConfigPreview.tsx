@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X } from 'lucide-react';
+import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X, Shuffle } from 'lucide-react';
 import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
+import { seedToWords, wordsToSeed, generateSeed, isWordSeed } from './seedWords';
 
 // Number input field defaults for when blur occurs with empty value
 const NUMBER_FIELD_DEFAULTS: Record<string, number> = {
@@ -74,6 +75,8 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   const [providersLoading, setProvidersLoading] = useState(true);
   const [availablePersonalities, setAvailablePersonalities] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  // Store seed when disabled so we can restore it when re-enabled
+  const [savedSeed, setSavedSeed] = useState<number>(() => config.random_seed ?? generateSeed());
 
   // Fetch available providers and models on mount
   useEffect(() => {
@@ -851,6 +854,76 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
               {advancedExpanded && (
                 <div className="config-preview__advanced">
+                  {/* Deterministic Seeding */}
+                  <div className="config-preview__seed-section">
+                    <label className="config-preview__toggle-label" title="Enable deterministic deck shuffling for reproducible experiments. Essential for fair A/B comparisons.">
+                      <input
+                        type="checkbox"
+                        checked={config.random_seed !== null}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            // Restore the saved seed when re-enabling
+                            onConfigUpdate({ random_seed: savedSeed });
+                          } else {
+                            // Save the current seed before disabling
+                            if (config.random_seed !== null) {
+                              setSavedSeed(config.random_seed);
+                            }
+                            onConfigUpdate({ random_seed: null });
+                          }
+                        }}
+                      />
+                      Deterministic Deck Seeding
+                    </label>
+                    {config.random_seed !== null && (
+                      <div className="config-preview__seed-row">
+                        <span className="config-preview__seed-label">Seed</span>
+                        <div className="config-preview__seed-input">
+                          <input
+                            type="text"
+                            className="config-preview__input config-preview__input--seed"
+                            value={seedToWords(config.random_seed)}
+                            onChange={(e) => {
+                              const val = e.target.value.toLowerCase().trim();
+                              // Try to parse as word seed
+                              if (isWordSeed(val)) {
+                                const numericSeed = wordsToSeed(val);
+                                if (numericSeed !== null) {
+                                  setSavedSeed(numericSeed);
+                                  onConfigUpdate({ random_seed: numericSeed });
+                                }
+                              }
+                              // Also accept numeric input
+                              const numVal = parseInt(val);
+                              if (!isNaN(numVal) && numVal > 0) {
+                                setSavedSeed(numVal);
+                                onConfigUpdate({ random_seed: numVal });
+                              }
+                            }}
+                            placeholder="swift-tiger"
+                          />
+                          <button
+                            type="button"
+                            className="config-preview__regenerate-btn"
+                            onClick={() => {
+                              const newSeed = generateSeed();
+                              setSavedSeed(newSeed);
+                              onConfigUpdate({ random_seed: newSeed });
+                            }}
+                            title="Generate new seed"
+                          >
+                            <Shuffle size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="config-preview__hint">
+                      {config.random_seed !== null
+                        ? 'Same seed = same card order across variants (fair A/B comparison)'
+                        : 'Random deck order each tournament (more variance)'}
+                    </p>
+                  </div>
+
                   {/* Parallel Execution */}
                   <div className="config-preview__row">
                     <label className="config-preview__label config-preview__label--inline">
