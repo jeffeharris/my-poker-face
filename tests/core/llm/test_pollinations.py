@@ -1,7 +1,6 @@
 """Tests for Pollinations provider."""
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-import base64
+from unittest.mock import Mock, patch
 
 from core.llm.providers.pollinations import PollinationsProvider, PollinationsImageResponse
 
@@ -96,7 +95,7 @@ class TestPollinationsProvider(unittest.TestCase):
         provider = PollinationsProvider(model="flux")
         provider._session = mock_session
 
-        result = provider.generate_image(prompt="A test image")
+        _result = provider.generate_image(prompt="A test image")
 
         # Verify default size
         call_args = mock_session.get.call_args

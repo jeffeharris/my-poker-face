@@ -634,6 +634,7 @@ def capture_image_prompt(
                             w, h = response.size.split('x')
                             image_width, image_height = int(w), int(h)
                         except ValueError:
+                            # Malformed size string; continue without dimensions
                             pass
                 except Exception as e:
                     logger.debug(f"Could not get image dimensions: {e}")

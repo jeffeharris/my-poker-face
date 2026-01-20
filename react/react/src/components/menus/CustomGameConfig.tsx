@@ -50,7 +50,6 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
     getModelsForProvider,
     getDefaultModel,
     providerSupportsReasoning,
-    getModelTier,
     formatModelLabel,
   } = useLLMProviders({ scope: 'user' });
   const [defaultProvider, setDefaultProvider] = useState('openai');

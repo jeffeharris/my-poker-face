@@ -121,7 +121,7 @@ class TestRunwareProvider(unittest.TestCase):
         provider = RunwareProvider(model="runware:101@1", api_key="test-key")
         provider._session = mock_session
 
-        result = provider.generate_image(prompt="A test image")
+        _result = provider.generate_image(prompt="A test image")
 
         # Verify default size
         call_args = mock_session.post.call_args
@@ -149,7 +149,7 @@ class TestRunwareProvider(unittest.TestCase):
         provider._session = mock_session
 
         # 1024x1024 should round correctly
-        result = provider.generate_image(prompt="Test", size="1024x1024")
+        _result = provider.generate_image(prompt="Test", size="1024x1024")
 
         call_args = mock_session.post.call_args
         payload = call_args[1]["json"]
@@ -381,7 +381,7 @@ class TestRunwareProviderWithApiKey(unittest.TestCase):
     def test_missing_api_key_logs_warning(self):
         """Test that missing API key logs a warning."""
         with patch('core.llm.providers.runware.logger') as mock_logger:
-            provider = RunwareProvider()
+            _provider = RunwareProvider()
             mock_logger.warning.assert_called_once()
             self.assertIn("RUNWARE_API_KEY", mock_logger.warning.call_args[0][0])
 

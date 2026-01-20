@@ -917,6 +917,7 @@ def api_upload_reference_image():
             img = Image.open(io.BytesIO(image_data))
             width, height = img.size
         except ImportError:
+            # PIL not installed; skip dimension extraction but allow upload to proceed
             pass
         except Exception as e:
             logger.debug(f"Could not get image dimensions: {e}")
