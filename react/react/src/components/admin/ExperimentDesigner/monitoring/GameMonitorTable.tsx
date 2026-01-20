@@ -44,7 +44,7 @@ export function GameMonitorTable({ games, onPlayerClick }: GameMonitorTableProps
               </td>
               <td>
                 <span className="game-monitor-table__phase">
-                  {game.phase.replace('_', ' ')}
+                  {game.phase.replace(/_/g, ' ')}
                 </span>
               </td>
               <td className="game-monitor-table__pot">
