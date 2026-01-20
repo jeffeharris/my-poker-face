@@ -1,4 +1,5 @@
 export { ExperimentDesigner } from './ExperimentDesigner';
+export type { AssistantPanelProps } from './ExperimentDesigner';
 export { ExperimentChat } from './ExperimentChat';
 export { ConfigPreview } from './ConfigPreview';
 export { ExperimentList } from './ExperimentList';

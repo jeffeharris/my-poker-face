@@ -65,29 +65,20 @@
   overflow: hidden;
 }
 
-/* Design Mode - Two Panel Layout */
-.experiment-designer__design-layout {
-  display: grid;
-  grid-template-columns: 1fr minmax(400px, 480px);
-  gap: var(--space-6);
+/* Design Mode - ConfigPreview fills the content area */
+.experiment-designer__content .config-preview {
   height: 100%;
-  padding: 0;
-}
-
-/* Wide screen: allow preview panel to grow */
-@media (min-width: 1600px) {
-  .experiment-designer__design-layout {
-    grid-template-columns: 1fr minmax(480px, 560px);
-  }
-}
-
-.experiment-designer__chat-panel,
-.experiment-designer__preview-panel {
   display: flex;
   flex-direction: column;
   background: rgba(30, 30, 30, 0.5);
   border-radius: 8px;
   overflow: hidden;
+}
+
+/* ExperimentChat fills the docked assistant panel (below header) */
+.admin-assistant-panel--docked .experiment-chat {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ExperimentChat */
@@ -1576,12 +1567,6 @@
 
 /* Responsive - Tablet */
 @media (max-width: 900px) {
-  .experiment-designer__design-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: var(--space-4);
-  }
-
   .experiment-detail__variant-comparison {
     grid-template-columns: 1fr;
   }

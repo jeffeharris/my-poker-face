@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, ArrowLeft, History, Sparkles } from 'lucide-react';
 import { ExperimentChat } from './ExperimentChat';
@@ -49,8 +49,29 @@ import './ExperimentDesigner.css';
 
 type ExperimentMode = 'design' | 'list';
 
+/** Props for the assistant panel, passed to parent for page-level rendering */
+export interface AssistantPanelProps {
+  config: ExperimentConfig;
+  sessionId: string | null;
+  onSessionIdChange: (sessionId: string) => void;
+  onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
+  initialMessage?: {
+    userMessage: string;
+    context?: LabAssistantContext;
+  } | null;
+  initialChatHistory?: ChatMessage[];
+  configVersions: ConfigVersion[];
+  onConfigVersionsChange: (versions: ConfigVersion[]) => void;
+  currentVersionIndex: number;
+  onCurrentVersionIndexChange: (index: number) => void;
+}
+
 interface ExperimentDesignerProps {
   embedded?: boolean;
+  /** Callback when assistant panel should be shown/hidden. Pass null to hide. */
+  onAssistantPanelChange?: (props: AssistantPanelProps | null) => void;
+  /** Callback when design mode changes */
+  onDesignModeChange?: (isDesignMode: boolean) => void;
 }
 
 // Location state types for navigation from experiment detail
@@ -62,7 +83,7 @@ interface LocationState {
   };
 }
 
-export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps) {
+export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, onDesignModeChange }: ExperimentDesignerProps) {
   const { isMobile } = useViewport();
   const navigate = useNavigate();
   const location = useLocation();
@@ -77,6 +98,41 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
   // Session resume state
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
+
+  // Compute initialMessage from failureContext (memoized to prevent unnecessary re-renders)
+  const initialMessage = useMemo(() => failureContext ? {
+    userMessage: failureContext.type === 'suggestion'
+      ? `Build a follow-up experiment to test: "${failureContext.suggestion.hypothesis}"`
+      : `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
+    context: failureContext,
+  } : null, [failureContext]);
+
+  // Notify parent about design mode changes
+  useEffect(() => {
+    onDesignModeChange?.(mode === 'design' && !isMobile);
+  }, [mode, isMobile, onDesignModeChange]);
+
+  // Notify parent about assistant panel state
+  useEffect(() => {
+    if (!onAssistantPanelChange) return;
+
+    if (mode === 'design' && !isMobile) {
+      onAssistantPanelChange({
+        config,
+        sessionId,
+        onSessionIdChange: setSessionId,
+        onConfigUpdate: (updates) => setConfig(prev => ({ ...prev, ...updates })),
+        initialMessage,
+        initialChatHistory,
+        configVersions,
+        onConfigVersionsChange: setConfigVersions,
+        currentVersionIndex,
+        onCurrentVersionIndexChange: setCurrentVersionIndex,
+      });
+    } else {
+      onAssistantPanelChange(null);
+    }
+  }, [mode, isMobile, config, sessionId, initialMessage, initialChatHistory, configVersions, currentVersionIndex, onAssistantPanelChange]);
 
   // Handle navigation state from experiment detail (edit/build actions)
   useEffect(() => {
@@ -240,14 +296,6 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
     }
   }, [configVersions]);
 
-  // Compute initialMessage from failureContext (cleared after first render via state)
-  const initialMessage = failureContext ? {
-    userMessage: failureContext.type === 'suggestion'
-      ? `Build a follow-up experiment to test: "${failureContext.suggestion.hypothesis}"`
-      : `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
-    context: failureContext,
-  } : null;
-
   // Mobile design mode - full screen with tabs
   if (isMobile && mode === 'design') {
     return (
@@ -293,33 +341,15 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
       {/* Mode Content */}
       <div className="experiment-designer__content">
         {mode === 'design' && (
-          <div className="experiment-designer__design-layout">
-            <div className="experiment-designer__chat-panel">
-              <ExperimentChat
-                config={config}
-                sessionId={sessionId}
-                onSessionIdChange={setSessionId}
-                onConfigUpdate={handleConfigUpdate}
-                initialMessage={initialMessage}
-                initialChatHistory={initialChatHistory}
-                configVersions={configVersions}
-                onConfigVersionsChange={setConfigVersions}
-                currentVersionIndex={currentVersionIndex}
-                onCurrentVersionIndexChange={setCurrentVersionIndex}
-              />
-            </div>
-            <div className="experiment-designer__preview-panel">
-              <ConfigPreview
-                config={config}
-                onConfigUpdate={handleConfigUpdate}
-                onLaunch={handleExperimentLaunched}
-                sessionId={sessionId}
-                configVersions={configVersions}
-                currentVersionIndex={currentVersionIndex}
-                onVersionChange={handleVersionChange}
-              />
-            </div>
-          </div>
+          <ConfigPreview
+            config={config}
+            onConfigUpdate={handleConfigUpdate}
+            onLaunch={handleExperimentLaunched}
+            sessionId={sessionId}
+            configVersions={configVersions}
+            currentVersionIndex={currentVersionIndex}
+            onVersionChange={handleVersionChange}
+          />
         )}
 
         {mode === 'list' && (

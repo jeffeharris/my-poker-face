@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft, ChevronRight } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react';
 import { AdminSidebar, type AdminTab, type SidebarItem } from './AdminSidebar';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
-import { ExperimentDesigner } from './ExperimentDesigner';
+import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
@@ -69,6 +69,8 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
   const { isMobile } = useViewport();
   const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
+  const [isDesignMode, setIsDesignMode] = useState(false);
 
   // Sync activeTab with initialTab when it changes (URL navigation)
   useEffect(() => {
@@ -79,6 +81,11 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
   const handleTabChange = useCallback((tab: AdminTab) => {
     setActiveTab(tab);
     onTabChange?.(tab);
+    // Clear assistant panel when switching away from experiments
+    if (tab !== 'experiments') {
+      setAssistantPanelProps(null);
+      setIsDesignMode(false);
+    }
   }, [onTabChange]);
 
   // Find active tab config for header
@@ -110,7 +117,11 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
         <PromptPlayground embedded />
       )}
       {activeTab === 'experiments' && (
-        <ExperimentDesigner embedded />
+        <ExperimentDesigner
+          embedded
+          onAssistantPanelChange={setAssistantPanelProps}
+          onDesignModeChange={setIsDesignMode}
+        />
       )}
       {activeTab === 'templates' && (
         <TemplateEditor embedded />
@@ -174,9 +185,9 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
     );
   }
 
-  // Desktop layout - sidebar + main content
+  // Desktop layout - sidebar + main content + optional assistant panel
   return (
-    <div className="admin-dashboard-layout">
+    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
       {/* Sidebar Navigation */}
       <AdminSidebar
         items={SIDEBAR_ITEMS}
@@ -208,6 +219,25 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
           {renderTabContent()}
         </div>
       </main>
+
+      {/* Docked Assistant Panel (page-level) - only in design mode */}
+      {activeTab === 'experiments' && isDesignMode && (
+        <div className="admin-assistant-panel admin-assistant-panel--docked">
+          <div className="admin-assistant-panel__header">
+            <h3>
+              <MessageSquare size={18} />
+              Lab Assistant
+            </h3>
+          </div>
+          {assistantPanelProps ? (
+            <ExperimentChat {...assistantPanelProps} />
+          ) : (
+            <div style={{ padding: '1rem', color: '#888' }}>
+              Loading chat...
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
