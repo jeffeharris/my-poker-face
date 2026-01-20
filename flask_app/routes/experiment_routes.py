@@ -1451,11 +1451,12 @@ def validate_experiment_config():
                 if p not in available_names:
                     warnings.append(f"Personality '{p}' not found in database")
 
-        # Validate provider
-        valid_providers = {'openai', 'anthropic', 'groq'}
-        provider = config_data.get('provider', 'openai')
-        if provider not in valid_providers:
-            errors.append(f"Invalid provider: {provider}. Must be one of {valid_providers}")
+        # Validate provider against models in database
+        provider = config_data.get('provider')
+        if provider:
+            valid_providers = persistence.get_available_providers()
+            if valid_providers and provider not in valid_providers:
+                warnings.append(f"Provider '{provider}' not found in system models")
 
         # Validate control/variants structure if present
         control = config_data.get('control')

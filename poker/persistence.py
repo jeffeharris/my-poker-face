@@ -6,7 +6,7 @@ import sqlite3
 import json
 import os
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from dataclasses import dataclass
 
 import numpy as np
@@ -2355,6 +2355,19 @@ class GamePersistence:
                 WHERE owner_id = ?
             """, (to_owner_id, to_owner_name, from_owner_id))
             return cursor.rowcount
+
+    def get_available_providers(self) -> Set[str]:
+        """Get the set of all providers in the system.
+
+        Returns:
+            Set of all provider names in enabled_models table.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT provider
+                FROM enabled_models
+            """)
+            return {row[0] for row in cursor.fetchall()}
 
     def get_enabled_models(self) -> Dict[str, List[str]]:
         """Get all enabled models grouped by provider.

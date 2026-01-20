@@ -193,11 +193,19 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   useEffect(() => {
     const fetchLatestSession = async () => {
       try {
+        console.log('[ExperimentDesigner] Fetching latest chat session...');
         const response = await fetch(`${appConfig.API_URL}/api/experiments/chat/latest`);
-        if (!response.ok) return;
+        if (!response.ok) {
+          console.log('[ExperimentDesigner] Response not ok:', response.status);
+          return;
+        }
         const data = await response.json();
+        console.log('[ExperimentDesigner] Latest session response:', data);
         if (data.success && data.session) {
+          console.log('[ExperimentDesigner] Found pending session:', data.session.session_id);
           setPendingSession(data.session);
+        } else {
+          console.log('[ExperimentDesigner] No pending session found');
         }
       } catch (error) {
         console.error('Error fetching latest chat session:', error);
@@ -211,12 +219,15 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   }, []);
 
   const handleNewExperiment = useCallback(() => {
+    console.log('[ExperimentDesigner] handleNewExperiment called, pendingSession:', pendingSession);
     // Check if there's a pending session to resume
     if (pendingSession) {
+      console.log('[ExperimentDesigner] Showing resume prompt');
       setShowResumePrompt(true);
       return;
     }
     // No pending session, start fresh with new seed
+    console.log('[ExperimentDesigner] No pending session, starting fresh');
     setConfig(createFreshConfig());
     setSessionId(null);
     setFailureContext(null);
