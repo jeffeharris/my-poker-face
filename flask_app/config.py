@@ -38,6 +38,59 @@ REDIS_URL = os.environ.get('REDIS_URL')
 # AI model configuration - import from centralized config
 from core.llm import FAST_MODEL as FAST_AI_MODEL
 from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
+from core.llm.config import DEFAULT_MODEL
+
+
+def get_default_provider() -> str:
+    """Get the default LLM provider from app_settings or environment.
+
+    Priority: 1. Database (app_settings), 2. Default ('openai')
+    """
+    from poker.persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('DEFAULT_PROVIDER', '')
+    if db_value:
+        return db_value
+    return 'openai'
+
+
+def get_default_model() -> str:
+    """Get the default LLM model from app_settings or environment.
+
+    Priority: 1. Database (app_settings), 2. core.llm.config.DEFAULT_MODEL
+    """
+    from poker.persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('DEFAULT_MODEL', '')
+    if db_value:
+        return db_value
+    return DEFAULT_MODEL
+
+
+def get_assistant_provider() -> str:
+    """Get the assistant provider from app_settings or environment.
+
+    Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_PROVIDER
+    """
+    from poker.persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('ASSISTANT_PROVIDER', '')
+    if db_value:
+        return db_value
+    return ASSISTANT_PROVIDER
+
+
+def get_assistant_model() -> str:
+    """Get the assistant model from app_settings or environment.
+
+    Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_MODEL
+    """
+    from poker.persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('ASSISTANT_MODEL', '')
+    if db_value:
+        return db_value
+    return ASSISTANT_MODEL
 
 # Database path
 def get_db_path():

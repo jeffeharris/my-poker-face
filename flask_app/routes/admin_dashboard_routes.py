@@ -1296,11 +1296,17 @@ def api_get_settings():
     Returns settings for:
     - LLM_PROMPT_CAPTURE: Capture mode (disabled, all, all_except_decisions)
     - LLM_PROMPT_RETENTION_DAYS: Days to keep captures (0 = unlimited)
+    - DEFAULT_PROVIDER/DEFAULT_MODEL: Default LLM for general use
+    - IMAGE_PROVIDER/IMAGE_MODEL: Model for avatar generation
+    - ASSISTANT_PROVIDER/ASSISTANT_MODEL: Reasoning model for experiment assistant
     """
     from ..extensions import persistence
     from core.llm.capture_config import (
         get_capture_mode, get_retention_days, get_env_defaults,
         CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
+    )
+    from core.llm.config import (
+        DEFAULT_MODEL, ASSISTANT_MODEL, ASSISTANT_PROVIDER,
     )
 
     try:
@@ -1313,6 +1319,14 @@ def api_get_settings():
 
         # Get DB values directly to show if overridden
         db_settings = persistence.get_all_settings()
+
+        # System model settings - get from DB or fall back to env/defaults
+        default_provider = persistence.get_setting('DEFAULT_PROVIDER', '') or 'openai'
+        default_model = persistence.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
+        image_provider = persistence.get_setting('IMAGE_PROVIDER', '') or os.environ.get('IMAGE_PROVIDER', 'openai')
+        image_model = persistence.get_setting('IMAGE_MODEL', '') or os.environ.get('IMAGE_MODEL', '')
+        assistant_provider = persistence.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
+        assistant_model = persistence.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
 
         settings = {
             'LLM_PROMPT_CAPTURE': {
@@ -1328,6 +1342,43 @@ def api_get_settings():
                 'description': 'Days to keep captures (0 = unlimited)',
                 'env_default': str(env_defaults['retention_days']),
                 'is_db_override': 'LLM_PROMPT_RETENTION_DAYS' in db_settings,
+            },
+            # System model settings
+            'DEFAULT_PROVIDER': {
+                'value': default_provider,
+                'description': 'Default LLM provider for general use',
+                'env_default': 'openai',
+                'is_db_override': 'DEFAULT_PROVIDER' in db_settings,
+            },
+            'DEFAULT_MODEL': {
+                'value': default_model,
+                'description': 'Default LLM model for chat suggestions, themes, etc.',
+                'env_default': DEFAULT_MODEL,
+                'is_db_override': 'DEFAULT_MODEL' in db_settings,
+            },
+            'IMAGE_PROVIDER': {
+                'value': image_provider,
+                'description': 'Provider for generating AI player avatars',
+                'env_default': os.environ.get('IMAGE_PROVIDER', 'openai'),
+                'is_db_override': 'IMAGE_PROVIDER' in db_settings,
+            },
+            'IMAGE_MODEL': {
+                'value': image_model,
+                'description': 'Model for generating AI player avatars',
+                'env_default': os.environ.get('IMAGE_MODEL', ''),
+                'is_db_override': 'IMAGE_MODEL' in db_settings,
+            },
+            'ASSISTANT_PROVIDER': {
+                'value': assistant_provider,
+                'description': 'Provider for experiment design assistant (reasoning)',
+                'env_default': ASSISTANT_PROVIDER,
+                'is_db_override': 'ASSISTANT_PROVIDER' in db_settings,
+            },
+            'ASSISTANT_MODEL': {
+                'value': assistant_model,
+                'description': 'Reasoning model for experiment design assistant',
+                'env_default': ASSISTANT_MODEL,
+                'is_db_override': 'ASSISTANT_MODEL' in db_settings,
             },
         }
 
@@ -1362,7 +1413,12 @@ def api_update_setting():
         value = str(data['value'])
 
         # Validate setting key and value
-        valid_keys = {'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS'}
+        valid_keys = {
+            'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
+            'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+            'IMAGE_PROVIDER', 'IMAGE_MODEL',
+            'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+        }
         if key not in valid_keys:
             return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
@@ -1394,6 +1450,12 @@ def api_update_setting():
         descriptions = {
             'LLM_PROMPT_CAPTURE': 'Controls which LLM calls are captured for debugging',
             'LLM_PROMPT_RETENTION_DAYS': 'Days to keep captures (0 = unlimited)',
+            'DEFAULT_PROVIDER': 'Default LLM provider for general use',
+            'DEFAULT_MODEL': 'Default LLM model for chat suggestions, themes, etc.',
+            'IMAGE_PROVIDER': 'Provider for generating AI player avatars',
+            'IMAGE_MODEL': 'Model for generating AI player avatars',
+            'ASSISTANT_PROVIDER': 'Provider for experiment design assistant (reasoning)',
+            'ASSISTANT_MODEL': 'Reasoning model for experiment design assistant',
         }
 
         success = persistence.set_setting(key, value, descriptions.get(key))
@@ -1427,7 +1489,12 @@ def api_reset_settings():
 
         if key:
             # Reset specific setting
-            valid_keys = {'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS'}
+            valid_keys = {
+                'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
+                'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+                'IMAGE_PROVIDER', 'IMAGE_MODEL',
+                'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+            }
             if key not in valid_keys:
                 return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
@@ -1440,7 +1507,13 @@ def api_reset_settings():
         else:
             # Reset all settings
             deleted_count = 0
-            for k in ['LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS']:
+            all_setting_keys = [
+                'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
+                'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+                'IMAGE_PROVIDER', 'IMAGE_MODEL',
+                'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+            ]
+            for k in all_setting_keys:
                 if persistence.delete_setting(k):
                     deleted_count += 1
 

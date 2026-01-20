@@ -34,9 +34,33 @@ EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
 # Icon size for processed images
 ICON_SIZE = 256
 
-# Image provider configuration (via environment)
-# IMAGE_PROVIDER: "openai" (default) or "pollinations"
+# Image provider configuration
+# Priority: 1. Database (app_settings), 2. Environment variable, 3. Default
+# IMAGE_PROVIDER: "openai" (default), "pollinations", "runware", etc.
 # IMAGE_MODEL: model to use (provider-specific default if not set)
+
+def get_image_provider() -> str:
+    """Get the image provider from app_settings or environment."""
+    from .persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('IMAGE_PROVIDER', '')
+    if db_value:
+        return db_value
+    return os.environ.get("IMAGE_PROVIDER", "openai")
+
+
+def get_image_model() -> Optional[str]:
+    """Get the image model from app_settings or environment."""
+    from .persistence import GamePersistence
+    p = GamePersistence()
+    db_value = p.get_setting('IMAGE_MODEL', '')
+    if db_value:
+        return db_value
+    return os.environ.get("IMAGE_MODEL")
+
+
+# Legacy module-level constants for backward compatibility (read at module load)
+# Note: These may not reflect runtime app_settings changes
 IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL")
 
@@ -242,7 +266,7 @@ class CharacterImageService:
             return {"success": False, "error": f"Missing dependency: {e}"}
 
         try:
-            llm_client = LLMClient(provider=IMAGE_PROVIDER, model=IMAGE_MODEL)
+            llm_client = LLMClient(provider=get_image_provider(), model=get_image_model())
             raw_image_bytes = self._generate_single_image(llm_client, personality_name, emotion, game_id=game_id)
             self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
             return {
@@ -298,13 +322,15 @@ class CharacterImageService:
             }
 
         # Initialize LLM client for tracked API calls
-        # Use IMAGE_PROVIDER and IMAGE_MODEL for image generation
-        llm_client = LLMClient(provider=IMAGE_PROVIDER, model=IMAGE_MODEL)
+        # Use app_settings IMAGE_PROVIDER and IMAGE_MODEL for image generation
+        image_provider = get_image_provider()
+        image_model = get_image_model()
+        llm_client = LLMClient(provider=image_provider, model=image_model)
 
         results = {"generated": 0, "failed": 0, "skipped": 0, "errors": []}
 
         # Check if we're using Pollinations (needs rate limiting)
-        needs_rate_limit = IMAGE_PROVIDER == "pollinations" and POLLINATIONS_RATE_LIMIT_DELAY > 0
+        needs_rate_limit = image_provider == "pollinations" and POLLINATIONS_RATE_LIMIT_DELAY > 0
 
         for i, emotion in enumerate(emotions):
             if emotion not in EMOTIONS:

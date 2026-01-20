@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
+import { Sliders, Database, HardDrive, DollarSign, Settings } from 'lucide-react';
 import { config } from '../../config';
 import { useAdminResource, useAdminMutation } from '../../hooks/useAdminResource';
 import './AdminShared.css';
@@ -9,7 +9,7 @@ import './UnifiedSettings.css';
 // Types
 // ============================================
 
-type SettingsCategory = 'models' | 'capture' | 'storage' | 'pricing';
+type SettingsCategory = 'models' | 'system' | 'capture' | 'storage' | 'pricing';
 
 interface CategoryConfig {
   id: SettingsCategory;
@@ -46,6 +46,16 @@ interface SettingConfig {
 interface CaptureSettingsData {
   LLM_PROMPT_CAPTURE: SettingConfig;
   LLM_PROMPT_RETENTION_DAYS: SettingConfig;
+}
+
+// System settings include model configurations
+interface SystemSettingsData {
+  DEFAULT_PROVIDER: SettingConfig;
+  DEFAULT_MODEL: SettingConfig;
+  IMAGE_PROVIDER: SettingConfig;
+  IMAGE_MODEL: SettingConfig;
+  ASSISTANT_PROVIDER: SettingConfig;
+  ASSISTANT_MODEL: SettingConfig;
 }
 
 interface CaptureStats {
@@ -101,6 +111,12 @@ const CATEGORIES: CategoryConfig[] = [
     icon: <Sliders size={20} />,
   },
   {
+    id: 'system',
+    label: 'System',
+    description: 'System-wide model defaults',
+    icon: <Settings size={20} />,
+  },
+  {
     id: 'capture',
     label: 'Capture',
     description: 'Prompt capture settings',
@@ -146,6 +162,14 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const [editedCapture, setEditedCapture] = useState<string>('');
   const [editedRetention, setEditedRetention] = useState<string>('');
   const [captureSaving, setCaptureSaving] = useState(false);
+
+  // System settings state - each stores "provider:model" combined value
+  const [systemSettings, setSystemSettings] = useState<SystemSettingsData | null>(null);
+  const [systemLoading, setSystemLoading] = useState(true);
+  const [editedGeneralModel, setEditedGeneralModel] = useState('');    // "openai:gpt-5-nano"
+  const [editedImageModel, setEditedImageModel] = useState('');        // "runware:runware:101@1"
+  const [editedAssistantModel, setEditedAssistantModel] = useState(''); // "deepseek:deepseek-reasoner"
+  const [systemSaving, setSystemSaving] = useState(false);
 
   // Storage state
   const [storage, setStorage] = useState<StorageStats | null>(null);
@@ -233,6 +257,19 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       return acc;
     }, {} as Record<string, Model[]>);
   }, [models]);
+
+  // Filtered models for system settings
+  // General: enabled text models (not image-only)
+  const generalModels = useMemo(() =>
+    models?.filter(m => m.enabled && !m.supports_image_gen) || [], [models]);
+
+  // Image: models that support image generation
+  const imageModels = useMemo(() =>
+    models?.filter(m => m.enabled && m.supports_image_gen) || [], [models]);
+
+  // Reasoning: models that support reasoning
+  const reasoningModels = useMemo(() =>
+    models?.filter(m => m.enabled && m.supports_reasoning) || [], [models]);
 
   // ============================================
   // Capture Logic
@@ -332,6 +369,132 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const hasCaptureChanges = captureSettings && (
     editedCapture !== captureSettings.LLM_PROMPT_CAPTURE.value ||
     editedRetention !== captureSettings.LLM_PROMPT_RETENTION_DAYS.value
+  );
+
+  // ============================================
+  // System Settings Logic
+  // ============================================
+
+  const fetchSystemData = useCallback(async () => {
+    try {
+      setSystemLoading(true);
+      const response = await fetch(`${config.API_URL}/admin/api/settings`);
+      const data = await response.json();
+
+      if (data.success) {
+        const settings = data.settings as SystemSettingsData;
+        setSystemSettings(settings);
+        // Initialize edited values as "provider:model" combined strings
+        setEditedGeneralModel(`${settings.DEFAULT_PROVIDER.value}:${settings.DEFAULT_MODEL.value}`);
+        setEditedImageModel(`${settings.IMAGE_PROVIDER.value}:${settings.IMAGE_MODEL.value}`);
+        setEditedAssistantModel(`${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`);
+      } else {
+        showAlert('error', data.error || 'Failed to load system settings');
+      }
+    } catch {
+      showAlert('error', 'Failed to connect to server');
+    } finally {
+      setSystemLoading(false);
+    }
+  }, []);
+
+  const saveSystemSettings = async () => {
+    if (!systemSettings) return;
+
+    setSystemSaving(true);
+    try {
+      const updates: Promise<Response>[] = [];
+
+      // Parse general model
+      const [generalProvider, ...generalModelParts] = editedGeneralModel.split(':');
+      const generalModel = generalModelParts.join(':');
+      const originalGeneral = `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}`;
+      if (editedGeneralModel !== originalGeneral) {
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'DEFAULT_PROVIDER', value: generalProvider }),
+        }));
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'DEFAULT_MODEL', value: generalModel }),
+        }));
+      }
+
+      // Parse image model
+      const [imageProvider, ...imageModelParts] = editedImageModel.split(':');
+      const imageModel = imageModelParts.join(':');
+      const originalImage = `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}`;
+      if (editedImageModel !== originalImage) {
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'IMAGE_PROVIDER', value: imageProvider }),
+        }));
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'IMAGE_MODEL', value: imageModel }),
+        }));
+      }
+
+      // Parse assistant model
+      const [assistantProvider, ...assistantModelParts] = editedAssistantModel.split(':');
+      const assistantModel = assistantModelParts.join(':');
+      const originalAssistant = `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`;
+      if (editedAssistantModel !== originalAssistant) {
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'ASSISTANT_PROVIDER', value: assistantProvider }),
+        }));
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'ASSISTANT_MODEL', value: assistantModel }),
+        }));
+      }
+
+      await Promise.all(updates);
+      showAlert('success', 'System settings saved');
+      await fetchSystemData();
+    } catch {
+      showAlert('error', 'Failed to save settings');
+    } finally {
+      setSystemSaving(false);
+    }
+  };
+
+  const resetSystemSettings = async () => {
+    setSystemSaving(true);
+    try {
+      // Reset all system settings to defaults
+      const keys = [
+        'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+        'IMAGE_PROVIDER', 'IMAGE_MODEL',
+        'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+      ];
+      await Promise.all(keys.map(key =>
+        fetch(`${config.API_URL}/admin/api/settings/reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key }),
+        })
+      ));
+      showAlert('success', 'System settings reset to defaults');
+      await fetchSystemData();
+    } catch {
+      showAlert('error', 'Failed to reset settings');
+    } finally {
+      setSystemSaving(false);
+    }
+  };
+
+  const hasSystemChanges = systemSettings && (
+    editedGeneralModel !== `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
+    editedImageModel !== `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
+    editedAssistantModel !== `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`
   );
 
   // ============================================
@@ -451,7 +614,9 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
   // Load data when category changes (models handled by useAdminResource hook)
   useEffect(() => {
-    if (activeCategory === 'capture' && !captureSettings) {
+    if (activeCategory === 'system' && !systemSettings) {
+      fetchSystemData();
+    } else if (activeCategory === 'capture' && !captureSettings) {
       fetchCaptureData();
     } else if (activeCategory === 'storage' && !storage) {
       fetchStorage();
@@ -459,7 +624,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       fetchPricing();
       fetchPricingProviders();
     }
-  }, [activeCategory, captureSettings, storage, pricing.length, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
+  }, [activeCategory, systemSettings, captureSettings, storage, pricing.length, fetchSystemData, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
 
   // Refetch pricing when filters change
   useEffect(() => {
@@ -547,6 +712,119 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
           <span className="us-cap us-cap--reasoning">R</span> Reasoning
           <span className="us-cap us-cap--json">J</span> JSON Mode
           <span className="us-cap us-cap--image">I</span> Image Gen
+        </div>
+      </div>
+    );
+  };
+
+  const renderSystemSection = () => {
+    if (systemLoading || !systemSettings) {
+      return (
+        <div className="admin-loading">
+          <div className="admin-loading__spinner" />
+          <span className="admin-loading__text">Loading system settings...</span>
+        </div>
+      );
+    }
+
+    // Helper to render a model selector
+    const renderModelSelector = (
+      label: string,
+      description: string,
+      value: string,
+      onChange: (value: string) => void,
+      availableModels: Model[],
+      providerSetting: SettingConfig,
+      modelSetting: SettingConfig
+    ) => {
+      const isOverridden = providerSetting.is_db_override || modelSetting.is_db_override;
+      const defaultValue = `${providerSetting.env_default}:${modelSetting.env_default}`;
+
+      return (
+        <div className="admin-card">
+          <div className="admin-card__header">
+            <h3 className="admin-card__title">{label}</h3>
+            {isOverridden && (
+              <span className="admin-badge admin-badge--primary">Custom</span>
+            )}
+          </div>
+          <p className="admin-card__subtitle">{description}</p>
+          <div className="us-system__selector">
+            <select
+              className="admin-input admin-select us-system__select"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={systemSaving}
+            >
+              {availableModels.length === 0 ? (
+                <option value="">No enabled models available</option>
+              ) : (
+                availableModels.map((m) => (
+                  <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>
+                    {m.provider} / {m.display_name || m.model}
+                  </option>
+                ))
+              )}
+            </select>
+            {defaultValue && defaultValue !== ':' && (
+              <span className="us-system__default">
+                Default: {defaultValue.replace(':', ' / ')}
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="us-system">
+        {renderModelSelector(
+          'General Model',
+          'Default LLM for chat suggestions, themes, and general use',
+          editedGeneralModel,
+          setEditedGeneralModel,
+          generalModels,
+          systemSettings.DEFAULT_PROVIDER,
+          systemSettings.DEFAULT_MODEL
+        )}
+
+        {renderModelSelector(
+          'Image Model',
+          'Model for generating AI player avatars',
+          editedImageModel,
+          setEditedImageModel,
+          imageModels,
+          systemSettings.IMAGE_PROVIDER,
+          systemSettings.IMAGE_MODEL
+        )}
+
+        {renderModelSelector(
+          'Assistant Model',
+          'Reasoning model for experiment design assistant',
+          editedAssistantModel,
+          setEditedAssistantModel,
+          reasoningModels,
+          systemSettings.ASSISTANT_PROVIDER,
+          systemSettings.ASSISTANT_MODEL
+        )}
+
+        <div className="us-system__actions">
+          <button
+            type="button"
+            className="admin-btn admin-btn--primary"
+            onClick={saveSystemSettings}
+            disabled={systemSaving || !hasSystemChanges}
+          >
+            {systemSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            type="button"
+            className="admin-btn admin-btn--secondary"
+            onClick={resetSystemSettings}
+            disabled={systemSaving}
+          >
+            Reset to Defaults
+          </button>
         </div>
       </div>
     );
@@ -831,6 +1109,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     switch (activeCategory) {
       case 'models':
         return renderModelsSection();
+      case 'system':
+        return renderSystemSection();
       case 'capture':
         return renderCaptureSection();
       case 'storage':

@@ -255,6 +255,41 @@
 }
 
 /* ==========================================================================
+   System Section
+   ========================================================================== */
+
+.us-system {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.us-system__selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.us-system__select {
+  max-width: 400px;
+  padding: var(--space-3);
+  font-size: var(--font-size-base);
+}
+
+.us-system__default {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.us-system__actions {
+  display: flex;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--admin-card-border);
+}
+
+/* ==========================================================================
    Statistics
    ========================================================================== */
 
