@@ -3,6 +3,7 @@ import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCirc
 import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
+import { useLLMProviders } from '../../../hooks/useLLMProviders';
 
 // Number input field defaults for when blur occurs with empty value
 const NUMBER_FIELD_DEFAULTS: Record<string, number> = {
@@ -19,18 +20,6 @@ interface ValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
-}
-
-interface ProviderInfo {
-  id: string;
-  name: string;
-  models: string[];
-  default_model: string;
-  capabilities: {
-    supports_reasoning: boolean;
-    supports_json_mode: boolean;
-    supports_image_generation: boolean;
-  };
 }
 
 interface ConfigPreviewProps {
@@ -70,37 +59,16 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   const [promptConfigExpanded, setPromptConfigExpanded] = useState(false);
   const [abTestingExpanded, setAbTestingExpanded] = useState(false);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [providersLoading, setProvidersLoading] = useState(true);
   const [availablePersonalities, setAvailablePersonalities] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
 
-  // Fetch available providers and models on mount
-  useEffect(() => {
-    const fetchProviders = async () => {
-      setProvidersLoading(true);
-      try {
-        const response = await fetch(`${appConfig.API_URL}/api/llm-providers`, {
-          credentials: 'include',
-        });
-        const data = await response.json();
-        if (data.providers?.length > 0) {
-          setProviders(data.providers);
-        }
-      } catch (err) {
-        console.warn('Failed to fetch providers, using fallback:', err);
-        // Fallback to basic providers if fetch fails
-        setProviders([
-          { id: 'openai', name: 'OpenAI', models: ['gpt-5-nano'], default_model: 'gpt-5-nano', capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: true } },
-          { id: 'anthropic', name: 'Anthropic', models: ['claude-sonnet-4-5-20250929'], default_model: 'claude-sonnet-4-5-20250929', capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: false } },
-          { id: 'groq', name: 'Groq', models: ['llama-3.1-8b-instant'], default_model: 'llama-3.1-8b-instant', capabilities: { supports_reasoning: false, supports_json_mode: true, supports_image_generation: false } },
-        ]);
-      } finally {
-        setProvidersLoading(false);
-      }
-    };
-    fetchProviders();
-  }, []);
+  // Use system scope for admin experiment designer
+  const {
+    providers,
+    loading: providersLoading,
+    getModelsForProvider,
+    getDefaultModel,
+  } = useLLMProviders({ scope: 'system' });
 
   // Fetch available personalities on mount
   useEffect(() => {
@@ -120,11 +88,6 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
     fetchPersonalities();
   }, []);
 
-  // Helper to get models for a specific provider
-  const getModelsForProvider = useCallback((providerId: string): string[] => {
-    const provider = providers.find(p => p.id === providerId);
-    return provider?.models || [];
-  }, [providers]);
 
   // Sync JSON text when config changes (if in form mode)
   useEffect(() => {
@@ -539,11 +502,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                     value={config.provider}
                     onChange={(e) => {
                       const newProvider = e.target.value;
-                      const providerInfo = providers.find(p => p.id === newProvider);
                       // Update both provider and model (to the new provider's default)
                       onConfigUpdate({
                         provider: newProvider,
-                        model: providerInfo?.default_model || config.model,
+                        model: getDefaultModel(newProvider) || config.model,
                       });
                     }}
                     disabled={isAbTestingEnabled || providersLoading}
@@ -638,13 +600,12 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 value={config.control?.provider || config.provider}
                                 onChange={(e) => {
                                   const newProvider = e.target.value;
-                                  const providerInfo = providers.find(p => p.id === newProvider);
                                   // Update both provider and model for control
                                   onConfigUpdate({
                                     control: {
                                       ...config.control!,
                                       provider: newProvider,
-                                      model: providerInfo?.default_model || config.control?.model || '',
+                                      model: getDefaultModel(newProvider) || config.control?.model || '',
                                     },
                                   });
                                 }}
@@ -728,13 +689,12 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                       handleVariantUpdate(index, 'provider', '');
                                       handleVariantUpdate(index, 'model', '');
                                     } else {
-                                      const providerInfo = providers.find(p => p.id === newProvider);
                                       // Update provider and set default model
                                       const variants = [...(config.variants || [])];
                                       variants[index] = {
                                         ...variants[index],
                                         provider: newProvider,
-                                        model: providerInfo?.default_model || '',
+                                        model: getDefaultModel(newProvider) || '',
                                       };
                                       onConfigUpdate({ variants });
                                     }

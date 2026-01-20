@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../../config';
+import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import type {
   PlaygroundCapture,
   PlaygroundCaptureDetail,
@@ -50,8 +51,8 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
 
-  // Available providers/models
-  const [providers, setProviders] = useState<Array<{ id: string; name: string; models: string[]; model_tiers?: Record<string, string> }>>([]);
+  // Available providers/models (using 'system' scope for admin tools)
+  const { providers, getModelsForProvider, getModelTier } = useLLMProviders({ scope: 'system' });
 
   // Fetch captures
   const fetchCaptures = useCallback(async () => {
@@ -99,19 +100,6 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
       }
     } catch (err) {
       console.error('Failed to fetch capture detail:', err);
-    }
-  };
-
-  // Fetch providers
-  const fetchProviders = async () => {
-    try {
-      const response = await fetch(`${config.API_URL}/api/llm-providers`);
-      const data = await response.json();
-      if (data.providers) {
-        setProviders(data.providers);
-      }
-    } catch (err) {
-      console.error('Failed to fetch providers:', err);
     }
   };
 
@@ -165,16 +153,14 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
   // Initial fetch
   useEffect(() => {
     fetchCaptures();
-    fetchProviders();
   }, [fetchCaptures]);
 
-  // Get models for selected provider
-  const currentProvider = providers.find(p => p.id === replayProvider);
-  const providerModels = currentProvider?.models || [];
+  // Get models for selected provider (with fallback)
+  const providerModels = getModelsForProvider(replayProvider);
 
   // Format model label with cost tier
   const formatModelLabel = (model: string): string => {
-    const tier = currentProvider?.model_tiers?.[model] || '';
+    const tier = getModelTier(replayProvider, model);
     return tier ? `${model} (${tier})` : model;
   };
 
