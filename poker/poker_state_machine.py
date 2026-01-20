@@ -167,6 +167,8 @@ def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
     """Pure function for INITIALIZING_HAND phase transition."""
     new_game_state = setup_hand(state.game_state)
     new_game_state = set_betting_round_start_player(game_state=new_game_state)
+    # Reset raise counter for the pre-flop betting round
+    new_game_state = new_game_state.update(raises_this_round=0)
     return (state
             .with_game_state(new_game_state)
             .with_phase(get_next_phase(state)))
@@ -186,8 +188,12 @@ def initialize_betting_round_transition(state: ImmutableStateMachine) -> Immutab
     new_game_state = reset_player_action_flags(state.game_state)
     new_game_state = set_betting_round_start_player(new_game_state)
     # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
-    # Also clear run_it_out flag to ensure fresh state
-    new_game_state = new_game_state.update(last_raise_amount=new_game_state.current_ante, run_it_out=False)
+    # Also clear run_it_out flag and raise counter to ensure fresh state
+    new_game_state = new_game_state.update(
+        last_raise_amount=new_game_state.current_ante,
+        run_it_out=False,
+        raises_this_round=0
+    )
     return (state
             .with_game_state(new_game_state)
             .with_phase(get_next_phase(state)))

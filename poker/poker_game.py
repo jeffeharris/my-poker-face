@@ -16,6 +16,7 @@ NUM_AI_PLAYERS = 2
 STACK_SIZE = 10000      # player starting stack
 ANTE = 50               # starting big blind
 TEST_MODE = False
+MAX_RAISES_PER_ROUND = 4  # Standard casino rule - unlimited when heads-up
 
 def create_deck(shuffled: bool = True, random_seed: Optional[int] = None):
     """
@@ -92,6 +93,7 @@ class PokerGameState:
     community_cards: Tuple[Mapping, ...] = field(default_factory=tuple)
     current_ante: int = ANTE
     last_raise_amount: int = ANTE  # Tracks the size of the last raise (defaults to big blind)
+    raises_this_round: int = 0  # Track raises for cap enforcement (reset each betting round)
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
@@ -110,6 +112,7 @@ class PokerGameState:
             'current_dealer_idx': self.current_dealer_idx,
             'community_cards': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.community_cards],
             'current_ante': self.current_ante,
+            'raises_this_round': self.raises_this_round,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
             'run_it_out': self.run_it_out,
@@ -196,16 +199,25 @@ class PokerGameState:
         # Does the player have enough to call
         player_has_enough_to_call = player.stack > player_cost_to_call
 
+        # Check raise cap - unlimited when heads-up (2 active players)
+        num_active = len([p for p in self.players if not p.is_folded and p.stack > 0])
+        is_heads_up = num_active == 2
+        raise_cap_reached = not is_heads_up and self.raises_this_round >= MAX_RAISES_PER_ROUND
+        can_raise = player.stack - player_cost_to_call > 0 and not raise_cap_reached
+
         # If the current player is last to act (aka big blind), and we're still in the pre-flop round
         if self.can_big_blind_take_pre_flop_action:
-            return ['check', 'raise', 'all_in']
+            options = ['check', 'all_in']
+            if not raise_cap_reached:
+                options.insert(1, 'raise')
+            return options
 
         # Build options based on game state using list comprehension
         option_conditions = [
             ('fold', player_cost_to_call > 0),
             ('check', player_cost_to_call == 0),
             ('call', player_has_enough_to_call and player_cost_to_call > 0),
-            ('raise', player.stack - player_cost_to_call > 0),
+            ('raise', can_raise),
             ('all_in', player.stack > 0),
             # ('chat', False),  # Not implemented yet
         ]
@@ -448,16 +460,28 @@ def player_raise(game_state, amount: int):
     # Calculate the cost_to_call as the difference between the current highest bet and the players current bet
     cost_to_call = game_state.highest_bet - game_state.current_player.bet
     game_state = place_bet(game_state=game_state, amount=amount + cost_to_call)
-    # Track the raise amount for minimum raise calculations
-    game_state = game_state.update(last_raise_amount=amount)
+    # Track the raise amount for minimum raise calculations and increment raise counter
+    game_state = game_state.update(
+        last_raise_amount=amount,
+        raises_this_round=game_state.raises_this_round + 1
+    )
     return game_state
 
 
 def player_all_in(game_state):
     """
     Player bets all of their remaining chips.
+    Counts as a raise if the amount exceeds the cost to call.
     """
-    game_state = place_bet(game_state=game_state, amount=game_state.current_player.stack)
+    player = game_state.current_player
+    cost_to_call = game_state.highest_bet - player.bet
+    all_in_amount = player.stack
+
+    game_state = place_bet(game_state=game_state, amount=all_in_amount)
+
+    # Count as a raise if going all-in for more than the call amount
+    if all_in_amount > cost_to_call:
+        game_state = game_state.update(raises_this_round=game_state.raises_this_round + 1)
     return game_state
 
 
