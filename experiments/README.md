@@ -55,7 +55,7 @@ curl -X POST http://localhost:5005/api/experiments \
     "config": {
       "name": "my_experiment",
       "num_tournaments": 3,
-      "max_hands_per_tournament": 50,
+      "hands_per_tournament": 50,
       "num_players": 4,
       "model": "gpt-5-nano",
       "provider": "openai"
@@ -99,12 +99,11 @@ The assistant understands these requests:
 | `hypothesis` | string | "" | Expected outcome |
 | `tags` | string[] | [] | Categories for filtering |
 | `num_tournaments` | int | 1 | Tournaments per variant (1-20) |
-| `max_hands_per_tournament` | int | 100 | Hand limit (20-500) |
+| `hands_per_tournament` | int | 100 | Hands per tournament (5-500) |
 | `num_players` | int | 4 | Players per tournament (2-8) |
 | `starting_stack` | int | 10000 | Starting chips |
 | `big_blind` | int | 100 | Big blind amount |
-| `target_hands` | int | null | Run exactly N hands, resetting stacks as needed |
-| `reset_on_elimination` | bool | false | Reset stacks when one player remains |
+| `reset_on_elimination` | bool | false | Reset stacks when one player remains (ensures exact hand count) |
 
 ### LLM Configuration
 
@@ -165,10 +164,10 @@ For comparing models, prompts, or configurations, use the **control/variants** s
 {
   "name": "my_ab_test",
   "num_tournaments": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "control": {
-    "label": "Baseline",
-    "model": "gpt-5-nano",
-    "provider": "openai"
+    "label": "Baseline"
   },
   "variants": [
     {
@@ -180,9 +179,22 @@ For comparing models, prompts, or configurations, use the **control/variants** s
 }
 ```
 
-This runs **5 tournaments with control** AND **5 tournaments with each variant**.
+This runs **5 tournaments with control** (using top-level model/provider) AND **5 tournaments with each variant**.
 
-### Control/Variant Fields
+**Note**: Control always uses the experiment-level `model`/`provider` settings. Variants can override these to test different models.
+
+### Control Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `label` | Yes | Display name in results |
+| `prompt_config` | No | Override prompt settings |
+| `enable_psychology` | No | Enable tilt/emotional state |
+| `enable_commentary` | No | Enable commentary generation |
+
+**Note**: Control uses experiment-level `model`/`provider` - these cannot be overridden in control.
+
+### Variant Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -191,8 +203,8 @@ This runs **5 tournaments with control** AND **5 tournaments with each variant**
 | `provider` | No | Override provider (inherits from experiment) |
 | `prompt_config` | No | Override prompt settings |
 | `reasoning_effort` | No | Override reasoning level |
-| `enable_psychology` | No | Enable tilt/emotional state |
-| `enable_commentary` | No | Enable commentary generation |
+| `enable_psychology` | No | Enable tilt/emotional state (inherits from control) |
+| `enable_commentary` | No | Enable commentary generation (inherits from control) |
 
 ### Example: Model Comparison
 
@@ -200,10 +212,10 @@ This runs **5 tournaments with control** AND **5 tournaments with each variant**
 {
   "name": "gpt_vs_claude_vs_gemini",
   "num_tournaments": 3,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "control": {
-    "label": "GPT-5 Nano",
-    "provider": "openai",
-    "model": "gpt-5-nano"
+    "label": "GPT-5 Nano"
   },
   "variants": [
     {
@@ -226,6 +238,8 @@ This runs **5 tournaments with control** AND **5 tournaments with each variant**
 {
   "name": "pot_odds_ablation",
   "num_tournaments": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "control": {
     "label": "With Pot Odds",
     "prompt_config": {"pot_odds": true}
@@ -278,22 +292,45 @@ Run multiple tournaments concurrently to speed up experiments.
 
 ---
 
-## Hand-Based Experiments
+## Tournament Behavior: reset_on_elimination
 
-For experiments requiring equal hand counts across variants (useful for fair A/B comparisons), use `target_hands` or `reset_on_elimination`.
+The `reset_on_elimination` parameter determines whether hand counts are exact or maximum.
 
 ### The Problem
 
-Default tournament behavior ends when one player has all chips. This creates unequal hand counts between experiments, making comparisons difficult.
+Default tournament behavior ends when one player has all chips. This creates unequal hand counts between experiments, making A/B comparisons difficult.
 
-### Solution 1: target_hands
+### How reset_on_elimination Works
 
-Run exactly N hands, automatically resetting stacks when one player remains:
+| Config | Behavior |
+|--------|----------|
+| `reset_on_elimination: false` (default) | Tournament ends when one player wins OR hits hand limit (variable hands) |
+| `reset_on_elimination: true` | Stacks reset on elimination, always plays EXACTLY hands_per_tournament |
+
+### Example: Variable Hands (default)
+
+```json
+{
+  "name": "quick_tournament",
+  "num_tournaments": 3,
+  "hands_per_tournament": 100,
+  "num_players": 4
+}
+```
+
+**Behavior**:
+- Runs 3 tournaments of UP TO 100 hands each
+- Tournaments end early if one player wins all chips
+- Total hands varies based on game flow
+
+### Example: Exact Hands (for fair A/B comparisons)
 
 ```json
 {
   "name": "fair_comparison_test",
-  "target_hands": 200,
+  "num_tournaments": 1,
+  "hands_per_tournament": 200,
+  "reset_on_elimination": true,
   "num_players": 4,
   "control": { "label": "Model A" },
   "variants": [{ "label": "Model B" }]
@@ -301,43 +338,23 @@ Run exactly N hands, automatically resetting stacks when one player remains:
 ```
 
 **Behavior**:
-- Runs exactly 200 hands per variant
+- Runs EXACTLY 200 hands per variant
 - When one player eliminates others, all stacks reset to `starting_stack`
 - Tracks "round winners" (who had most chips at each reset)
-- `num_tournaments` is ignored (treated as 1 session)
-
-### Solution 2: reset_on_elimination
-
-Keep tournament structure but reset stacks within each tournament:
-
-```json
-{
-  "name": "extended_tournament",
-  "num_tournaments": 3,
-  "max_hands_per_tournament": 100,
-  "reset_on_elimination": true,
-  "num_players": 4
-}
-```
-
-**Behavior**:
-- Runs 3 tournaments of exactly 100 hands each
-- When one player remains, stacks reset and play continues
-- Each tournament plays full `max_hands_per_tournament`
-- Tracks round winners for analysis
+- Each variant gets identical sample size for fair comparison
 
 ### When to Use Each
 
 | Scenario | Recommendation |
 |----------|----------------|
-| A/B testing model quality | `target_hands: 200` |
-| Equal data points per variant | `target_hands` |
-| Traditional tournament with safety | `reset_on_elimination: true` |
-| Default (quick elimination = end) | Neither (default behavior) |
+| A/B testing model quality | `reset_on_elimination: true` with desired hand count |
+| Equal data points per variant | `reset_on_elimination: true` |
+| Natural tournament flow | `reset_on_elimination: false` (default) |
+| Quick tests | `reset_on_elimination: false` (default) |
 
 ### Results Tracking
 
-With either option, results include:
+With `reset_on_elimination: true`, results include:
 - `round_winners`: List of players who had most chips at each reset
 - `total_resets`: How many times stacks were reset
 
@@ -461,7 +478,7 @@ With psychology enabled, each hand makes ~8 additional LLM calls (4 players × 2
 
 5. **"Results seem random"**: Poker has variance. Run more tournaments. 3 is minimum, 10+ for confidence.
 
-6. **"Tournament ended early"**: Players eliminated (reached 0 chips). This is normal. Check `total_hands` vs `max_hands_per_tournament`. Use `target_hands` or `reset_on_elimination: true` to run full hand counts.
+6. **"Tournament ended early"**: Players eliminated (reached 0 chips). This is normal. Check `total_hands` vs `hands_per_tournament`. Use `reset_on_elimination: true` to run exact hand counts.
 
 ### Database Column Names
 

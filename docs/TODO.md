@@ -44,20 +44,21 @@
 | Assistant to_dict Bug | Uses `__name__` instead of `type` | 🔴 Open | Medium | `core/assistants.py:211` |
 | Generic Exception | Using generic Exception instead of specific error types | 🔴 Open | Low | `poker_state_machine.py:123` |
 | WebSocket Error Handling | No error handling for WebSocket disconnections | 🔴 Open | Medium | `flask_app/ui_web.py` |
-| Game State Persistence | No mechanism to save/restore game state | 🔴 Open | Low | Feature request |
+| Flask Dev Server Hang | Dev server becomes unresponsive under heavy experiment load (SocketIO threading + ThreadPoolExecutor). Pause requests can't be processed. Consider Gunicorn for local dev or investigate Werkzeug stability | 🔴 Open | Medium | `flask_app/extensions.py`, experiment routes |
+| Game State Persistence | No mechanism to save/restore game state | ✅ Complete | Low | Implemented via GamePersistence, auto-saves after each action |
 | Spectator Mode | No support for observers who don't play | 🔴 Open | Low | Feature request |
 
 ## AI/Prompt System Enhancements
 
 | Enhancement | Description | Status | Priority | Notes |
 |-------------|-------------|--------|----------|-------|
-| Dynamic Personality Loading | Load personalities from external sources (API/DB) | 🔴 Open | Low | Currently using JSON file |
+| Dynamic Personality Loading | Load personalities from external sources (API/DB) | ✅ Complete | Low | Personalities stored in SQLite, loaded via PersonalityRepository |
 | Personality Learning | AI players adapt strategy based on game outcomes | 🔴 Open | Medium | Track win/loss per personality |
 | Custom Personalities | UI for users to create custom AI personalities | 🔴 Open | Medium | Add personality builder |
 | Prompt Templates | Additional prompt templates for different game phases | 🔴 Open | Low | Pre-flop vs river strategy |
 | Multi-language Support | Personalities speak different languages | 🔴 Open | Low | Internationalization |
-| Personality Emotions | Dynamic emotional states affecting decisions | 🔴 Open | Medium | Tilt, confidence changes |
-| Historical Context | AI remembers previous hands against opponents | 🔴 Open | High | Improve bluffing/reading |
+| Personality Emotions | Dynamic emotional states affecting decisions | ✅ Complete | Medium | Implemented via elasticity system, tilt, and PlayerPsychology |
+| Historical Context | AI remembers previous hands against opponents | ✅ Complete | High | Implemented via SessionMemory, OpponentModelManager |
 | Difficulty Levels | Easy/Medium/Hard AI opponents | 🔴 Open | Medium | Adjust decision quality |
 | Voice/TTS Integration | AI players speak their responses | 🔴 Open | Low | Enhanced immersion |
 | Personality Matchups | Special interactions between specific personalities | 🔴 Open | Low | Trump vs Obama banter |

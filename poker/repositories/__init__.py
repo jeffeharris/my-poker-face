@@ -1,44 +1,11 @@
-"""Repository pattern implementations for poker game persistence."""
+"""Repository pattern implementations for poker game persistence.
 
-from .base import (
-    Game,
-    GameMessage,
-    AIPlayerState,
-    GameRepository,
-    MessageRepository,
-    AIStateRepository
-)
+This package provides repository classes for specialized persistence needs.
+The main persistence is handled by poker.persistence.GamePersistence.
+"""
 
-from .sqlite_repositories import (
-    SQLiteGameRepository,
-    SQLiteMessageRepository,
-    SQLiteAIStateRepository
-)
-
-from .memory_repositories import (
-    InMemoryGameRepository,
-    InMemoryMessageRepository,
-    InMemoryAIStateRepository
-)
+from .sqlite_repositories import PressureEventRepository
 
 __all__ = [
-    # Domain models
-    'Game',
-    'GameMessage', 
-    'AIPlayerState',
-    
-    # Interfaces
-    'GameRepository',
-    'MessageRepository',
-    'AIStateRepository',
-    
-    # SQLite implementations
-    'SQLiteGameRepository',
-    'SQLiteMessageRepository',
-    'SQLiteAIStateRepository',
-    
-    # In-memory implementations
-    'InMemoryGameRepository',
-    'InMemoryMessageRepository',
-    'InMemoryAIStateRepository',
+    'PressureEventRepository',
 ]

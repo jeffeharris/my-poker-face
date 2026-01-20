@@ -18,7 +18,7 @@ from poker.persistence import GamePersistence
 from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
-from poker.pricing_loader import sync_pricing_from_yaml
+from poker.pricing_loader import sync_pricing_from_yaml, sync_enabled_models
 
 from . import config
 
@@ -174,6 +174,9 @@ def init_extensions(app: Flask) -> None:
 
     # Seed base pricing from YAML (idempotent - only adds missing SKUs)
     sync_pricing_from_yaml()
+
+    # Sync enabled_models with PROVIDER_MODELS (idempotent - only adds missing models)
+    sync_enabled_models()
 
     # Initialize OAuth (must be before auth)
     init_oauth(app)

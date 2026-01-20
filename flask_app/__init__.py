@@ -13,9 +13,15 @@ from . import extensions
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Quiet noisy third-party loggers
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
+logging.getLogger("socketio").setLevel(logging.WARNING)
+logging.getLogger("engineio").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,19 +30,11 @@ def recover_interrupted_experiments():
 
     Called on startup to detect orphaned 'running' experiments and mark them
     as 'interrupted' so users can manually resume them.
+
+    NOTE: Temporarily disabled during repository rollback.
     """
-    try:
-        from poker.persistence import GamePersistence
-        from .config import DB_PATH
-        persistence = GamePersistence(DB_PATH)
-        count = persistence.mark_running_experiments_interrupted()
-        if count > 0:
-            logger.warning(
-                f"Found {count} experiment(s) in 'running' state on startup. "
-                "Marked as 'interrupted'. Use the resume endpoint to continue them."
-            )
-    except Exception as e:
-        logger.error(f"Failed to recover interrupted experiments: {e}")
+    # TODO: Re-enable after fixing experiment repository dependencies
+    pass
 
 
 def create_app():

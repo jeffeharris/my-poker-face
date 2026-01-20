@@ -33,15 +33,18 @@ class TestExperimentConfigVariants(unittest.TestCase):
         self.assertEqual(effective_config['provider'], 'openai')
 
     def test_get_variant_configs_control_only(self):
-        """Test get_variant_configs with control but no variants."""
+        """Test get_variant_configs with control but no variants.
+
+        Note: Control always uses experiment-level model/provider, even if
+        model/provider are specified in control config (they're ignored).
+        """
         config = ExperimentConfig(
             name='test_experiment',
             model='gpt-5-nano',
             provider='openai',
             control={
                 'label': 'GPT Control',
-                'model': 'gpt-4o',
-                'provider': 'openai',
+                # model/provider on control are now ignored - uses experiment-level
             },
             variants=[],
         )
@@ -51,19 +54,22 @@ class TestExperimentConfigVariants(unittest.TestCase):
         self.assertEqual(len(variants), 1)
         label, effective_config = variants[0]
         self.assertEqual(label, 'GPT Control')
-        self.assertEqual(effective_config['model'], 'gpt-4o')
+        # Control always uses experiment-level model/provider
+        self.assertEqual(effective_config['model'], 'gpt-5-nano')
         self.assertEqual(effective_config['provider'], 'openai')
 
     def test_get_variant_configs_control_with_variants(self):
-        """Test get_variant_configs with control and variants."""
+        """Test get_variant_configs with control and variants.
+
+        Control uses experiment-level model/provider. Variants can override.
+        """
         config = ExperimentConfig(
             name='model_comparison',
             model='gpt-5-nano',
             provider='openai',
             control={
                 'label': 'GPT Baseline',
-                'model': 'gpt-4o',
-                'provider': 'openai',
+                # model/provider not set - uses experiment-level
             },
             variants=[
                 {
@@ -83,39 +89,42 @@ class TestExperimentConfigVariants(unittest.TestCase):
 
         self.assertEqual(len(variants), 3)
 
-        # First should be control
+        # First should be control (uses experiment-level model/provider)
         label, effective_config = variants[0]
         self.assertEqual(label, 'GPT Baseline')
-        self.assertEqual(effective_config['model'], 'gpt-4o')
-        self.assertEqual(effective_config['provider'], 'openai')
+        self.assertEqual(effective_config['model'], 'gpt-5-nano')  # From experiment
+        self.assertEqual(effective_config['provider'], 'openai')   # From experiment
 
-        # Second should be first variant
+        # Second should be first variant (overrides model/provider)
         label, effective_config = variants[1]
         self.assertEqual(label, 'Claude Sonnet')
         self.assertEqual(effective_config['model'], 'claude-sonnet-4-20250514')
         self.assertEqual(effective_config['provider'], 'anthropic')
 
-        # Third should be second variant
+        # Third should be second variant (overrides model/provider)
         label, effective_config = variants[2]
         self.assertEqual(label, 'Claude Haiku')
         self.assertEqual(effective_config['model'], 'claude-haiku-4-5-20251001')
         self.assertEqual(effective_config['provider'], 'anthropic')
 
-    def test_get_variant_configs_variant_inherits_from_control(self):
-        """Test that variants inherit unspecified fields from control."""
+    def test_get_variant_configs_variant_inherits_from_experiment(self):
+        """Test that variants inherit unspecified model/provider from experiment.
+
+        This is the new behavior: variants skip control and inherit directly
+        from experiment-level settings for model/provider.
+        """
         config = ExperimentConfig(
             name='prompt_ablation',
             model='gpt-5-nano',
             provider='openai',
             control={
                 'label': 'Full Prompts',
-                'model': 'gpt-4o',
-                'provider': 'openai',
+                # model/provider on control are ignored
             },
             variants=[
                 {
                     'label': 'No Pot Odds',
-                    # model and provider not specified - should inherit from control
+                    # model and provider not specified - should inherit from experiment
                 },
             ],
         )
@@ -124,16 +133,16 @@ class TestExperimentConfigVariants(unittest.TestCase):
 
         self.assertEqual(len(variants), 2)
 
-        # Control
+        # Control uses experiment-level
         label, control_config = variants[0]
-        self.assertEqual(control_config['model'], 'gpt-4o')
+        self.assertEqual(control_config['model'], 'gpt-5-nano')
         self.assertEqual(control_config['provider'], 'openai')
 
-        # Variant should inherit model and provider from control
+        # Variant inherits model and provider from experiment (not control)
         label, variant_config = variants[1]
         self.assertEqual(label, 'No Pot Odds')
-        self.assertEqual(variant_config['model'], 'gpt-4o')  # Inherited
-        self.assertEqual(variant_config['provider'], 'openai')  # Inherited
+        self.assertEqual(variant_config['model'], 'gpt-5-nano')  # From experiment
+        self.assertEqual(variant_config['provider'], 'openai')   # From experiment
 
     def test_get_variant_configs_control_defaults_to_experiment(self):
         """Test that control inherits unspecified fields from experiment config."""

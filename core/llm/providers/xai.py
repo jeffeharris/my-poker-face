@@ -78,9 +78,17 @@ class XAIProvider(LLMProvider):
             if self._model in REASONING_EFFORT_MODELS and reasoning_effort in VALID_REASONING_EFFORTS:
                 self._reasoning_effort = reasoning_effort
 
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("XAI_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "xAI API key not provided. Set XAI_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         # xAI uses OpenAI-compatible API with shared HTTP client for connection reuse
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("XAI_API_KEY"),
+            api_key=resolved_key,
             base_url="https://api.x.ai/v1",
             http_client=shared_http_client,
         )
@@ -108,6 +116,8 @@ class XAIProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
         """Make a chat completion request."""
         kwargs = {
@@ -124,6 +134,12 @@ class XAIProvider(LLMProvider):
         if self._reasoning_effort and self._model in REASONING_EFFORT_MODELS:
             kwargs["reasoning_effort"] = self._reasoning_effort
 
+        # Add tools if provided (xAI uses OpenAI-compatible format)
+        if tools:
+            kwargs["tools"] = tools
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
+
         return self._client.chat.completions.create(**kwargs)
 
     def generate_image(
@@ -131,6 +147,9 @@ class XAIProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """xAI doesn't support image generation."""
         raise NotImplementedError("xAI does not support image generation")
@@ -182,3 +201,29 @@ class XAIProvider(LLMProvider):
         if request_id is None or not isinstance(request_id, str):
             return ''
         return request_id
+
+    def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls from xAI response.
+
+        xAI uses OpenAI-compatible format for tool calls.
+        """
+        message = raw_response.choices[0].message
+
+        tool_calls = getattr(message, 'tool_calls', None)
+        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+            return None
+
+        if len(tool_calls) == 0:
+            return None
+
+        return [
+            {
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+            }
+            for tc in tool_calls
+        ]

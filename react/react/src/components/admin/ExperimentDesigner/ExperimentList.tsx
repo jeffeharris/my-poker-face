@@ -1,59 +1,33 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Clock, CheckCircle, XCircle, Loader2, Pause, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Loader2, Archive, Plus } from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import { config } from '../../../config';
-
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
+import { formatDate } from '../../../utils/formatters';
+import { STATUS_CONFIG_SMALL as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
+import { useViewport } from '../../../hooks/useViewport';
+import { MobileExperimentList } from './MobileExperimentList';
 
 interface ExperimentListProps {
   onViewExperiment: (experiment: ExperimentSummary) => void;
   onNewExperiment: () => void;
 }
 
-const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className: string; label: string }> = {
-  pending: {
-    icon: <Clock size={14} />,
-    className: 'status-badge--pending',
-    label: 'Pending',
-  },
-  running: {
-    icon: <Loader2 size={14} className="animate-spin" />,
-    className: 'status-badge--running',
-    label: 'Running',
-  },
-  completed: {
-    icon: <CheckCircle size={14} />,
-    className: 'status-badge--completed',
-    label: 'Completed',
-  },
-  failed: {
-    icon: <XCircle size={14} />,
-    className: 'status-badge--failed',
-    label: 'Failed',
-  },
-  paused: {
-    icon: <Pause size={14} />,
-    className: 'status-badge--paused',
-    label: 'Paused',
-  },
-  interrupted: {
-    icon: <AlertTriangle size={14} />,
-    className: 'status-badge--interrupted',
-    label: 'Interrupted',
-  },
-};
-
 export function ExperimentList({ onViewExperiment, onNewExperiment }: ExperimentListProps) {
+  const { isMobile } = useViewport();
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | 'all'>('all');
+  const [includeArchived, setIncludeArchived] = useState(false);
 
   const fetchExperiments = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') {
         params.append('status', statusFilter);
+      }
+      if (includeArchived) {
+        params.append('include_archived', 'true');
       }
 
       const response = await fetch(`${config.API_URL}/api/experiments?${params}`);
@@ -71,7 +45,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, includeArchived]);
 
   // Initial load
   useEffect(() => {
@@ -86,12 +60,6 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     const interval = setInterval(fetchExperiments, 5000);
     return () => clearInterval(interval);
   }, [experiments, fetchExperiments]);
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
 
   const getProgress = (experiment: ExperimentSummary) => {
     if (experiment.status === 'completed' || experiment.status === 'failed') {
@@ -109,6 +77,25 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     return Math.min(100, Math.round((current / total) * 100));
   };
 
+  // Mobile view - render MobileExperimentList
+  if (isMobile) {
+    return (
+      <MobileExperimentList
+        experiments={experiments}
+        loading={loading}
+        error={error}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        includeArchived={includeArchived}
+        onIncludeArchivedChange={setIncludeArchived}
+        onRefresh={fetchExperiments}
+        onViewExperiment={onViewExperiment}
+        onNewExperiment={onNewExperiment}
+      />
+    );
+  }
+
+  // Desktop view - original table-based layout
   if (loading) {
     return (
       <div className="experiment-list__loading">
@@ -131,9 +118,20 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
           <option value="pending">Pending</option>
           <option value="running">Running</option>
           <option value="paused">Paused</option>
+          <option value="interrupted">Interrupted</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
         </select>
+
+        <label className="experiment-list__archive-toggle">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(e) => setIncludeArchived(e.target.checked)}
+          />
+          <Archive size={14} />
+          <span>Show archived</span>
+        </label>
 
         <button
           className="experiment-list__refresh-btn"
@@ -142,6 +140,15 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
           title="Refresh"
         >
           <RefreshCw size={16} />
+        </button>
+
+        <button
+          className="experiment-list__new-btn"
+          onClick={onNewExperiment}
+          type="button"
+        >
+          <Plus size={16} />
+          New Experiment
         </button>
       </div>
 

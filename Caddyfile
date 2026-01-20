@@ -14,6 +14,11 @@ mypokerfacegame.com, www.mypokerfacegame.com {
         reverse_proxy backend:5000
     }
 
+    # Admin API routes
+    handle /admin/* {
+        reverse_proxy backend:5000
+    }
+
     # Service worker - never cache (ensures PWA updates propagate)
     handle /sw.js {
         header Cache-Control "no-cache, no-store, must-revalidate"

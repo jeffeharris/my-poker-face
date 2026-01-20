@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { config } from '../../config';
+import { adminAPI } from '../../utils/api';
 import './PricingManager.css';
 
 // ============================================
@@ -63,7 +63,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
       if (filterProvider) params.append('provider', filterProvider);
       if (currentOnly) params.append('current_only', 'true');
 
-      const response = await fetch(`${config.API_URL}/admin/pricing?${params}`);
+      const response = await adminAPI.fetch(`/admin/pricing?${params}`);
       const data = await response.json();
 
       if (data.success) {
@@ -81,7 +81,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
   // Fetch providers
   const fetchProviders = useCallback(async () => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/pricing/providers`);
+      const response = await adminAPI.fetch('/admin/pricing/providers');
       const data = await response.json();
       if (data.success) {
         setProviders(data.providers.map((p: { provider: string }) => p.provider));
@@ -104,9 +104,8 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
     }
 
     try {
-      const response = await fetch(`${config.API_URL}/admin/pricing`, {
+      const response = await adminAPI.fetch('/admin/pricing', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: newPricing.provider,
           model: newPricing.model,
@@ -135,7 +134,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
   // Delete pricing entry
   const handleDelete = async (id: number) => {
     try {
-      const response = await fetch(`${config.API_URL}/admin/pricing/${id}`, {
+      const response = await adminAPI.fetch(`/admin/pricing/${id}`, {
         method: 'DELETE',
       });
 

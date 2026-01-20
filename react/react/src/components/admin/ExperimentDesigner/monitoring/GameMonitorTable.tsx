@@ -3,7 +3,6 @@
  * Shows all games in a traditional table format with rows and columns
  */
 
-import { Hash } from 'lucide-react';
 import type { GameSnapshot } from './types';
 
 interface GameMonitorTableProps {
@@ -44,7 +43,7 @@ export function GameMonitorTable({ games, onPlayerClick }: GameMonitorTableProps
               </td>
               <td>
                 <span className="game-monitor-table__phase">
-                  {game.phase.replace('_', ' ')}
+                  {game.phase.replace(/_/g, ' ')}
                 </span>
               </td>
               <td className="game-monitor-table__pot">

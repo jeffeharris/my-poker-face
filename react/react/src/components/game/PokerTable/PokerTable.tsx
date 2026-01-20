@@ -41,7 +41,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     aiThinking,
     winnerInfo,
     tournamentResult,
-    socketRef,
+    socketRef: _socketRef,
     handlePlayerAction,
     handleSendMessage,
     clearWinnerInfo,
@@ -65,7 +65,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       }
     }
     clearTournamentResult();
-    localStorage.removeItem('activePokerGameId');
     // Navigate back to menu by reloading
     window.location.href = '/';
   }, [gameId, clearTournamentResult]);
@@ -127,6 +126,10 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   };
 
   // Stadium view: Bet chips positioned closer to center
+  // Currently unused - bets shown in player seats for stadium view
+  // Kept for potential future use
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  // @ts-expect-error - Intentionally unused, kept for future stadium bet display
   const getStadiumBetChipStyle = (opponentIndex: number, totalOpponents: number) => {
     const startAngle = 150;
     const endAngle = 30;
@@ -147,6 +150,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
       transform: 'translate(-50%, -50%)',
     };
   };
+  /* eslint-enable @typescript-eslint/no-unused-vars */
 
   // Calculate bet chip position (inside the table, closer to center)
   const getBetChipStyle = (seatIndex: number, totalPlayers: number) => {
@@ -387,7 +391,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           <ActivityFeed
             messages={messages}
             onSendMessage={handleSendMessage}
-            players={gameState?.players ?? []}
             playerName={playerName}
           />
         }

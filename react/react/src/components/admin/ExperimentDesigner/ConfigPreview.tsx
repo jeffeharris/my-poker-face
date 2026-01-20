@@ -1,8 +1,21 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Play, Code, Settings, ChevronDown, ChevronRight, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical } from 'lucide-react';
-import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig } from './types';
+import { useState, useEffect } from 'react';
+import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X, Shuffle } from 'lucide-react';
+import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
+import { useLLMProviders } from '../../../hooks/useLLMProviders';
+import { seedToWords, wordsToSeed, generateSeed, isWordSeed } from './seedWords';
+
+// Number input field defaults for when blur occurs with empty value
+const NUMBER_FIELD_DEFAULTS: Record<string, number> = {
+  num_tournaments: 1,
+  hands_per_tournament: 10,
+  num_players: 4,
+  starting_stack: 2000,
+  big_blind: 100,
+  parallel_tournaments: 1,
+  stagger_start_delay: 2,
+};
 
 interface ValidationResult {
   valid: boolean;
@@ -14,6 +27,11 @@ interface ConfigPreviewProps {
   config: ExperimentConfig;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
   onLaunch: () => void;
+  /** Session ID for the design chat, passed to backend to save design history */
+  sessionId?: string | null;
+  configVersions?: ConfigVersion[];
+  currentVersionIndex?: number;
+  onVersionChange?: (index: number) => void;
 }
 
 type ViewMode = 'form' | 'json';
@@ -32,7 +50,7 @@ const PROMPT_CONFIG_LABELS: Record<keyof PromptConfig, string> = {
   memory_keep_exchanges: 'Memory Exchanges',
 };
 
-export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPreviewProps) {
+export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, configVersions, currentVersionIndex, onVersionChange }: ConfigPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -41,23 +59,38 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
   const [launching, setLaunching] = useState(false);
   const [promptConfigExpanded, setPromptConfigExpanded] = useState(false);
   const [abTestingExpanded, setAbTestingExpanded] = useState(false);
-  const [personalities, setPersonalities] = useState<string[]>([]);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [availablePersonalities, setAvailablePersonalities] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  // Store seed when disabled so we can restore it when re-enabled
+  const [savedSeed, setSavedSeed] = useState<number>(() => config.random_seed ?? generateSeed());
 
-  // Fetch available personalities
+  // Use system scope for admin experiment designer
+  const {
+    providers,
+    loading: providersLoading,
+    getModelsForProvider,
+    getDefaultModel,
+  } = useLLMProviders({ scope: 'system' });
+
+  // Fetch available personalities on mount
   useEffect(() => {
     const fetchPersonalities = async () => {
       try {
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/personalities`);
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/personalities`, {
+          credentials: 'include',
+        });
         const data = await response.json();
-        if (data.success) {
-          setPersonalities(data.personalities);
+        if (data.success && data.personalities) {
+          setAvailablePersonalities(data.personalities);
         }
       } catch (err) {
-        console.error('Failed to load personalities:', err);
+        console.warn('Failed to fetch personalities:', err);
       }
     };
     fetchPersonalities();
   }, []);
+
 
   // Sync JSON text when config changes (if in form mode)
   useEffect(() => {
@@ -112,6 +145,77 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     onConfigUpdate({ [field]: value });
   };
 
+  // Handle number input change - allows empty string while typing
+  const handleNumberChange = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '') {
+      // Allow empty temporarily - will be fixed on blur
+      onConfigUpdate({ [field]: '' as unknown as number });
+    } else {
+      const parsed = parseInt(value);
+      if (!isNaN(parsed)) {
+        onConfigUpdate({ [field]: parsed });
+      }
+    }
+  };
+
+  // Handle number input blur - apply default if empty
+  const handleNumberBlur = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '' || isNaN(parseInt(value))) {
+      const defaultVal = NUMBER_FIELD_DEFAULTS[field] ?? 1;
+      onConfigUpdate({ [field]: defaultVal });
+    }
+  };
+
+  // Handle float input change (for stagger_start_delay)
+  const handleFloatChange = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '') {
+      onConfigUpdate({ [field]: '' as unknown as number });
+    } else {
+      const parsed = parseFloat(value);
+      if (!isNaN(parsed)) {
+        onConfigUpdate({ [field]: parsed });
+      }
+    }
+  };
+
+  const handleFloatBlur = (field: keyof ExperimentConfig, value: string) => {
+    if (value === '' || isNaN(parseFloat(value))) {
+      const defaultVal = NUMBER_FIELD_DEFAULTS[field] ?? 0;
+      onConfigUpdate({ [field]: defaultVal });
+    }
+  };
+
+  // Tag management
+  const handleAddTag = () => {
+    const tag = tagInput.trim().toLowerCase().replace(/\s+/g, '_');
+    if (tag && !config.tags.includes(tag)) {
+      onConfigUpdate({ tags: [...config.tags, tag] });
+    }
+    setTagInput('');
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    onConfigUpdate({ tags: config.tags.filter(t => t !== tagToRemove) });
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddTag();
+    }
+  };
+
+  // Personality management
+  const handlePersonalityToggle = (personality: string) => {
+    const current = config.personalities || [];
+    if (current.includes(personality)) {
+      const updated = current.filter(p => p !== personality);
+      onConfigUpdate({ personalities: updated.length > 0 ? updated : null });
+    } else {
+      onConfigUpdate({ personalities: [...current, personality] });
+    }
+  };
+
   const handlePromptConfigToggle = (field: keyof PromptConfig) => {
     const current = config.prompt_config || DEFAULT_PROMPT_CONFIG;
     const updated = { ...current, [field]: !current[field] };
@@ -126,12 +230,11 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
       // Disable: clear control and variants
       onConfigUpdate({ control: null, variants: null });
     } else {
-      // Enable: create default control
+      // Enable: create default control (uses experiment-level model/provider)
       onConfigUpdate({
         control: {
           label: 'Control',
-          model: config.model,
-          provider: config.provider,
+          // model and provider are NOT set here - control uses experiment-level settings
         },
         variants: [],
       });
@@ -174,6 +277,45 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     return config.num_tournaments * numVariants;
   };
 
+  const getTotalHands = () => {
+    return getTotalTournaments() * config.hands_per_tournament;
+  };
+
+  // Rough time estimate based on ~20 seconds per hand baseline
+  // Factors: psychology/commentary add overhead, parallel tournaments reduce wall time
+  const getTimeEstimate = () => {
+    const totalHands = getTotalHands();
+    const parallelism = config.parallel_tournaments || 1;
+
+    // Base time per hand: ~20 seconds
+    // Psychology adds ~5 seconds (emotional state generation)
+    // Commentary adds ~5 seconds (LLM commentary generation)
+    const hasPsychology = config.control?.enable_psychology ||
+      config.variants?.some(v => v.enable_psychology);
+    const hasCommentary = config.control?.enable_commentary ||
+      config.variants?.some(v => v.enable_commentary);
+
+    let secondsPerHand = 20;
+    if (hasPsychology) secondsPerHand += 5;
+    if (hasCommentary) secondsPerHand += 5;
+
+    // Parallel execution reduces wall time
+    const effectiveHands = Math.ceil(totalHands / parallelism);
+    const totalSeconds = effectiveHands * secondsPerHand;
+
+    // Format as human-readable duration
+    if (totalSeconds < 60) {
+      return `~${totalSeconds}s`;
+    } else if (totalSeconds < 3600) {
+      const minutes = Math.round(totalSeconds / 60);
+      return `~${minutes}m`;
+    } else {
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.round((totalSeconds % 3600) / 60);
+      return minutes > 0 ? `~${hours}h ${minutes}m` : `~${hours}h`;
+    }
+  };
+
   const handleLaunch = async () => {
     if (!validation?.valid || launching) return;
 
@@ -182,7 +324,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
       const response = await fetch(`${appConfig.API_URL}/api/experiments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({
+          config,
+          session_id: sessionId,  // Pass design chat session for history preservation
+        }),
       });
 
       const data = await response.json();
@@ -206,7 +351,35 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
     <div className="config-preview">
       {/* Header */}
       <div className="config-preview__header">
-        <h4 className="config-preview__title">Experiment Config</h4>
+        <div className="config-preview__header-left">
+          <h4 className="config-preview__title">Experiment Config</h4>
+          {/* Version Navigation */}
+          {configVersions && configVersions.length > 1 && (
+            <div className="config-preview__version-nav">
+              <button
+                className="config-preview__version-btn"
+                onClick={() => onVersionChange?.(currentVersionIndex! - 1)}
+                disabled={currentVersionIndex === undefined || currentVersionIndex <= 0}
+                title="Previous version"
+                type="button"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="config-preview__version-label">
+                v{(currentVersionIndex ?? 0) + 1}/{configVersions.length}
+              </span>
+              <button
+                className="config-preview__version-btn"
+                onClick={() => onVersionChange?.(currentVersionIndex! + 1)}
+                disabled={currentVersionIndex === undefined || currentVersionIndex >= configVersions.length - 1}
+                title="Next version"
+                type="button"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="config-preview__view-toggle">
           <button
             className={`config-preview__view-btn ${viewMode === 'form' ? 'config-preview__view-btn--active' : ''}`}
@@ -246,9 +419,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
               <label className="config-preview__label">
                 Description
-                <input
-                  type="text"
-                  className="config-preview__input"
+                <textarea
+                  className="config-preview__input config-preview__textarea"
+                  rows={3}
                   value={config.description}
                   onChange={(e) => handleFieldChange('description', e.target.value)}
                   placeholder="What this experiment tests"
@@ -257,9 +430,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
               <label className="config-preview__label">
                 Hypothesis
-                <input
-                  type="text"
-                  className="config-preview__input"
+                <textarea
+                  className="config-preview__input config-preview__textarea"
+                  rows={3}
                   value={config.hypothesis}
                   onChange={(e) => handleFieldChange('hypothesis', e.target.value)}
                   placeholder="Expected outcome"
@@ -271,71 +444,95 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
             <div className="config-preview__section">
               <h5 className="config-preview__section-title">Tournament Settings</h5>
 
-              <div className="config-preview__row">
-                <label className="config-preview__label config-preview__label--inline">
-                  Tournaments
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.num_tournaments}
-                    onChange={(e) => handleFieldChange('num_tournaments', parseInt(e.target.value) || 1)}
-                    min={1}
-                    max={20}
-                  />
-                </label>
+              <div className="config-preview__tournament-grid">
+                {/* Column 1: Game Structure */}
+                <div className="config-preview__tournament-col">
+                  <label className="config-preview__label config-preview__label--inline">
+                    Tournaments
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.num_tournaments}
+                      onChange={(e) => handleNumberChange('num_tournaments', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('num_tournaments', e.target.value)}
+                      min={1}
+                      max={20}
+                    />
+                  </label>
 
-                <label className="config-preview__label config-preview__label--inline">
-                  Max Hands
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.max_hands_per_tournament}
-                    onChange={(e) => handleFieldChange('max_hands_per_tournament', parseInt(e.target.value) || 100)}
-                    min={20}
-                    max={500}
-                  />
-                </label>
+                  <label className="config-preview__label config-preview__label--inline">
+                    Hands
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.hands_per_tournament}
+                      onChange={(e) => handleNumberChange('hands_per_tournament', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('hands_per_tournament', e.target.value)}
+                      min={5}
+                      max={500}
+                    />
+                  </label>
 
-                <label className="config-preview__label config-preview__label--inline">
-                  Players
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.num_players}
-                    onChange={(e) => handleFieldChange('num_players', parseInt(e.target.value) || 4)}
-                    min={2}
-                    max={8}
-                  />
-                </label>
+                  <label className="config-preview__label config-preview__label--inline">
+                    Players
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.num_players}
+                      onChange={(e) => handleNumberChange('num_players', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('num_players', e.target.value)}
+                      min={2}
+                      max={8}
+                    />
+                  </label>
+                </div>
+
+                {/* Column 2: Chip Settings */}
+                <div className="config-preview__tournament-col">
+                  <label className="config-preview__label config-preview__label--inline">
+                    Starting Stack
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.starting_stack}
+                      onChange={(e) => handleNumberChange('starting_stack', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('starting_stack', e.target.value)}
+                      min={1000}
+                      max={100000}
+                      step={1000}
+                    />
+                  </label>
+
+                  <label className="config-preview__label config-preview__label--inline">
+                    Big Blind
+                    <input
+                      type="number"
+                      className="config-preview__input config-preview__input--small"
+                      value={config.big_blind}
+                      onChange={(e) => handleNumberChange('big_blind', e.target.value)}
+                      onBlur={(e) => handleNumberBlur('big_blind', e.target.value)}
+                      min={10}
+                      max={1000}
+                      step={10}
+                    />
+                  </label>
+
+                  <label className="config-preview__toggle-label" title="When enabled, stacks reset on elimination ensuring exactly the configured number of hands. When disabled, tournament ends when one player wins all chips.">
+                    <input
+                      type="checkbox"
+                      checked={config.reset_on_elimination ?? false}
+                      onChange={(e) => handleFieldChange('reset_on_elimination', e.target.checked)}
+                    />
+                    Reset stacks on elimination
+                  </label>
+                </div>
               </div>
 
-              <div className="config-preview__row">
-                <label className="config-preview__label config-preview__label--inline">
-                  Starting Stack
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.starting_stack}
-                    onChange={(e) => handleFieldChange('starting_stack', parseInt(e.target.value) || 10000)}
-                    min={1000}
-                    max={100000}
-                    step={1000}
-                  />
-                </label>
-
-                <label className="config-preview__label config-preview__label--inline">
-                  Big Blind
-                  <input
-                    type="number"
-                    className="config-preview__input config-preview__input--small"
-                    value={config.big_blind}
-                    onChange={(e) => handleFieldChange('big_blind', parseInt(e.target.value) || 100)}
-                    min={10}
-                    max={1000}
-                    step={10}
-                  />
-                </label>
-              </div>
+              <p className="config-preview__hint config-preview__hint--tournament">
+                {config.reset_on_elimination
+                  ? `Plays exactly ${config.hands_per_tournament} hands per tournament (stacks reset when someone is eliminated)`
+                  : `Plays up to ${config.hands_per_tournament} hands per tournament (ends early if one player wins all chips)`}
+              </p>
             </div>
 
             {/* Model Settings */}
@@ -348,29 +545,42 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                   <select
                     className="config-preview__select"
                     value={config.provider}
-                    onChange={(e) => handleFieldChange('provider', e.target.value)}
-                    disabled={isAbTestingEnabled}
+                    onChange={(e) => {
+                      const newProvider = e.target.value;
+                      // Update both provider and model (to the new provider's default)
+                      onConfigUpdate({
+                        provider: newProvider,
+                        model: getDefaultModel(newProvider) || config.model,
+                      });
+                    }}
+                    disabled={providersLoading}
                   >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="groq">Groq</option>
+                    {providersLoading ? (
+                      <option value="">Loading...</option>
+                    ) : (
+                      providers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))
+                    )}
                   </select>
                 </label>
 
                 <label className="config-preview__label config-preview__label--inline">
                   Model
-                  <input
-                    type="text"
-                    className="config-preview__input"
+                  <select
+                    className="config-preview__select"
                     value={config.model}
                     onChange={(e) => handleFieldChange('model', e.target.value)}
-                    placeholder="gpt-5-nano"
-                    disabled={isAbTestingEnabled}
-                  />
+                    disabled={providersLoading}
+                  >
+                    {getModelsForProvider(config.provider).map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
                 </label>
               </div>
               {isAbTestingEnabled && (
-                <p className="config-preview__hint">Model settings are configured per-variant in A/B testing mode</p>
+                <p className="config-preview__hint">Control uses these settings. Add variants below to test different models.</p>
               )}
             </div>
 
@@ -417,7 +627,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                           <span className="config-preview__variant-badge config-preview__variant-badge--control">Control</span>
                         </div>
                         <div className="config-preview__variant-fields">
-                          <label className="config-preview__label">
+                          <label className="config-preview__label config-preview__label--inline">
                             Label
                             <input
                               type="text"
@@ -427,30 +637,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                               placeholder="Control"
                             />
                           </label>
-                          <div className="config-preview__row">
-                            <label className="config-preview__label config-preview__label--inline">
-                              Provider
-                              <select
-                                className="config-preview__select"
-                                value={config.control?.provider || config.provider}
-                                onChange={(e) => handleControlUpdate('provider', e.target.value)}
-                              >
-                                <option value="openai">OpenAI</option>
-                                <option value="anthropic">Anthropic</option>
-                                <option value="groq">Groq</option>
-                              </select>
-                            </label>
-                            <label className="config-preview__label config-preview__label--inline">
-                              Model
-                              <input
-                                type="text"
-                                className="config-preview__input"
-                                value={config.control?.model || ''}
-                                onChange={(e) => handleControlUpdate('model', e.target.value)}
-                                placeholder="gpt-5-nano"
-                              />
-                            </label>
-                          </div>
+                          <p className="config-preview__hint config-preview__hint--info">
+                            Uses Model Settings above ({config.provider}/{config.model})
+                          </p>
                           <div className="config-preview__row config-preview__row--toggles">
                             <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation (~4 LLM calls/hand)">
                               <input
@@ -474,9 +663,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
                       {/* Variants */}
                       {config.variants?.map((variant, index) => (
-                        <div key={index} className="config-preview__variant-card">
+                        <div key={index} className={`config-preview__variant-card config-preview__variant-card--color-${index % 5}`}>
                           <div className="config-preview__variant-header">
-                            <span className="config-preview__variant-badge">Variant {index + 1}</span>
+                            <span className={`config-preview__variant-badge config-preview__variant-badge--color-${index % 5}`}>Variant {index + 1}</span>
                             <button
                               type="button"
                               className="config-preview__variant-remove"
@@ -487,7 +676,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                             </button>
                           </div>
                           <div className="config-preview__variant-fields">
-                            <label className="config-preview__label">
+                            <label className="config-preview__label config-preview__label--inline">
                               Label
                               <input
                                 type="text"
@@ -497,31 +686,50 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                                 placeholder={`Variant ${index + 1}`}
                               />
                             </label>
-                            <div className="config-preview__row">
-                              <label className="config-preview__label config-preview__label--inline">
-                                Provider
-                                <select
-                                  className="config-preview__select"
-                                  value={variant.provider || ''}
-                                  onChange={(e) => handleVariantUpdate(index, 'provider', e.target.value)}
-                                >
-                                  <option value="">Inherit from Control</option>
-                                  <option value="openai">OpenAI</option>
-                                  <option value="anthropic">Anthropic</option>
-                                  <option value="groq">Groq</option>
-                                </select>
-                              </label>
-                              <label className="config-preview__label config-preview__label--inline">
-                                Model
-                                <input
-                                  type="text"
-                                  className="config-preview__input"
-                                  value={variant.model || ''}
-                                  onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
-                                  placeholder="Inherit from Control"
-                                />
-                              </label>
-                            </div>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Provider
+                              <select
+                                className="config-preview__select"
+                                value={variant.provider || ''}
+                                onChange={(e) => {
+                                  const newProvider = e.target.value;
+                                  if (newProvider === '') {
+                                    // Inherit from experiment - clear both provider and model
+                                    handleVariantUpdate(index, 'provider', '');
+                                    handleVariantUpdate(index, 'model', '');
+                                  } else {
+                                    // Update provider and set default model
+                                    const variants = [...(config.variants || [])];
+                                    variants[index] = {
+                                      ...variants[index],
+                                      provider: newProvider,
+                                      model: getDefaultModel(newProvider) || '',
+                                    };
+                                    onConfigUpdate({ variants });
+                                  }
+                                }}
+                                disabled={providersLoading}
+                              >
+                                <option value="">Same as Control</option>
+                                {providers.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Model
+                              <select
+                                className="config-preview__select"
+                                value={variant.model || ''}
+                                onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
+                                disabled={providersLoading || !variant.provider}
+                              >
+                                <option value="">Same as Control</option>
+                                {variant.provider && getModelsForProvider(variant.provider).map(model => (
+                                  <option key={model} value={model}>{model}</option>
+                                ))}
+                              </select>
+                            </label>
                             <div className="config-preview__row config-preview__row--toggles">
                               <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation. Inherits from control if not set.">
                                 <input
@@ -553,6 +761,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                         <Plus size={14} />
                         Add Variant
                       </button>
+                      <p className="config-preview__hint">
+                        Variants can override model, provider, psychology, and commentary settings
+                      </p>
                     </>
                   )}
                 </div>
@@ -593,6 +804,209 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
                 </div>
               )}
             </div>
+
+            {/* Advanced Settings (Collapsible) */}
+            <div className="config-preview__section config-preview__section--collapsible">
+              <button
+                className="config-preview__section-toggle"
+                onClick={() => setAdvancedExpanded(!advancedExpanded)}
+                type="button"
+              >
+                {advancedExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <Zap size={16} />
+                <h5 className="config-preview__section-title">Advanced Settings</h5>
+                <span className="config-preview__section-hint">
+                  {config.parallel_tournaments && config.parallel_tournaments > 1 ? `${config.parallel_tournaments}x parallel` : 'Sequential'}
+                </span>
+              </button>
+
+              {advancedExpanded && (
+                <div className="config-preview__advanced">
+                  {/* Deterministic Seeding */}
+                  <div className="config-preview__seed-section">
+                    <label className="config-preview__toggle-label" title="Enable deterministic seeding for reproducible experiments. Same seed = same player seating order and card shuffling across all tables. Essential for fair A/B comparisons.">
+                      <input
+                        type="checkbox"
+                        checked={config.random_seed !== null}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            // Restore the saved seed when re-enabling
+                            onConfigUpdate({ random_seed: savedSeed });
+                          } else {
+                            // Save the current seed before disabling
+                            if (config.random_seed !== null) {
+                              setSavedSeed(config.random_seed);
+                            }
+                            onConfigUpdate({ random_seed: null });
+                          }
+                        }}
+                      />
+                      Deterministic Seeding
+                    </label>
+                    {config.random_seed !== null && (
+                      <div className="config-preview__seed-row">
+                        <span className="config-preview__seed-label">Seed</span>
+                        <div className="config-preview__seed-input">
+                          <input
+                            type="text"
+                            className="config-preview__input config-preview__input--seed"
+                            value={seedToWords(config.random_seed)}
+                            onChange={(e) => {
+                              const val = e.target.value.toLowerCase().trim();
+                              // Try to parse as word seed
+                              if (isWordSeed(val)) {
+                                const numericSeed = wordsToSeed(val);
+                                if (numericSeed !== null) {
+                                  setSavedSeed(numericSeed);
+                                  onConfigUpdate({ random_seed: numericSeed });
+                                }
+                              }
+                              // Also accept numeric input
+                              const numVal = parseInt(val);
+                              if (!isNaN(numVal) && numVal > 0) {
+                                setSavedSeed(numVal);
+                                onConfigUpdate({ random_seed: numVal });
+                              }
+                            }}
+                            placeholder="swift-tiger"
+                          />
+                          <button
+                            type="button"
+                            className="config-preview__regenerate-btn"
+                            onClick={() => {
+                              const newSeed = generateSeed();
+                              setSavedSeed(newSeed);
+                              onConfigUpdate({ random_seed: newSeed });
+                            }}
+                            title="Generate new seed"
+                          >
+                            <Shuffle size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="config-preview__hint">
+                      {config.random_seed !== null
+                        ? 'Same seed = same player seating & card order across tables (fair A/B comparison)'
+                        : 'Random seating & deck order each tournament (more variance)'}
+                    </p>
+                  </div>
+
+                  {/* Parallel Execution */}
+                  <div className="config-preview__row">
+                    <label className="config-preview__label config-preview__label--inline">
+                      Parallel Tournaments
+                      <input
+                        type="number"
+                        className="config-preview__input config-preview__input--small"
+                        value={config.parallel_tournaments ?? 1}
+                        onChange={(e) => handleNumberChange('parallel_tournaments' as keyof ExperimentConfig, e.target.value)}
+                        onBlur={(e) => handleNumberBlur('parallel_tournaments' as keyof ExperimentConfig, e.target.value)}
+                        min={1}
+                        max={10}
+                      />
+                    </label>
+                    <label className="config-preview__label config-preview__label--inline">
+                      Stagger Delay (s)
+                      <input
+                        type="number"
+                        className="config-preview__input config-preview__input--small"
+                        value={config.stagger_start_delay ?? 0}
+                        onChange={(e) => handleFloatChange('stagger_start_delay' as keyof ExperimentConfig, e.target.value)}
+                        onBlur={(e) => handleFloatBlur('stagger_start_delay' as keyof ExperimentConfig, e.target.value)}
+                        min={0}
+                        max={60}
+                        step={0.5}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Tags */}
+                  <div className="config-preview__tags-section">
+                    <div className="config-preview__tags-input-row">
+                      <span className="config-preview__tags-label">
+                        <Tag size={14} />
+                        Tags
+                      </span>
+                      <input
+                        type="text"
+                        className="config-preview__input"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={handleTagKeyDown}
+                        placeholder="Add tag..."
+                      />
+                      <button
+                        type="button"
+                        className="config-preview__add-tag-btn"
+                        onClick={handleAddTag}
+                        disabled={!tagInput.trim()}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                    {config.tags.length > 0 && (
+                      <div className="config-preview__tags-list">
+                        {config.tags.map((tag) => (
+                          <span key={tag} className="config-preview__tag">
+                            {tag}
+                            <button
+                              type="button"
+                              className="config-preview__tag-remove"
+                              onClick={() => handleRemoveTag(tag)}
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Personalities */}
+                  <div className="config-preview__personalities-section">
+                    <label className="config-preview__label">
+                      <Users size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                      Personalities
+                      <span className="config-preview__label-hint">
+                        {config.personalities ? `${config.personalities.length} selected` : 'Random'}
+                      </span>
+                    </label>
+                    <div className="config-preview__personalities-grid">
+                      {availablePersonalities.map((personality) => (
+                        <label key={personality} className="config-preview__personality-item">
+                          <input
+                            type="checkbox"
+                            checked={config.personalities?.includes(personality) ?? false}
+                            onChange={() => handlePersonalityToggle(personality)}
+                          />
+                          <span>{personality}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {config.personalities && config.personalities.length > 0 && (
+                      <button
+                        type="button"
+                        className="config-preview__clear-personalities"
+                        onClick={() => onConfigUpdate({ personalities: null })}
+                      >
+                        Clear Selection (use random)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Capture Prompts Toggle */}
+                  <label className="config-preview__toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={config.capture_prompts}
+                      onChange={(e) => handleFieldChange('capture_prompts', e.target.checked)}
+                    />
+                    Capture Prompts (for debugging)
+                  </label>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="config-preview__json">
@@ -613,7 +1027,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
       </div>
 
       {/* Validation Messages */}
-      {validation && (
+      {validation && (validation.errors.length > 0 || validation.warnings.length > 0) && (
         <div className="config-preview__validation">
           {validation.errors.map((error, i) => (
             <div key={i} className="config-preview__validation-error">
@@ -632,6 +1046,14 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch }: ConfigPrevie
 
       {/* Launch Button */}
       <div className="config-preview__footer">
+        <div className="config-preview__estimate">
+          <span className="config-preview__estimate-hands">
+            {getTotalHands().toLocaleString()} hands
+          </span>
+          <span className="config-preview__estimate-time">
+            {getTimeEstimate()}
+          </span>
+        </div>
         <button
           className="config-preview__launch-btn"
           onClick={handleLaunch}

@@ -47,7 +47,7 @@ def run_ab_test(db_path: str = None):
     # Configuration for both variants
     base_config = {
         'num_tournaments': 1,
-        'max_hands_per_tournament': 10,  # Short for demo
+        'hands_per_tournament': 10,  # Short for demo
         'num_players': 3,
         'starting_stack': 1000,
         'big_blind': 50,

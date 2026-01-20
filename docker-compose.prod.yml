@@ -20,6 +20,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - XAI_API_KEY=${XAI_API_KEY}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY:-}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - FLASK_APP=flask_app.ui_web
       - PYTHONPATH=/app
@@ -31,6 +32,10 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com
+      - IMAGE_PROVIDER=${IMAGE_PROVIDER:-openai}
+      - IMAGE_MODEL=${IMAGE_MODEL:-}
+      - RUNWARE_API_KEY=${RUNWARE_API_KEY:-}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis

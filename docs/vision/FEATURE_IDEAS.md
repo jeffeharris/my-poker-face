@@ -97,8 +97,8 @@ Typing while playing poker is challenging. Solutions:
    - "Thinking time" increases
    - Prevents rushed decisions
 
-### Dynamic Conversation System (Enhanced)
-Building on prompt improvements, AI conversation becomes more natural:
+### Dynamic Conversation System (Enhanced) ✅ IMPLEMENTED
+Building on prompt improvements, AI conversation becomes more natural (implemented via elasticity system and prompt config):
 
 1. **Chattiness-Based Speaking**
    - Low chattiness (0.0-0.3): Mostly silent, speaks only when necessary
@@ -158,7 +158,9 @@ def mix_personalities(p1, p2):
 
 ---
 
-## Multi-Model AI Integration
+## Multi-Model AI Integration ✅ IMPLEMENTED
+
+> **Status:** Core multi-provider support is complete. 7 providers supported: OpenAI, Anthropic, Groq, DeepSeek, Mistral, Google, xAI. See `core/llm/` for implementation.
 
 ### Different Thinking Styles
 Each AI model has characteristic "tells":
@@ -250,7 +252,9 @@ colorful. Someone said something about money?"
 
 ---
 
-## Long-Term Memory System
+## Long-Term Memory System ✅ PARTIALLY IMPLEMENTED
+
+> **Status:** Working memory and short-term memory implemented via `SessionMemory` and `OpponentModelManager`. Long-term cross-session memory and markdown files not yet implemented. See `poker/memory/` for implementation.
 
 ### Enhanced Memory Architecture
 Building on prompt improvements, implement multi-layered memory:

@@ -138,9 +138,5 @@ export interface InterrogationResponse {
   error?: string;
 }
 
-export interface ProviderInfo {
-  id: string;
-  name: string;
-  models: string[];
-  default_model: string;
-}
+// Re-export ProviderInfo from shared types for backward compatibility
+export type { ProviderInfo } from '../../../types/llm';

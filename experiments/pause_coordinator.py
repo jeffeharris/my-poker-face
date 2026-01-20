@@ -70,17 +70,6 @@ class PauseCoordinator:
         with self._lock:
             return self._pause_flags.get(experiment_id, False)
 
-    def is_paused(self, experiment_id: int) -> bool:
-        """Alias for should_pause for semantic clarity in status checks.
-
-        Args:
-            experiment_id: The experiment ID to check
-
-        Returns:
-            True if a pause is requested for this experiment
-        """
-        return self.should_pause(experiment_id)
-
     def get_paused_experiments(self) -> list:
         """Get list of all experiment IDs with active pause requests.
 

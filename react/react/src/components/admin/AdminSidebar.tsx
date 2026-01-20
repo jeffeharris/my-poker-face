@@ -13,7 +13,7 @@ export interface SidebarItem {
 
 interface AdminSidebarProps {
   items: SidebarItem[];
-  activeTab: AdminTab;
+  activeTab: AdminTab | undefined;
   onTabChange: (tab: AdminTab) => void;
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
@@ -63,7 +63,7 @@ export function AdminSidebar({
     };
   }, []);
 
-  const activeItem = items.find(item => item.id === activeTab);
+  // activeItem removed - was unused
 
   return (
     <aside className={`admin-sidebar ${collapsed ? 'admin-sidebar--collapsed' : ''}`}>

@@ -80,7 +80,8 @@
   width: 100%;
   min-height: 40px;
   padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-surface-hover);
+  /* Solid dark background for proper dropdown visibility */
+  background-color: var(--color-bg-tertiary, #151820);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   color: var(--color-text-primary);
@@ -89,10 +90,16 @@
   cursor: pointer;
   transition: var(--transition-all-base);
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23d4a574' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right var(--space-2) center;
   padding-right: var(--space-6);
+}
+
+/* Dropdown options - dark theme styling */
+.setting-select option {
+  background-color: var(--color-bg-tertiary, #151820);
+  color: var(--color-text-primary, #f8fafc);
 }
 
 .setting-select:hover {

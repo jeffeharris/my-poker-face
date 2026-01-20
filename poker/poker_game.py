@@ -1,4 +1,5 @@
 import json
+import logging
 from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
 from random import shuffle
@@ -7,6 +8,8 @@ from typing import Tuple, Mapping, List, Optional, Dict
 from core.card import Card
 from .hand_evaluator import HandEvaluator, rank_to_display
 from .utils import obj_to_dict
+
+logger = logging.getLogger(__name__)
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
@@ -81,7 +84,7 @@ class Player:
 @dataclass(frozen=True)
 class PokerGameState:
     players: Tuple[Player, ...]
-    deck: Tuple[Mapping, ...] = field(default_factory=lambda: create_deck(shuffled=True))
+    deck: Tuple[Mapping, ...]  # Must be provided explicitly to support deterministic seeding
     discard_pile: Tuple[Mapping, ...] = field(default_factory=tuple)
     pot: Mapping = field(default_factory=lambda: {'total': 0})
     current_player_idx: int = 0
@@ -587,7 +590,12 @@ def initialize_game_state(
     ai_players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=starting_stack, is_human=True) for n in player_names)
     new_players = (Player(name=human_name, stack=starting_stack, is_human=True),) + (ai_players if not TEST_MODE else test_players)
-    game_state = PokerGameState(players=new_players, current_ante=big_blind, last_raise_amount=big_blind)
+    game_state = PokerGameState(
+        players=new_players,
+        deck=create_deck(shuffled=True),
+        current_ante=big_blind,
+        last_raise_amount=big_blind
+    )
 
     return game_state
 
@@ -612,12 +620,19 @@ def setup_hand(game_state: PokerGameState) -> PokerGameState:
     return game_state
 
 
-def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
+def reset_game_state_for_new_hand(
+    game_state: PokerGameState,
+    deck_seed: Optional[int] = None
+) -> PokerGameState:
     """
     Sets all game_state flags to new hand state.
     Creates a new deck and resets the player's hand.
     Rotates the dealer position.
     Deals the hole cards.
+
+    Args:
+        game_state: Current game state
+        deck_seed: Optional seed for deterministic deck shuffling (for A/B experiments)
     """
     # Create new players with reset flags to prepare for the next round
     new_players = []
@@ -643,7 +658,12 @@ def reset_game_state_for_new_hand(game_state: PokerGameState) -> PokerGameState:
     # current_ante we ensure that pre-flop min-raise calculations (e.g., bet logic that does `min_raise =
     # last_raise_amount + amount_to_call`) treat the blind as the last raise size. If we set last_raise_amount
     # to 0 or left it from the previous hand, the computed minimum raise for the new hand would be incorrect.
-    return PokerGameState(players=tuple(new_players), current_ante=game_state.current_ante, last_raise_amount=game_state.current_ante)
+    return PokerGameState(
+        players=tuple(new_players),
+        deck=create_deck(shuffled=True, random_seed=deck_seed),
+        current_ante=game_state.current_ante,
+        last_raise_amount=game_state.current_ante
+    )
 
 
 def determine_winner(game_state: PokerGameState) -> Dict:
@@ -781,7 +801,7 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         'hand_rank': best_overall_hand['hand_rank']
     }
 
-    print(winner_info)
+    logger.debug(f"[HAND_END] {winner_info}")
     return winner_info
 
 

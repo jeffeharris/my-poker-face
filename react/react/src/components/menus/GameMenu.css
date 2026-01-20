@@ -183,10 +183,6 @@
   transition: left 0.6s var(--ease-out-expo);
 }
 
-.menu-option:hover::before {
-  left: 150%;
-}
-
 /* Top highlight line */
 .menu-option::after {
   content: '';
@@ -203,23 +199,9 @@
   );
 }
 
-.menu-option:hover {
-  background: var(--gradient-card-hover);
-  border-color: var(--color-border-gold);
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-4px);
-}
-
 .menu-option:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-.menu-option:disabled:hover {
-  transform: none;
-  background: var(--gradient-card);
-  border-color: var(--color-border-default);
-  box-shadow: var(--shadow-card);
 }
 
 /* Option content */
@@ -228,10 +210,6 @@
   flex-shrink: 0;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
   transition: var(--transition-transform);
-}
-
-.menu-option:hover .option-icon {
-  transform: scale(1.1);
 }
 
 .option-content {
@@ -263,9 +241,34 @@
   flex-shrink: 0;
 }
 
-.menu-option:hover .option-arrow {
-  color: var(--color-gold);
-  transform: translateX(4px);
+/* Hover effects - only on devices that support hover (not touch) */
+@media (hover: hover) {
+  .menu-option:hover::before {
+    left: 150%;
+  }
+
+  .menu-option:hover {
+    background: var(--gradient-card-hover);
+    border-color: var(--color-border-gold);
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-4px);
+  }
+
+  .menu-option:disabled:hover {
+    transform: none;
+    background: var(--gradient-card);
+    border-color: var(--color-border-default);
+    box-shadow: var(--shadow-card);
+  }
+
+  .menu-option:hover .option-icon {
+    transform: scale(1.1);
+  }
+
+  .menu-option:hover .option-arrow {
+    color: var(--color-gold);
+    transform: translateX(4px);
+  }
 }
 
 /* Option badges */

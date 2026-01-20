@@ -872,14 +872,9 @@
   font-weight: 500;
 }
 
-/* Animation class for spinning icons */
+/* Animation class for spinning icons - uses shared adminSpin from AdminShared.css */
 .animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  animation: adminSpin 1s linear infinite;
 }
 
 /* ========== Game Monitor Table ========== */

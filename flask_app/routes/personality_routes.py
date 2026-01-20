@@ -209,6 +209,78 @@ def delete_personality(name):
         return jsonify({'success': False, 'error': str(e)})
 
 
+@personality_bp.route('/api/personality/<name>/reference-image', methods=['GET'])
+def get_reference_image(name):
+    """Get the reference image ID for a personality.
+
+    The reference image is used for img2img generation to create
+    consistent avatar images based on a user-provided photo.
+
+    Returns:
+        {
+            "success": true,
+            "reference_image_id": "uuid-or-null"
+        }
+    """
+    try:
+        # Check if personality exists
+        personality_config = personality_generator.get_personality(name)
+        if not personality_config:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found'
+            }), 404
+
+        reference_image_id = personality_generator.get_reference_image_id(name)
+
+        return jsonify({
+            'success': True,
+            'reference_image_id': reference_image_id
+        })
+    except Exception as e:
+        logger.error(f"Error getting reference image for {name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@personality_bp.route('/api/personality/<name>/reference-image', methods=['PUT'])
+def update_reference_image(name):
+    """Set or clear the reference image ID for a personality.
+
+    The reference image is used for img2img generation to create
+    consistent avatar images based on a user-provided photo.
+
+    Request body:
+        {
+            "reference_image_id": "uuid-or-null"
+        }
+
+    Set to null to clear the reference image.
+    """
+    try:
+        data = request.json
+        reference_image_id = data.get('reference_image_id')
+
+        # Check if personality exists
+        personality_config = personality_generator.get_personality(name)
+        if not personality_config:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found'
+            }), 404
+
+        # Update reference image ID
+        personality_generator.set_reference_image_id(name, reference_image_id)
+
+        return jsonify({
+            'success': True,
+            'message': f'Reference image {"set" if reference_image_id else "cleared"} for {name}',
+            'reference_image_id': reference_image_id
+        })
+    except Exception as e:
+        logger.error(f"Error updating reference image for {name}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @personality_bp.route('/api/generate-theme', methods=['POST'])
 def generate_theme():
     """Generate a themed game with appropriate personalities."""

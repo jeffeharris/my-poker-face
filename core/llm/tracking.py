@@ -78,6 +78,7 @@ class CallType(str, Enum):
     DEBUG_REPLAY = "debug_replay"
     DEBUG_INTERROGATE = "debug_interrogate"
     EXPERIMENT_DESIGN = "experiment_design"
+    EXPERIMENT_ANALYSIS = "experiment_analysis"
 
 
 class UsageTracker:
@@ -353,9 +354,9 @@ class UsageTracker:
                     call_type, prompt_template, provider, model,
                     input_tokens, output_tokens, cached_tokens, reasoning_tokens,
                     reasoning_effort, max_tokens, image_count, image_size, latency_ms, status,
-                    finish_reason, error_code, request_id, message_count, system_prompt_tokens,
+                    finish_reason, error_code, error_message, request_id, message_count, system_prompt_tokens,
                     estimated_cost, pricing_ids
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 game_id,
@@ -378,6 +379,7 @@ class UsageTracker:
                 response.status,
                 None if is_image else getattr(response, 'finish_reason', None),
                 getattr(response, 'error_code', None),
+                getattr(response, 'error_message', None),
                 getattr(response, 'request_id', None),
                 message_count,
                 system_prompt_tokens,
@@ -516,9 +518,7 @@ def capture_prompt(
                 capture_data.get('raise_amount'),
             ))
 
-            # IMPORTANT: Get capture_id INSIDE the with block to avoid race condition
-            # in parallel execution (last_insert_rowid is connection-scoped)
-            capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
         # Call on_captured callback if provided (allows caller to get capture_id without coupling)
         on_captured = capture_data.get('_on_captured')
@@ -569,3 +569,119 @@ def update_prompt_capture(capture_id: int, **fields) -> bool:
     except Exception as e:
         logger.error(f"Failed to update prompt capture {capture_id}: {e}")
         return False
+
+
+def capture_image_prompt(
+    prompt: str,
+    response: ImageResponse,
+    call_type: CallType,
+    target_personality: Optional[str] = None,
+    target_emotion: Optional[str] = None,
+    reference_image_id: Optional[str] = None,
+    game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
+) -> Optional[int]:
+    """Capture image generation prompt and result to prompt_captures table.
+
+    This downloads the image from the URL (before it expires) and stores
+    it as a BLOB in the database for later viewing and replay.
+
+    Args:
+        prompt: The image generation prompt
+        response: The ImageResponse from the provider
+        call_type: Type of call (IMAGE_GENERATION, etc.)
+        target_personality: Optional personality name (e.g., for avatar generation)
+        target_emotion: Optional emotion (e.g., for avatar generation)
+        reference_image_id: Optional reference image ID (for img2img)
+        game_id: Optional game ID
+        owner_id: Optional owner/user ID
+
+    Returns:
+        capture_id if capture was saved, None if skipped or failed
+    """
+    import requests
+
+    # Check if we should capture this prompt
+    if not should_capture_prompt(call_type, debug_mode=False):
+        return None
+
+    # Skip error responses
+    if response.is_error:
+        return None
+
+    try:
+        # Download image bytes from URL (before it expires)
+        image_data = None
+        image_width = None
+        image_height = None
+
+        if response.url:
+            try:
+                img_response = requests.get(response.url, timeout=30)
+                img_response.raise_for_status()
+                image_data = img_response.content
+
+                # Try to get image dimensions
+                try:
+                    from PIL import Image
+                    import io
+                    img = Image.open(io.BytesIO(image_data))
+                    image_width, image_height = img.size
+                except ImportError:
+                    # PIL not available, try to parse from size string
+                    if response.size:
+                        try:
+                            w, h = response.size.split('x')
+                            image_width, image_height = int(w), int(h)
+                        except ValueError:
+                            # Malformed size string; continue without dimensions
+                            pass
+                except Exception as e:
+                    logger.debug(f"Could not get image dimensions: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to download image for capture: {e}")
+                # Continue without image data - at least capture the prompt
+
+        db_path = get_capture_db_path()
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                INSERT INTO prompt_captures (
+                    game_id, player_name, phase, call_type,
+                    system_prompt, user_message, ai_response,
+                    provider, model, latency_ms,
+                    is_image_capture, image_prompt, image_url, image_data,
+                    image_size, image_width, image_height,
+                    target_personality, target_emotion, reference_image_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                game_id,
+                target_personality,  # Use as player_name for filtering
+                call_type.value,  # Use as phase for compatibility
+                call_type.value,
+                "(image generation)",  # system_prompt placeholder
+                prompt,  # user_message = the prompt
+                response.url or "",  # ai_response = the URL
+                response.provider,
+                response.model,
+                int(response.latency_ms) if response.latency_ms else None,
+                1,  # is_image_capture = True
+                prompt,
+                response.url,
+                image_data,
+                response.size,
+                image_width,
+                image_height,
+                target_personality,
+                target_emotion,
+                reference_image_id,
+            ))
+
+            capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        logger.debug(f"Captured image prompt {capture_id} for {call_type.value}: {response.model}")
+        return capture_id
+
+    except Exception as e:
+        logger.error(f"Failed to capture image prompt: {e}")
+        return None

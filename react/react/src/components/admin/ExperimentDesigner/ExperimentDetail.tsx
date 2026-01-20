@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw,
-  Clock,
-  CheckCircle,
-  XCircle,
   Loader2,
   Trophy,
   Target,
@@ -14,16 +11,26 @@ import {
   Filter,
   Zap,
   Monitor,
-  Pause,
   Play,
+  Pause,
   DollarSign,
+  XCircle,
+  Archive,
+  ArchiveRestore,
   AlertTriangle,
+  Wand2,
+  ChevronDown,
+  ChevronRight,
+  MessageSquare,
+  Brain,
+  Lightbulb,
+  FlaskRound,
 } from 'lucide-react';
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
-import type { VariantResultSummary, LiveStats, LatencyMetrics, CostMetrics } from './types';
-
-type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
+import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
+import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
+import type { VariantResultSummary, LiveStats, FailedTournament, ExperimentConfig, NextStepSuggestion } from './types';
 
 interface ExperimentDetailType {
   id: number;
@@ -39,7 +46,8 @@ interface ExperimentDetailType {
   model: string | null;
   provider: string | null;
   notes: string | null;
-  config: Record<string, unknown>;
+  error_message?: string | null;
+  config: ExperimentConfig;
   summary: {
     tournaments: number;
     total_hands: number;
@@ -48,6 +56,21 @@ interface ExperimentDetailType {
     avg_hands_per_tournament: number;
     winners: Record<string, number>;
     variants?: Record<string, VariantResultSummary>;
+    failed_tournaments?: FailedTournament[];
+    ai_interpretation?: {
+      summary: string;
+      verdict: string;
+      surprises: string[];
+      next_steps: (string | NextStepSuggestion)[];
+      // Legacy fields for backwards compatibility
+      hypothesis_evaluation?: string;
+      key_findings?: string[];
+      variant_comparison?: string | null;
+      suggested_followups?: string[];
+      generated_at: string;
+      model_used: string;
+      error?: string;
+    };
   } | null;
 }
 
@@ -78,42 +101,12 @@ interface DecisionStats {
 interface ExperimentDetailProps {
   experimentId: number;
   onBack: () => void;
+  onEditInLabAssistant?: (experiment: ExperimentDetailType) => void;
+  onBuildFromSuggestion?: (experiment: ExperimentDetailType, suggestion: NextStepSuggestion) => void;
+  onOpenAssistant?: () => void;
 }
 
-const STATUS_CONFIG: Record<ExperimentStatus, { icon: React.ReactNode; className: string; label: string }> = {
-  pending: {
-    icon: <Clock size={16} />,
-    className: 'status-badge--pending',
-    label: 'Pending',
-  },
-  running: {
-    icon: <Loader2 size={16} className="animate-spin" />,
-    className: 'status-badge--running',
-    label: 'Running',
-  },
-  completed: {
-    icon: <CheckCircle size={16} />,
-    className: 'status-badge--completed',
-    label: 'Completed',
-  },
-  failed: {
-    icon: <XCircle size={16} />,
-    className: 'status-badge--failed',
-    label: 'Failed',
-  },
-  paused: {
-    icon: <Pause size={16} />,
-    className: 'status-badge--paused',
-    label: 'Paused',
-  },
-  interrupted: {
-    icon: <AlertTriangle size={16} />,
-    className: 'status-badge--interrupted',
-    label: 'Interrupted',
-  },
-};
-
-export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps) {
+export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, onBuildFromSuggestion, onOpenAssistant }: ExperimentDetailProps) {
   const [experiment, setExperiment] = useState<ExperimentDetailType | null>(null);
   const [games, setGames] = useState<ExperimentGame[]>([]);
   const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null);
@@ -124,6 +117,10 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   const [showMonitor, setShowMonitor] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
   const [resumeLoading, setResumeLoading] = useState(false);
+  const [pauseRequested, setPauseRequested] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [failureDetailsExpanded, setFailureDetailsExpanded] = useState(true);
+
 
   const fetchExperiment = useCallback(async () => {
     try {
@@ -139,6 +136,7 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
         setExperiment(expData.experiment);
         setDecisionStats(expData.decision_stats);
         setLiveStats(expData.live_stats || null);
+        setPauseRequested(expData.pause_requested || false);
         setError(null);
       } else {
         setError(expData.error || 'Failed to load experiment');
@@ -161,13 +159,16 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
   }, [fetchExperiment]);
 
   // Auto-refresh for running experiments
-  // Note: cleanup function ensures only one interval runs at a time
+  // Note: experimentId is stable, so fetchExperiment reference is stable
+  // Only re-run effect when status changes to avoid multiple intervals
   useEffect(() => {
     if (experiment?.status !== 'running') return;
 
     const interval = setInterval(fetchExperiment, 5000);
     return () => clearInterval(interval);
-  }, [experiment?.status, fetchExperiment]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experiment?.status, experimentId]);
+
 
   const handlePause = async () => {
     setPauseLoading(true);
@@ -211,29 +212,33 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const handleArchive = async () => {
+    setArchiveLoading(true);
+    try {
+      const isArchived = experiment?.tags?.includes('_archived');
+      const endpoint = isArchived ? 'unarchive' : 'archive';
+      const response = await fetch(`${config.API_URL}/api/experiments/${experimentId}/${endpoint}`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchExperiment();
+      } else {
+        setError(data.error || `Failed to ${endpoint} experiment`);
+      }
+    } catch (err) {
+      console.error('Failed to archive/unarchive experiment:', err);
+      setError('Failed to archive experiment');
+    } finally {
+      setArchiveLoading(false);
+    }
   };
+
 
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${Math.round(seconds)}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-  };
-
-  const formatLatency = (ms: number) => {
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-  };
-
-  const formatCost = (cost: number) => {
-    if (cost === 0) return '$0';
-    if (cost < 0.001) return `$${cost.toFixed(6)}`;
-    if (cost < 0.01) return `$${cost.toFixed(4)}`;
-    if (cost < 1) return `$${cost.toFixed(3)}`;
-    return `$${cost.toFixed(2)}`;
   };
 
   if (loading) {
@@ -259,6 +264,8 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
 
   const statusConfig = STATUS_CONFIG[experiment.status];
   const summary = experiment.summary;
+  const isPausing = experiment.status === 'running' && pauseRequested;
+  const isArchived = experiment.tags?.includes('_archived');
 
   return (
     <div className="experiment-detail">
@@ -266,10 +273,25 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
       <div className="experiment-detail__toolbar">
         <div className="experiment-detail__toolbar-left">
           <h2 className="experiment-detail__name">{experiment.name}</h2>
-          <span className={`status-badge ${statusConfig.className}`}>
-            {statusConfig.icon}
-            {statusConfig.label}
+          <span className={`status-badge ${isPausing ? 'status-badge--pausing' : statusConfig.className}`}>
+            {isPausing ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Pausing...
+              </>
+            ) : (
+              <>
+                {statusConfig.icon}
+                {statusConfig.label}
+              </>
+            )}
           </span>
+          {isArchived && (
+            <span className="experiment-detail__archived-badge">
+              <Archive size={12} />
+              Archived
+            </span>
+          )}
         </div>
         <div className="experiment-detail__toolbar-actions">
           <button
@@ -280,6 +302,17 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
           >
             <RefreshCw size={16} />
           </button>
+          {onOpenAssistant && (
+            <button
+              className="experiment-detail__chat-btn"
+              onClick={onOpenAssistant}
+              type="button"
+              title="Chat with Assistant"
+            >
+              <MessageSquare size={16} />
+              Ask Assistant
+            </button>
+          )}
           {experiment.status === 'running' && (
             <>
               <button
@@ -295,15 +328,15 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
                 className="experiment-detail__pause-btn"
                 onClick={handlePause}
                 type="button"
-                disabled={pauseLoading}
+                disabled={pauseLoading || isPausing}
                 title="Pause Experiment"
               >
-                {pauseLoading ? (
+                {pauseLoading || isPausing ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
                   <Pause size={16} />
                 )}
-                {pauseLoading ? 'Pausing...' : 'Pause'}
+                {pauseLoading || isPausing ? 'Pausing...' : 'Pause'}
               </button>
             </>
           )}
@@ -323,11 +356,112 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
               {resumeLoading ? 'Resuming...' : 'Resume'}
             </button>
           )}
+          {/* Archive/Unarchive button - show for non-running experiments */}
+          {experiment.status !== 'running' && (
+            <button
+              className={`experiment-detail__archive-btn ${isArchived ? 'experiment-detail__archive-btn--unarchive' : ''}`}
+              onClick={handleArchive}
+              type="button"
+              disabled={archiveLoading}
+              title={isArchived ? 'Unarchive Experiment' : 'Archive Experiment'}
+            >
+              {archiveLoading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : isArchived ? (
+                <ArchiveRestore size={16} />
+              ) : (
+                <Archive size={16} />
+              )}
+              {isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Scrollable Content */}
       <div className="experiment-detail__content">
+        {/* Error Banner for failed/interrupted experiments */}
+        {(experiment.status === 'failed' || experiment.status === 'interrupted') && experiment.notes && (
+          <div className={`experiment-detail__error-banner experiment-detail__error-banner--${experiment.status}`}>
+            <AlertTriangle size={18} />
+            <div className="experiment-detail__error-banner-content">
+              <span className="experiment-detail__error-banner-title">
+                {experiment.status === 'failed' ? 'Experiment Failed' : 'Experiment Interrupted'}
+              </span>
+              <span className="experiment-detail__error-banner-message">{experiment.notes}</span>
+            </div>
+            <div className="experiment-detail__error-banner-actions">
+              {experiment.status === 'failed' && onEditInLabAssistant && (
+                <button
+                  className="experiment-detail__error-banner-action experiment-detail__error-banner-action--edit"
+                  onClick={() => onEditInLabAssistant(experiment)}
+                  type="button"
+                >
+                  <Wand2 size={14} />
+                  Edit in Lab Assistant
+                </button>
+              )}
+              {experiment.status === 'interrupted' && (
+                <button
+                  className="experiment-detail__error-banner-action"
+                  onClick={handleResume}
+                  type="button"
+                  disabled={resumeLoading}
+                >
+                  {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Resume
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Failure Details Section for failed experiments */}
+        {experiment.status === 'failed' && experiment.summary?.failed_tournaments && experiment.summary.failed_tournaments.length > 0 && (
+          <div className="experiment-detail__section experiment-detail__section--failure">
+            <button
+              className="experiment-detail__section-toggle"
+              onClick={() => setFailureDetailsExpanded(!failureDetailsExpanded)}
+              type="button"
+            >
+              {failureDetailsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              <h3 className="experiment-detail__section-title">
+                <AlertTriangle size={16} />
+                Failure Details ({experiment.summary.failed_tournaments.length} tournament{experiment.summary.failed_tournaments.length !== 1 ? 's' : ''})
+              </h3>
+            </button>
+            {failureDetailsExpanded && (
+              <div className="experiment-detail__failure-list">
+                {experiment.summary.failed_tournaments.map((failure, idx) => (
+                  <div key={idx} className="experiment-detail__failure-item">
+                    <div className="experiment-detail__failure-header">
+                      <span className="experiment-detail__failure-tournament">
+                        Tournament #{failure.tournament_number}
+                      </span>
+                      {failure.variant && (
+                        <span className="experiment-detail__failure-variant">
+                          {failure.variant}
+                        </span>
+                      )}
+                      <span className="experiment-detail__failure-type">
+                        {failure.error_type}
+                      </span>
+                      {failure.duration_seconds > 0 && (
+                        <span className="experiment-detail__failure-duration">
+                          {formatDuration(failure.duration_seconds)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="experiment-detail__failure-message">
+                      {failure.error}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Header Info */}
         <div className="experiment-detail__header">
           {experiment.description && (
@@ -378,6 +512,123 @@ export function ExperimentDetail({ experimentId, onBack }: ExperimentDetailProps
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* AI Interpretation */}
+      {/* Show error state if AI interpretation failed */}
+      {experiment.status === 'completed' && summary?.ai_interpretation?.error && (
+        <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--error">
+          <h3 className="experiment-detail__section-title">
+            <Brain size={18} />
+            AI Analysis
+          </h3>
+          <div className="experiment-detail__ai-placeholder experiment-detail__ai-placeholder--error">
+            <AlertTriangle size={20} />
+            <p>Failed to generate AI analysis: {summary.ai_interpretation.error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Show loading state if completed but no summary or no AI interpretation yet */}
+      {experiment.status === 'completed' && (!summary || !summary.ai_interpretation) && (
+        <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--placeholder">
+          <h3 className="experiment-detail__section-title">
+            <Brain size={18} />
+            AI Analysis
+          </h3>
+          <div className="experiment-detail__ai-placeholder">
+            <Loader2 size={20} className="animate-spin" />
+            <p>Generating AI analysis...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Show actual AI interpretation when available */}
+      {summary?.ai_interpretation && !summary.ai_interpretation.error && (
+        <div className="experiment-detail__section experiment-detail__section--ai">
+          <h3 className="experiment-detail__section-title">
+            <Brain size={18} />
+            AI Analysis
+            <span className="experiment-detail__ai-meta">
+              {summary.ai_interpretation.model_used} • {new Date(summary.ai_interpretation.generated_at).toLocaleDateString()}
+            </span>
+          </h3>
+
+          <div className="experiment-detail__ai-content">
+            {/* Summary */}
+            <div className="experiment-detail__ai-summary">
+              <p>{summary.ai_interpretation.summary}</p>
+            </div>
+
+            {/* Verdict (new) or Hypothesis Evaluation (legacy) */}
+            {(summary.ai_interpretation.verdict || summary.ai_interpretation.hypothesis_evaluation) && (
+              <div className="experiment-detail__ai-block">
+                <h4>
+                  <FlaskRound size={14} />
+                  Verdict
+                </h4>
+                <p>{summary.ai_interpretation.verdict || summary.ai_interpretation.hypothesis_evaluation}</p>
+              </div>
+            )}
+
+            {/* Surprises (new) or Key Findings (legacy) - only show if non-empty */}
+            {((summary.ai_interpretation.surprises?.length ?? 0) > 0 || (summary.ai_interpretation.key_findings?.length ?? 0) > 0) && (
+              <div className="experiment-detail__ai-block">
+                <h4>
+                  <Lightbulb size={14} />
+                  {summary.ai_interpretation.surprises ? 'Surprises' : 'Key Findings'}
+                </h4>
+                <ul className="experiment-detail__ai-list">
+                  {(summary.ai_interpretation.surprises || summary.ai_interpretation.key_findings || []).map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Next Steps (new) or Suggested Follow-ups (legacy) */}
+            {((summary.ai_interpretation.next_steps?.length ?? 0) > 0 || (summary.ai_interpretation.suggested_followups?.length ?? 0) > 0) && (
+              <div className="experiment-detail__ai-block">
+                <h4>
+                  <Target size={14} />
+                  Next Steps
+                </h4>
+                <div className="experiment-detail__suggestions-grid">
+                  {(summary.ai_interpretation.next_steps || summary.ai_interpretation.suggested_followups || []).map((item, idx) => {
+                    // Handle both structured suggestions and legacy string format
+                    const isStructured = typeof item === 'object' && item !== null && 'hypothesis' in item;
+                    const suggestion = isStructured ? item as NextStepSuggestion : null;
+
+                    if (suggestion && onBuildFromSuggestion) {
+                      return (
+                        <div key={idx} className="experiment-detail__suggestion-card">
+                          <div className="experiment-detail__suggestion-content">
+                            <p className="experiment-detail__suggestion-hypothesis">{suggestion.hypothesis}</p>
+                            <p className="experiment-detail__suggestion-description">{suggestion.description}</p>
+                          </div>
+                          <button
+                            className="experiment-detail__suggestion-action"
+                            onClick={() => onBuildFromSuggestion(experiment, suggestion)}
+                            type="button"
+                          >
+                            Build Experiment &rarr;
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    // Legacy string format - render as simple list item
+                    return (
+                      <div key={idx} className="experiment-detail__suggestion-card experiment-detail__suggestion-card--simple">
+                        <p className="experiment-detail__suggestion-text">{typeof item === 'string' ? item : JSON.stringify(item)}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

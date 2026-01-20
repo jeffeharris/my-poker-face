@@ -2,6 +2,31 @@ import { useState, useEffect } from 'react';
 import type { GameState, Player } from '../types';
 import { config } from '../config';
 
+// Cache key prefix for localStorage
+const GAME_STATE_CACHE_PREFIX = 'gameStateCache_';
+
+// Helper to get cached game state
+function getCachedGameState(gameId: string): GameState | null {
+  try {
+    const cached = localStorage.getItem(GAME_STATE_CACHE_PREFIX + gameId);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    console.warn('Failed to parse cached game state:', e);
+  }
+  return null;
+}
+
+// Helper to cache game state
+function cacheGameState(gameId: string, state: GameState): void {
+  try {
+    localStorage.setItem(GAME_STATE_CACHE_PREFIX + gameId, JSON.stringify(state));
+  } catch (e) {
+    console.warn('Failed to cache game state:', e);
+  }
+}
+
 interface UseGameStateResult {
   gameState: GameState | null;
   loading: boolean;
@@ -12,10 +37,22 @@ interface UseGameStateResult {
 }
 
 export function useGameState(gameId: string | null): UseGameStateResult {
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Initialize with cached state if available
+  const [gameState, setGameState] = useState<GameState | null>(() => {
+    if (gameId) {
+      return getCachedGameState(gameId);
+    }
+    return null;
+  });
+  // If we have cached state, don't show loading spinner
+  const [loading, setLoading] = useState(() => {
+    if (gameId) {
+      return getCachedGameState(gameId) === null;
+    }
+    return true;
+  });
   const [error, setError] = useState<string | null>(null);
-  const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
+  const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(() => new Map());
 
   const initializePlayerPositions = (players: Player[]) => {
     const positions = new Map<string, number>();
@@ -41,23 +78,29 @@ export function useGameState(gameId: string | null): UseGameStateResult {
 
   const fetchGameState = async (gId: string) => {
     try {
-      setLoading(true);
+      // Only show loading if we don't have cached state
+      const hasCached = getCachedGameState(gId) !== null;
+      if (!hasCached) {
+        setLoading(true);
+      }
       setError(null);
-      
+
       const response = await fetch(`${config.API_URL}/api/game-state/${gId}`);
       if (!response.ok) {
         throw new Error('Failed to load game');
       }
-      
+
       const data = await response.json();
-      
+
       // Check if it's an error response
       if (data.error || !data.players || data.players.length === 0) {
         throw new Error(data.message || 'Invalid game state');
       }
-      
+
       setGameState(data);
-      
+      // Cache the fresh state
+      cacheGameState(gId, data);
+
       // Initialize positions only if they haven't been set
       if (playerPositions.size === 0) {
         initializePlayerPositions(data.players);
@@ -72,15 +115,25 @@ export function useGameState(gameId: string | null): UseGameStateResult {
 
   const updateGameState = (newState: GameState) => {
     setGameState(newState);
-    
+    // Cache on every update
+    if (gameId) {
+      cacheGameState(gameId, newState);
+    }
+
     // Initialize positions if needed
     if (playerPositions.size === 0 && newState.players.length > 0) {
       initializePlayerPositions(newState.players);
     }
   };
 
+  // Initialize player positions from cached state on mount
   useEffect(() => {
     if (gameId) {
+      const cached = getCachedGameState(gameId);
+      if (cached && playerPositions.size === 0) {
+        initializePlayerPositions(cached.players);
+      }
+      // Always fetch fresh data (will update cache)
       fetchGameState(gameId);
     }
   }, [gameId]);

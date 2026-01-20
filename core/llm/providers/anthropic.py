@@ -38,8 +38,17 @@ class AnthropicProvider(LLMProvider):
         """
         self._model = model or ANTHROPIC_DEFAULT_MODEL
         self._reasoning_effort = reasoning_effort
+
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "Anthropic API key not provided. Set ANTHROPIC_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = anthropic.Anthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+            api_key=resolved_key,
             http_client=shared_http_client,
         )
 
@@ -87,6 +96,8 @@ class AnthropicProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
         """Make a chat completion request.
 
@@ -96,6 +107,8 @@ class AnthropicProvider(LLMProvider):
 
         When json_format=True, explicit JSON instructions are injected into the
         system prompt since Anthropic doesn't have native JSON mode support.
+
+        Note: tools/tool_choice are accepted for interface compatibility but not used.
         """
         # Extract system prompt from messages if present
         system_prompt = None
@@ -144,6 +157,9 @@ class AnthropicProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """Anthropic doesn't support image generation."""
         raise NotImplementedError("Anthropic does not support image generation")

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import type { LLMDebugInfo } from '../../types/player';
+import { formatCost, formatLatency } from '../../utils/formatters';
 import './LLMDebugModal.css';
 
 interface LLMDebugModalProps {
@@ -37,20 +38,6 @@ export function LLMDebugModal({ isOpen, onClose, playerName, debugInfo }: LLMDeb
   }, [isOpen]);
 
   if (!isOpen) return null;
-
-  // Format cost with appropriate precision
-  const formatCost = (cost: number) => {
-    if (cost === 0) return '$0.00';
-    if (cost < 0.0001) return `$${cost.toExponential(1)}`;
-    if (cost < 0.01) return `$${cost.toFixed(4)}`;
-    return `$${cost.toFixed(3)}`;
-  };
-
-  // Format latency
-  const formatLatency = (ms: number) => {
-    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${Math.round(ms)}ms`;
-  };
 
   return (
     <div className="llm-debug-modal-overlay" onClick={onClose}>

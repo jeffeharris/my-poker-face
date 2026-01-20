@@ -59,27 +59,26 @@ Your aggressive personality applies to BETTING SIZING with good hands, not to pl
 
 def get_capture(db_path: str, capture_id: int) -> dict:
     """Fetch a prompt capture from the database."""
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    cursor.execute('''
-        SELECT pc.*, pda.equity, pda.optimal_action, pda.ev_lost
-        FROM prompt_captures pc
-        LEFT JOIN player_decision_analysis pda ON pc.game_id = pda.game_id
-            AND pc.hand_number = pda.hand_number
-            AND pc.player_name = pda.player_name
-            AND pc.phase = pda.phase
-        WHERE pc.id = ?
-    ''', (capture_id,))
+        cursor.execute('''
+            SELECT pc.*, pda.equity, pda.optimal_action, pda.ev_lost
+            FROM prompt_captures pc
+            LEFT JOIN player_decision_analysis pda ON pc.game_id = pda.game_id
+                AND pc.hand_number = pda.hand_number
+                AND pc.player_name = pda.player_name
+                AND pc.phase = pda.phase
+            WHERE pc.id = ?
+        ''', (capture_id,))
 
-    row = cursor.fetchone()
-    conn.close()
+        row = cursor.fetchone()
 
-    if not row:
-        raise ValueError(f"Capture {capture_id} not found")
+        if not row:
+            raise ValueError(f"Capture {capture_id} not found")
 
-    return dict(row)
+        return dict(row)
 
 
 def inject_guidance(user_message: str, guidance_text: str) -> str:

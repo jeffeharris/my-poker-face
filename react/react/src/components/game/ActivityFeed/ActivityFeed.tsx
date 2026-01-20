@@ -1,19 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-import type { ChatMessage, Player } from '../../../types';
+import type { ChatMessage } from '../../../types';
 import './ActivityFeed.css';
 
 interface ActivityFeedProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
-  players: Player[];
   playerName?: string;
 }
 
 export function ActivityFeed({
   messages,
   onSendMessage,
-  players,
-  playerName = 'You',
+  playerName: _playerName = 'You',
 }: ActivityFeedProps) {
   const [inputValue, setInputValue] = useState('');
   const [isInputExpanded, setIsInputExpanded] = useState(false);

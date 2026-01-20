@@ -575,6 +575,78 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 0 2px var(--color-bg-void), 0 0 0 4px var(--color-gold);
 }
 
+/* ===========================================
+   THEMED SELECT/DROPDOWN
+   Global styling for native select elements
+   =========================================== */
+
+/* Base themed select */
+.themed-select,
+select.themed-select {
+  appearance: none;
+  background-color: var(--color-bg-tertiary);
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23d4a574' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right var(--space-3) center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  padding: var(--space-2) var(--space-8) var(--space-2) var(--space-3);
+  transition: var(--transition-all-fast);
+  min-width: 120px;
+}
+
+.themed-select:hover {
+  border-color: var(--color-border-hover);
+  background-color: var(--color-bg-secondary);
+}
+
+.themed-select:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.15);
+}
+
+.themed-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Option styling for dark theme dropdown */
+.themed-select option,
+select option {
+  background-color: var(--color-bg-tertiary, #151820);
+  color: var(--color-text-primary, #f8fafc);
+  padding: var(--space-2) var(--space-3);
+}
+
+.themed-select option:checked,
+select option:checked {
+  background-color: var(--color-gold-muted, rgba(212, 165, 116, 0.15));
+  color: var(--color-gold-light, #e8c9a0);
+}
+
+.themed-select option:disabled,
+select option:disabled {
+  color: var(--color-text-disabled, rgba(248, 250, 252, 0.28));
+}
+
+/* Size variants */
+.themed-select--sm {
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
+  min-width: 100px;
+}
+
+.themed-select--lg {
+  font-size: var(--font-size-base);
+  padding: var(--space-3) var(--space-10) var(--space-3) var(--space-4);
+}
+
 /* Subtle noise texture overlay */
 .noise-texture {
   position: relative;

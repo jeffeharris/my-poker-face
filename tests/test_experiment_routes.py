@@ -124,7 +124,7 @@ class TestExperimentRoutes(unittest.TestCase):
                 json={'config': {
                     'name': 'valid_experiment_name',
                     'num_tournaments': 3,
-                    'max_hands_per_tournament': 50,
+                    'hands_per_tournament': 50,
                     'num_players': 4,
                 }}
             )

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Loader2, Sparkles } from 'lucide-react';
-import type { ExperimentConfig } from './types';
+import { Send, Loader2, Sparkles, GitCompare } from 'lucide-react';
+import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage } from './types';
 import { config as appConfig } from '../../../config';
 
 interface QuickPrompt {
@@ -9,16 +9,24 @@ interface QuickPrompt {
   prompt: string;
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
+export interface InitialMessage {
+  userMessage: string;
+  context?: LabAssistantContext;
 }
 
-interface ExperimentChatProps {
+export interface ExperimentChatProps {
   config: ExperimentConfig;
   sessionId: string | null;
   onSessionIdChange: (sessionId: string) => void;
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
+  /** Initial message to send on mount (e.g., for failure analysis) */
+  initialMessage?: InitialMessage | null;
+  /** Chat history to restore from a previous session */
+  initialChatHistory?: ChatMessage[];
+  configVersions?: ConfigVersion[];
+  onConfigVersionsChange?: (versions: ConfigVersion[]) => void;
+  currentVersionIndex?: number;
+  onCurrentVersionIndexChange?: (index: number) => void;
 }
 
 export function ExperimentChat({
@@ -26,13 +34,21 @@ export function ExperimentChat({
   sessionId,
   onSessionIdChange,
   onConfigUpdate,
+  initialMessage,
+  initialChatHistory,
+  configVersions: _configVersions,
+  onConfigVersionsChange,
+  currentVersionIndex: _currentVersionIndex,
+  onCurrentVersionIndexChange,
 }: ExperimentChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Initialize messages from initial history if provided
+  const [messages, setMessages] = useState<ChatMessage[]>(initialChatHistory || []);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [quickPrompts, setQuickPrompts] = useState<QuickPrompt[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hasSentInitialMessage = useRef(false);
 
   // Fetch quick prompts on mount
   useEffect(() => {
@@ -55,20 +71,8 @@ export function ExperimentChat({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add initial welcome message (only on mount when messages is empty)
-  useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          role: 'assistant',
-          content: "Hi! I'm your experiment design assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
-        },
-      ]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount
-  }, []);
-
-  const sendMessage = useCallback(async (messageText: string) => {
+  // Define sendMessage BEFORE the useEffect that uses it
+  const sendMessage = useCallback(async (messageText: string, contextForFailure?: LabAssistantContext | null) => {
     if (!messageText.trim() || loading) return;
 
     // Add user message to display
@@ -85,6 +89,7 @@ export function ExperimentChat({
           message: messageText,
           session_id: sessionId,
           current_config: config,
+          failure_context: contextForFailure || null,
         }),
       });
 
@@ -96,16 +101,25 @@ export function ExperimentChat({
           onSessionIdChange(data.session_id);
         }
 
-        // Add assistant response
+        // Add assistant response with optional config diff
         const assistantMessage: ChatMessage = {
           role: 'assistant',
           content: data.response,
+          configDiff: data.config_diff || undefined,
         };
         setMessages(prev => [...prev, assistantMessage]);
 
         // Apply config updates if present
         if (data.config_updates) {
           onConfigUpdate(data.config_updates);
+        }
+
+        // Update config versions if present
+        if (data.config_versions && onConfigVersionsChange) {
+          onConfigVersionsChange(data.config_versions);
+          if (data.current_version_index !== undefined && onCurrentVersionIndexChange) {
+            onCurrentVersionIndexChange(data.current_version_index);
+          }
         }
       } else {
         // Add error message
@@ -128,7 +142,29 @@ export function ExperimentChat({
     } finally {
       setLoading(false);
     }
-  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId]);
+  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId, onConfigVersionsChange, onCurrentVersionIndexChange]);
+
+  // Handle initial message on mount (e.g., for failure analysis)
+  // Use ref to prevent double-send in React StrictMode (state checks are unreliable due to async updates)
+  useEffect(() => {
+    if (initialMessage && !hasSentInitialMessage.current) {
+      hasSentInitialMessage.current = true;
+      sendMessage(initialMessage.userMessage, initialMessage.context);
+    }
+  }, [initialMessage, sendMessage]);
+
+  // Add initial welcome message (only on mount when messages is empty and no initial history)
+  useEffect(() => {
+    if (messages.length === 0 && !initialMessage && !initialChatHistory) {
+      setMessages([
+        {
+          role: 'assistant',
+          content: "Hi! I'm your Lab Assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
+        },
+      ]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,6 +195,18 @@ export function ExperimentChat({
                 <p key={i}>{line || '\u00A0'}</p>
               ))}
             </div>
+            {/* Show config diff for assistant messages with config updates */}
+            {message.configDiff && (
+              <div className="experiment-chat__config-diff">
+                <div className="experiment-chat__config-diff-header">
+                  <GitCompare size={14} />
+                  <span>Config updated</span>
+                </div>
+                <pre className="experiment-chat__config-diff-content">
+                  {message.configDiff}
+                </pre>
+              </div>
+            )}
           </div>
         ))}
 

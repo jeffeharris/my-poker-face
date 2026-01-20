@@ -7,8 +7,13 @@ Reasoning behavior:
 - deepseek: Maps to deepseek-chat or deepseek-reasoner based on effort
   - minimal/None → deepseek-chat (no reasoning)
   - low/medium/high → deepseek-reasoner (with reasoning)
-- deepseek-chat: Direct access to chat model (no reasoning)
-- deepseek-reasoner: Direct access to reasoning model (always reasons)
+- deepseek-chat: Direct access to chat model, supports tools and optional thinking mode
+- deepseek-reasoner: Direct access to reasoning model (always reasons, NO tool support)
+
+Tool calling notes:
+- deepseek-reasoner does NOT support function/tool calling
+- deepseek-chat supports tools, and can enable thinking mode via extra_body parameter
+- When tools are provided with reasoning_effort, we use deepseek-chat + thinking:enabled
 """
 import os
 import logging
@@ -71,8 +76,16 @@ class DeepSeekProvider(LLMProvider):
         else:
             self._model = base_model
 
+        # Validate API key early for better error messages
+        resolved_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "DeepSeek API key not provided. Set DEEPSEEK_API_KEY environment variable "
+                "or pass api_key parameter."
+            )
+
         self._client = OpenAI(
-            api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
+            api_key=resolved_key,
             base_url="https://api.deepseek.com/v1",
             http_client=shared_http_client,
         )
@@ -99,17 +112,54 @@ class DeepSeekProvider(LLMProvider):
         messages: List[Dict[str, str]],
         json_format: bool = False,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
     ) -> Any:
-        """Make a chat completion request."""
+        """Make a chat completion request.
+
+        Tool calling is supported for deepseek-chat. If tools are provided when
+        using deepseek-reasoner, we automatically switch to deepseek-chat with
+        thinking mode enabled to get both reasoning and tool support.
+        """
+        # Determine actual model to use
+        # If tools requested but using reasoner (which doesn't support tools),
+        # switch to deepseek-chat with thinking mode
+        actual_model = self._model
+        use_thinking = False
+
+        if tools and self._model == "deepseek-reasoner":
+            logger.info(
+                "Tools requested with deepseek-reasoner; switching to "
+                "deepseek-chat with thinking mode enabled"
+            )
+            actual_model = "deepseek-chat"
+            use_thinking = True
+        elif tools and self._reasoning_effort and self._reasoning_effort != "minimal":
+            # User wants reasoning + tools, enable thinking mode on chat model
+            use_thinking = True
+
         kwargs = {
-            "model": self._model,
+            "model": actual_model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 1.0,
         }
+
+        # Only set temperature for non-thinking mode (has no effect in thinking mode)
+        if not use_thinking:
+            kwargs["temperature"] = 1.0
 
         if json_format:
             kwargs["response_format"] = {"type": "json_object"}
+
+        # Add tools if provided
+        if tools:
+            kwargs["tools"] = tools
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
+
+        # Enable thinking mode if needed (for reasoning + tools)
+        if use_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         return self._client.chat.completions.create(**kwargs)
 
@@ -118,6 +168,9 @@ class DeepSeekProvider(LLMProvider):
         prompt: str,
         size: str = "1024x1024",
         n: int = 1,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        negative_prompt: Optional[str] = None,
     ) -> Any:
         """DeepSeek doesn't support image generation."""
         raise NotImplementedError("DeepSeek does not support image generation")
@@ -165,3 +218,43 @@ class DeepSeekProvider(LLMProvider):
         if request_id is None or not isinstance(request_id, str):
             return ''
         return request_id
+
+    def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls from DeepSeek response.
+
+        DeepSeek uses OpenAI-compatible format for tool calls.
+        """
+        message = raw_response.choices[0].message
+
+        tool_calls = getattr(message, 'tool_calls', None)
+        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+            return None
+
+        if len(tool_calls) == 0:
+            return None
+
+        return [
+            {
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+            }
+            for tc in tool_calls
+        ]
+
+    def extract_reasoning_content(self, raw_response: Any) -> Optional[str]:
+        """Extract reasoning content from DeepSeek response.
+
+        When using thinking mode (deepseek-chat with thinking:enabled or
+        deepseek-reasoner), the response includes reasoning_content in the
+        message. This must be preserved in conversation history for subsequent
+        API calls to work correctly.
+        """
+        message = raw_response.choices[0].message
+        reasoning_content = getattr(message, 'reasoning_content', None)
+        if reasoning_content and isinstance(reasoning_content, str):
+            return reasoning_content
+        return None

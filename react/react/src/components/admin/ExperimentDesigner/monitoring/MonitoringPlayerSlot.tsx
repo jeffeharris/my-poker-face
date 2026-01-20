@@ -21,7 +21,8 @@ export function MonitoringPlayerSlot({ player, onClick }: MonitoringPlayerSlotPr
   ].filter(Boolean).join(' ');
 
   // Check if player has tilt (moderate or higher)
-  const hasTilt = player.psychology.tilt_level >= 40;
+  // Use optional chaining since psychology may be disabled for some experiments
+  const hasTilt = (player.psychology?.tilt_level ?? 0) >= 40;
 
   return (
     <button

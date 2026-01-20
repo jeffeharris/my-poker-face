@@ -17,7 +17,7 @@ The Pressure Stats System tracks and persists dramatic game events, providing pl
    - Optionally persists events to database
    - Provides aggregated stats and leaderboards
 
-3. **PressureEventRepository** (`poker/repositories/sqlite_repositories.py`)
+3. **PressureEventEntity** and persistence (`poker/repositories/sqlite/emotional_state_repository.py`)
    - Handles database operations for pressure events
    - Supports querying by game or player
    - Provides aggregated statistics

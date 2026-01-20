@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
 import { config } from '../../config';
+import { useAdminResource } from '../../hooks/useAdminResource';
 import './AdminShared.css';
 import './UnifiedSettings.css';
 
@@ -23,6 +24,7 @@ interface Model {
   provider: string;
   model: string;
   enabled: boolean;
+  user_enabled: boolean;
   display_name: string | null;
   notes: string | null;
   supports_reasoning: boolean;
@@ -45,6 +47,16 @@ interface SettingConfig {
 interface CaptureSettingsData {
   LLM_PROMPT_CAPTURE: SettingConfig;
   LLM_PROMPT_RETENTION_DAYS: SettingConfig;
+}
+
+// System settings include model configurations
+interface SystemSettingsData {
+  DEFAULT_PROVIDER: SettingConfig;
+  DEFAULT_MODEL: SettingConfig;
+  IMAGE_PROVIDER: SettingConfig;
+  IMAGE_MODEL: SettingConfig;
+  ASSISTANT_PROVIDER: SettingConfig;
+  ASSISTANT_MODEL: SettingConfig;
 }
 
 interface CaptureStats {
@@ -96,7 +108,7 @@ const CATEGORIES: CategoryConfig[] = [
   {
     id: 'models',
     label: 'Models',
-    description: 'Enable or disable LLM models',
+    description: 'Model defaults and availability',
     icon: <Sliders size={20} />,
   },
   {
@@ -127,10 +139,23 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('models');
   const [alert, setAlert] = useState<AlertState | null>(null);
 
-  // Models state
-  const [models, setModels] = useState<Model[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  // Models state - using hook for initial fetch, local state for optimistic updates
+  const {
+    data: fetchedModels,
+    loading: modelsLoading,
+  } = useAdminResource<Model[]>('/admin/api/models', {
+    transform: (result) => (result as { models: Model[] }).models,
+    onError: (err) => showAlert('error', err),
+  });
+  const [models, setModels] = useState<Model[] | null>(null);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
+
+  // Sync local models with fetched data
+  useEffect(() => {
+    if (fetchedModels) {
+      setModels(fetchedModels);
+    }
+  }, [fetchedModels]);
 
   // Capture state
   const [captureSettings, setCaptureSettings] = useState<CaptureSettingsData | null>(null);
@@ -139,6 +164,14 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const [editedCapture, setEditedCapture] = useState<string>('');
   const [editedRetention, setEditedRetention] = useState<string>('');
   const [captureSaving, setCaptureSaving] = useState(false);
+
+  // System settings state - each stores "provider:model" combined value
+  const [systemSettings, setSystemSettings] = useState<SystemSettingsData | null>(null);
+  const [systemLoading, setSystemLoading] = useState(true);
+  const [editedGeneralModel, setEditedGeneralModel] = useState('');    // "openai:gpt-5-nano"
+  const [editedImageModel, setEditedImageModel] = useState('');        // "runware:runware:101@1"
+  const [editedAssistantModel, setEditedAssistantModel] = useState(''); // "deepseek:deepseek-reasoner"
+  const [systemSaving, setSystemSaving] = useState(false);
 
   // Storage state
   const [storage, setStorage] = useState<StorageStats | null>(null);
@@ -176,42 +209,53 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   // Models Logic
   // ============================================
 
-  const fetchModels = useCallback(async () => {
-    try {
-      setModelsLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/api/models`);
-      const data = await response.json();
-
-      if (data.success) {
-        setModels(data.models);
-        const providers = new Set<string>(data.models.map((m: Model) => m.provider));
-        setExpandedProviders(providers);
-      } else {
-        showAlert('error', data.error || 'Failed to load models');
-      }
-    } catch {
-      showAlert('error', 'Failed to connect to server');
-    } finally {
-      setModelsLoading(false);
+  // Initialize expanded providers when models load
+  useEffect(() => {
+    if (models && models.length > 0 && expandedProviders.size === 0) {
+      setExpandedProviders(new Set(models.map(m => m.provider)));
     }
-  }, []);
+  }, [models, expandedProviders.size]);
 
-  const toggleModel = async (modelId: number, enabled: boolean) => {
+  // Model visibility states: 'off' | 'system' | 'users'
+  type ModelVisibility = 'off' | 'system' | 'users';
+
+  const getModelVisibility = (model: Model): ModelVisibility => {
+    if (!model.enabled) return 'off';
+    if (!model.user_enabled) return 'system';
+    return 'users';
+  };
+
+  const setModelVisibility = async (modelId: number, visibility: ModelVisibility) => {
+    const newEnabled = visibility !== 'off';
+    const newUserEnabled = visibility === 'users';
+
+    // Optimistic update
+    setModels(prev => prev?.map(m =>
+      m.id === modelId
+        ? { ...m, enabled: newEnabled, user_enabled: newUserEnabled }
+        : m
+    ) ?? null);
+
     try {
+      // Set both flags via two API calls (or we could add a new endpoint)
       const response = await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify({ field: 'enabled', enabled: newEnabled }),
       });
 
       const data = await response.json();
 
-      if (data.success) {
-        setModels(prev => prev.map(m =>
-          m.id === modelId ? { ...m, enabled } : m
-        ));
-        showAlert('success', `Model ${enabled ? 'enabled' : 'disabled'}`);
-      } else {
+      if (data.success && visibility === 'system') {
+        // Need to explicitly turn off user_enabled
+        await fetch(`${config.API_URL}/admin/api/models/${modelId}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: 'user_enabled', enabled: false }),
+        });
+      }
+
+      if (!data.success) {
         showAlert('error', data.error || 'Failed to update model');
       }
     } catch {
@@ -232,6 +276,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   };
 
   const modelsByProvider = useMemo(() => {
+    if (!models) return {};
     return models.reduce((acc, model) => {
       if (!acc[model.provider]) {
         acc[model.provider] = [];
@@ -240,6 +285,19 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       return acc;
     }, {} as Record<string, Model[]>);
   }, [models]);
+
+  // Filtered models for system settings
+  // General: all enabled models (excludes image-only models like DALL-E, Runware)
+  const generalModels = useMemo(() =>
+    models?.filter(m => m.enabled) || [], [models]);
+
+  // Image: models that support image generation
+  const imageModels = useMemo(() =>
+    models?.filter(m => m.enabled && m.supports_image_gen) || [], [models]);
+
+  // Reasoning: models that support reasoning
+  const reasoningModels = useMemo(() =>
+    models?.filter(m => m.enabled && m.supports_reasoning) || [], [models]);
 
   // ============================================
   // Capture Logic
@@ -339,6 +397,132 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const hasCaptureChanges = captureSettings && (
     editedCapture !== captureSettings.LLM_PROMPT_CAPTURE.value ||
     editedRetention !== captureSettings.LLM_PROMPT_RETENTION_DAYS.value
+  );
+
+  // ============================================
+  // System Settings Logic
+  // ============================================
+
+  const fetchSystemData = useCallback(async () => {
+    try {
+      setSystemLoading(true);
+      const response = await fetch(`${config.API_URL}/admin/api/settings`);
+      const data = await response.json();
+
+      if (data.success) {
+        const settings = data.settings as SystemSettingsData;
+        setSystemSettings(settings);
+        // Initialize edited values as "provider:model" combined strings
+        setEditedGeneralModel(`${settings.DEFAULT_PROVIDER.value}:${settings.DEFAULT_MODEL.value}`);
+        setEditedImageModel(`${settings.IMAGE_PROVIDER.value}:${settings.IMAGE_MODEL.value}`);
+        setEditedAssistantModel(`${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`);
+      } else {
+        showAlert('error', data.error || 'Failed to load system settings');
+      }
+    } catch {
+      showAlert('error', 'Failed to connect to server');
+    } finally {
+      setSystemLoading(false);
+    }
+  }, []);
+
+  const saveSystemSettings = async () => {
+    if (!systemSettings) return;
+
+    setSystemSaving(true);
+    try {
+      const updates: Promise<Response>[] = [];
+
+      // Parse general model
+      const [generalProvider, ...generalModelParts] = editedGeneralModel.split(':');
+      const generalModel = generalModelParts.join(':');
+      const originalGeneral = `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}`;
+      if (editedGeneralModel !== originalGeneral) {
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'DEFAULT_PROVIDER', value: generalProvider }),
+        }));
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'DEFAULT_MODEL', value: generalModel }),
+        }));
+      }
+
+      // Parse image model
+      const [imageProvider, ...imageModelParts] = editedImageModel.split(':');
+      const imageModel = imageModelParts.join(':');
+      const originalImage = `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}`;
+      if (editedImageModel !== originalImage) {
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'IMAGE_PROVIDER', value: imageProvider }),
+        }));
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'IMAGE_MODEL', value: imageModel }),
+        }));
+      }
+
+      // Parse assistant model
+      const [assistantProvider, ...assistantModelParts] = editedAssistantModel.split(':');
+      const assistantModel = assistantModelParts.join(':');
+      const originalAssistant = `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`;
+      if (editedAssistantModel !== originalAssistant) {
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'ASSISTANT_PROVIDER', value: assistantProvider }),
+        }));
+        updates.push(fetch(`${config.API_URL}/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'ASSISTANT_MODEL', value: assistantModel }),
+        }));
+      }
+
+      await Promise.all(updates);
+      showAlert('success', 'System settings saved');
+      await fetchSystemData();
+    } catch {
+      showAlert('error', 'Failed to save settings');
+    } finally {
+      setSystemSaving(false);
+    }
+  };
+
+  const resetSystemSettings = async () => {
+    setSystemSaving(true);
+    try {
+      // Reset all system settings to defaults
+      const keys = [
+        'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+        'IMAGE_PROVIDER', 'IMAGE_MODEL',
+        'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+      ];
+      await Promise.all(keys.map(key =>
+        fetch(`${config.API_URL}/admin/api/settings/reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key }),
+        })
+      ));
+      showAlert('success', 'System settings reset to defaults');
+      await fetchSystemData();
+    } catch {
+      showAlert('error', 'Failed to reset settings');
+    } finally {
+      setSystemSaving(false);
+    }
+  };
+
+  const hasSystemChanges = systemSettings && (
+    editedGeneralModel !== `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
+    editedImageModel !== `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
+    editedAssistantModel !== `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`
   );
 
   // ============================================
@@ -456,10 +640,11 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     }
   };
 
-  // Load data when category changes
+  // Load data when category changes (models handled by useAdminResource hook)
   useEffect(() => {
-    if (activeCategory === 'models' && models.length === 0) {
-      fetchModels();
+    if (activeCategory === 'models' && !systemSettings) {
+      // Load system settings alongside models (they're now in the same tab)
+      fetchSystemData();
     } else if (activeCategory === 'capture' && !captureSettings) {
       fetchCaptureData();
     } else if (activeCategory === 'storage' && !storage) {
@@ -468,7 +653,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       fetchPricing();
       fetchPricingProviders();
     }
-  }, [activeCategory, models.length, captureSettings, storage, pricing.length, fetchModels, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
+  }, [activeCategory, systemSettings, captureSettings, storage, pricing.length, fetchSystemData, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
 
   // Refetch pricing when filters change
   useEffect(() => {
@@ -493,8 +678,132 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       );
     }
 
+    // Helper to render a compact model selector card
+    const renderModelSelectorCard = (
+      label: string,
+      description: string,
+      value: string,
+      onChange: (value: string) => void,
+      availableModels: Model[],
+      providerSetting: SettingConfig | undefined,
+      modelSetting: SettingConfig | undefined
+    ) => {
+      const isOverridden = providerSetting?.is_db_override || modelSetting?.is_db_override;
+      const defaultValue = providerSetting && modelSetting
+        ? `${providerSetting.env_default}:${modelSetting.env_default}`
+        : '';
+
+      return (
+        <div className="us-default-card">
+          <div className="us-default-card__header">
+            <h4 className="us-default-card__title">{label}</h4>
+            {isOverridden && (
+              <span className="admin-badge admin-badge--primary admin-badge--sm">Custom</span>
+            )}
+          </div>
+          <p className="us-default-card__desc">{description}</p>
+          <select
+            className="admin-input admin-select us-default-card__select"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={systemSaving}
+          >
+            {availableModels.length === 0 ? (
+              <option value="">No enabled models</option>
+            ) : (
+              availableModels.map((m) => (
+                <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>
+                  {m.provider} / {m.display_name || m.model}
+                </option>
+              ))
+            )}
+          </select>
+          {defaultValue && defaultValue !== ':' && (
+            <span className="us-default-card__default">
+              Default: {defaultValue.replace(':', ' / ')}
+            </span>
+          )}
+        </div>
+      );
+    };
+
     return (
       <div className="us-models">
+        {/* Default Model Settings - 3 cards in a row */}
+        {systemSettings && (
+          <div className="us-defaults-section">
+            <div className="us-defaults-section__header">
+              <h3 className="us-defaults-section__title">System Models</h3>
+              <div className="us-defaults-section__actions">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--primary admin-btn--sm"
+                  onClick={saveSystemSettings}
+                  disabled={systemSaving || !hasSystemChanges}
+                >
+                  {systemSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--ghost admin-btn--sm"
+                  onClick={resetSystemSettings}
+                  disabled={systemSaving}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div className="us-defaults-grid">
+              {renderModelSelectorCard(
+                'General',
+                'Chat suggestions, themes, general use',
+                editedGeneralModel,
+                setEditedGeneralModel,
+                generalModels,
+                systemSettings.DEFAULT_PROVIDER,
+                systemSettings.DEFAULT_MODEL
+              )}
+              {renderModelSelectorCard(
+                'Image',
+                'AI player avatar generation',
+                editedImageModel,
+                setEditedImageModel,
+                imageModels,
+                systemSettings.IMAGE_PROVIDER,
+                systemSettings.IMAGE_MODEL
+              )}
+              {renderModelSelectorCard(
+                'Assistant',
+                'Experiment design reasoning',
+                editedAssistantModel,
+                setEditedAssistantModel,
+                reasoningModels,
+                systemSettings.ASSISTANT_PROVIDER,
+                systemSettings.ASSISTANT_MODEL
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Loading state for system settings */}
+        {!systemSettings && systemLoading && (
+          <div className="us-defaults-section">
+            <div className="us-defaults-section__header">
+              <h3 className="us-defaults-section__title">System Models</h3>
+            </div>
+            <div className="us-defaults-grid us-defaults-grid--loading">
+              <div className="us-default-card us-default-card--skeleton" />
+              <div className="us-default-card us-default-card--skeleton" />
+              <div className="us-default-card us-default-card--skeleton" />
+            </div>
+          </div>
+        )}
+
+        {/* Available Models Section */}
+        <div className="us-available-section">
+          <h3 className="us-available-section__title">Available Models</h3>
+        </div>
+
         {Object.entries(modelsByProvider).map(([provider, providerModels]) => (
           <div key={provider} className="us-provider">
             <button
@@ -533,17 +842,24 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
                         )}
                       </div>
                     </div>
-                    <label className="admin-toggle">
-                      <input
-                        type="checkbox"
-                        className="admin-toggle__input"
-                        checked={model.enabled}
-                        onChange={(e) => toggleModel(model.id, e.target.checked)}
-                      />
-                      <span className="admin-toggle__switch">
-                        <span className="admin-toggle__slider" />
-                      </span>
-                    </label>
+                    <div className="us-model__visibility">
+                      {(['off', 'system', 'users'] as const).map((state) => {
+                        const current = getModelVisibility(model);
+                        // "System" appears enabled when current is 'system' OR 'users'
+                        const isEnabled = state === current ||
+                          (state === 'system' && current === 'users');
+                        return (
+                          <button
+                            key={state}
+                            type="button"
+                            className={`us-visibility__btn us-visibility__btn--${state} ${isEnabled ? 'us-visibility__btn--active' : ''}`}
+                            onClick={() => setModelVisibility(model.id, state)}
+                          >
+                            {state === 'off' ? 'Off' : state === 'system' ? 'System' : 'Users'}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>

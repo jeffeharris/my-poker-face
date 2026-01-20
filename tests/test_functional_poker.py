@@ -31,7 +31,7 @@ class PokerTestCase(unittest.TestCase):
             Card('6', 'clubs'),
         )
         # Create proper PokerGameState
-        self.game_state = PokerGameState(
+        self.game_state = PokerGameState(deck=(),
             players=(self.player1, self.player2),
             community_cards=self.community_cards,
             pot={'total': 200},
@@ -53,7 +53,7 @@ class PokerTestCase(unittest.TestCase):
     def test_determine_winner_folded(self):
         # Mark player1 as folded
         folded_player1 = self.player1.update(is_folded=True)
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(folded_player1, self.player2),
             community_cards=self.community_cards,
             pot={'total': 200},
@@ -66,7 +66,7 @@ class PokerTestCase(unittest.TestCase):
 
     def test_determine_winner_no_players(self):
         # Empty players tuple
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(),
             community_cards=self.community_cards,
             pot={'total': 0},
@@ -78,7 +78,7 @@ class PokerTestCase(unittest.TestCase):
 
     def test_determine_winner_no_community_cards(self):
         # Empty community cards - players use only their hole cards
-        game_state = PokerGameState(
+        game_state = PokerGameState(deck=(),
             players=(self.player1, self.player2),
             community_cards=(),
             pot={'total': 200},

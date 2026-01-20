@@ -1,25 +1,7 @@
 import { Settings } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
+import type { ProviderInfo, OpponentLLMConfig } from '../../types/llm';
 import './OpponentConfigScreen.css';
-
-interface ProviderInfo {
-  id: string;
-  name: string;
-  models: string[];
-  default_model: string;
-  capabilities: {
-    supports_reasoning: boolean;
-    supports_json_mode: boolean;
-    supports_image_generation: boolean;
-  };
-  model_tiers?: Record<string, string>;
-}
-
-interface OpponentLLMConfig {
-  provider: string;
-  model: string;
-  reasoning_effort?: string;
-}
 
 interface OpponentConfigScreenProps {
   selectedOpponents: string[];

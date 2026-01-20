@@ -288,15 +288,12 @@ export function usePokerGame({
     if (providedGameId) {
       const loadGameId = providedGameId;
       setGameId(loadGameId);
-      localStorage.setItem('activePokerGameId', loadGameId);
 
       createSocket(loadGameId);
 
       refreshGameState(loadGameId).then(success => {
         if (!success) {
           console.error('Failed to load game');
-          localStorage.removeItem('activePokerGameId');
-          localStorage.removeItem('pokerGameState');
           if (onGameCreated) {
             onGameCreated('');
           }
@@ -327,7 +324,6 @@ export function usePokerGame({
         .then(data => {
           const newGameId = data.game_id;
           setGameId(newGameId);
-          localStorage.setItem('activePokerGameId', newGameId);
 
           if (onGameCreated) {
             onGameCreated(newGameId);

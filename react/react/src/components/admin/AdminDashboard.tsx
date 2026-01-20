@@ -1,67 +1,92 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react';
 import { AdminSidebar, type AdminTab, type SidebarItem } from './AdminSidebar';
 import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
-import { ExperimentDesigner } from './ExperimentDesigner';
+import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
+import { AdminMenuContainer } from './AdminMenuContainer';
+import { PageLayout, PageHeader } from '../shared';
+import { useViewport } from '../../hooks/useViewport';
 import './AdminDashboard.css';
+import '../menus/GameMenu.css';
 
-const SIDEBAR_ITEMS: SidebarItem[] = [
+export const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     id: 'personalities',
     label: 'Personalities',
-    icon: <Users size={20} />,
+    icon: <Users size={24} />,
     description: 'Create and customize AI opponents',
   },
   {
     id: 'analyzer',
     label: 'Decision Analyzer',
-    icon: <Microscope size={20} />,
+    icon: <Microscope size={24} />,
     description: 'Analyze and replay AI decision prompts',
   },
   {
     id: 'playground',
     label: 'Prompt Playground',
-    icon: <FlaskConical size={20} />,
+    icon: <FlaskConical size={24} />,
     description: 'View and replay any captured LLM prompt',
   },
   {
     id: 'experiments',
     label: 'Experiments',
-    icon: <Beaker size={20} />,
+    icon: <Beaker size={24} />,
     description: 'Design and run AI tournament experiments',
   },
   {
     id: 'templates',
     label: 'Templates',
-    icon: <FileText size={20} />,
+    icon: <FileText size={24} />,
     description: 'Edit system prompt templates',
   },
   {
     id: 'settings',
     label: 'Settings',
-    icon: <Settings size={20} />,
+    icon: <Settings size={24} />,
     description: 'Models, capture, storage, and pricing',
   },
   {
     id: 'debug',
     label: 'Debug',
-    icon: <Bug size={20} />,
+    icon: <Bug size={24} />,
     description: 'Inspect game state and AI internals',
   },
 ];
 
 interface AdminDashboardProps {
   onBack: () => void;
+  initialTab?: AdminTab;
+  onTabChange?: (tab: AdminTab) => void;
 }
 
-export function AdminDashboard({ onBack }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AdminTab>('personalities');
+export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboardProps) {
+  const { isMobile } = useViewport();
+  const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
+  const [isDesignMode, setIsDesignMode] = useState(false);
+
+  // Sync activeTab with initialTab when it changes (URL navigation)
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  // Wrapper to update both state and notify parent
+  const handleTabChange = useCallback((tab: AdminTab) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+    // Clear assistant panel when switching away from experiments
+    if (tab !== 'experiments') {
+      setAssistantPanelProps(null);
+      setIsDesignMode(false);
+    }
+  }, [onTabChange]);
 
   // Find active tab config for header
   const activeTabConfig = SIDEBAR_ITEMS.find(t => t.id === activeTab);
@@ -79,13 +104,95 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  // Tab content component
+  const renderTabContent = () => (
+    <>
+      {activeTab === 'personalities' && (
+        <PersonalityManager embedded />
+      )}
+      {activeTab === 'analyzer' && (
+        <DecisionAnalyzer embedded />
+      )}
+      {activeTab === 'playground' && (
+        <PromptPlayground embedded />
+      )}
+      {activeTab === 'experiments' && (
+        <ExperimentDesigner
+          embedded
+          onAssistantPanelChange={setAssistantPanelProps}
+          onDesignModeChange={setIsDesignMode}
+        />
+      )}
+      {activeTab === 'templates' && (
+        <TemplateEditor embedded />
+      )}
+      {activeTab === 'settings' && (
+        <UnifiedSettings embedded />
+      )}
+      {activeTab === 'debug' && (
+        <DebugTools embedded />
+      )}
+    </>
+  );
+
+  // Mobile layout - show menu if no tab selected, otherwise show content
+  if (isMobile) {
+    // No tab selected - show the menu using PageLayout (matches GameMenu style)
+    if (!activeTab) {
+      return (
+        <PageLayout variant="top" glowColor="gold">
+          <PageHeader
+            title="Admin Tools"
+            subtitle="Manage your poker game"
+            onBack={onBack}
+          />
+          <div className="game-menu__options">
+            {SIDEBAR_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                className="menu-option"
+                onClick={() => handleTabChange(item.id as AdminTab)}
+              >
+                {item.icon}
+                <div className="option-content">
+                  <h3>{item.label}</h3>
+                  <p>{item.description}</p>
+                </div>
+                <ChevronRight className="option-arrow" size={20} />
+              </button>
+            ))}
+          </div>
+        </PageLayout>
+      );
+    }
+
+    // Tab selected - show content with back to menu
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <AdminMenuContainer
+          title={activeTabConfig?.label || 'Admin'}
+          subtitle={activeTabConfig?.description}
+          onBack={onBack}
+          navItems={SIDEBAR_ITEMS}
+          activeNavId={activeTab}
+          onNavChange={(id) => handleTabChange(id as AdminTab)}
+        >
+          <div className="admin-main__content admin-main__content--mobile">
+            {renderTabContent()}
+          </div>
+        </AdminMenuContainer>
+      </div>
+    );
+  }
+
+  // Desktop layout - sidebar + main content + optional assistant panel
   return (
-    <div className="admin-dashboard-layout">
+    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
       {/* Sidebar Navigation */}
       <AdminSidebar
         items={SIDEBAR_ITEMS}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
       />
@@ -109,29 +216,28 @@ export function AdminDashboard({ onBack }: AdminDashboardProps) {
 
         {/* Tab Content */}
         <div className="admin-main__content">
-          {activeTab === 'personalities' && (
-            <PersonalityManager embedded />
-          )}
-          {activeTab === 'analyzer' && (
-            <DecisionAnalyzer embedded />
-          )}
-          {activeTab === 'playground' && (
-            <PromptPlayground embedded />
-          )}
-          {activeTab === 'experiments' && (
-            <ExperimentDesigner embedded />
-          )}
-          {activeTab === 'templates' && (
-            <TemplateEditor embedded />
-          )}
-          {activeTab === 'settings' && (
-            <UnifiedSettings embedded />
-          )}
-          {activeTab === 'debug' && (
-            <DebugTools embedded />
-          )}
+          {renderTabContent()}
         </div>
       </main>
+
+      {/* Docked Assistant Panel (page-level) - only in design mode */}
+      {activeTab === 'experiments' && isDesignMode && (
+        <div className="admin-assistant-panel admin-assistant-panel--docked">
+          <div className="admin-assistant-panel__header">
+            <h3>
+              <MessageSquare size={18} />
+              Lab Assistant
+            </h3>
+          </div>
+          {assistantPanelProps ? (
+            <ExperimentChat {...assistantPanelProps} />
+          ) : (
+            <div style={{ padding: '1rem', color: '#888' }}>
+              Loading chat...
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

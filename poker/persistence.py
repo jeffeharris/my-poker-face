@@ -6,7 +6,7 @@ import sqlite3
 import json
 import os
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 # v43: Add experiments and experiment_games tables for experiment tracking
 # v44: Add app_settings table for dynamic configuration
 # v45: Add users table for Google OAuth authentication
-SCHEMA_VERSION = 45
+# v46: Add experiment manager features (error tracking, chat sessions, image models,
+#      experiment lineage, image capture support)
+SCHEMA_VERSION = 46
 
 
 @dataclass
@@ -495,18 +497,20 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)")
 
-            # 20. Enabled models (v38)
+            # 20. Enabled models (v38, v50 adds user_enabled, v52 adds supports_img2img)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS enabled_models (
                     id INTEGER PRIMARY KEY,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     enabled INTEGER DEFAULT 1,
+                    user_enabled INTEGER DEFAULT 1,
                     display_name TEXT,
                     notes TEXT,
                     supports_reasoning INTEGER DEFAULT 0,
                     supports_json_mode INTEGER DEFAULT 1,
                     supports_image_gen INTEGER DEFAULT 0,
+                    supports_img2img INTEGER DEFAULT 0,
                     sort_order INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -515,7 +519,7 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)")
 
-            # 21. Prompt captures (v18, v19, v24, v30, v33, v39)
+            # 21. Prompt captures (v18, v19, v24, v30, v33, v39, v53)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_captures (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -552,6 +556,16 @@ class GamePersistence:
                     original_request_id TEXT,
                     provider TEXT DEFAULT 'openai',
                     call_type TEXT,
+                    is_image_capture INTEGER DEFAULT 0,
+                    image_prompt TEXT,
+                    image_url TEXT,
+                    image_data BLOB,
+                    image_size TEXT,
+                    image_width INTEGER,
+                    image_height INTEGER,
+                    target_personality TEXT,
+                    target_emotion TEXT,
+                    reference_image_id TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -561,13 +575,32 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
-            # These indexes are on columns added by migrations v33 and v39
+            # These indexes are on columns added by migrations v33, v39, and v53
             # Use try-except to handle older databases that haven't been migrated yet
             try:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
+
+            # 21b. Reference images (v53) - for image-to-image generation
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS reference_images (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    image_data BLOB NOT NULL,
+                    width INTEGER,
+                    height INTEGER,
+                    content_type TEXT DEFAULT 'image/png',
+                    source TEXT,
+                    original_url TEXT,
+                    owner_id TEXT,
+                    expires_at TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
 
             # 22. Player decision analysis (v20, v22, v23)
             conn.execute("""
@@ -634,11 +667,15 @@ class GamePersistence:
                     status TEXT DEFAULT 'running',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
-                    summary_json TEXT
+                    summary_json TEXT,
+                    design_chat_json TEXT,
+                    assistant_chat_json TEXT,
+                    parent_experiment_id INTEGER REFERENCES experiments(id)
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_name ON experiments(name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status)")
+            # Note: idx_experiments_parent is created in v48 migration (parent_experiment_id added there)
 
             # 25. Experiment games (v43) - links games to experiments with variant config
             conn.execute("""
@@ -658,7 +695,23 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
 
-            # 26. App settings (v44) - Dynamic configuration
+            # 26. Experiment chat sessions (v47) - Persists design chat history
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    messages_json TEXT NOT NULL,
+                    config_snapshot_json TEXT NOT NULL,
+                    config_versions_json TEXT,
+                    is_archived BOOLEAN DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+
+            # 27. App settings (v44) - Dynamic configuration
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
@@ -750,6 +803,7 @@ class GamePersistence:
             43: (self._migrate_v43_add_experiments, "Add experiments and experiment_games tables for experiment tracking"),
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
+            46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1933,6 +1987,126 @@ class GamePersistence:
 
         logger.info("Migration v45 complete: Users table added")
 
+    def _migrate_v46_experiment_manager_features(self, conn: sqlite3.Connection) -> None:
+        """Migration v46: Add experiment manager features.
+
+        This combined migration adds all experiment manager functionality:
+        - error_message column to api_usage table
+        - experiment_chat_sessions table for design chat persistence
+        - design_chat_json and assistant_chat_json columns to experiments
+        - Pollinations and Runware image models to enabled_models
+        - user_enabled column to enabled_models for dual toggle
+        - parent_experiment_id to experiments for lineage tracking
+        - supports_img2img column to enabled_models
+        - Image capture support (reference_images table, prompt_captures columns)
+        """
+        from core.llm.config import POLLINATIONS_AVAILABLE_MODELS, RUNWARE_AVAILABLE_MODELS
+
+        # 1. Add error_message column to api_usage
+        api_usage_cols = [row[1] for row in conn.execute("PRAGMA table_info(api_usage)").fetchall()]
+        if 'error_message' not in api_usage_cols:
+            conn.execute("ALTER TABLE api_usage ADD COLUMN error_message TEXT")
+            logger.info("Added error_message column to api_usage table")
+
+        # 2. Create experiment_chat_sessions table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS experiment_chat_sessions (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                messages_json TEXT NOT NULL,
+                config_snapshot_json TEXT NOT NULL,
+                config_versions_json TEXT,
+                is_archived BOOLEAN DEFAULT 0
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+
+        # 3. Add chat columns to experiments table
+        experiments_cols = [row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()]
+        if 'design_chat_json' not in experiments_cols:
+            conn.execute("ALTER TABLE experiments ADD COLUMN design_chat_json TEXT")
+        if 'assistant_chat_json' not in experiments_cols:
+            conn.execute("ALTER TABLE experiments ADD COLUMN assistant_chat_json TEXT")
+        if 'parent_experiment_id' not in experiments_cols:
+            conn.execute("ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
+
+        # 4. Add Pollinations image models
+        pollinations_default_enabled = {"flux", "zimage"}
+        for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
+            enabled = 1 if model in pollinations_default_enabled else 0
+            conn.execute("""
+                INSERT OR REPLACE INTO enabled_models
+                (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
+
+        # 5. Add Runware image models
+        runware_default_enabled = {"runware:101@1"}
+        for sort_order, model in enumerate(RUNWARE_AVAILABLE_MODELS):
+            enabled = 1 if model in runware_default_enabled else 0
+            conn.execute("""
+                INSERT OR REPLACE INTO enabled_models
+                (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, ("runware", model, enabled, 0, 0, 1, sort_order))
+
+        # 6. Add user_enabled and supports_img2img columns to enabled_models
+        try:
+            conn.execute("ALTER TABLE enabled_models ADD COLUMN user_enabled INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE enabled_models ADD COLUMN supports_img2img INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Sync user_enabled with enabled for existing models
+        conn.execute("UPDATE enabled_models SET user_enabled = enabled")
+
+        # 7. Create reference_images table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reference_images (
+                id TEXT PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                image_data BLOB NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                content_type TEXT DEFAULT 'image/png',
+                source TEXT,
+                original_url TEXT,
+                owner_id TEXT,
+                expires_at TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
+
+        # 8. Add image capture columns to prompt_captures
+        prompt_captures_cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+        image_columns = [
+            ("is_image_capture", "INTEGER DEFAULT 0"),
+            ("image_prompt", "TEXT"),
+            ("image_url", "TEXT"),
+            ("image_data", "BLOB"),
+            ("image_size", "TEXT"),
+            ("image_width", "INTEGER"),
+            ("image_height", "INTEGER"),
+            ("target_personality", "TEXT"),
+            ("target_emotion", "TEXT"),
+            ("reference_image_id", "TEXT"),
+        ]
+        for col_name, col_type in image_columns:
+            if col_name not in prompt_captures_cols:
+                conn.execute(f"ALTER TABLE prompt_captures ADD COLUMN {col_name} {col_type}")
+
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
+
+        logger.info("Migration v46 complete: Added experiment manager features")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2006,7 +2180,7 @@ class GamePersistence:
                     phase_value = int(phase_value)
                 phase = PokerPhase(phase_value)
             except (ValueError, KeyError):
-                print(f"Warning: Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
+                logger.warning(f"[RESTORE] Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
@@ -2259,6 +2433,19 @@ class GamePersistence:
             """, (to_owner_id, to_owner_name, from_owner_id))
             return cursor.rowcount
 
+    def get_available_providers(self) -> Set[str]:
+        """Get the set of all providers in the system.
+
+        Returns:
+            Set of all provider names in enabled_models table.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT provider
+                FROM enabled_models
+            """)
+            return {row[0] for row in cursor.fetchall()}
+
     def get_enabled_models(self) -> Dict[str, List[str]]:
         """Get all enabled models grouped by provider.
 
@@ -2286,12 +2473,12 @@ class GamePersistence:
         """Get all models with their enabled status.
 
         Returns:
-            List of dicts with provider, model, enabled, display_name, etc.
+            List of dicts with provider, model, enabled, user_enabled, display_name, etc.
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT id, provider, model, enabled, display_name, notes,
+                SELECT id, provider, model, enabled, user_enabled, display_name, notes,
                        supports_reasoning, supports_json_mode, supports_image_gen,
                        sort_order, created_at, updated_at
                 FROM enabled_models
@@ -3962,6 +4149,19 @@ class GamePersistence:
                         capture[field] = json.loads(capture[field])
                     except json.JSONDecodeError:
                         logger.debug(f"Failed to parse JSON for field '{field}' in prompt capture {capture_id_for_log}")
+
+            # Handle image_data BLOB - convert to base64 data URL for JSON serialization
+            if capture.get('is_image_capture') and capture.get('image_data'):
+                import base64
+                img_bytes = capture['image_data']
+                if isinstance(img_bytes, bytes):
+                    b64_data = base64.b64encode(img_bytes).decode('utf-8')
+                    capture['image_url'] = f"data:image/png;base64,{b64_data}"
+                # Remove raw bytes from response (not JSON serializable)
+                del capture['image_data']
+            elif 'image_data' in capture:
+                # Remove even if None/empty to avoid serialization issues
+                del capture['image_data']
             return capture
 
     def list_prompt_captures(
@@ -4221,7 +4421,9 @@ class GamePersistence:
                        phase, call_type, action_taken,
                        model, provider, reasoning_effort,
                        latency_ms, input_tokens, output_tokens,
-                       tags, notes
+                       tags, notes,
+                       is_image_capture, image_size, image_width, image_height,
+                       target_personality, target_emotion
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC
@@ -4552,7 +4754,7 @@ class GamePersistence:
 
     # ==================== Experiment Methods ====================
 
-    def create_experiment(self, config: Dict) -> int:
+    def create_experiment(self, config: Dict, parent_experiment_id: Optional[int] = None) -> int:
         """Create a new experiment record.
 
         Args:
@@ -4563,6 +4765,7 @@ class GamePersistence:
                 - tags: List of tags (optional)
                 - notes: Additional notes (optional)
                 - Additional config fields stored as config_json
+            parent_experiment_id: Optional ID of the parent experiment for lineage tracking
 
         Returns:
             The experiment_id of the created record
@@ -4576,8 +4779,8 @@ class GamePersistence:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json, parent_experiment_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 name,
                 config.get('description'),
@@ -4585,10 +4788,12 @@ class GamePersistence:
                 json.dumps(config.get('tags', [])),
                 config.get('notes'),
                 json.dumps(config),
+                parent_experiment_id,
             ))
             conn.commit()
             experiment_id = cursor.lastrowid
-            logger.info(f"Created experiment '{name}' with id {experiment_id}")
+            logger.info(f"Created experiment '{name}' with id {experiment_id}" +
+                       (f" (parent: {parent_experiment_id})" if parent_experiment_id else ""))
             return experiment_id
 
     def link_game_to_experiment(
@@ -4655,7 +4860,7 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT id, name, description, hypothesis, tags, notes, config_json,
-                       status, created_at, completed_at, summary_json
+                       status, created_at, completed_at, summary_json, parent_experiment_id
                 FROM experiments WHERE id = ?
             """, (experiment_id,))
             row = cursor.fetchone()
@@ -4674,6 +4879,7 @@ class GamePersistence:
                 'created_at': row[8],
                 'completed_at': row[9],
                 'summary': json.loads(row[10]) if row[10] else None,
+                'parent_experiment_id': row[11],
             }
 
     def get_experiment_by_name(self, name: str) -> Optional[Dict]:
@@ -4803,6 +5009,7 @@ class GamePersistence:
     def list_experiments(
         self,
         status: Optional[str] = None,
+        include_archived: bool = False,
         limit: int = 50,
         offset: int = 0
     ) -> List[Dict]:
@@ -4810,6 +5017,7 @@ class GamePersistence:
 
         Args:
             status: Optional status filter ('pending', 'running', 'completed', 'failed')
+            include_archived: If False (default), filter out experiments with _archived tag
             limit: Maximum number of experiments to return
             offset: Number of experiments to skip for pagination
 
@@ -4817,9 +5025,19 @@ class GamePersistence:
             List of experiment dictionaries with basic info and progress
         """
         with sqlite3.connect(self.db_path) as conn:
-            # Build query with optional status filter
-            where_clause = "WHERE status = ?" if status else ""
-            params = [status] if status else []
+            # Build query with optional filters
+            conditions = []
+            params = []
+
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+
+            if not include_archived:
+                # Filter out experiments with _archived tag
+                conditions.append("(tags IS NULL OR tags NOT LIKE '%\"_archived\"%')")
+
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
             cursor = conn.execute(f"""
                 SELECT
@@ -4908,6 +5126,21 @@ class GamePersistence:
             conn.commit()
             logger.info(f"Updated experiment {experiment_id} status to {status}")
 
+    def update_experiment_tags(self, experiment_id: int, tags: List[str]) -> None:
+        """Update experiment tags.
+
+        Args:
+            experiment_id: The experiment ID
+            tags: List of tags to set (replaces existing tags)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET tags = ? WHERE id = ?",
+                (json.dumps(tags), experiment_id)
+            )
+            conn.commit()
+            logger.info(f"Updated experiment {experiment_id} tags to {tags}")
+
     def mark_running_experiments_interrupted(self) -> int:
         """Mark all 'running' experiments as 'interrupted'.
 
@@ -4921,7 +5154,7 @@ class GamePersistence:
             cursor = conn.execute("""
                 UPDATE experiments
                 SET status = 'interrupted',
-                    notes = COALESCE(notes || '\n', '') || 'Server restarted while experiment was running.'
+                    notes = 'Server restarted while experiment was running. Click Resume to continue.'
                 WHERE status = 'running'
             """)
             count = cursor.rowcount
@@ -4971,6 +5204,217 @@ class GamePersistence:
 
             return incomplete
 
+    # ==================== Experiment Chat Session Methods ====================
+
+    def save_chat_session(
+        self,
+        session_id: str,
+        owner_id: str,
+        messages: List[Dict],
+        config_snapshot: Dict,
+        config_versions: Optional[List[Dict]] = None
+    ) -> None:
+        """Save or update a chat session.
+
+        Args:
+            session_id: Unique session identifier
+            owner_id: User/owner identifier
+            messages: List of chat messages [{role, content, configDiff?}]
+            config_snapshot: Current config state
+            config_versions: List of config version snapshots
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO experiment_chat_sessions (id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    messages_json = excluded.messages_json,
+                    config_snapshot_json = excluded.config_snapshot_json,
+                    config_versions_json = excluded.config_versions_json,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                session_id,
+                owner_id,
+                json.dumps(messages),
+                json.dumps(config_snapshot),
+                json.dumps(config_versions) if config_versions else None,
+            ))
+            conn.commit()
+            logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
+
+    def get_chat_session(self, session_id: str) -> Optional[Dict]:
+        """Get a chat session by its ID.
+
+        Args:
+            session_id: The session ID to retrieve
+
+        Returns:
+            Dict with session data or None if not found:
+            {
+                'session_id': str,
+                'messages': List[Dict],
+                'config': Dict,
+                'config_versions': List[Dict] | None,
+                'updated_at': str
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                FROM experiment_chat_sessions
+                WHERE id = ?
+            """, (session_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'session_id': row['id'],
+                'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
+                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
+                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'updated_at': row['updated_at'],
+            }
+
+    def get_latest_chat_session(self, owner_id: str) -> Optional[Dict]:
+        """Get the most recent non-archived chat session for an owner.
+
+        Args:
+            owner_id: User/owner identifier
+
+        Returns:
+            Dict with session data or None if no session exists:
+            {
+                'session_id': str,
+                'messages': List[Dict],
+                'config': Dict,
+                'config_versions': List[Dict] | None,
+                'updated_at': str
+            }
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
+                FROM experiment_chat_sessions
+                WHERE owner_id = ? AND is_archived = 0
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """, (owner_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                'session_id': row['id'],
+                'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
+                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
+                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'updated_at': row['updated_at'],
+            }
+
+    def archive_chat_session(self, session_id: str) -> None:
+        """Archive a chat session so it won't be returned by get_latest_chat_session.
+
+        Args:
+            session_id: The session ID to archive
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiment_chat_sessions SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,)
+            )
+            conn.commit()
+            logger.debug(f"Archived chat session {session_id}")
+
+    def delete_chat_session(self, session_id: str) -> None:
+        """Delete a chat session entirely.
+
+        Args:
+            session_id: The session ID to delete
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM experiment_chat_sessions WHERE id = ?", (session_id,))
+            conn.commit()
+            logger.debug(f"Deleted chat session {session_id}")
+
+    # ==================== Experiment Chat Storage Methods ====================
+
+    def save_experiment_design_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
+        """Store the design chat history with an experiment.
+
+        Called when an experiment is created to preserve the conversation that led to its design.
+
+        Args:
+            experiment_id: The experiment ID
+            chat_history: List of chat messages from the design session
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET design_chat_json = ? WHERE id = ?",
+                (json.dumps(chat_history), experiment_id)
+            )
+            conn.commit()
+            logger.info(f"Saved design chat ({len(chat_history)} messages) to experiment {experiment_id}")
+
+    def get_experiment_design_chat(self, experiment_id: int) -> Optional[List[Dict]]:
+        """Get the design chat history for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of chat messages or None if no design chat stored
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT design_chat_json FROM experiments WHERE id = ?",
+                (experiment_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
+
+    def save_experiment_assistant_chat(self, experiment_id: int, chat_history: List[Dict]) -> None:
+        """Store the ongoing assistant chat history for an experiment.
+
+        Used for the experiment-scoped assistant that can query results and answer questions.
+
+        Args:
+            experiment_id: The experiment ID
+            chat_history: List of chat messages from the assistant session
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE experiments SET assistant_chat_json = ? WHERE id = ?",
+                (json.dumps(chat_history), experiment_id)
+            )
+            conn.commit()
+            logger.debug(f"Saved assistant chat ({len(chat_history)} messages) to experiment {experiment_id}")
+
+    def get_experiment_assistant_chat(self, experiment_id: int) -> Optional[List[Dict]]:
+        """Get the assistant chat history for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of chat messages or None if no assistant chat stored
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT assistant_chat_json FROM experiments WHERE id = ?",
+                (experiment_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return None
+
     def get_experiment_live_stats(self, experiment_id: int) -> Dict:
         """Get real-time unified stats per variant for running/completed experiments.
 
@@ -5001,7 +5445,7 @@ class GamePersistence:
                 return {'by_variant': {}, 'overall': None}
 
             config = exp.get('config', {})
-            max_hands = config.get('target_hands') or config.get('max_hands_per_tournament', 100)
+            max_hands = config.get('hands_per_tournament', 100)
             num_tournaments = config.get('num_tournaments', 1)
 
             # Determine number of variants from control/variants config
@@ -5097,36 +5541,26 @@ class GamePersistence:
                 else:
                     decision_quality = None
 
-                # 3. Progress - count games and max hand number per variant
+                # 3. Progress - sum hands across all games for this variant
+                # Query gets max hand per game, then we sum them up
+                # This correctly handles parallel execution where multiple games
+                # may be in progress simultaneously
                 cursor = conn.execute(f"""
                     SELECT
-                        COUNT(DISTINCT eg.game_id) as games_count,
-                        MAX(au.hand_number) as max_hand
+                        eg.game_id,
+                        COALESCE(MAX(au.hand_number), 0) as max_hand
                     FROM experiment_games eg
                     LEFT JOIN api_usage au ON au.game_id = eg.game_id
                     WHERE eg.experiment_id = ? {variant_clause}
+                    GROUP BY eg.game_id
                 """, [experiment_id] + variant_params)
-                row = cursor.fetchone()
-                games_count = row[0] or 0
-                current_max_hand = row[1] or 0
+                games_data = cursor.fetchall()
+                games_count = len(games_data)
+                # Sum actual hands played in each game (capped at max_hands per game)
+                current_hands = sum(min(row[1], max_hands) for row in games_data)
 
-                # Calculate progress: completed games * max_hands + current hand
                 # For a variant, expected tournaments = num_tournaments
                 variant_max_hands = num_tournaments * max_hands
-                if games_count > 0:
-                    # Estimate: (completed_games - 1) * max_hands + current_max_hand
-                    # But we don't know which games are complete, so use games_count directly
-                    # Approximation: if max_hand is less than max_hands, game is in progress
-                    completed_games = max(0, games_count - 1) if current_max_hand < max_hands else games_count
-                    current_hands = completed_games * max_hands + (current_max_hand if current_max_hand < max_hands else 0)
-                    # Simpler approach: just use games_count * average hands if we have a summary
-                    # For now, use a rough estimate
-                    current_hands = min(games_count * max_hands, variant_max_hands)
-                    # Refine: if game is in progress, add current hand
-                    if current_max_hand > 0 and current_max_hand < max_hands:
-                        current_hands = (games_count - 1) * max_hands + current_max_hand
-                else:
-                    current_hands = 0
 
                 progress = {
                     'current_hands': current_hands,
