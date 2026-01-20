@@ -15,6 +15,7 @@ from .providers.mistral import MistralProvider
 from .providers.google import GoogleProvider
 from .providers.xai import XAIProvider
 from .providers.pollinations import PollinationsProvider
+from .providers.runware import RunwareProvider
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class LLMClient:
             "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
             "xai": lambda: XAIProvider(model=model, reasoning_effort=reasoning_effort),
             "pollinations": lambda: PollinationsProvider(model=model, reasoning_effort=reasoning_effort),
+            "runware": lambda: RunwareProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
         if provider not in provider_registry:

@@ -125,6 +125,20 @@ XAI_AVAILABLE_MODELS = [
 ]
 
 # =============================================================================
+# Runware Configuration (Image-Only Provider)
+# =============================================================================
+
+# Default Runware model - FLUX Schnell is fast and good quality
+RUNWARE_DEFAULT_MODEL = os.environ.get("RUNWARE_MODEL", "runware:101@1")
+
+# Available Runware models for image generation
+# See: https://runware.ai/docs/image-inference/api-reference
+RUNWARE_AVAILABLE_MODELS = [
+    "runware:101@1",            # FLUX Schnell - fast, good quality
+    "runware:100@1",            # FLUX Dev - slower, higher quality
+]
+
+# =============================================================================
 # Pollinations Configuration (Image-Only Provider)
 # =============================================================================
 
@@ -153,7 +167,7 @@ POLLINATIONS_AVAILABLE_MODELS = [
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai", "pollinations"]
+AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai", "pollinations", "runware"]
 
 # =============================================================================
 # Default Enabled Models (for new deployments)
@@ -179,6 +193,7 @@ PROVIDER_MODELS = {
     "google": GOOGLE_AVAILABLE_MODELS,
     "xai": XAI_AVAILABLE_MODELS,
     "pollinations": POLLINATIONS_AVAILABLE_MODELS,
+    "runware": RUNWARE_AVAILABLE_MODELS,
 }
 
 # Default model per provider
@@ -191,6 +206,7 @@ PROVIDER_DEFAULT_MODELS = {
     "google": GOOGLE_DEFAULT_MODEL,
     "xai": XAI_DEFAULT_MODEL,
     "pollinations": POLLINATIONS_DEFAULT_MODEL,
+    "runware": RUNWARE_DEFAULT_MODEL,
 }
 
 # Provider capabilities
@@ -231,6 +247,12 @@ PROVIDER_CAPABILITIES = {
         "supports_image_generation": False,
     },
     "pollinations": {
+        "supports_reasoning": False,
+        "supports_json_mode": False,
+        "supports_image_generation": True,  # Image-only provider
+        "image_only": True,  # Flag for image-only providers
+    },
+    "runware": {
         "supports_reasoning": False,
         "supports_json_mode": False,
         "supports_image_generation": True,  # Image-only provider

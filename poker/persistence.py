@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 # v45: Add users table for Google OAuth authentication
 # v46: Add error_message column to api_usage table
 # v47: Add Pollinations image models to enabled_models table
-SCHEMA_VERSION = 47
+# v48: Add Runware image models to enabled_models table
+SCHEMA_VERSION = 48
 
 
 @dataclass
@@ -754,6 +755,7 @@ class GamePersistence:
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_add_error_message, "Add error_message column to api_usage table"),
             47: (self._migrate_v47_add_pollinations_models, "Add Pollinations image models to enabled_models"),
+            48: (self._migrate_v48_add_runware_models, "Add Runware image models to enabled_models"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -1981,7 +1983,31 @@ class GamePersistence:
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
 
-        logger.info("Migration v44 complete: Added Pollinations image models to enabled_models")
+        logger.info("Migration v47 complete: Added Pollinations image models to enabled_models")
+
+    def _migrate_v48_add_runware_models(self, conn: sqlite3.Connection) -> None:
+        """Migration v48: Add Runware image models to enabled_models table.
+
+        Runware.ai is an image-only provider with fast FLUX model generation.
+        This migration adds Runware models to the enabled_models table with:
+        - runware:101@1 (FLUX Schnell) enabled by default
+        - All models marked as image-only (supports_image_gen=1, supports_reasoning=0, supports_json_mode=0)
+        """
+        from core.llm.config import RUNWARE_AVAILABLE_MODELS
+
+        # Models that should be enabled by default
+        default_enabled = {"runware:101@1"}  # FLUX Schnell - fast and good quality
+
+        for sort_order, model in enumerate(RUNWARE_AVAILABLE_MODELS):
+            enabled = 1 if model in default_enabled else 0
+            # Use INSERT OR REPLACE to update existing rows with correct enabled status
+            conn.execute("""
+                INSERT OR REPLACE INTO enabled_models
+                (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, ("runware", model, enabled, 0, 0, 1, sort_order))
+
+        logger.info("Migration v48 complete: Added Runware image models to enabled_models")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
