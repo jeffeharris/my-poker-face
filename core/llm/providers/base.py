@@ -120,3 +120,11 @@ class LLMProvider(ABC):
         Override in providers that support function calling.
         """
         return None
+
+    def extract_reasoning_content(self, raw_response: Any) -> Optional[str]:
+        """Extract reasoning content from response (for models with thinking mode).
+
+        Returns None if no reasoning content or not supported by this provider.
+        Override in providers that support thinking/reasoning mode (e.g., DeepSeek).
+        """
+        return None

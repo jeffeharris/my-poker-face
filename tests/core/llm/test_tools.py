@@ -241,5 +241,88 @@ class TestToolCalling(unittest.TestCase):
         self.assertEqual(response.status, "ok")
 
 
+    @patch('core.llm.providers.deepseek.OpenAI')
+    def test_reasoning_content_preserved_in_tool_loop(self, mock_openai_class):
+        """Test that reasoning_content is preserved in assistant messages during tool loop.
+
+        This is critical for DeepSeek thinking mode - the API requires reasoning_content
+        to be present in all assistant messages when thinking mode is enabled.
+        """
+        mock_client = Mock()
+        mock_openai_class.return_value = mock_client
+
+        # First response: model requests a tool call WITH reasoning_content
+        mock_tool_call = Mock()
+        mock_tool_call.id = "call_123"
+        mock_tool_call.type = "function"
+        mock_tool_call.function = Mock()
+        mock_tool_call.function.name = "get_weather"
+        mock_tool_call.function.arguments = '{"location": "NYC"}'
+
+        mock_response_1 = Mock()
+        mock_response_1.choices = [Mock()]
+        mock_response_1.choices[0].message.content = ""
+        mock_response_1.choices[0].message.tool_calls = [mock_tool_call]
+        mock_response_1.choices[0].message.reasoning_content = "Let me think about this..."
+        mock_response_1.choices[0].finish_reason = "tool_calls"
+        mock_response_1.usage = Mock()
+        mock_response_1.usage.prompt_tokens = 10
+        mock_response_1.usage.completion_tokens = 5
+        mock_response_1.usage.completion_tokens_details = None
+        mock_response_1.usage.prompt_cache_hit_tokens = 0
+        mock_response_1.id = "test-123"
+
+        # Second response: final answer with reasoning
+        mock_response_2 = Mock()
+        mock_response_2.choices = [Mock()]
+        mock_response_2.choices[0].message.content = "It's sunny in NYC."
+        mock_response_2.choices[0].message.tool_calls = None
+        mock_response_2.choices[0].message.reasoning_content = "Based on the weather data..."
+        mock_response_2.choices[0].finish_reason = "stop"
+        mock_response_2.usage = Mock()
+        mock_response_2.usage.prompt_tokens = 20
+        mock_response_2.usage.completion_tokens = 10
+        mock_response_2.usage.completion_tokens_details = None
+        mock_response_2.usage.prompt_cache_hit_tokens = 0
+        mock_response_2.id = "test-456"
+
+        mock_client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
+
+        def tool_executor(name, args):
+            return json.dumps({"weather": "sunny"})
+
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get weather",
+                "parameters": {"type": "object", "properties": {"location": {"type": "string"}}}
+            }
+        }]
+
+        # Use DeepSeek provider which implements extract_reasoning_content
+        client = LLMClient(provider="deepseek", model="deepseek-chat", tracker=self.tracker)
+        response = client.complete(
+            messages=[{"role": "user", "content": "Weather in NYC?"}],
+            tools=tools,
+            tool_executor=tool_executor,
+        )
+
+        # Verify response has reasoning_content from the final response
+        self.assertEqual(response.content, "It's sunny in NYC.")
+        self.assertEqual(response.reasoning_content, "Based on the weather data...")
+
+        # Verify the second API call includes reasoning_content in the assistant message
+        calls = mock_client.chat.completions.create.call_args_list
+        self.assertEqual(len(calls), 2)
+
+        # Check the messages sent in the second call
+        second_call_messages = calls[1][1]["messages"]
+        # Find the assistant message (should be before the tool result)
+        assistant_msgs = [m for m in second_call_messages if m.get("role") == "assistant"]
+        self.assertEqual(len(assistant_msgs), 1)
+        self.assertEqual(assistant_msgs[0].get("reasoning_content"), "Let me think about this...")
+
+
 if __name__ == "__main__":
     unittest.main()

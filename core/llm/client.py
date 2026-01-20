@@ -140,6 +140,7 @@ class LLMClient:
         working_messages = list(messages)
         iteration = 0
         final_tool_calls = None
+        reasoning_content = None
 
         try:
             while iteration < max_tool_iterations:
@@ -163,6 +164,7 @@ class LLMClient:
                 finish_reason = self._provider.extract_finish_reason(raw_response)
                 request_id = self._provider.extract_request_id(raw_response)
                 tool_calls = self._provider.extract_tool_calls(raw_response)
+                reasoning_content = self._provider.extract_reasoning_content(raw_response)
 
                 # If no tool calls or no executor, we're done
                 if not tool_calls or not tool_executor:
@@ -171,9 +173,12 @@ class LLMClient:
 
                 # Execute each tool call and add results to messages
                 # First add the assistant's message with tool calls
+                # Include reasoning_content for DeepSeek thinking mode (required by API)
                 assistant_msg = {"role": "assistant", "content": content or ""}
                 if tool_calls:
                     assistant_msg["tool_calls"] = tool_calls
+                if reasoning_content:
+                    assistant_msg["reasoning_content"] = reasoning_content
                 working_messages.append(assistant_msg)
 
                 for tc in tool_calls:
@@ -215,6 +220,7 @@ class LLMClient:
                 cached_tokens=total_cached_tokens,
                 reasoning_tokens=total_reasoning_tokens,
                 reasoning_effort=self._provider.reasoning_effort,
+                reasoning_content=reasoning_content,
                 max_tokens=max_tokens,
                 latency_ms=latency_ms,
                 finish_reason=finish_reason,

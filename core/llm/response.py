@@ -14,6 +14,7 @@ class LLMResponse:
     cached_tokens: int = 0
     reasoning_tokens: int = 0
     reasoning_effort: Optional[str] = None
+    reasoning_content: Optional[str] = None  # Thinking/reasoning text (DeepSeek thinking mode)
     max_tokens: Optional[int] = None  # Token limit used for this request
     latency_ms: float = 0
     finish_reason: str = ""

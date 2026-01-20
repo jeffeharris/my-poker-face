@@ -244,3 +244,17 @@ class DeepSeekProvider(LLMProvider):
             }
             for tc in tool_calls
         ]
+
+    def extract_reasoning_content(self, raw_response: Any) -> Optional[str]:
+        """Extract reasoning content from DeepSeek response.
+
+        When using thinking mode (deepseek-chat with thinking:enabled or
+        deepseek-reasoner), the response includes reasoning_content in the
+        message. This must be preserved in conversation history for subsequent
+        API calls to work correctly.
+        """
+        message = raw_response.choices[0].message
+        reasoning_content = getattr(message, 'reasoning_content', None)
+        if reasoning_content and isinstance(reasoning_content, str):
+            return reasoning_content
+        return None

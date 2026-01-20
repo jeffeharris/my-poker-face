@@ -871,10 +871,13 @@ def chat_experiment_design():
             db_session = persistence.get_chat_session(session_id)
             if db_session:
                 # Convert UI messages back to history format
-                history_from_db = [
-                    {'role': msg['role'], 'content': msg['content']}
-                    for msg in db_session.get('messages', [])
-                ]
+                # Preserve reasoning_content for DeepSeek API compatibility
+                history_from_db = []
+                for msg in db_session.get('messages', []):
+                    entry = {'role': msg['role'], 'content': msg['content']}
+                    if msg.get('reasoning_content'):
+                        entry['reasoning_content'] = msg['reasoning_content']
+                    history_from_db.append(entry)
                 _chat_sessions[session_id] = {
                     'history': history_from_db,
                     'last_config': db_session.get('config', {}),
@@ -1015,8 +1018,12 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
             config_diff_for_response = _compute_config_diff(current_config, merged_config)
 
         # Update session history and last_config
+        # Include reasoning_content for DeepSeek thinking mode (required by API)
         history.append({"role": "user", "content": user_message_content})
-        history.append({"role": "assistant", "content": response.content})
+        assistant_entry = {"role": "assistant", "content": response.content}
+        if response.reasoning_content:
+            assistant_entry["reasoning_content"] = response.reasoning_content
+        history.append(assistant_entry)
 
         # Track config version if there were updates
         if config_updates:
@@ -1046,6 +1053,7 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
         # Persist session to database for resume functionality
         owner_id = session.get('owner_id', 'anonymous')
         # Convert history to frontend-compatible format (with configDiff)
+        # Preserve reasoning_content for DeepSeek thinking mode compatibility
         ui_messages = []
         for msg in history:
             ui_msg = {'role': msg['role'], 'content': msg['content']}
@@ -1054,6 +1062,9 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
                 # Check if this message had config updates by looking at surrounding context
                 # For now, just store content - configDiff is added via response
                 ui_msg['content'] = clean_response_text(msg['content'])
+                # Preserve reasoning_content for DeepSeek API compatibility
+                if msg.get('reasoning_content'):
+                    ui_msg['reasoning_content'] = msg['reasoning_content']
             ui_messages.append(ui_msg)
 
         persistence.save_chat_session(
