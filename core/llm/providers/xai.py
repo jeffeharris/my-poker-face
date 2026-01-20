@@ -119,10 +119,7 @@ class XAIProvider(LLMProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
     ) -> Any:
-        """Make a chat completion request.
-
-        Note: tools/tool_choice are accepted for interface compatibility but not used.
-        """
+        """Make a chat completion request."""
         kwargs = {
             "model": self._model,
             "messages": messages,
@@ -136,6 +133,12 @@ class XAIProvider(LLMProvider):
         # Only add reasoning_effort for models that support native parameter
         if self._reasoning_effort and self._model in REASONING_EFFORT_MODELS:
             kwargs["reasoning_effort"] = self._reasoning_effort
+
+        # Add tools if provided (xAI uses OpenAI-compatible format)
+        if tools:
+            kwargs["tools"] = tools
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
 
         return self._client.chat.completions.create(**kwargs)
 
@@ -198,3 +201,29 @@ class XAIProvider(LLMProvider):
         if request_id is None or not isinstance(request_id, str):
             return ''
         return request_id
+
+    def extract_tool_calls(self, raw_response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls from xAI response.
+
+        xAI uses OpenAI-compatible format for tool calls.
+        """
+        message = raw_response.choices[0].message
+
+        tool_calls = getattr(message, 'tool_calls', None)
+        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+            return None
+
+        if len(tool_calls) == 0:
+            return None
+
+        return [
+            {
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                }
+            }
+            for tc in tool_calls
+        ]
