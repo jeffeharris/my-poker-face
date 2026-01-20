@@ -252,48 +252,20 @@ export function ExperimentDesigner({ embedded = false }: ExperimentDesignerProps
 
   return (
     <div className={`experiment-designer ${embedded ? 'experiment-designer--embedded' : ''}`}>
-      {/* Mode Header - hidden on mobile for list/detail (handled by parent) */}
-      {(!isMobile || mode === 'design') && (
+      {/* Mode Header - only for design and detail modes */}
+      {(mode === 'design' || (mode === 'detail' && !isMobile)) && (
         <div className="experiment-designer__header">
-          {mode === 'design' && (
-            <>
-              <button
-                className="experiment-designer__back-btn"
-                onClick={handleBackToList}
-                type="button"
-              >
-                <ArrowLeft size={16} />
-                Back to List
-              </button>
-              <h3 className="experiment-designer__title">Design New Experiment</h3>
-            </>
-          )}
-          {mode === 'list' && (
-            <>
-              <h3 className="experiment-designer__title">Experiments</h3>
-              <button
-                className="experiment-designer__new-btn"
-                onClick={handleNewExperiment}
-                type="button"
-              >
-                <Plus size={16} />
-                New Experiment
-              </button>
-            </>
-          )}
-          {mode === 'detail' && (
-            <>
-              <button
-                className="experiment-designer__back-btn"
-                onClick={handleBackToList}
-                type="button"
-              >
-                <ArrowLeft size={16} />
-                Back to List
-              </button>
-              <h3 className="experiment-designer__title">Experiment Details</h3>
-            </>
-          )}
+          <button
+            className="experiment-designer__back-btn"
+            onClick={handleBackToList}
+            type="button"
+          >
+            <ArrowLeft size={16} />
+            Back to List
+          </button>
+          <h3 className="experiment-designer__title">
+            {mode === 'design' ? 'Design New Experiment' : 'Experiment Details'}
+          </h3>
         </div>
       )}
 

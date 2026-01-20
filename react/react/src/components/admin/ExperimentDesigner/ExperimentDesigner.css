@@ -580,8 +580,28 @@
 
 .experiment-list__filters {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.experiment-list__new-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  margin-left: auto;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+
+.experiment-list__new-btn:hover {
+  background: linear-gradient(135deg, #059669, #047857);
 }
 
 .experiment-list__filter-select {
