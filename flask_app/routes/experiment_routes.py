@@ -229,21 +229,22 @@ For comparing models, prompts, or other configurations, use the control/variants
 
 - control: The baseline configuration (required for A/B tests)
   - label: Name shown in results (e.g., "GPT-4o Baseline")
-  - model: Model to use (optional, defaults to experiment's model)
-  - provider: Provider to use (optional, defaults to experiment's provider)
   - prompt_config: Prompt settings for control (optional)
   - enable_psychology: Enable tilt/emotional state generation (default false, ~4 LLM calls/hand)
   - enable_commentary: Enable commentary generation (default false, ~4 LLM calls/hand)
+  - NOTE: Control always uses the experiment-level model/provider settings
 
 - variants: List of variations to compare against control
-  - Each variant inherits from control and only needs to specify what's different
-  - Same structure as control: label, model, provider, prompt_config, enable_psychology, enable_commentary
+  - Each variant can override model/provider to test different LLMs
+  - Variants inherit psychology/commentary settings from control if not specified
+  - Fields: label (required), model, provider, prompt_config, enable_psychology, enable_commentary
 
 ## Real Examples from Successful Experiments
 
 ### Example 1: Psychology Impact Test (6 variants, multi-model) ✓ COMPLETED
 Tests whether psychology/commentary improves decision quality across different models.
-Uses reset_on_elimination to ensure exactly 15 hands per variant for fair comparison:
+Uses reset_on_elimination to ensure exactly 15 hands per variant for fair comparison.
+NOTE: Control uses the top-level model/provider (gpt-5-nano/openai). Variants can override.
 {
   "name": "psychology_impact_test_v2",
   "description": "Test impact of psychology and commentary on decision quality",
@@ -255,21 +256,19 @@ Uses reset_on_elimination to ensure exactly 15 hands per variant for fair compar
   "num_players": 6,
   "starting_stack": 10000,
   "big_blind": 250,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "parallel_tournaments": 6,
   "stagger_start_delay": 2,
   "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond", "Daniel Negreanu"],
   "control": {
     "label": "GPT-5 Nano (no psych)",
-    "model": "gpt-5-nano",
-    "provider": "openai",
     "enable_psychology": false,
     "enable_commentary": false
   },
   "variants": [
     {
       "label": "GPT-5 Nano (with psych)",
-      "model": "gpt-5-nano",
-      "provider": "openai",
       "enable_psychology": true,
       "enable_commentary": true
     },
@@ -325,7 +324,8 @@ Simple test with specific poker pro personalities using a single model:
 }
 
 ### Example 3: Fast Model Comparison (5 providers) ✓ COMPLETED
-Compare decision quality across 5 fast/budget models with parallel execution:
+Compare decision quality across 5 fast/budget models with parallel execution.
+NOTE: Control uses top-level model/provider. Each variant overrides to test different models.
 {
   "name": "preflop_discipline_test_v1",
   "description": "Test pre-flop raising discipline prompt - compare fast models",
@@ -336,14 +336,14 @@ Compare decision quality across 5 fast/budget models with parallel execution:
   "num_players": 5,
   "starting_stack": 10000,
   "big_blind": 250,
+  "model": "mistral-small-latest",
+  "provider": "mistral",
   "capture_prompts": true,
   "parallel_tournaments": 5,
   "stagger_start_delay": 2.0,
   "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond"],
   "control": {
-    "label": "Mistral Small",
-    "provider": "mistral",
-    "model": "mistral-small-latest"
+    "label": "Mistral Small"
   },
   "variants": [
     {
@@ -370,7 +370,8 @@ Compare decision quality across 5 fast/budget models with parallel execution:
 }
 
 ### Example 4: Groq Model Size Comparison ✓ COMPLETED
-Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant):
+Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant).
+NOTE: Control uses top-level model/provider. Variant overrides to test larger model.
 {
   "name": "reset_fix_v2",
   "num_tournaments": 1,
@@ -379,13 +380,13 @@ Compare Groq 8B vs 70B model decision quality (exactly 20 hands per variant):
   "num_players": 5,
   "starting_stack": 10000,
   "big_blind": 250,
+  "model": "llama-3.1-8b-instant",
+  "provider": "groq",
   "parallel_tournaments": 2,
   "stagger_start_delay": 1.0,
   "personalities": ["Batman", "Gordon Ramsay", "Buddha", "Deadpool", "James Bond"],
   "control": {
-    "label": "Groq 8B",
-    "provider": "groq",
-    "model": "llama-3.1-8b-instant"
+    "label": "Groq 8B"
   },
   "variants": [
     {

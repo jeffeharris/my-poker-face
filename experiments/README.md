@@ -164,10 +164,10 @@ For comparing models, prompts, or configurations, use the **control/variants** s
 {
   "name": "my_ab_test",
   "num_tournaments": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "control": {
-    "label": "Baseline",
-    "model": "gpt-5-nano",
-    "provider": "openai"
+    "label": "Baseline"
   },
   "variants": [
     {
@@ -179,9 +179,22 @@ For comparing models, prompts, or configurations, use the **control/variants** s
 }
 ```
 
-This runs **5 tournaments with control** AND **5 tournaments with each variant**.
+This runs **5 tournaments with control** (using top-level model/provider) AND **5 tournaments with each variant**.
 
-### Control/Variant Fields
+**Note**: Control always uses the experiment-level `model`/`provider` settings. Variants can override these to test different models.
+
+### Control Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `label` | Yes | Display name in results |
+| `prompt_config` | No | Override prompt settings |
+| `enable_psychology` | No | Enable tilt/emotional state |
+| `enable_commentary` | No | Enable commentary generation |
+
+**Note**: Control uses experiment-level `model`/`provider` - these cannot be overridden in control.
+
+### Variant Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -190,8 +203,8 @@ This runs **5 tournaments with control** AND **5 tournaments with each variant**
 | `provider` | No | Override provider (inherits from experiment) |
 | `prompt_config` | No | Override prompt settings |
 | `reasoning_effort` | No | Override reasoning level |
-| `enable_psychology` | No | Enable tilt/emotional state |
-| `enable_commentary` | No | Enable commentary generation |
+| `enable_psychology` | No | Enable tilt/emotional state (inherits from control) |
+| `enable_commentary` | No | Enable commentary generation (inherits from control) |
 
 ### Example: Model Comparison
 
@@ -199,10 +212,10 @@ This runs **5 tournaments with control** AND **5 tournaments with each variant**
 {
   "name": "gpt_vs_claude_vs_gemini",
   "num_tournaments": 3,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "control": {
-    "label": "GPT-5 Nano",
-    "provider": "openai",
-    "model": "gpt-5-nano"
+    "label": "GPT-5 Nano"
   },
   "variants": [
     {
@@ -225,6 +238,8 @@ This runs **5 tournaments with control** AND **5 tournaments with each variant**
 {
   "name": "pot_odds_ablation",
   "num_tournaments": 5,
+  "model": "gpt-5-nano",
+  "provider": "openai",
   "control": {
     "label": "With Pot Odds",
     "prompt_config": {"pot_odds": true}

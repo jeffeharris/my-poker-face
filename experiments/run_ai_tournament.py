@@ -195,10 +195,10 @@ class ExperimentConfig:
         # A/B testing mode: control + variants
         result = []
 
-        # Control is always first
+        # Control is always first - always uses experiment-level model/provider
         control_config = {
-            'model': self.control.get('model') or self.model,
-            'provider': self.control.get('provider') or self.provider,
+            'model': self.model,      # Always use experiment-level
+            'provider': self.provider, # Always use experiment-level
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
             'enable_commentary': self.control.get('enable_commentary', False),
@@ -207,11 +207,12 @@ class ExperimentConfig:
         control_label = self.control.get('label', 'Control')
         result.append((control_label, control_config))
 
-        # Add variants (inherit from control, override specified fields)
+        # Add variants (inherit model/provider from experiment, other settings from control)
         for variant in (self.variants or []):
             variant_config = {
-                'model': variant.get('model') or control_config['model'],
-                'provider': variant.get('provider') or control_config['provider'],
+                # Model/provider inherit from experiment-level, not control
+                'model': variant.get('model') or self.model,
+                'provider': variant.get('provider') or self.provider,
                 # Use explicit None check - empty dict {} is a valid config
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified

@@ -27,11 +27,12 @@ export interface PlayerConfig {
 
 /**
  * Control (baseline) configuration for A/B testing experiments.
+ * NOTE: model and provider are inherited from the experiment-level settings.
+ * Only variant-specific options (psychology, commentary, prompt_config) are set here.
  */
 export interface ControlConfig {
   label: string;
-  model?: string;
-  provider?: string;
+  // model and provider removed - always uses experiment-level settings
   prompt_config?: Partial<PromptConfig>;
   /** Enable tilt + emotional state generation (~4 LLM calls/hand). Default: false */
   enable_psychology?: boolean;

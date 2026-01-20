@@ -267,12 +267,11 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
       // Disable: clear control and variants
       onConfigUpdate({ control: null, variants: null });
     } else {
-      // Enable: create default control
+      // Enable: create default control (uses experiment-level model/provider)
       onConfigUpdate({
         control: {
           label: 'Control',
-          model: config.model,
-          provider: config.provider,
+          // model and provider are NOT set here - control uses experiment-level settings
         },
         variants: [],
       });
@@ -553,7 +552,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                         model: providerInfo?.default_model || config.model,
                       });
                     }}
-                    disabled={isAbTestingEnabled || providersLoading}
+                    disabled={providersLoading}
                   >
                     {providersLoading ? (
                       <option value="">Loading...</option>
@@ -571,7 +570,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                     className="config-preview__select"
                     value={config.model}
                     onChange={(e) => handleFieldChange('model', e.target.value)}
-                    disabled={isAbTestingEnabled || providersLoading}
+                    disabled={providersLoading}
                   >
                     {getModelsForProvider(config.provider).map(model => (
                       <option key={model} value={model}>{model}</option>
@@ -580,7 +579,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                 </label>
               </div>
               {isAbTestingEnabled && (
-                <p className="config-preview__hint">Model settings are configured per-variant in A/B testing mode</p>
+                <p className="config-preview__hint">Control uses these settings. Add variants below to test different models.</p>
               )}
             </div>
 
@@ -637,45 +636,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                               placeholder="Control"
                             />
                           </label>
-                          <div className="config-preview__row">
-                            <label className="config-preview__label config-preview__label--inline">
-                              Provider
-                              <select
-                                className="config-preview__select"
-                                value={config.control?.provider || config.provider}
-                                onChange={(e) => {
-                                  const newProvider = e.target.value;
-                                  const providerInfo = providers.find(p => p.id === newProvider);
-                                  // Update both provider and model for control
-                                  onConfigUpdate({
-                                    control: {
-                                      ...config.control!,
-                                      provider: newProvider,
-                                      model: providerInfo?.default_model || config.control?.model || '',
-                                    },
-                                  });
-                                }}
-                                disabled={providersLoading}
-                              >
-                                {providers.map(p => (
-                                  <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="config-preview__label config-preview__label--inline">
-                              Model
-                              <select
-                                className="config-preview__select"
-                                value={config.control?.model || ''}
-                                onChange={(e) => handleControlUpdate('model', e.target.value)}
-                                disabled={providersLoading}
-                              >
-                                {getModelsForProvider(config.control?.provider || config.provider).map(model => (
-                                  <option key={model} value={model}>{model}</option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
+                          <p className="config-preview__hint config-preview__hint--info">
+                            Uses Model Settings above ({config.provider}/{config.model})
+                          </p>
                           <div className="config-preview__row config-preview__row--toggles">
                             <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation (~4 LLM calls/hand)">
                               <input
@@ -731,7 +694,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                   onChange={(e) => {
                                     const newProvider = e.target.value;
                                     if (newProvider === '') {
-                                      // Inherit from control - clear both provider and model
+                                      // Inherit from experiment - clear both provider and model
                                       handleVariantUpdate(index, 'provider', '');
                                       handleVariantUpdate(index, 'model', '');
                                     } else {
@@ -748,7 +711,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                   }}
                                   disabled={providersLoading}
                                 >
-                                  <option value="">Inherit from Control</option>
+                                  <option value="">Same as Control</option>
                                   {providers.map(p => (
                                     <option key={p.id} value={p.id}>{p.name}</option>
                                   ))}
@@ -762,7 +725,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                   onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
                                   disabled={providersLoading || !variant.provider}
                                 >
-                                  <option value="">Inherit from Control</option>
+                                  <option value="">Same as Control</option>
                                   {variant.provider && getModelsForProvider(variant.provider).map(model => (
                                     <option key={model} value={model}>{model}</option>
                                   ))}
@@ -800,6 +763,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                         <Plus size={14} />
                         Add Variant
                       </button>
+                      <p className="config-preview__hint">
+                        Variants can override model, provider, psychology, and commentary settings
+                      </p>
                     </>
                   )}
                 </div>
