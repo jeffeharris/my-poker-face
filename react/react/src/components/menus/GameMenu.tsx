@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
-import { config } from '../../config';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useViewport } from '../../hooks/useViewport';
 import './GameMenu.css';
