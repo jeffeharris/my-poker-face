@@ -155,7 +155,7 @@ class ReplayExperimentRunner:
                             break
 
                         # Check pause
-                        while pause_coordinator.is_paused(experiment_id):
+                        while pause_coordinator.should_pause(experiment_id):
                             time.sleep(1)
                             if self._stop_requested:
                                 break
@@ -192,7 +192,7 @@ class ReplayExperimentRunner:
                         break
 
                     # Check pause
-                    while pause_coordinator.is_paused(experiment_id):
+                    while pause_coordinator.should_pause(experiment_id):
                         time.sleep(1)
                         if self._stop_requested:
                             break
@@ -223,13 +223,12 @@ class ReplayExperimentRunner:
             # Generate summary
             summary = self._generate_summary(experiment_id)
 
-            # Update status
+            # Update status with summary
             if self._stop_requested:
                 self.persistence.update_experiment_status(experiment_id, 'interrupted')
             else:
-                self.persistence.update_experiment_status(experiment_id, 'completed')
-                # Store summary
-                self.persistence.update_experiment_summary(experiment_id, summary)
+                # Use complete_experiment which sets status and stores summary
+                self.persistence.complete_experiment(experiment_id, summary)
 
             logger.info(f"Replay experiment {experiment_id} completed")
             return summary
@@ -245,11 +244,6 @@ class ReplayExperimentRunner:
 
     def _load_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
         """Load full capture data including prompts."""
-        captures = self.persistence.list_prompt_captures(limit=1, offset=0)
-        # Need to fetch by ID specifically
-        with self.persistence._get_connection() if hasattr(self.persistence, '_get_connection') else None as conn:
-            pass  # Fall through to direct query
-
         import sqlite3
         with sqlite3.connect(self.persistence.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -329,11 +323,11 @@ class ReplayExperimentRunner:
                     pass
 
             # Make the LLM call
+            # Note: reasoning_effort not currently supported by LLMClient
             response = client.complete(
                 messages=messages,
                 json_format=True,
-                call_type=CallType.PLAYER_DECISION,
-                reasoning_effort=reasoning_effort
+                call_type=CallType.PLAYER_DECISION
             )
 
             latency_ms = int((time.time() - start_time) * 1000)
@@ -361,8 +355,8 @@ class ReplayExperimentRunner:
                 provider=provider,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                input_tokens=response.usage.input_tokens if response.usage else 0,
-                output_tokens=response.usage.output_tokens if response.usage else 0,
+                input_tokens=getattr(response, 'input_tokens', 0),
+                output_tokens=getattr(response, 'output_tokens', 0),
                 latency_ms=latency_ms
             )
 

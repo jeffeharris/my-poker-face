@@ -7215,14 +7215,14 @@ class GamePersistence:
         Returns:
             Dict with 'results' list and 'total' count
         """
-        conditions = ["experiment_id = ?"]
+        conditions = ["replay_results.experiment_id = ?"]
         params = [experiment_id]
 
         if variant:
-            conditions.append("variant = ?")
+            conditions.append("replay_results.variant = ?")
             params.append(variant)
         if quality_change:
-            conditions.append("quality_change = ?")
+            conditions.append("replay_results.quality_change = ?")
             params.append(quality_change)
 
         where_clause = f"WHERE {' AND '.join(conditions)}"
@@ -7237,15 +7237,17 @@ class GamePersistence:
             total = cursor.fetchone()[0]
 
             # Get results with pagination
+            # Note: Don't alias replay_results since where_clause uses full table name
             cursor = conn.execute(f"""
-                SELECT rr.*, pc.player_name, pc.phase, pc.pot_odds,
+                SELECT replay_results.*, pc.player_name, pc.phase, pc.pot_odds,
                        rec.original_action, rec.original_quality, rec.original_ev_lost
-                FROM replay_results rr
+                FROM replay_results
                 JOIN replay_experiment_captures rec
-                    ON rec.experiment_id = rr.experiment_id AND rec.capture_id = rr.capture_id
-                JOIN prompt_captures pc ON pc.id = rr.capture_id
+                    ON rec.experiment_id = replay_results.experiment_id
+                    AND rec.capture_id = replay_results.capture_id
+                JOIN prompt_captures pc ON pc.id = replay_results.capture_id
                 {where_clause}
-                ORDER BY rr.created_at DESC
+                ORDER BY replay_results.created_at DESC
                 LIMIT ? OFFSET ?
             """, params + [limit, offset])
 

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { adminAPI } from '../../utils/api';
 import { Beaker, ChevronRight, ChevronLeft, Play, Plus, X, Check, AlertTriangle } from 'lucide-react';
 import { CaptureSelector } from './CaptureSelector';
+import { useLLMProviders } from '../../hooks/useLLMProviders';
 import './AdminShared.css';
 import './ReplayDesigner.css';
 
@@ -38,20 +39,6 @@ interface ReplayDesignerProps {
 type Step = 'captures' | 'variants' | 'review';
 
 // ============================================
-// Constants
-// ============================================
-
-const MODELS = [
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
-  { value: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { value: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', provider: 'anthropic' },
-  { value: 'claude-3-5-haiku-20241022', label: 'Claude Haiku 3.5', provider: 'anthropic' },
-  { value: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
-  { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek' },
-];
-
-// ============================================
 // Main Component
 // ============================================
 
@@ -80,6 +67,24 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Fetch available models from system API
+  const { providers, loading: providersLoading, formatModelLabel } = useLLMProviders({ scope: 'system' });
+
+  // Build model options from providers
+  const modelOptions = useMemo(() => {
+    const options: { value: string; label: string; provider: string }[] = [];
+    for (const provider of providers) {
+      for (const model of provider.models) {
+        options.push({
+          value: model,
+          label: formatModelLabel(provider.id, model),
+          provider: provider.id
+        });
+      }
+    }
+    return options;
+  }, [providers, formatModelLabel]);
 
   // Update capture selection when IDs change
   useEffect(() => {
@@ -122,11 +127,17 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
 
   // Apply model preset to variant
   const applyModelPreset = (index: number, modelValue: string) => {
-    const preset = MODELS.find(m => m.value === modelValue);
+    const preset = modelOptions.find(m => m.value === modelValue);
     if (preset) {
       updateVariant(index, {
         model: preset.value,
         provider: preset.provider
+      });
+    } else if (!modelValue) {
+      // Clear model/provider when "Use original" is selected
+      updateVariant(index, {
+        model: undefined,
+        provider: undefined
       });
     }
   };
@@ -326,10 +337,11 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
                       <select
                         value={variant.model || ''}
                         onChange={(e) => applyModelPreset(index, e.target.value)}
+                        disabled={providersLoading}
                       >
                         <option value="">Use original</option>
-                        {MODELS.map(m => (
-                          <option key={m.value} value={m.value}>
+                        {modelOptions.map(m => (
+                          <option key={`${m.provider}-${m.value}`} value={m.value}>
                             {m.label} ({m.provider})
                           </option>
                         ))}
