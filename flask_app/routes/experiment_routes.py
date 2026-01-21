@@ -360,6 +360,87 @@ PERSONALITY_TOOL = {
     }
 }
 
+# Tool definition for read-only SQL queries (replay experiments)
+SQL_QUERY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "query_database",
+        "description": "Execute a read-only SQL query against the experiment database. Use this to explore captures, labels, decision analysis, presets, and personalities when designing replay experiments. Use PRAGMA table_info(table_name) to discover column schemas.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "SELECT or PRAGMA query. SELECT max 100 rows. Use PRAGMA table_info(table_name) for schema."
+                }
+            },
+            "required": ["sql"],
+            "additionalProperties": False
+        }
+    }
+}
+
+# Tables allowed for SQL queries (safety whitelist)
+ALLOWED_SQL_TABLES = {
+    'prompt_captures', 'capture_labels', 'player_decision_analysis',
+    'prompt_presets', 'personalities', 'replay_experiments',
+    'replay_results', 'api_usage'
+}
+
+
+def _execute_sql_query(sql: str) -> str:
+    """Execute a read-only SQL query against allowed tables.
+
+    Args:
+        sql: The SQL query to execute (SELECT or read-only PRAGMA)
+
+    Returns:
+        JSON string with query results or error
+    """
+    import sqlite3
+
+    # Validate: must be SELECT or read-only PRAGMA
+    normalized = sql.strip().upper()
+    is_select = normalized.startswith('SELECT')
+    is_pragma = normalized.startswith('PRAGMA')
+
+    if not is_select and not is_pragma:
+        return json.dumps({"error": "Only SELECT and PRAGMA queries allowed"})
+
+    # For PRAGMA, only allow specific read-only commands for schema discovery
+    if is_pragma:
+        # Extract pragma name (e.g., "PRAGMA TABLE_INFO(foo)" -> "TABLE_INFO")
+        pragma_match = re.match(r'PRAGMA\s+(\w+)', normalized)
+        if not pragma_match:
+            return json.dumps({"error": "Invalid PRAGMA syntax"})
+
+        pragma_name = pragma_match.group(1)
+        allowed_pragmas = {'TABLE_INFO', 'TABLE_LIST', 'INDEX_LIST', 'INDEX_INFO', 'DATABASE_LIST'}
+        if pragma_name not in allowed_pragmas:
+            return json.dumps({"error": f"PRAGMA {pragma_name} not allowed. Use: TABLE_INFO, TABLE_LIST, INDEX_LIST"})
+
+    # Validate: no dangerous keywords (even in subqueries)
+    forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'REPLACE', 'ATTACH', 'DETACH']
+    for kw in forbidden:
+        # Check for keyword as a standalone word (not part of another word)
+        if re.search(rf'\b{kw}\b', normalized):
+            return json.dumps({"error": f"Query contains forbidden keyword: {kw}"})
+
+    # Execute with row limit for SELECT queries
+    try:
+        with sqlite3.connect(persistence.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # Add LIMIT if SELECT and not present
+            if is_select and 'LIMIT' not in normalized:
+                sql = sql.rstrip(';').strip() + " LIMIT 100"
+            cursor = conn.execute(sql)
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        return json.dumps({"rows": rows, "count": len(rows)})
+    except sqlite3.Error as e:
+        return json.dumps({"error": f"SQL error: {str(e)}"})
+
 
 def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
     """Execute experiment design tools.
@@ -371,6 +452,10 @@ def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
     Returns:
         JSON string with tool results
     """
+    if name == "query_database":
+        sql = args.get("sql", "")
+        return _execute_sql_query(sql)
+
     if name == "get_available_personalities":
         import sqlite3
 
@@ -962,6 +1047,118 @@ Example:
 - User: "Yes"
 - Assistant: "Done!" <config_updates>{...}</config_updates>
 
+## Tools Available
+
+You have access to the `query_database` tool that executes read-only SQL queries (SELECT and PRAGMA) against the experiment database.
+
+**IMPORTANT**: Use this tool proactively to answer questions about available data. Don't guess - query the database!
+
+### Schema Discovery
+
+Use PRAGMA to discover table schemas:
+```sql
+PRAGMA table_info(prompt_captures)  -- Get columns for a table
+SELECT name FROM sqlite_master WHERE type='table'  -- List all tables
+```
+
+### Key Tables
+
+**prompt_captures** - Captured AI decisions from past games
+- Key columns: id, game_id, player_name, hand_number, phase, action_taken
+- Game state: pot_total, cost_to_call, pot_odds, player_stack, player_hand, community_cards
+- LLM info: model, provider, latency_ms, input_tokens, output_tokens
+
+**capture_labels** - Labels/tags on captures
+- capture_id, label, label_type ('user' or 'smart')
+
+**player_decision_analysis** - Decision quality metrics (joined on capture_id)
+- decision_quality: 'optimal', 'acceptable', or 'mistake'
+- ev_lost, optimal_action, equity, required_equity
+
+**prompt_presets** - Saved prompt configurations
+- id, name, description, prompt_config (JSON), guidance_injection
+
+**personalities** - AI personalities
+- name, config_json, times_used
+
+**experiments** - All experiments (tournament and replay)
+- id, name, status, config_json, experiment_type, created_at
+
+**replay_results** - Results from replay experiments
+- experiment_id, capture_id, variant, new_action, new_quality, ev_delta
+
+**api_usage** - Usage/cost tracking
+- model, provider, input_tokens, output_tokens, latency_ms, call_type
+
+### Known Decision Quality Issues
+
+These are common AI decision problems worth testing with replay experiments:
+
+| Issue | Description | Severity |
+|-------|-------------|----------|
+| FOLD_MISTAKE | Folding hands with positive EV | HIGH |
+| BAD_ALL_IN | All-in with very low equity (often failed bluffs) | MEDIUM |
+| SHORT_STACK_FOLD | Folding with < 2 BB (should push/fold) | HIGH |
+| POT_COMMITTED_FOLD | Folding after investing > remaining stack | HIGH |
+| RAISE_WAR | 3+ raises in single betting round | MEDIUM |
+
+### Useful Queries
+
+```sql
+-- Get available labels
+SELECT label, COUNT(*) as count FROM capture_labels GROUP BY label ORDER BY count DESC
+
+-- Find fold mistakes (highest EV impact)
+SELECT pc.id, pc.player_name, pc.phase, pda.equity, pda.ev_lost
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.action_taken = 'fold' AND pda.decision_quality = 'mistake'
+ORDER BY pda.ev_lost DESC
+
+-- Bad all-ins (low equity shoves)
+SELECT pc.id, pc.player_name, pc.phase, pda.equity, pda.ev_lost
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.action_taken = 'all_in' AND pda.decision_quality = 'mistake'
+ORDER BY pda.ev_lost DESC
+
+-- Mistake rate by model
+SELECT pc.model, COUNT(*) as total,
+  SUM(CASE WHEN pda.decision_quality='mistake' THEN 1 ELSE 0 END)*100.0/COUNT(*) as mistake_pct
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+GROUP BY pc.model HAVING total >= 50 ORDER BY mistake_pct DESC
+
+-- Mistake rate by phase
+SELECT pc.phase, COUNT(*) as total,
+  SUM(CASE WHEN pda.decision_quality='mistake' THEN 1 ELSE 0 END) as mistakes,
+  SUM(pda.ev_lost) as total_ev_lost
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+GROUP BY pc.phase ORDER BY total_ev_lost DESC
+
+-- Short stack situations (stack < 500 chips)
+SELECT pc.id, pc.player_name, pc.player_stack, pc.action_taken, pda.decision_quality
+FROM prompt_captures pc
+LEFT JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.player_stack < 500 AND pc.action_taken = 'fold'
+
+-- High pot odds folds (likely mistakes)
+SELECT pc.id, pc.player_name, pc.pot_odds, pc.action_taken, pda.equity
+FROM prompt_captures pc
+LEFT JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.pot_odds > 0.5 AND pc.action_taken = 'fold'
+
+-- Get presets with guidance
+SELECT id, name, description, guidance_injection FROM prompt_presets WHERE guidance_injection IS NOT NULL
+
+-- Worst personalities by mistake rate
+SELECT pda.player_name, COUNT(*) as decisions,
+  SUM(CASE WHEN decision_quality='mistake' THEN 1 ELSE 0 END)*100.0/COUNT(*) as mistake_pct
+FROM player_decision_analysis pda
+GROUP BY player_name HAVING decisions >= 30 ORDER BY mistake_pct DESC
+```
+
 ## Response Style
 
 - Be CONCISE. Users want configs, not essays.
@@ -1239,11 +1436,23 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
         # Add current user message
         messages.append({"role": "user", "content": user_message_content})
 
+        # Select tools based on experiment type
+        # - Tournament: personality tool only
+        # - Replay: SQL query tool + personality tool
+        # - Undetermined: both tools available
+        if current_experiment_type == 'tournament':
+            tools = [PERSONALITY_TOOL]
+        elif current_experiment_type == 'replay':
+            tools = [SQL_QUERY_TOOL, PERSONALITY_TOOL]
+        else:
+            # Undetermined - provide both tools
+            tools = [SQL_QUERY_TOOL, PERSONALITY_TOOL]
+
         # Call LLM with tool support - use reasoning model for better analysis
         client = LLMClient(model=config.ASSISTANT_MODEL, provider=config.ASSISTANT_PROVIDER)
         response = client.complete(
             messages=messages,
-            tools=[PERSONALITY_TOOL],
+            tools=tools,
             tool_choice="auto",
             tool_executor=_execute_experiment_tool,
             call_type=CallType.EXPERIMENT_DESIGN,
