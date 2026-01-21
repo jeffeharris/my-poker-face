@@ -579,8 +579,12 @@
 
 /* Move community area down for stadium view */
 .stadium-view .community-area {
-    top: 60%;
+    top: 68%;
     transform: translate(-50%, -50%);
+}
+
+.stadium-view .pot-area {
+    margin-bottom: 16px;
 }
 
 /* Community cards with more spacing */

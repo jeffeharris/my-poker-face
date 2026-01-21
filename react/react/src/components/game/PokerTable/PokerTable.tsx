@@ -70,26 +70,40 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     // seatOffset 1 = leftmost (index 0), seatOffset N-1 = rightmost (index N-2)
     const positionIndex = seatOffset - 1;
 
-    // Distribute opponents from left (150°) to right (30°) across top arc
-    const startAngle = 150; // degrees, left side
-    const endAngle = 30;    // degrees, right side
-    const angleRange = startAngle - endAngle; // 120 degrees of arc
+    // Dynamic arc spread - tighter when fewer opponents to keep them closer together
+    // Full arc (120°) for 5+ opponents, narrower for fewer
+    const maxArcSpread = 120;
+    const minArcSpread = 60; // For 2 opponents
+    const arcSpread = totalOpponents <= 2
+      ? minArcSpread
+      : totalOpponents <= 4
+        ? 80
+        : maxArcSpread;
+
+    // Center the arc around 90° (top center)
+    const centerAngle = 90;
+    const startAngle = centerAngle + arcSpread / 2; // left side
+    const endAngle = centerAngle - arcSpread / 2;   // right side
+    const angleRange = startAngle - endAngle;
     const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
     const angle = (startAngle - positionIndex * angleStep) * (Math.PI / 180);
 
-    // Wider ellipse for stadium view
-    const radiusX = 48; // Horizontal radius as percentage
-    const radiusY = 40; // Vertical radius as percentage
+    // Wider ellipse for stadium view - reduced radiusY to bring avatars down
+    const radiusX = 42; // Horizontal radius as percentage
+    const radiusY = 28; // Vertical radius as percentage (reduced to bring avatars down)
 
-    // Calculate position on ellipse
+    // Calculate position on ellipse, with offset to clear the header
     const left = 50 + radiusX * Math.cos(angle);
-    const top = 50 - radiusY * Math.sin(angle); // Subtract to move up (top of screen)
+    const top = 52 - radiusY * Math.sin(angle); // Start from 52% to position avatars
+
+    // Dynamic scaling - larger cards when fewer opponents
+    const scale = totalOpponents <= 2 ? 1.6 : totalOpponents <= 4 ? 1.3 : 1.0;
 
     return {
       position: 'absolute' as const,
       left: `${left}%`,
       top: `${top}%`,
-      transform: 'translate(-50%, -50%)',
+      transform: `translate(-50%, -50%) scale(${scale})`,
     };
   };
 
@@ -172,6 +186,13 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     <>
       {/* Community Cards Area */}
       <div className="community-area">
+        <div className="pot-area">
+          <div className="pot">
+            <div className="pot-label">POT</div>
+            <div className="pot-amount">${gameState.pot.total}</div>
+          </div>
+        </div>
+
         <div className="community-cards">
           {gameState.community_cards.map((card, i) => (
             <CommunityCard key={i} card={card} revealed={true} />
@@ -179,13 +200,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
             <CommunityCard key={`placeholder-${i}`} revealed={false} />
           ))}
-        </div>
-
-        <div className="pot-area">
-          <div className="pot">
-            <div className="pot-label">POT</div>
-            <div className="pot-amount">${gameState.pot.total}</div>
-          </div>
         </div>
       </div>
 
