@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import './AdminSidebar.css';
 
 export type AdminTab = 'personalities' | 'analyzer' | 'playground' | 'experiments' | 'templates' | 'settings' | 'debug';
@@ -69,23 +69,43 @@ export function AdminSidebar({
     <aside className={`admin-sidebar ${collapsed ? 'admin-sidebar--collapsed' : ''}`}>
       {/* Sidebar Header */}
       <div className="admin-sidebar__header">
-        <div className="admin-sidebar__brand">
-          <div className="admin-sidebar__brand-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <span className="admin-sidebar__brand-text">Admin</span>
-        </div>
-        <button
-          className="admin-sidebar__toggle"
-          onClick={() => setCollapsed(!collapsed)}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
+        {collapsed ? (
+          /* Collapsed: brand icon is the toggle */
+          <button
+            className="admin-sidebar__brand-toggle"
+            onClick={() => setCollapsed(false)}
+            aria-label="Expand sidebar"
+          >
+            <div className="admin-sidebar__brand-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+              </svg>
+            </div>
+          </button>
+        ) : (
+          /* Expanded: separate brand and toggle */
+          <>
+            <div className="admin-sidebar__brand">
+              <div className="admin-sidebar__brand-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+              </div>
+              <span className="admin-sidebar__brand-text">Admin Tools</span>
+            </div>
+            <button
+              className="admin-sidebar__toggle"
+              onClick={() => setCollapsed(true)}
+              aria-label="Collapse sidebar"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Navigation Items */}

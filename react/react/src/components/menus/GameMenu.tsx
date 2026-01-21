@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, Microscope, FlaskConical, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
+import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
-import { config } from '../../config';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useViewport } from '../../hooks/useViewport';
 import './GameMenu.css';
@@ -164,8 +163,6 @@ interface GameMenuProps {
   onThemedGame: () => void;
   onContinueGame: () => void;
   onViewStats?: () => void;
-  onPromptDebugger?: () => void;
-  onPromptPlayground?: () => void;
   onAdminDashboard?: () => void;
   savedGamesCount: number;
 }
@@ -177,8 +174,6 @@ export function GameMenu({
   onThemedGame,
   onContinueGame,
   onViewStats,
-  onPromptDebugger,
-  onPromptPlayground,
   onAdminDashboard,
   savedGamesCount
 }: GameMenuProps) {
@@ -314,37 +309,6 @@ export function GameMenu({
             </button>
           )}
 
-          {config.ENABLE_DEBUG && onPromptDebugger && (
-            <button
-              className="menu-option prompt-debugger"
-              onClick={onPromptDebugger}
-              onMouseEnter={() => setHoveredOption('debugger')}
-              onMouseLeave={() => setHoveredOption(null)}
-            >
-              <Microscope className="option-icon" size={24} />
-              <div className="option-content">
-                <h3>Prompt Debugger</h3>
-                <p>Analyze and replay AI decision prompts</p>
-              </div>
-              <ChevronRight className="option-arrow" size={20} />
-            </button>
-          )}
-
-          {config.ENABLE_DEBUG && onPromptPlayground && (
-            <button
-              className="menu-option prompt-playground"
-              onClick={onPromptPlayground}
-              onMouseEnter={() => setHoveredOption('playground')}
-              onMouseLeave={() => setHoveredOption(null)}
-            >
-              <FlaskConical className="option-icon" size={24} />
-              <div className="option-content">
-                <h3>Prompt Playground</h3>
-                <p>View and replay any captured LLM prompt</p>
-              </div>
-              <ChevronRight className="option-arrow" size={20} />
-            </button>
-          )}
         </div>
 
         {/* Stats Sidebar - Desktop only */}
@@ -363,8 +327,6 @@ export function GameMenu({
           {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
           {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
           {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
-          {hoveredOption === 'debugger' && "Debug AI decisions by viewing and replaying captured prompts."}
-          {hoveredOption === 'playground' && "Explore and replay any LLM prompt with different models."}
           {!hoveredOption && "Ready to test your poker face?"}
         </p>
       </div>

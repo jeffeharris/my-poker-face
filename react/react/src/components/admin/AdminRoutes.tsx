@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 'lucide-react';
-import { AdminDashboard, SIDEBAR_ITEMS } from './AdminDashboard';
+import { AdminDashboard } from './AdminDashboard';
+import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import { AdminSidebar } from './AdminSidebar';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { useViewport } from '../../hooks/useViewport';

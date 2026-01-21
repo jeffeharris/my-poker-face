@@ -15,7 +15,8 @@ interface MonitoringPlayerSlotProps {
 
 export function MonitoringPlayerSlot({ player, onClick }: MonitoringPlayerSlotProps) {
   const statusClass = [
-    player.is_folded && 'monitoring-player--folded',
+    player.is_eliminated && 'monitoring-player--eliminated',
+    player.is_folded && !player.is_eliminated && 'monitoring-player--folded',
     player.is_all_in && 'monitoring-player--all-in',
     player.is_current && 'monitoring-player--current',
   ].filter(Boolean).join(' ');
@@ -23,6 +24,27 @@ export function MonitoringPlayerSlot({ player, onClick }: MonitoringPlayerSlotPr
   // Check if player has tilt (moderate or higher)
   // Use optional chaining since psychology may be disabled for some experiments
   const hasTilt = (player.psychology?.tilt_level ?? 0) >= 40;
+
+  // Eliminated players show a simplified "out" state
+  if (player.is_eliminated) {
+    return (
+      <button
+        className={`monitoring-player ${statusClass}`}
+        onClick={onClick}
+        type="button"
+        title={`${player.name} - Eliminated`}
+      >
+        <div className="monitoring-player__info">
+          <span className="monitoring-player__name">{player.name}</span>
+        </div>
+        <div className="monitoring-player__badges">
+          <span className="monitoring-player__badge monitoring-player__badge--eliminated">
+            OUT
+          </span>
+        </div>
+      </button>
+    );
+  }
 
   return (
     <button

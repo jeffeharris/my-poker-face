@@ -50,6 +50,12 @@
   height: 64px;
 }
 
+/* Collapsed header - center the brand toggle */
+.admin-sidebar--collapsed .admin-sidebar__header {
+  justify-content: center;
+  padding: 1rem 0;
+}
+
 .admin-sidebar__brand {
   display: flex;
   align-items: center;
@@ -89,6 +95,37 @@
   display: none;
 }
 
+/* Brand Toggle (collapsed state - icon is clickable) */
+.admin-sidebar__brand-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-sidebar__brand-toggle .admin-sidebar__brand-icon {
+  transition: all 0.15s ease;
+}
+
+.admin-sidebar__brand-toggle:hover .admin-sidebar__brand-icon {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.25) 0%, rgba(255, 152, 0, 0.18) 100%);
+  border-color: rgba(255, 193, 7, 0.4);
+  transform: scale(1.05);
+}
+
+.admin-sidebar__brand-toggle:focus-visible {
+  outline: none;
+}
+
+.admin-sidebar__brand-toggle:focus-visible .admin-sidebar__brand-icon {
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.4);
+}
+
 /* Toggle Button */
 .admin-sidebar__toggle {
   display: flex;
@@ -121,7 +158,17 @@
 }
 
 .admin-sidebar--collapsed .admin-sidebar__nav {
-  padding: 1rem 0.5rem;
+  padding: 1rem 0;
+  overflow-y: hidden;
+  scrollbar-gutter: auto;
+}
+
+.admin-sidebar--collapsed .admin-sidebar__list {
+  align-items: center;
+}
+
+.admin-sidebar--collapsed .admin-sidebar__item {
+  width: 100%;
 }
 
 .admin-sidebar__list {
@@ -197,6 +244,11 @@
   box-shadow: 0 0 12px rgba(255, 193, 7, 0.5);
 }
 
+/* Hide indicator when collapsed - use border glow instead */
+.admin-sidebar--collapsed .admin-sidebar__link-indicator {
+  display: none;
+}
+
 /* Icon - Fixed size container that stays centered */
 .admin-sidebar__link-icon {
   display: flex;
@@ -237,8 +289,10 @@
 
 /* Collapsed state - center icon with minimal padding */
 .admin-sidebar--collapsed .admin-sidebar__link {
+  width: auto;
   padding: 0.5rem;
   justify-content: center;
+  margin: 0 auto;
 }
 
 .admin-sidebar--collapsed .admin-sidebar__link-icon {

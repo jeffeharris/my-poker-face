@@ -1,11 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Card, CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
-import { ActionButtons } from '../ActionButtons';
-import { ChatSidebar } from '../../chat/ChatSidebar';
+import { useCallback } from 'react';
+import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
 import { TournamentComplete } from '../TournamentComplete';
-import { PokerTableLayout } from '../PokerTableLayout';
 import { StadiumLayout } from '../StadiumLayout';
 import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
@@ -13,7 +10,6 @@ import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
-import { useViewport } from '../../../hooks/useViewport';
 import type { Player } from '../../../types/player';
 import './PokerTable.css';
 
@@ -23,13 +19,7 @@ interface PokerTableProps {
   onGameCreated?: (gameId: string) => void;
 }
 
-// Breakpoint for stadium view (3-column layout)
-const STADIUM_BREAKPOINT = 1400;
-
 export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
-  // Viewport detection for responsive layout
-  const { width: viewportWidth } = useViewport();
-  const useStadiumView = viewportWidth >= STADIUM_BREAKPOINT;
 
   // Use the shared hook for all socket/state management
   const {
@@ -69,131 +59,53 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     window.location.href = '/';
   }, [gameId, clearTournamentResult]);
 
-  // Track fixed visual positions for players
-  const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
+  // Calculate seat position based on offset from human player
+  // Players are anchored to fixed positions - only dealer/blind buttons rotate
+  // Seat offset 1 (acts after human) = left side, higher offsets move right
+  const getStadiumSeatStyle = (seatOffset: number, totalPlayers: number) => {
+    // Total opponents is totalPlayers - 1 (excluding human)
+    const totalOpponents = totalPlayers - 1;
 
-  // Calculate seat position around the table based on player count
-  // Position 0 is always at bottom center (human player)
-  // Other positions are distributed clockwise around the table
-  const getSeatStyle = (seatIndex: number, totalPlayers: number) => {
-    // Start from bottom (90 degrees) and go clockwise
-    // Angle 0 = right, 90 = bottom, 180 = left, 270 = top
-    const startAngle = 90; // Bottom center (in degrees)
-    const angleStep = 360 / totalPlayers;
-    const angle = (startAngle + seatIndex * angleStep) * (Math.PI / 180);
+    // Map seat offset (1 to totalOpponents) to position index (0 to totalOpponents-1)
+    // seatOffset 1 = leftmost (index 0), seatOffset N-1 = rightmost (index N-2)
+    const positionIndex = seatOffset - 1;
 
-    // Ellipse radii - seats positioned outside the table
-    // Table is roughly 80% of container, so position seats at ~55% from center
-    const radiusX = 55; // Horizontal radius as percentage
-    const radiusY = 48; // Vertical radius as percentage (slightly less due to aspect ratio)
+    // Dynamic arc spread - tighter when fewer opponents to keep them closer together
+    // Full arc (120°) for 5+ opponents, narrower for fewer
+    const maxArcSpread = 120;
+    const minArcSpread = 60; // For 2 opponents
+    const arcSpread = totalOpponents <= 2
+      ? minArcSpread
+      : totalOpponents <= 4
+        ? 80
+        : maxArcSpread;
 
-    // Calculate position on ellipse
-    const left = 50 + radiusX * Math.cos(angle);
-    const top = 50 + radiusY * Math.sin(angle);
-
-    return {
-      position: 'absolute' as const,
-      left: `${left}%`,
-      top: `${top}%`,
-      transform: 'translate(-50%, -50%)',
-    };
-  };
-
-  // Stadium view: Opponents in top 180 arc (human player shown in PlayerCommandCenter)
-  const getStadiumSeatStyle = (opponentIndex: number, totalOpponents: number) => {
-    // Distribute opponents from left (180) to right (0) across top arc
-    // Angles: 150 (top-left) to 30 (top-right)
-    const startAngle = 150; // degrees, left side
-    const endAngle = 30;    // degrees, right side
-    const angleRange = startAngle - endAngle; // 120 degrees of arc
-    const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
-    const angle = (startAngle - opponentIndex * angleStep) * (Math.PI / 180);
-
-    // Wider ellipse for stadium view
-    const radiusX = 48; // Horizontal radius as percentage
-    const radiusY = 40; // Vertical radius as percentage
-
-    // Calculate position on ellipse
-    const left = 50 + radiusX * Math.cos(angle);
-    const top = 50 - radiusY * Math.sin(angle); // Subtract to move up (top of screen)
-
-    return {
-      position: 'absolute' as const,
-      left: `${left}%`,
-      top: `${top}%`,
-      transform: 'translate(-50%, -50%)',
-    };
-  };
-
-  // Stadium view: Bet chips positioned closer to center
-  // Currently unused - bets shown in player seats for stadium view
-  // Kept for potential future use
-  /* eslint-disable @typescript-eslint/no-unused-vars */
-  // @ts-expect-error - Intentionally unused, kept for future stadium bet display
-  const getStadiumBetChipStyle = (opponentIndex: number, totalOpponents: number) => {
-    const startAngle = 150;
-    const endAngle = 30;
+    // Center the arc around 90° (top center)
+    const centerAngle = 90;
+    const startAngle = centerAngle + arcSpread / 2; // left side
+    const endAngle = centerAngle - arcSpread / 2;   // right side
     const angleRange = startAngle - endAngle;
     const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
-    const angle = (startAngle - opponentIndex * angleStep) * (Math.PI / 180);
+    const angle = (startAngle - positionIndex * angleStep) * (Math.PI / 180);
 
-    const radiusX = 28;
-    const radiusY = 22;
+    // Wider ellipse for stadium view - reduced radiusY to bring avatars down
+    const radiusX = 42; // Horizontal radius as percentage
+    const radiusY = 28; // Vertical radius as percentage (reduced to bring avatars down)
 
+    // Calculate position on ellipse, with offset to clear the header
     const left = 50 + radiusX * Math.cos(angle);
-    const top = 50 - radiusY * Math.sin(angle);
+    const top = 52 - radiusY * Math.sin(angle); // Start from 52% to position avatars
+
+    // Dynamic scaling - larger cards when fewer opponents
+    const scale = totalOpponents <= 2 ? 1.6 : totalOpponents <= 4 ? 1.3 : 1.0;
 
     return {
       position: 'absolute' as const,
       left: `${left}%`,
       top: `${top}%`,
-      transform: 'translate(-50%, -50%)',
+      transform: `translate(-50%, -50%) scale(${scale})`,
     };
   };
-  /* eslint-enable @typescript-eslint/no-unused-vars */
-
-  // Calculate bet chip position (inside the table, closer to center)
-  const getBetChipStyle = (seatIndex: number, totalPlayers: number) => {
-    const startAngle = 90;
-    const angleStep = 360 / totalPlayers;
-    const angle = (startAngle + seatIndex * angleStep) * (Math.PI / 180);
-
-    // Smaller radius - chips appear between player and center
-    const radiusX = 28;
-    const radiusY = 22;
-
-    const left = 50 + radiusX * Math.cos(angle);
-    const top = 50 + radiusY * Math.sin(angle);
-
-    return {
-      position: 'absolute' as const,
-      left: `${left}%`,
-      top: `${top}%`,
-      transform: 'translate(-50%, -50%)',
-    };
-  };
-
-  // Initialize player positions when game state loads
-  useEffect(() => {
-    if (gameState && playerPositions.size === 0) {
-      const positions = new Map<string, number>();
-      const humanIndex = gameState.players.findIndex((p: Player) => p.is_human);
-      let positionIndex = 0;
-
-      if (humanIndex !== -1) {
-        positions.set(gameState.players[humanIndex].name, 0);
-        positionIndex = 1;
-      }
-
-      gameState.players.forEach((player: Player) => {
-        if (!player.is_human) {
-          positions.set(player.name, positionIndex);
-          positionIndex++;
-        }
-      });
-      setPlayerPositions(positions);
-    }
-  }, [gameState, playerPositions.size]);
 
   // Check if current player is human and it's their turn
   const currentPlayer = gameState?.players[gameState.current_player_idx];
@@ -274,6 +186,13 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     <>
       {/* Community Cards Area */}
       <div className="community-area">
+        <div className="pot-area">
+          <div className="pot">
+            <div className="pot-label">POT</div>
+            <div className="pot-amount">${gameState.pot.total}</div>
+          </div>
+        </div>
+
         <div className="community-cards">
           {gameState.community_cards.map((card, i) => (
             <CommunityCard key={i} card={card} revealed={true} />
@@ -281,13 +200,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
             <CommunityCard key={`placeholder-${i}`} revealed={false} />
           ))}
-        </div>
-
-        <div className="pot-area">
-          <div className="pot">
-            <div className="pot-label">POT</div>
-            <div className="pot-amount">${gameState.pot.total}</div>
-          </div>
         </div>
       </div>
 
@@ -307,50 +219,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     </>
   );
 
-  // Render chip for a bet
-  const renderBetChips = (bet: number) => {
-    let chipValue: number, chipColor: string, numChips: number;
-    if (bet >= 100) {
-      chipValue = 100;
-      chipColor = 'black';
-      numChips = Math.min(Math.ceil(bet / 100), 4);
-    } else if (bet >= 25) {
-      chipValue = 25;
-      chipColor = bet >= 50 ? 'green' : 'blue';
-      numChips = Math.min(Math.ceil(bet / 25), 4);
-    } else {
-      chipValue = 5;
-      chipColor = 'red';
-      numChips = Math.min(Math.ceil(bet / 5), 4);
-    }
-
-    return (
-      <>
-        <div className="chip-stack">
-          {Array.from({ length: numChips }).map((_, chipIndex) => (
-            <div
-              key={chipIndex}
-              className={`poker-chip ${chipColor}`}
-              style={{
-                transform: `translateY(-${chipIndex * 2}px)`,
-                zIndex: chipIndex
-              }}
-            >
-              ${chipValue}
-            </div>
-          ))}
-        </div>
-        <div className="bet-amount">${bet}</div>
-      </>
-    );
-  };
-
-  // ==========================================
-  // STADIUM VIEW (Desktop >= 1400px)
-  // ==========================================
-  if (useStadiumView) {
-    return (
-      <StadiumLayout
+  // Stadium Layout - used for all desktop screen sizes
+  return (
+    <StadiumLayout
         header={
           <GameHeader
             handNumber={gameState.hand_number}
@@ -399,14 +270,20 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           <div className="table-felt">
             {renderTableCore()}
 
-            {/* Opponents in top arc */}
+            {/* Opponents in top arc - anchored by seat position relative to human */}
             <div className="players-area">
-              {opponents.map((player, opponentIndex) => {
-                const currentIndex = gameState.players.findIndex(p => p.name === player.name);
-                const isDealer = currentIndex === gameState.current_dealer_idx;
-                const isSmallBlind = currentIndex === gameState.small_blind_idx;
-                const isBigBlind = currentIndex === gameState.big_blind_idx;
-                const isCurrentPlayer = currentIndex === gameState.current_player_idx;
+              {opponents.map((player) => {
+                const playerIndex = gameState.players.findIndex(p => p.name === player.name);
+                const totalPlayers = gameState.players.length;
+
+                // Calculate seat offset from human (1 = immediately after human clockwise)
+                // This keeps players in fixed positions - only D/SB/BB buttons rotate
+                const seatOffset = (playerIndex - humanPlayerIndex + totalPlayers) % totalPlayers;
+
+                const isDealer = playerIndex === gameState.current_dealer_idx;
+                const isSmallBlind = playerIndex === gameState.small_blind_idx;
+                const isBigBlind = playerIndex === gameState.big_blind_idx;
+                const isCurrentPlayer = playerIndex === gameState.current_player_idx;
 
                 return (
                   <div
@@ -416,7 +293,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                     } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
                       isCurrentPlayer && aiThinking ? 'thinking' : ''
                     }`}
-                    style={getStadiumSeatStyle(opponentIndex, opponents.length)}
+                    style={getStadiumSeatStyle(seatOffset, totalPlayers)}
                   >
                     <div className="position-indicators">
                       {isDealer && <div className="position-chip dealer-button" title="Dealer">D</div>}
@@ -453,160 +330,23 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                         </>
                       ) : (
                         <>
-                          <HoleCard visible={false} />
-                          <HoleCard visible={false} />
+                          <HoleCard visible={false} size="xsmall" />
+                          <HoleCard visible={false} size="xsmall" />
                         </>
                       )}
                     </div>
 
                     {isCurrentPlayer && aiThinking && (
-                      <PlayerThinking playerName={player.name} position={opponentIndex} />
+                      <PlayerThinking playerName={player.name} position={seatOffset} />
                     )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Bet chips hidden in stadium view - bets shown in player seats */}
+            {/* Bet chips hidden - bets shown in player seats */}
           </div>
         </div>
       </StadiumLayout>
-    );
-  }
-
-  // ==========================================
-  // LEGACY VIEW (Tablet/Mobile < 1400px)
-  // ==========================================
-  return (
-    <>
-      <PokerTableLayout
-        chatPanel={
-          <ChatSidebar
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            playerName={playerName}
-            gameId={gameId ?? undefined}
-            players={gameState?.players ?? []}
-          />
-        }
-        actionButtons={
-          showActionButtons && (
-            <ActionButtons
-              playerOptions={gameState.player_options}
-              currentPlayerStack={currentPlayer.stack}
-              highestBet={gameState.highest_bet}
-              currentPlayerBet={currentPlayer.bet}
-              minRaise={gameState.min_raise}
-              bigBlind={gameState.big_blind}
-              potSize={gameState.pot.total}
-              onAction={handlePlayerAction}
-            />
-          )
-        }
-      >
-        <div className="poker-table">
-          <div className="table-felt">
-            {renderTableCore()}
-
-            {/* Player seats around ellipse */}
-            <div className="players-area">
-              {[...gameState.players]
-                .sort((a, b) => {
-                  const posA = playerPositions.get(a.name) ?? 0;
-                  const posB = playerPositions.get(b.name) ?? 0;
-                  return posA - posB;
-                })
-                .map((player) => {
-                  const currentIndex = gameState.players.findIndex(p => p.name === player.name);
-                  const visualPosition = playerPositions.get(player.name) ?? 0;
-                  const isDealer = currentIndex === gameState.current_dealer_idx;
-                  const isSmallBlind = currentIndex === gameState.small_blind_idx;
-                  const isBigBlind = currentIndex === gameState.big_blind_idx;
-                  const isCurrentPlayer = currentIndex === gameState.current_player_idx;
-                  const totalPlayers = gameState.players.length;
-
-                  return (
-                    <div
-                      key={player.name}
-                      className={`player-seat ${
-                        isCurrentPlayer ? 'current-player' : ''
-                      } ${player.is_folded ? 'folded' : ''} ${player.is_all_in ? 'all-in' : ''} ${
-                        isCurrentPlayer && !player.is_human && aiThinking ? 'thinking' : ''
-                      }`}
-                      style={getSeatStyle(visualPosition, totalPlayers)}
-                    >
-                      <div className="position-indicators">
-                        {isDealer && <div className="position-chip dealer-button" title="Dealer">D</div>}
-                        {isSmallBlind && <div className="position-chip small-blind" title="Small Blind">SB</div>}
-                        {isBigBlind && <div className="position-chip big-blind" title="Big Blind">BB</div>}
-                      </div>
-
-                      <div className="player-info">
-                        <div className="player-avatar">
-                          {player.avatar_url ? (
-                            <img
-                              src={`${config.API_URL}${player.avatar_url}`}
-                              alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
-                              className="avatar-image"
-                            />
-                          ) : (
-                            <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
-                          )}
-                        </div>
-                        <div className="player-details">
-                          <div className="player-name">{player.name}</div>
-                          <div className="player-stack">${player.stack}</div>
-                          {player.is_folded && <div className="status">FOLDED</div>}
-                          {player.is_all_in && <div className="status">ALL-IN</div>}
-                        </div>
-                      </div>
-
-                      <div className="player-cards">
-                        {player.is_human && player.hand ? (
-                          <>
-                            <Card card={player.hand[0]} faceDown={false} size="large" className="hole-card" />
-                            <Card card={player.hand[1]} faceDown={false} size="large" className="hole-card" />
-                          </>
-                        ) : config.ENABLE_AI_DEBUG ? (
-                          <>
-                            <DebugHoleCard debugInfo={player.llm_debug} />
-                            <DebugHoleCard debugInfo={player.llm_debug} />
-                          </>
-                        ) : (
-                          <>
-                            <HoleCard visible={false} />
-                            <HoleCard visible={false} />
-                          </>
-                        )}
-                      </div>
-
-                      {isCurrentPlayer && !player.is_human && aiThinking && (
-                        <PlayerThinking playerName={player.name} position={visualPosition} />
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-
-            {/* Bet chips */}
-            <div className="betting-area">
-              {gameState.players.map((player) => {
-                const visualPosition = playerPositions.get(player.name) ?? 0;
-                const totalPlayers = gameState.players.length;
-                return player.bet > 0 ? (
-                  <div
-                    key={player.name}
-                    className="bet-chips"
-                    style={getBetChipStyle(visualPosition, totalPlayers)}
-                  >
-                    {renderBetChips(player.bet)}
-                  </div>
-                ) : null;
-              })}
-            </div>
-          </div>
-        </div>
-      </PokerTableLayout>
-    </>
   );
 }

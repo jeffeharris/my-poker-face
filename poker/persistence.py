@@ -5784,13 +5784,13 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Get all games for this experiment
+            # Get all games for this experiment (stable order by game_id)
             cursor = conn.execute("""
                 SELECT eg.game_id, eg.variant, g.game_state_json, g.phase, g.updated_at
                 FROM experiment_games eg
                 JOIN games g ON eg.game_id = g.game_id
                 WHERE eg.experiment_id = ?
-                ORDER BY g.updated_at DESC
+                ORDER BY eg.game_id
             """, (experiment_id,))
 
             games = []
@@ -5870,6 +5870,8 @@ class GamePersistence:
                         'is_folded': p.get('is_folded', False),
                         'is_all_in': p.get('is_all_in', False),
                         'is_current': idx == current_player_idx,
+                        'is_eliminated': p.get('stack', 0) == 0,
+                        'seat_index': idx,  # Fixed seat position for monitoring
                         'psychology': psychology,
                         'llm_debug': llm_debug_by_player.get(player_name, {}),
                     })
@@ -5890,6 +5892,7 @@ class GamePersistence:
                     'pot': pot_total,
                     'community_cards': community_cards,
                     'players': players,
+                    'total_seats': len(players),  # Fixed seat count for positioning
                 })
 
             return games
