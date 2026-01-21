@@ -620,8 +620,8 @@ class AIPlayerController:
                 if equity is not None:
                     # Get emotional state - negative valence = tilted
                     is_tilted = False
-                    if self.psychology and self.psychology.emotional_state:
-                        valence = self.psychology.emotional_state.valence
+                    if self.psychology and self.psychology.emotional:
+                        valence = self.psychology.emotional.valence
                         is_tilted = valence < -0.2  # Negative mood threshold
 
                     # Determine guidance tier based on equity
