@@ -69,12 +69,12 @@ interface ReplayResultsProps {
 // Main Component
 // ============================================
 
-export function ReplayResults({ experimentId, onBack }: ReplayResultsProps) {
+export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsProps) {
   const [experiment, setExperiment] = useState<ReplayExperiment | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [results, setResults] = useState<ReplayResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
 
   // Filters
   const [variantFilter, setVariantFilter] = useState<string>('');
@@ -221,7 +221,7 @@ export function ReplayResults({ experimentId, onBack }: ReplayResultsProps) {
               <BarChart3 size={24} />
             </div>
             <div className="rr-summary-card__content">
-              <span className="rr-summary-card__value">{summary.overall.total_results}</span>
+              <span className="rr-summary-card__value">{summary.overall.total}</span>
               <span className="rr-summary-card__label">Total Results</span>
             </div>
           </div>

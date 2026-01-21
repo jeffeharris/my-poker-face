@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { adminAPI } from '../../utils/api';
 import { Beaker, ChevronRight, ChevronLeft, Play, Plus, X, Check, AlertTriangle } from 'lucide-react';
 import { CaptureSelector } from './CaptureSelector';

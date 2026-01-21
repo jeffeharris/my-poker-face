@@ -373,10 +373,6 @@ function NewExperimentWrapper() {
     navigate('/admin/experiments');
   };
 
-  const handleExperimentLaunched = () => {
-    navigate('/admin/experiments');
-  };
-
   // Mobile layout
   if (isMobile) {
     return (

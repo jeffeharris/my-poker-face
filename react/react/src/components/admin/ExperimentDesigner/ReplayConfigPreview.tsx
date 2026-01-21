@@ -20,7 +20,7 @@ interface ValidationResult {
   warnings: string[];
 }
 
-export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionId }: ReplayConfigPreviewProps) {
+export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionId: _sessionId }: ReplayConfigPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -304,8 +304,8 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
                               onChange={(e) => updateVariant(index, { model: e.target.value || undefined })}
                             >
                               <option value="">Default</option>
-                              {getModelsForProvider(variant.provider).map((m) => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
+                              {getModelsForProvider(variant.provider).map((model) => (
+                                <option key={model} value={model}>{model}</option>
                               ))}
                             </select>
                           </label>
