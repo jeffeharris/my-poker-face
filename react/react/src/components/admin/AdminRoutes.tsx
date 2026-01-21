@@ -4,6 +4,7 @@ import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 
 import { AdminDashboard } from './AdminDashboard';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import { AdminSidebar } from './AdminSidebar';
+import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { ReplayResults } from './ReplayResults';
 import { useViewport } from '../../hooks/useViewport';
@@ -358,6 +359,87 @@ function ReplayResultsWrapper() {
   );
 }
 
+/**
+ * Wrapper for new experiment design page (/admin/experiments/new)
+ */
+function NewExperimentWrapper() {
+  const navigate = useNavigate();
+  const { isMobile } = useViewport();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
+
+  const handleBack = () => {
+    navigate('/admin/experiments');
+  };
+
+  const handleExperimentLaunched = () => {
+    navigate('/admin/experiments');
+  };
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <div className="admin-main__content admin-main__content--mobile">
+          <ExperimentDesigner
+            embedded
+            initialMode="design"
+            onAssistantPanelChange={setAssistantPanelProps}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout with sidebar + content + assistant panel
+  return (
+    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab="experiments"
+        onTabChange={(tab) => navigate(`/admin/${tab}`)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="admin-main">
+        <header className="admin-main__header">
+          <button
+            className="admin-main__back"
+            onClick={handleBack}
+            aria-label="Go back to experiments"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">New Experiment</h1>
+            <p className="admin-main__subtitle">Design a new experiment with the Lab Assistant</p>
+          </div>
+        </header>
+        <div className="admin-main__content">
+          <ExperimentDesigner
+            embedded
+            initialMode="design"
+            onAssistantPanelChange={setAssistantPanelProps}
+          />
+        </div>
+      </main>
+
+      {/* Docked Assistant Panel (page-level) */}
+      {assistantPanelProps && (
+        <div className="admin-assistant-panel admin-assistant-panel--docked">
+          <div className="admin-assistant-panel__header">
+            <h3>
+              <MessageSquare size={18} />
+              Lab Assistant
+            </h3>
+          </div>
+          <ExperimentChat {...assistantPanelProps} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminTabWrapper() {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
@@ -419,7 +501,8 @@ export function AdminRoutes() {
   return (
     <Routes>
       <Route index element={<AdminIndex />} />
-      {/* Experiment detail routes - must come before :tab to match first */}
+      {/* Experiment routes - specific paths must come before :experimentId to match first */}
+      <Route path="experiments/new" element={<NewExperimentWrapper />} />
       <Route path="experiments/:experimentId" element={<ExperimentDetailWrapper />} />
       <Route path="replays/:experimentId" element={<ReplayResultsWrapper />} />
       <Route path=":tab" element={<AdminTabWrapper />} />

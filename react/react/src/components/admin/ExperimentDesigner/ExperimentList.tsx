@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Loader2, Archive, Plus, Beaker, Repeat2 } from 'lucide-react';
 import type { ExperimentSummary, ExperimentType } from './types';
 import { config } from '../../../config';
@@ -9,10 +10,10 @@ import { MobileExperimentList } from './MobileExperimentList';
 
 interface ExperimentListProps {
   onViewExperiment: (experiment: ExperimentSummary) => void;
-  onNewExperiment: () => void;
 }
 
-export function ExperimentList({ onViewExperiment, onNewExperiment }: ExperimentListProps) {
+export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
+  const navigate = useNavigate();
   const { isMobile } = useViewport();
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,6 +133,11 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     return Math.min(100, Math.round((current / total) * 100));
   };
 
+  // Handler for creating new experiment - navigates to dedicated route
+  const handleNewExperiment = useCallback(() => {
+    navigate('/admin/experiments/new');
+  }, [navigate]);
+
   // Mobile view - render MobileExperimentList
   if (isMobile) {
     return (
@@ -145,7 +151,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
         onIncludeArchivedChange={setIncludeArchived}
         onRefresh={fetchExperiments}
         onViewExperiment={onViewExperiment}
-        onNewExperiment={onNewExperiment}
+        onNewExperiment={handleNewExperiment}
       />
     );
   }
@@ -209,7 +215,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
 
         <button
           className="experiment-list__new-btn"
-          onClick={onNewExperiment}
+          onClick={handleNewExperiment}
           type="button"
         >
           <Plus size={16} />
@@ -228,7 +234,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
           <p>No experiments found.</p>
           <button
             className="experiment-list__empty-btn"
-            onClick={onNewExperiment}
+            onClick={handleNewExperiment}
             type="button"
           >
             Create your first experiment

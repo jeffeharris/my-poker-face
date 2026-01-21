@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, History, Sparkles } from 'lucide-react';
+import { History, Sparkles } from 'lucide-react';
 import type { InitialMessage } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
 import { ReplayConfigPreview } from './ReplayConfigPreview';
@@ -77,6 +77,8 @@ interface ExperimentDesignerProps {
   onAssistantPanelChange?: (props: AssistantPanelProps | null) => void;
   /** Callback when design mode changes */
   onDesignModeChange?: (isDesignMode: boolean) => void;
+  /** Initial mode - 'list' (default) or 'design' */
+  initialMode?: ExperimentMode;
 }
 
 // Location state types for navigation from experiment detail
@@ -88,11 +90,11 @@ interface LocationState {
   };
 }
 
-export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, onDesignModeChange }: ExperimentDesignerProps) {
+export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, onDesignModeChange, initialMode = 'list' }: ExperimentDesignerProps) {
   const { isMobile } = useViewport();
   const navigate = useNavigate();
   const location = useLocation();
-  const [mode, setMode] = useState<ExperimentMode>('list');
+  const [mode, setMode] = useState<ExperimentMode>(initialMode);
   const [config, setConfig] = useState<ExperimentConfig>(() => createFreshConfig());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [failureContext, setFailureContext] = useState<LabAssistantContext | null>(null);
@@ -227,6 +229,13 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     fetchLatestSession();
   }, []);
 
+  // Show resume prompt when navigating directly to design mode with a pending session
+  useEffect(() => {
+    if (initialMode === 'design' && pendingSession && !showResumePrompt) {
+      setShowResumePrompt(true);
+    }
+  }, [initialMode, pendingSession, showResumePrompt]);
+
   const handleConfigUpdate = useCallback((updates: Partial<ExperimentConfig>) => {
     setConfig(prev => ({ ...prev, ...updates }));
   }, []);
@@ -234,27 +243,6 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   const handleReplayConfigUpdate = useCallback((updates: Partial<ReplayExperimentConfig>) => {
     setReplayConfig(prev => ({ ...prev, ...updates }));
   }, []);
-
-  const handleNewExperiment = useCallback(() => {
-    console.log('[ExperimentDesigner] handleNewExperiment called, pendingSession:', pendingSession);
-    // Check if there's a pending session to resume
-    if (pendingSession) {
-      console.log('[ExperimentDesigner] Showing resume prompt');
-      setShowResumePrompt(true);
-      return;
-    }
-    // No pending session, start fresh with new seed
-    console.log('[ExperimentDesigner] No pending session, starting fresh');
-    setConfig(createFreshConfig());
-    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG });  // Reset replay config
-    setSessionId(null);
-    setFailureContext(null);
-    setConfigVersions([]);
-    setCurrentVersionIndex(0);
-    setInitialChatHistory(undefined);
-    setExperimentType('undetermined');  // Reset experiment type
-    setMode('design');
-  }, [pendingSession]);
 
   const handleResumeSession = useCallback(() => {
     if (!pendingSession) return;
@@ -360,23 +348,6 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
 
   return (
     <div className={`experiment-designer ${embedded ? 'experiment-designer--embedded' : ''}`}>
-      {/* Mode Header - only for design mode */}
-      {mode === 'design' && (
-        <div className="experiment-designer__header">
-          <button
-            className="experiment-designer__back-btn"
-            onClick={handleBackToList}
-            type="button"
-          >
-            <ArrowLeft size={16} />
-            Back to List
-          </button>
-          <h3 className="experiment-designer__title">
-            Design New Experiment
-          </h3>
-        </div>
-      )}
-
       {/* Mode Content */}
       <div className="experiment-designer__content">
         {mode === 'design' && experimentType === 'replay' && (
@@ -402,7 +373,6 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
         {mode === 'list' && (
           <ExperimentList
             onViewExperiment={handleViewExperiment}
-            onNewExperiment={handleNewExperiment}
           />
         )}
       </div>
