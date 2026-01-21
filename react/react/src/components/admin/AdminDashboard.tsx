@@ -12,6 +12,7 @@ import { AdminMenuContainer } from './AdminMenuContainer';
 import { PageLayout, PageHeader } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
+export { SIDEBAR_ITEMS };
 import './AdminDashboard.css';
 import '../menus/GameMenu.css';
 

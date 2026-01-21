@@ -1,0 +1,45 @@
+{
+  "name": "situational_guidance_model_comparison",
+  "description": "Compare situational guidance impact across Google Flash 2.0 and GPT-5 Nano",
+  "hypothesis": "Situational guidance (pot-committed, short-stack, made-hand coaching) should improve decision quality for both models",
+  "tags": ["prompt_ablation", "model_comparison", "situational_guidance"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 50,
+  "num_players": 4,
+  "reset_on_elimination": true,
+  "capture_prompts": true,
+  "parallel_tournaments": 4,
+  "stagger_start_delay": 2.0,
+  "model": "gemini-2.0-flash",
+  "provider": "google",
+  "control": {
+    "label": "Gemini Flash + Guidance",
+    "prompt_config": {
+      "situational_guidance": true
+    }
+  },
+  "variants": [
+    {
+      "label": "Gemini Flash - No Guidance",
+      "prompt_config": {
+        "situational_guidance": false
+      }
+    },
+    {
+      "label": "GPT-5 Nano + Guidance",
+      "model": "gpt-5-nano",
+      "provider": "openai",
+      "prompt_config": {
+        "situational_guidance": true
+      }
+    },
+    {
+      "label": "GPT-5 Nano - No Guidance",
+      "model": "gpt-5-nano",
+      "provider": "openai",
+      "prompt_config": {
+        "situational_guidance": false
+      }
+    }
+  ]
+}
