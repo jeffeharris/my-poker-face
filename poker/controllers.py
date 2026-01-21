@@ -84,6 +84,53 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
         return None
 
 
+def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
+                           num_simulations: int = 300) -> Optional[float]:
+    """
+    Calculate quick equity estimate against random opponent hands.
+
+    Uses Monte Carlo simulation with eval7. Returns equity as 0.0-1.0.
+    ~30-50ms for 300 simulations - acceptable for real-time use.
+    """
+    if not community_cards:
+        return None
+
+    try:
+        import eval7
+
+        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
+        board_cards = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+
+        wins = 0
+        for _ in range(num_simulations):
+            deck = eval7.Deck()
+            for c in hand + board_cards:
+                deck.cards.remove(c)
+            deck.shuffle()
+            opp_hand = list(deck.deal(2))
+
+            # Complete board if needed (flop/turn)
+            remaining = 5 - len(board_cards)
+            full_board = board_cards + list(deck.deal(remaining))
+
+            hero_score = eval7.evaluate(hand + full_board)
+            opp_score = eval7.evaluate(opp_hand + full_board)
+
+            # Higher score = better hand in eval7
+            if hero_score > opp_score:
+                wins += 1
+            elif hero_score == opp_score:
+                wins += 0.5
+
+        return wins / num_simulations
+
+    except ImportError:
+        return None
+    except Exception as e:
+        logger.debug(f"Equity calculation failed: {e}")
+        return None
+
+
 # Preflop hand rankings - neutral/informational only
 # Based on standard poker hand rankings (169 unique starting hands)
 PREMIUM_HANDS = {'AA', 'KK', 'QQ', 'JJ', 'AKs'}  # Top ~3%
@@ -507,11 +554,109 @@ class AIPlayerController:
         # Store context for fallback
         self._fallback_context = context
 
+        # Calculate situational guidance if enabled
+        game_state = self.state_machine.game_state
+        player = game_state.current_player
+        pot_committed_info = None
+        short_stack_info = None
+        made_hand_info = None
+
+        if self.prompt_config.situational_guidance:
+            cost_to_call = context.get('call_amount', 0)
+            pot_total = game_state.pot.get('total', 0)
+            already_bet = player.bet  # Amount already invested this hand
+            player_stack = player.stack
+            big_blind = game_state.current_ante or 250  # Default to 250 if not set
+
+            # Convert everything to BB for normalized reasoning
+            already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
+            stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
+            cost_to_call_bb = cost_to_call / big_blind if big_blind > 0 else 0
+
+            # Pot-committed: invested more BB than remaining stack AND facing a bet
+            # Also trigger for extreme pot odds (>20:1) with small calls (<5 BB)
+            if cost_to_call > 0:
+                pot_odds = pot_total / cost_to_call
+                required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
+
+                # Trigger if: invested more than remaining OR extreme pot odds with small call
+                is_pot_committed = already_bet_bb > stack_bb
+                is_extreme_odds = pot_odds >= 20 and cost_to_call_bb < 5
+
+                if is_pot_committed or is_extreme_odds:
+                    pot_committed_info = {
+                        'pot_odds': round(pot_odds, 0),
+                        'required_equity': round(required_equity, 1),
+                        'already_bet_bb': round(already_bet_bb, 1),
+                        'stack_bb': round(stack_bb, 1),
+                        'cost_to_call_bb': round(cost_to_call_bb, 1)
+                    }
+
+            # Short-stack: less than 3 big blinds
+            if stack_bb < 3:
+                short_stack_info = {'stack_bb': round(stack_bb, 1)}
+
+            # Made hand guidance: help prevent folding strong hands
+            # Calculate equity and provide guidance based on thresholds
+            # Tone varies based on emotional state (tilted = softer guidance)
+            if game_state.community_cards:  # Post-flop only
+                # Convert cards to string format for equity calculation
+                def card_to_str(c):
+                    """Convert card (dict or Card object) to short string like '8h'."""
+                    if isinstance(c, dict):
+                        rank = c.get('rank', '')
+                        suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
+                        if rank == '10':
+                            rank = 'T'
+                        return f"{rank}{suit}"
+                    else:
+                        s = str(c)
+                        suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
+                        for symbol, letter in suit_map.items():
+                            s = s.replace(symbol, letter)
+                        s = s.replace('10', 'T')
+                        return s
+
+                hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
+                community_cards = [card_to_str(c) for c in game_state.community_cards]
+
+                equity = calculate_quick_equity(hole_cards, community_cards)
+                if equity is not None:
+                    # Get emotional state - negative valence = tilted
+                    is_tilted = False
+                    if self.psychology and self.psychology.emotional_state:
+                        valence = self.psychology.emotional_state.valence
+                        is_tilted = valence < -0.2  # Negative mood threshold
+
+                    # Determine guidance tier based on equity
+                    # 80%+ = strong guidance, 65-79% = moderate guidance
+                    if equity >= 0.80:
+                        hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+                        hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
+                        made_hand_info = {
+                            'hand_name': hand_name,
+                            'equity': round(equity * 100),
+                            'is_tilted': is_tilted,
+                            'tier': 'strong'
+                        }
+                    elif equity >= 0.65:
+                        hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+                        hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a decent hand'
+                        made_hand_info = {
+                            'hand_name': hand_name,
+                            'equity': round(equity * 100),
+                            'is_tilted': is_tilted,
+                            'tier': 'moderate'
+                        }
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
-            include_persona_response=self.prompt_config.persona_response
+            include_persona_response=self.prompt_config.persona_response,
+            pot_committed_info=pot_committed_info,
+            short_stack_info=short_stack_info,
+            made_hand_info=made_hand_info
         )
 
         # Store capture_id via callback (keeps LLM layer decoupled from capture)
@@ -535,6 +680,7 @@ class AIPlayerController:
                 'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
                 'player_hand': [str(c) for c in player.hand] if player.hand else [],
                 'valid_actions': context.get('valid_actions', []),
+                'prompt_config': self.prompt_config.to_dict() if self.prompt_config else None,
                 '_on_captured': lambda cid: captured_id.__setitem__(0, cid),  # Store capture_id
             })
             return capture_data

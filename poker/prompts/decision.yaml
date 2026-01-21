@@ -1,5 +1,5 @@
 name: decision
-version: 1.3.0
+version: 1.4.0
 sections:
   base: |-
     {message}
@@ -14,6 +14,38 @@ sections:
     - WEAK hands (no pair, missed draws, high card only): check or fold, don't bet big.
     - Your personality influences HOW you play, not WHETHER your cards justify the bet.
     - Smart aggressive players pick their spots - they don't shove garbage.
+
+  pot_committed: |-
+    ⚠️ POT COMMITTED: You've invested {already_bet_bb} BB with only {stack_bb} BB left.
+    At {pot_odds}:1 odds, you only need {required_equity}% equity to call. Folding forfeits your {already_bet_bb} BB to save {cost_to_call_bb} BB - usually wrong.
+
+  short_stack: |-
+    ⚠️ SHORT STACK ALERT:
+    You have less than 3 big blinds ({stack_bb} BB).
+    - With a short stack, you MUST play push/fold poker
+    - ANY playable hand = ALL-IN (pairs, aces, broadway, suited connectors)
+    - Folding means blinds will eliminate you anyway
+    - Your personality doesn't override survival math
+    - If you have 1 BB or less, almost NEVER fold pre-flop
+
+  # Strong made hand guidance (80%+ equity)
+  # Firm tone for clear-headed players
+  made_hand_strong_firm: |-
+    🎰 STRONG HAND: You have {hand_name} (~{equity}% equity).
+    Folding is almost never correct - you beat most hands at showdown.
+
+  # Soft tone for tilted players
+  made_hand_strong_soft: |-
+    You have {hand_name} - this is a strong hand worth considering.
+
+  # Moderate made hand guidance (65-79% equity)
+  # Firm tone for clear-headed players
+  made_hand_moderate_firm: |-
+    You have {hand_name} with decent showdown value (~{equity}% equity).
+
+  # Soft tone for tilted players (very light touch)
+  made_hand_moderate_soft: |-
+    You have {hand_name}.
 
   mind_games: |-
     MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? Trying to tilt you or bait you into a bad call? Use their words to read their hand - excessive trash talk often means weakness, while silence or short responses may signal strength. Let their table talk influence your decision.

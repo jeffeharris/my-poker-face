@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 # v47: Add prompt_presets table for reusable prompt configurations
 # v48: Add capture_labels table for tagging captured AI decisions
 # v49: Add replay experiment tables and experiment_type column
-SCHEMA_VERSION = 49
+# v50: Add prompt_config_json to prompt_captures for analysis
+SCHEMA_VERSION = 50
 
 
 @dataclass
@@ -569,6 +570,7 @@ class GamePersistence:
                     target_personality TEXT,
                     target_emotion TEXT,
                     reference_image_id TEXT,
+                    prompt_config_json TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -886,6 +888,7 @@ class GamePersistence:
             47: (self._migrate_v47_add_prompt_presets, "Add prompt_presets table for reusable prompt configurations"),
             48: (self._migrate_v48_add_capture_labels, "Add capture_labels table for tagging captured AI decisions"),
             49: (self._migrate_v49_add_replay_experiment_tables, "Add replay experiment tables and experiment_type column"),
+            50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2319,6 +2322,20 @@ class GamePersistence:
             logger.info("Created replay_results table")
 
         logger.info("Migration v49 complete: Added replay experiment tables")
+
+    def _migrate_v50_add_prompt_config_to_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v50: Add prompt_config_json to prompt_captures.
+
+        This column stores the PromptConfig settings active when the capture was made,
+        making it easy to analyze how different configs affect AI behavior.
+        """
+        prompt_captures_cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'prompt_config_json' not in prompt_captures_cols:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_config_json TEXT")
+            logger.info("Added prompt_config_json column to prompt_captures")
+
+        logger.info("Migration v50 complete: prompt_config_json added to prompt_captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4284,8 +4301,10 @@ class GamePersistence:
                     -- Prompt Versioning
                     prompt_template, prompt_version, prompt_hash,
                     -- User Annotations
-                    tags, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tags, notes,
+                    -- Prompt Config (for analysis)
+                    prompt_config_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -4328,6 +4347,8 @@ class GamePersistence:
                 # User Annotations
                 json.dumps(capture.get('tags', [])),
                 capture.get('notes'),
+                # Prompt Config (for analysis)
+                json.dumps(capture.get('prompt_config')) if capture.get('prompt_config') else None,
             ))
             conn.commit()
             return cursor.lastrowid
@@ -5976,13 +5997,13 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Get all games for this experiment
+            # Get all games for this experiment (stable order by game_id)
             cursor = conn.execute("""
                 SELECT eg.game_id, eg.variant, g.game_state_json, g.phase, g.updated_at
                 FROM experiment_games eg
                 JOIN games g ON eg.game_id = g.game_id
                 WHERE eg.experiment_id = ?
-                ORDER BY g.updated_at DESC
+                ORDER BY eg.game_id
             """, (experiment_id,))
 
             games = []
@@ -6062,6 +6083,8 @@ class GamePersistence:
                         'is_folded': p.get('is_folded', False),
                         'is_all_in': p.get('is_all_in', False),
                         'is_current': idx == current_player_idx,
+                        'is_eliminated': p.get('stack', 0) == 0,
+                        'seat_index': idx,  # Fixed seat position for monitoring
                         'psychology': psychology,
                         'llm_debug': llm_debug_by_player.get(player_name, {}),
                     })
@@ -6082,6 +6105,7 @@ class GamePersistence:
                     'pot': pot_total,
                     'community_cards': community_cards,
                     'players': players,
+                    'total_seats': len(players),  # Fixed seat count for positioning
                 })
 
             return games

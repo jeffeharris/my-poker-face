@@ -31,6 +31,7 @@ class PromptConfig:
         tilt_effects: Tilt-based prompt modifications (intrusive thoughts, etc.)
         mind_games: MIND GAMES instruction (read opponent table talk)
         persona_response: PERSONA RESPONSE instruction (trash talk guidance)
+        situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
         guidance_injection: Extra text to append to decision prompts (for experiments)
     """
 
@@ -52,6 +53,9 @@ class PromptConfig:
     # Template instruction components
     mind_games: bool = True
     persona_response: bool = True
+
+    # Situational guidance components (coaching for specific game states)
+    situational_guidance: bool = True  # pot_committed, short_stack, made_hand
 
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts

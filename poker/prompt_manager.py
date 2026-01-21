@@ -410,8 +410,15 @@ class PromptManager:
                     pass
             return False
 
-    def render_decision_prompt(self, message: str, include_mind_games: bool = True,
-                               include_persona_response: bool = True) -> str:
+    def render_decision_prompt(
+        self,
+        message: str,
+        include_mind_games: bool = True,
+        include_persona_response: bool = True,
+        pot_committed_info: dict | None = None,
+        short_stack_info: dict | None = None,
+        made_hand_info: dict | None = None
+    ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
         Loads sections from the 'decision' template and combines them based on toggles.
@@ -420,6 +427,9 @@ class PromptManager:
             message: The game state message to include
             include_mind_games: Whether to include MIND GAMES instruction
             include_persona_response: Whether to include PERSONA RESPONSE instruction
+            pot_committed_info: Dict with {pot_odds, required_equity, already_bet} if pot-committed
+            short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
+            made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
 
         Returns:
             Rendered decision prompt
@@ -430,6 +440,37 @@ class PromptManager:
         # Always include base section with message substitution
         if 'base' in template.sections:
             sections_to_render.append(template.sections['base'].format(message=message))
+
+        # Include pot-committed warning if applicable (high priority - insert before other guidance)
+        if pot_committed_info and 'pot_committed' in template.sections:
+            sections_to_render.append(template.sections['pot_committed'].format(
+                pot_odds=pot_committed_info.get('pot_odds', 0),
+                required_equity=pot_committed_info.get('required_equity', 0),
+                already_bet_bb=pot_committed_info.get('already_bet_bb', 0),
+                stack_bb=pot_committed_info.get('stack_bb', 0),
+                cost_to_call_bb=pot_committed_info.get('cost_to_call_bb', 0)
+            ))
+
+        # Include short-stack warning if applicable
+        if short_stack_info and 'short_stack' in template.sections:
+            sections_to_render.append(template.sections['short_stack'].format(
+                stack_bb=short_stack_info.get('stack_bb', 0)
+            ))
+
+        # Include made hand guidance if applicable
+        # Tier determines strong (80%+) vs moderate (65-79%)
+        # is_tilted determines firm vs soft tone
+        if made_hand_info:
+            tier = made_hand_info.get('tier', 'strong')  # 'strong' or 'moderate'
+            is_tilted = made_hand_info.get('is_tilted', False)
+            tone = 'soft' if is_tilted else 'firm'
+            section_name = f'made_hand_{tier}_{tone}'
+
+            if section_name in template.sections:
+                sections_to_render.append(template.sections[section_name].format(
+                    hand_name=made_hand_info.get('hand_name', 'a strong hand'),
+                    equity=made_hand_info.get('equity', 0)
+                ))
 
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])

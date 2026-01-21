@@ -53,6 +53,34 @@ FOLD THESE HANDS PRE-FLOP (regardless of personality):
 - Unsuited hands with gaps (like 6-4, 7-3, 9-5) - FOLD
 - Low unsuited connectors (5-4o, 6-5o, 7-6o) - FOLD in early/middle position
 Your aggressive personality applies to BETTING SIZING with good hands, not to playing bad hands.
+""",
+
+    "pot_committed": """
+POT COMMITTED: You've invested more BB than you have left.
+At these pot odds, you only need a small % equity to call profitably.
+Folding forfeits your big investment to save a tiny call - usually wrong.
+""",
+
+    "short_stack": """
+SHORT STACK STRATEGY (< 3 Big Blinds):
+- Check your "stack in big blinds" number
+- With less than 3 BB, you MUST play push/fold poker
+- ANY playable hand = ALL-IN (pairs, aces, kings, broadway, suited connectors)
+- FOLDING with <3 BB means the blinds will eliminate you anyway
+- Your personality doesn't override survival math
+- Even "cautious" players go all-in with short stacks - it's mathematically required
+- If you have 1 BB or less, you should almost NEVER fold pre-flop
+""",
+
+    "river_call": """
+RIVER DECISION FRAMEWORK:
+- On the river, you have COMPLETE information about your hand strength
+- Your equity % shows your actual win rate against opponent's range
+- Calculate: Do I beat ANY hand my opponent could reasonably have?
+- If you have a pair or better, you often have showdown value
+- Pot odds matter: If pot is $1000 and call is $100, you only need 10% win rate
+- Common mistake: Folding to "scary" bets with hands that beat bluffs
+- If your equity exceeds required equity, CALL. Trust the math over fear.
 """
 }
 

@@ -46,6 +46,8 @@ export interface MonitoringPlayer {
   is_folded: boolean;
   is_all_in: boolean;
   is_current: boolean;
+  is_eliminated: boolean;
+  seat_index: number;
   psychology: PlayerPsychology;
   llm_debug: PlayerLLMDebug;
 }
@@ -61,6 +63,7 @@ export interface GameSnapshot {
   pot: number;
   community_cards: MonitoringCard[];
   players: MonitoringPlayer[];
+  total_seats: number;
 }
 
 /**

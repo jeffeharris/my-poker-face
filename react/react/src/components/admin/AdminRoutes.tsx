@@ -9,6 +9,7 @@ import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { ReplayResults } from './ReplayResults';
 import { useViewport } from '../../hooks/useViewport';
 import { config } from '../../config';
+import { getAdminToken } from '../../utils/api';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['personalities', 'analyzer', 'playground', 'experiments', 'templates', 'settings', 'debug'];
@@ -498,6 +499,12 @@ function AdminIndex() {
 }
 
 export function AdminRoutes() {
+  // Eagerly extract and persist admin token from URL on mount
+  // This ensures the token is saved to localStorage even before any API calls
+  useEffect(() => {
+    getAdminToken();
+  }, []);
+
   return (
     <Routes>
       <Route index element={<AdminIndex />} />

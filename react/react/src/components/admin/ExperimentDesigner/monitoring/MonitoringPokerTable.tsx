@@ -13,6 +13,7 @@ interface MonitoringPokerTableProps {
   players: MonitoringPlayer[];
   communityCards: MonitoringCard[];
   pot: number;
+  totalSeats: number;
   onPlayerClick: (playerName: string) => void;
 }
 
@@ -20,13 +21,14 @@ export function MonitoringPokerTable({
   players,
   communityCards,
   pot,
+  totalSeats,
   onPlayerClick,
 }: MonitoringPokerTableProps) {
-  // Calculate seat position around the table based on player count
+  // Calculate seat position around the table based on fixed seat count
   // Positions are distributed clockwise starting from bottom
-  const getSeatStyle = (seatIndex: number, totalPlayers: number) => {
+  const getSeatStyle = (seatIndex: number) => {
     const startAngle = 90; // Bottom center (in degrees)
-    const angleStep = 360 / totalPlayers;
+    const angleStep = 360 / totalSeats;
     const angle = (startAngle + seatIndex * angleStep) * (Math.PI / 180);
 
     // Ellipse radii for compact table
@@ -77,12 +79,12 @@ export function MonitoringPokerTable({
         )}
       </div>
 
-      {/* Player slots positioned around the table */}
+      {/* Player slots positioned around the table using fixed seat positions */}
       <div className="monitoring-table__players">
-        {players.map((player, index) => (
+        {players.map((player) => (
           <div
             key={player.name}
-            style={getSeatStyle(index, players.length)}
+            style={getSeatStyle(player.seat_index)}
             className="monitoring-table__player-wrapper"
           >
             <MonitoringPlayerSlot

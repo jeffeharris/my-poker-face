@@ -14,11 +14,10 @@ import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
-import { BackButton, UserBadge } from './components/shared'
+import { UserBadge } from './components/shared'
 import { GamePage } from './components/game/GamePage'
 import { AdminRoutes } from './components/admin/AdminRoutes'
 import { useAuth } from './hooks/useAuth'
-import { useViewport } from './hooks/useViewport'
 import { config } from './config'
 import './App.css'
 
@@ -53,7 +52,6 @@ const ROUTE_TITLES: Record<string, string> = {
 
 function App() {
   const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
-  const { isMobile } = useViewport();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -266,17 +264,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   return (
     <>
-      {/* Navigation - only show when in game view on desktop */}
-      {location.pathname.startsWith('/game/') && !location.pathname.includes('/new/') && !isMobile && (
-        <div className="app-nav app-nav--left">
-          <BackButton
-            onClick={() => navigate('/menu')}
-            label="Back to Menu"
-            position="relative"
-          />
-        </div>
-      )}
-
       {/* User info - only show on game menu screen */}
       {isAuthenticated && user && location.pathname === '/menu' && (
         <UserBadge
@@ -307,8 +294,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
               onThemedGame={() => navigate('/game/new/themed')}
               onContinueGame={() => navigate('/games')}
               onViewStats={() => navigate('/stats')}
-              onPromptDebugger={() => navigate('/prompt-debugger')}
-              onPromptPlayground={() => navigate('/prompt-playground')}
               onAdminDashboard={() => navigate('/admin')}
               savedGamesCount={savedGamesCount}
             />

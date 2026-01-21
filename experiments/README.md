@@ -150,6 +150,7 @@ Control which information is included in AI decision prompts:
 | `tilt_effects` | true | Tilt-based modifications |
 | `mind_games` | true | Mind games instruction |
 | `persona_response` | true | Persona response instruction |
+| `situational_guidance` | true | Coaching prompts (pot-committed, short-stack, made hand) |
 | `memory_keep_exchanges` | 0 | Conversation exchanges to retain |
 
 ---
@@ -248,6 +249,31 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
     {
       "label": "No Pot Odds",
       "prompt_config": {"pot_odds": false}
+    }
+  ]
+}
+```
+
+### Example: Situational Guidance Ablation
+
+Test the impact of coaching prompts (pot-committed, short-stack, made hand warnings):
+
+```json
+{
+  "name": "situational_guidance_impact",
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "With Coaching",
+    "prompt_config": {"situational_guidance": true}
+  },
+  "variants": [
+    {
+      "label": "No Coaching",
+      "prompt_config": {"situational_guidance": false}
     }
   ]
 }
