@@ -2,22 +2,8 @@
  * Live Monitoring View Styles
  *
  * Desktop-first, full-screen overlay for experiment monitoring.
+ * Uses design tokens from design-tokens.css for consistency with main game.
  */
-
-/* CSS Variables */
-:root {
-  --monitor-bg: #1a1a2e;
-  --monitor-header-bg: #16213e;
-  --monitor-card-bg: #0f3460;
-  --monitor-felt: #2d5016;
-  --monitor-border: #334155;
-  --monitor-text: #e2e8f0;
-  --monitor-text-secondary: #94a3b8;
-  --color-success: #22c55e;
-  --color-warning: #eab308;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
-}
 
 /* ========== Live Monitor Container ========== */
 
@@ -27,7 +13,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--monitor-bg);
+  background: var(--gradient-bg-main);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -42,21 +28,28 @@
   justify-content: center;
   height: 100%;
   gap: 16px;
-  color: var(--monitor-text);
+  color: var(--color-text-primary);
 }
 
 .live-monitor__error {
-  color: var(--color-error);
+  color: var(--color-ruby);
 }
 
 .live-monitor__error button {
   margin-top: 16px;
   padding: 8px 16px;
-  background: var(--color-info);
-  color: white;
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
+  font-weight: var(--font-weight-semibold);
+  transition: var(--transition-all-base);
+}
+
+.live-monitor__error button:hover {
+  box-shadow: var(--glow-gold);
+  transform: translateY(-2px);
 }
 
 /* ========== Header ========== */
@@ -66,8 +59,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 20px;
-  background: var(--monitor-header-bg);
-  border-bottom: 1px solid var(--monitor-border);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border-default);
   flex-shrink: 0;
 }
 
@@ -82,30 +75,32 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: transparent;
-  border: 1px solid var(--monitor-border);
-  border-radius: 6px;
-  color: var(--monitor-text);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all-base);
 }
 
 .live-monitor__back-btn:hover {
-  background: var(--monitor-card-bg);
-  border-color: var(--monitor-text-secondary);
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
 }
 
 .live-monitor__title {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--monitor-text);
+  color: var(--color-text-primary);
 }
 
 .live-monitor__title h1 {
   margin: 0;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-display);
 }
 
 .live-monitor__header-right {
@@ -125,15 +120,15 @@
 }
 
 .live-monitor__status--running {
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--color-success);
+  background: var(--color-emerald-muted);
+  color: var(--color-emerald);
 }
 
 .live-monitor__status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-success);
+  background: var(--color-emerald);
   animation: pulse 2s infinite;
 }
 
@@ -143,13 +138,13 @@
 }
 
 .live-monitor__status--completed {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--color-info);
+  background: var(--color-sapphire-muted);
+  color: var(--color-sapphire);
 }
 
 .live-monitor__status--failed {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--color-error);
+  background: var(--color-ruby-muted);
+  color: var(--color-ruby);
 }
 
 .live-monitor__refresh-btn {
@@ -157,16 +152,19 @@
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  background: transparent;
-  border: 1px solid var(--monitor-border);
-  border-radius: 6px;
-  color: var(--monitor-text-secondary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
   cursor: pointer;
   font-size: 12px;
+  transition: var(--transition-all-base);
 }
 
 .live-monitor__refresh-btn:hover {
-  background: var(--monitor-card-bg);
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
 }
 
 .live-monitor__refresh-interval {
@@ -175,15 +173,16 @@
 
 .live-monitor__last-update {
   font-size: 12px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
 }
 
 /* View Toggle */
 .live-monitor__view-toggle {
   display: flex;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
   padding: 2px;
+  border: 1px solid var(--color-border-default);
 }
 
 .live-monitor__view-btn {
@@ -193,25 +192,25 @@
   padding: 6px 10px;
   background: transparent;
   border: none;
-  border-radius: 4px;
-  color: var(--monitor-text-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all-base);
 }
 
 .live-monitor__view-btn:hover {
-  color: var(--monitor-text);
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface-hover);
 }
 
 .live-monitor__view-btn--active {
-  background: var(--color-info);
-  color: white;
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
 }
 
 .live-monitor__view-btn--active:hover {
-  background: var(--color-info);
-  color: white;
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
 }
 
 /* ========== Main Content ========== */
@@ -235,14 +234,15 @@
   justify-content: center;
   height: 100%;
   gap: 16px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-secondary);
   text-align: center;
 }
 
 .live-monitor__empty h2 {
   margin: 0;
   font-size: 20px;
-  color: var(--monitor-text);
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
 }
 
 .live-monitor__empty p {
@@ -262,33 +262,36 @@
 .game-monitor-grid__variant-label {
   margin: 0 0 12px;
   padding: 6px 12px;
-  background: var(--monitor-card-bg);
-  border-radius: 6px;
-  color: var(--monitor-text);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-gold-light);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   display: inline-block;
 }
 
 .game-monitor-grid__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(31%, 1fr));
+  gap: 20px;
 }
 
 /* ========== Game Monitor Card ========== */
 
 .game-monitor-card {
-  background: var(--monitor-card-bg);
-  border-radius: 12px;
-  border: 1px solid var(--monitor-border);
+  background: var(--gradient-card);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-default);
   overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: var(--transition-all-slow);
+  box-shadow: var(--shadow-card);
 }
 
 .game-monitor-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-color: var(--color-border-gold);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .game-monitor-card__header {
@@ -296,17 +299,17 @@
   justify-content: space-between;
   align-items: center;
   padding: 10px 14px;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid var(--monitor-border);
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .game-monitor-card__id {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .game-monitor-card__badges {
@@ -318,27 +321,27 @@
 .game-monitor-card__phase-badge,
 .game-monitor-card__hand-badge {
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .game-monitor-card__variant-badge {
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  background: var(--color-amethyst-muted);
+  color: var(--color-amethyst);
 }
 
 .game-monitor-card__phase-badge {
-  background: rgba(234, 179, 8, 0.2);
-  color: #fde047;
+  background: var(--color-gold-muted);
+  color: var(--color-gold-light);
 }
 
 .game-monitor-card__hand-badge {
   display: flex;
   align-items: center;
   gap: 3px;
-  background: rgba(148, 163, 184, 0.2);
-  color: var(--monitor-text-secondary);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
 }
 
 .game-monitor-card__table {
@@ -347,16 +350,17 @@
 
 .game-monitor-card__footer {
   padding: 10px 14px;
-  background: rgba(0, 0, 0, 0.2);
-  border-top: 1px solid var(--monitor-border);
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid var(--color-border-default);
 }
 
 .game-monitor-card__pot {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--color-success);
-  font-weight: 600;
+  color: var(--color-gold-light);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
 }
 
 /* ========== Monitoring Poker Table ========== */
@@ -364,7 +368,7 @@
 .monitoring-table {
   position: relative;
   width: 100%;
-  height: 220px;
+  height: 280px;
 }
 
 .monitoring-table__felt {
@@ -374,12 +378,13 @@
   transform: translate(-50%, -50%);
   width: 70%;
   height: 55%;
-  background: linear-gradient(145deg, #2d5016 0%, #1a3a0a 100%);
+  background: linear-gradient(145deg, #1a3a2a 0%, #0f2518 100%);
   border-radius: 60px;
-  border: 4px solid #3d6a1f;
+  border: 3px solid var(--color-emerald-dark);
   box-shadow:
-    inset 0 0 20px rgba(0, 0, 0, 0.3),
-    0 4px 12px rgba(0, 0, 0, 0.4);
+    inset 0 0 30px rgba(0, 0, 0, 0.5),
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(52, 211, 153, 0.1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -418,11 +423,13 @@
   opacity: 0.6;
   text-transform: uppercase;
   font-size: 9px;
+  letter-spacing: 0.5px;
 }
 
 .monitoring-table__pot-amount {
-  font-weight: 600;
-  color: var(--color-success);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold-light);
+  font-family: var(--font-mono);
 }
 
 .monitoring-table__players {
@@ -445,31 +452,34 @@
   align-items: center;
   gap: 4px;
   padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 8px;
-  border: 2px solid transparent;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--color-border-default);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all-base);
   min-width: 80px;
 }
 
 .monitoring-player:hover {
-  background: rgba(0, 0, 0, 0.8);
-  border-color: var(--color-info);
+  background: var(--color-bg-surface-active);
+  border-color: var(--color-gold);
   transform: scale(1.05);
+  box-shadow: var(--glow-gold);
 }
 
 .monitoring-player--current {
-  border-color: var(--color-success);
-  box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+  border-color: var(--color-gold);
+  box-shadow: var(--glow-gold);
 }
 
 .monitoring-player--folded {
   opacity: 0.5;
+  filter: grayscale(0.5);
 }
 
 .monitoring-player--all-in {
-  border-color: var(--color-error);
+  border-color: var(--color-amethyst);
+  box-shadow: var(--glow-amethyst);
 }
 
 .monitoring-player__info {
@@ -480,9 +490,9 @@
 }
 
 .monitoring-player__name {
-  color: white;
+  color: var(--color-text-primary);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   max-width: 70px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -490,9 +500,10 @@
 }
 
 .monitoring-player__stack {
-  color: var(--color-success);
+  color: var(--color-gold-light);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
 }
 
 .monitoring-player__cards {
@@ -514,39 +525,40 @@
 
 .monitoring-player__badge {
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 8px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .monitoring-player__badge--folded {
-  background: rgba(148, 163, 184, 0.3);
-  color: var(--monitor-text-secondary);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
 }
 
 .monitoring-player__badge--all-in {
-  background: rgba(239, 68, 68, 0.3);
-  color: var(--color-error);
+  background: var(--color-amethyst-muted);
+  color: var(--color-amethyst);
 }
 
 .monitoring-player__badge--current {
-  background: rgba(34, 197, 94, 0.3);
-  color: var(--color-success);
+  background: var(--color-gold-muted);
+  color: var(--color-gold-light);
 }
 
 .monitoring-player__badge--tilt {
-  background: rgba(255, 152, 0, 0.3);
-  color: #ff9800;
+  background: var(--color-amber-muted);
+  color: var(--color-amber);
 }
 
 .monitoring-player__bet {
-  background: var(--color-warning);
-  color: #1a1a2e;
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 9px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* ========== Player Drilldown Panel ========== */
@@ -557,13 +569,13 @@
   right: 0;
   bottom: 0;
   width: 400px;
-  background: var(--monitor-header-bg);
-  border-left: 1px solid var(--monitor-border);
+  background: var(--color-bg-elevated);
+  border-left: 1px solid var(--color-border-default);
   z-index: 1001;
   display: flex;
   flex-direction: column;
-  animation: slideIn 0.2s ease-out;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  animation: slideIn 0.25s var(--ease-out-expo);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.6);
 }
 
 @keyframes slideIn {
@@ -582,28 +594,31 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--monitor-border);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .player-drilldown__title {
   margin: 0;
   font-size: 20px;
-  color: var(--monitor-text);
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-semibold);
 }
 
 .player-drilldown__close {
   padding: 6px;
-  background: transparent;
-  border: none;
-  color: var(--monitor-text-secondary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
   cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.2s;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all-base);
 }
 
 .player-drilldown__close:hover {
-  background: var(--monitor-card-bg);
-  color: var(--monitor-text);
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
 }
 
 .player-drilldown__content {
@@ -620,22 +635,24 @@
   justify-content: center;
   height: 200px;
   gap: 12px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-secondary);
 }
 
 .player-drilldown__error {
-  color: var(--color-error);
+  color: var(--color-ruby);
 }
 
 .player-drilldown__stack {
   text-align: center;
   font-size: 18px;
-  font-weight: 600;
-  color: var(--color-success);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold-light);
   margin-bottom: 20px;
   padding: 10px;
-  background: rgba(34, 197, 94, 0.1);
-  border-radius: 8px;
+  background: var(--color-gold-muted);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-mono);
+  border: 1px solid var(--color-border-gold);
 }
 
 /* ========== Drilldown Sections ========== */
@@ -643,7 +660,7 @@
 .player-drilldown__section {
   margin-bottom: 20px;
   padding-bottom: 20px;
-  border-bottom: 1px solid var(--monitor-border);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .player-drilldown__section:last-child {
@@ -656,49 +673,50 @@
   gap: 8px;
   margin: 0 0 12px;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--monitor-text);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold-light);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--letter-spacing-wider);
 }
 
 .player-drilldown__narrative {
   margin: 0;
-  color: var(--monitor-text);
+  color: var(--color-text-primary);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: var(--line-height-relaxed);
 }
 
 .player-drilldown__empty {
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
 .player-drilldown__disabled {
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-secondary);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: var(--line-height-relaxed);
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border-default);
 }
 
 .player-drilldown__disabled code {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.4);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  color: var(--color-info);
+  color: var(--color-sapphire);
+  font-family: var(--font-mono);
 }
 
 .player-drilldown__inner-voice {
   margin: 12px 0 0;
   padding: 10px 14px;
-  background: rgba(0, 0, 0, 0.2);
-  border-left: 3px solid var(--color-info);
-  border-radius: 0 6px 6px 0;
-  color: var(--monitor-text-secondary);
+  background: var(--color-bg-surface);
+  border-left: 3px solid var(--color-gold);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  color: var(--color-text-secondary);
   font-style: italic;
   font-size: 13px;
 }
@@ -712,15 +730,16 @@
 
 .player-drilldown__tilt-bar {
   height: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-full);
   overflow: hidden;
+  border: 1px solid var(--color-border-default);
 }
 
 .player-drilldown__tilt-fill {
   height: 100%;
-  border-radius: 6px;
-  transition: width 0.3s, background-color 0.3s;
+  border-radius: var(--radius-full);
+  transition: width 0.3s var(--ease-out-expo), background-color 0.3s;
 }
 
 .player-drilldown__tilt-info {
@@ -731,17 +750,18 @@
 
 .player-drilldown__tilt-percentage {
   font-size: 18px;
-  font-weight: 600;
-  color: var(--monitor-text);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 .player-drilldown__tilt-category {
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-secondary);
   font-size: 14px;
 }
 
 .player-drilldown__tilt-source {
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
   font-size: 12px;
 }
 
@@ -754,8 +774,8 @@
 
 .player-drilldown__style-summary {
   font-size: 16px;
-  font-weight: 600;
-  color: var(--color-info);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold-light);
 }
 
 .player-drilldown__style-stats {
@@ -771,19 +791,21 @@
 
 .player-drilldown__style-label {
   font-size: 10px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
   text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
 }
 
 .player-drilldown__style-value {
   font-size: 16px;
-  font-weight: 600;
-  color: var(--monitor-text);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 .player-drilldown__hands-observed {
   font-size: 12px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
 }
 
 /* LLM Stats Section */
@@ -802,20 +824,21 @@
 
 .player-drilldown__llm-provider {
   padding: 3px 8px;
-  background: var(--color-info);
+  background: var(--gradient-sapphire);
   color: white;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .player-drilldown__llm-model-name {
-  color: var(--monitor-text);
-  font-weight: 500;
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
 }
 
 .player-drilldown__llm-reasoning {
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
@@ -829,18 +852,23 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding: 8px;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
 }
 
 .player-drilldown__llm-label {
   font-size: 10px;
-  color: var(--monitor-text-secondary);
+  color: var(--color-text-muted);
   text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
 }
 
 .player-drilldown__llm-value {
   font-size: 14px;
-  font-weight: 500;
-  color: var(--monitor-text);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 /* Recent Decisions Table */
@@ -854,22 +882,23 @@
 .player-drilldown__decisions-table td {
   padding: 8px 6px;
   text-align: left;
-  border-bottom: 1px solid var(--monitor-border);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .player-drilldown__decisions-table th {
-  color: var(--monitor-text-secondary);
-  font-weight: 500;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
   font-size: 10px;
   text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
 }
 
 .player-drilldown__decisions-table td {
-  color: var(--monitor-text);
+  color: var(--color-text-primary);
 }
 
 .player-drilldown__quality-badge {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 /* Animation class for spinning icons - uses shared adminSpin from AdminShared.css */
@@ -886,9 +915,10 @@
 .game-monitor-table__table {
   width: 100%;
   border-collapse: collapse;
-  background: var(--monitor-card-bg);
-  border-radius: 8px;
+  background: var(--gradient-card);
+  border-radius: var(--radius-xl);
   overflow: hidden;
+  border: 1px solid var(--color-border-default);
 }
 
 .game-monitor-table__table thead {
@@ -899,17 +929,17 @@
   padding: 12px 16px;
   text-align: left;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--monitor-text-secondary);
-  border-bottom: 1px solid var(--monitor-border);
+  letter-spacing: var(--letter-spacing-wider);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-default);
 }
 
 .game-monitor-table__table td {
   padding: 12px 16px;
-  border-bottom: 1px solid var(--monitor-border);
-  color: var(--monitor-text);
+  border-bottom: 1px solid var(--color-border-default);
+  color: var(--color-text-primary);
   vertical-align: middle;
 }
 
@@ -918,39 +948,41 @@
 }
 
 .game-monitor-table__row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-surface-hover);
 }
 
 .game-monitor-table__variant {
   display: inline-block;
   padding: 4px 10px;
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
-  border-radius: 4px;
+  background: var(--color-amethyst-muted);
+  color: var(--color-amethyst);
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .game-monitor-table__hand {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-size: 14px;
+  font-family: var(--font-mono);
 }
 
 .game-monitor-table__phase {
   display: inline-block;
   padding: 4px 10px;
-  background: rgba(234, 179, 8, 0.2);
-  color: #fde047;
-  border-radius: 4px;
+  background: var(--color-gold-muted);
+  color: var(--color-gold-light);
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   text-transform: uppercase;
 }
 
 .game-monitor-table__pot {
-  color: var(--color-success);
-  font-weight: 600;
+  color: var(--color-gold-light);
+  font-weight: var(--font-weight-semibold);
   font-size: 14px;
+  font-family: var(--font-mono);
 }
 
 .game-monitor-table__players {
@@ -965,56 +997,63 @@
   align-items: center;
   gap: 2px;
   padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--monitor-border);
-  border-radius: 6px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: var(--transition-all-base);
   min-width: 80px;
 }
 
 .game-monitor-table__player:hover {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: var(--color-info);
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-gold);
   transform: translateY(-1px);
+  box-shadow: var(--glow-gold);
 }
 
 .game-monitor-table__player--current {
-  border-color: var(--color-success);
-  background: rgba(34, 197, 94, 0.15);
+  border-color: var(--color-gold);
+  background: var(--color-gold-muted);
 }
 
 .game-monitor-table__player--folded {
   opacity: 0.4;
+  filter: grayscale(0.5);
 }
 
 .game-monitor-table__player--all-in {
-  border-color: var(--color-error);
-  background: rgba(239, 68, 68, 0.15);
+  border-color: var(--color-amethyst);
+  background: var(--color-amethyst-muted);
 }
 
 .game-monitor-table__player-name {
   font-size: 11px;
-  font-weight: 500;
-  color: var(--monitor-text);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
 }
 
 .game-monitor-table__player-stack {
   font-size: 10px;
-  color: var(--color-success);
-  font-weight: 500;
+  color: var(--color-gold-light);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
 }
 
 /* Responsive adjustments */
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .game-monitor-grid__cards {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(46%, 1fr));
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .game-monitor-grid__cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: 100%;
+  }
+
+  .monitoring-table {
+    height: 240px;
   }
 
   .game-monitor-table__table th,
