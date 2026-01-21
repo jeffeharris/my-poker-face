@@ -9,6 +9,8 @@ from .admin_dashboard_routes import admin_dashboard_bp
 from .prompt_debug_routes import prompt_debug_bp
 from .experiment_routes import experiment_bp
 from .prompt_preset_routes import prompt_preset_bp
+from .capture_label_routes import capture_label_bp
+from .replay_experiment_routes import replay_experiment_bp
 
 __all__ = [
     'game_bp',
@@ -20,5 +22,7 @@ __all__ = [
     'prompt_debug_bp',
     'experiment_bp',
     'prompt_preset_bp',
+    'capture_label_bp',
+    'replay_experiment_bp',
     'register_socket_events',
 ]

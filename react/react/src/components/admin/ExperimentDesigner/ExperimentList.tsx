@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Loader2, Archive, Plus } from 'lucide-react';
-import type { ExperimentSummary } from './types';
+import { RefreshCw, Loader2, Archive, Plus, Beaker, Repeat2 } from 'lucide-react';
+import type { ExperimentSummary, ExperimentType } from './types';
 import { config } from '../../../config';
 import { formatDate } from '../../../utils/formatters';
 import { STATUS_CONFIG_SMALL as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
@@ -18,34 +18,89 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ExperimentStatus | 'all'>('all');
+  const [typeFilter, setTypeFilter] = useState<ExperimentType | 'all'>('all');
   const [includeArchived, setIncludeArchived] = useState(false);
 
   const fetchExperiments = useCallback(async () => {
     try {
-      const params = new URLSearchParams();
+      // Build params for tournaments
+      const tournamentParams = new URLSearchParams();
       if (statusFilter !== 'all') {
-        params.append('status', statusFilter);
+        tournamentParams.append('status', statusFilter);
       }
       if (includeArchived) {
-        params.append('include_archived', 'true');
+        tournamentParams.append('include_archived', 'true');
       }
 
-      const response = await fetch(`${config.API_URL}/api/experiments?${params}`);
-      const data = await response.json();
+      // Fetch both tournament and replay experiments in parallel
+      const [tournamentResponse, replayResponse] = await Promise.all([
+        typeFilter !== 'replay' ? fetch(`${config.API_URL}/api/experiments?${tournamentParams}`) : null,
+        typeFilter !== 'tournament' ? fetch(`${config.API_URL}/api/replay-experiments?${tournamentParams}`) : null,
+      ]);
 
-      if (data.success) {
-        setExperiments(data.experiments);
-        setError(null);
-      } else {
-        setError(data.error || 'Failed to load experiments');
+      const allExperiments: ExperimentSummary[] = [];
+
+      // Process tournament experiments
+      if (tournamentResponse) {
+        const tournamentData = await tournamentResponse.json();
+        if (tournamentData.success && tournamentData.experiments) {
+          const tournaments = tournamentData.experiments.map((exp: ExperimentSummary) => ({
+            ...exp,
+            experiment_type: 'tournament' as ExperimentType,
+          }));
+          allExperiments.push(...tournaments);
+        }
       }
+
+      // Process replay experiments
+      if (replayResponse) {
+        const replayData = await replayResponse.json();
+        if (replayData.success && replayData.experiments) {
+          // Map replay experiment fields to our ExperimentSummary format
+          const replays = replayData.experiments.map((exp: {
+            id: number;
+            name: string;
+            description?: string;
+            hypothesis?: string;
+            status: string;
+            created_at: string;
+            completed_at?: string;
+            capture_count?: number;
+            variant_count?: number;
+          }) => ({
+            id: exp.id,
+            name: exp.name,
+            description: exp.description || '',
+            hypothesis: exp.hypothesis || '',
+            tags: [],
+            status: exp.status as ExperimentStatus,
+            created_at: exp.created_at,
+            completed_at: exp.completed_at || null,
+            games_count: exp.capture_count || 0,
+            num_tournaments: exp.variant_count || 0,
+            model: null,
+            provider: null,
+            summary: null,
+            experiment_type: 'replay' as ExperimentType,
+          }));
+          allExperiments.push(...replays);
+        }
+      }
+
+      // Sort by created_at descending
+      allExperiments.sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      setExperiments(allExperiments);
+      setError(null);
     } catch (err) {
       console.error('Failed to fetch experiments:', err);
       setError('Failed to connect to server');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, includeArchived]);
+  }, [statusFilter, typeFilter, includeArchived]);
 
   // Initial load
   useEffect(() => {
@@ -109,6 +164,16 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
     <div className="experiment-list">
       {/* Filter Bar */}
       <div className="experiment-list__filters">
+        <select
+          className="experiment-list__filter-select"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as ExperimentType | 'all')}
+        >
+          <option value="all">All Types</option>
+          <option value="tournament">Tournaments</option>
+          <option value="replay">Replays</option>
+        </select>
+
         <select
           className="experiment-list__filter-select"
           value={statusFilter}
@@ -175,6 +240,7 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Type</th>
                 <th>Status</th>
                 <th>Progress</th>
                 <th>Model</th>
@@ -185,9 +251,10 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
             <tbody>
               {experiments.map((experiment) => {
                 const statusConfig = STATUS_CONFIG[experiment.status];
+                const isReplay = experiment.experiment_type === 'replay';
                 return (
                   <tr
-                    key={experiment.id}
+                    key={`${experiment.experiment_type}-${experiment.id}`}
                     className="experiment-list__row"
                     onClick={() => onViewExperiment(experiment)}
                   >
@@ -196,6 +263,12 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
                       {experiment.description && (
                         <span className="experiment-list__description">{experiment.description}</span>
                       )}
+                    </td>
+                    <td>
+                      <span className={`experiment-list__type-badge experiment-list__type-badge--${experiment.experiment_type || 'tournament'}`}>
+                        {isReplay ? <Repeat2 size={12} /> : <Beaker size={12} />}
+                        {isReplay ? 'Replay' : 'Tournament'}
+                      </span>
                     </td>
                     <td>
                       <span className={`status-badge ${statusConfig.className}`}>
@@ -213,15 +286,19 @@ export function ExperimentList({ onViewExperiment, onNewExperiment }: Experiment
                             />
                           </div>
                           <span className="experiment-list__progress-text">
-                            {getProgress(experiment)}
+                            {isReplay ? `${experiment.games_count} captures` : getProgress(experiment)}
                           </span>
                         </div>
                       ) : (
-                        getProgress(experiment)
+                        isReplay
+                          ? `${experiment.games_count} captures x ${experiment.num_tournaments} variants`
+                          : getProgress(experiment)
                       )}
                     </td>
                     <td className="experiment-list__model">
-                      {experiment.provider && experiment.model ? (
+                      {isReplay ? (
+                        <span className="experiment-list__model--default">varied</span>
+                      ) : experiment.provider && experiment.model ? (
                         <span>{experiment.provider}/{experiment.model}</span>
                       ) : (
                         <span className="experiment-list__model--default">default</span>

@@ -3,11 +3,15 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, History, Sparkles } from 'lucide-react';
 import type { InitialMessage } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
+import { ReplayConfigPreview } from './ReplayConfigPreview';
 import { ExperimentList } from './ExperimentList';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
-import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion } from './types';
-import { DEFAULT_EXPERIMENT_CONFIG } from './types';
+import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion, ExperimentType, ReplayExperimentConfig } from './types';
+import { DEFAULT_EXPERIMENT_CONFIG, DEFAULT_REPLAY_CONFIG } from './types';
+
+/** Extended experiment type with 'undetermined' for initial state */
+type ExperimentTypeState = ExperimentType | 'undetermined';
 import { config as appConfig } from '../../../config';
 import { generateSeed } from './seedWords';
 
@@ -61,6 +65,10 @@ export interface AssistantPanelProps {
   onConfigVersionsChange: (versions: ConfigVersion[]) => void;
   currentVersionIndex: number;
   onCurrentVersionIndexChange: (index: number) => void;
+  /** Current experiment type (tournament, replay, or undetermined) */
+  experimentType?: ExperimentType | 'undetermined';
+  /** Callback when experiment type changes */
+  onExperimentTypeChange?: (type: ExperimentType | 'undetermined') => void;
 }
 
 interface ExperimentDesignerProps {
@@ -91,6 +99,12 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
   const [initialChatHistory, setInitialChatHistory] = useState<ChatMessage[] | undefined>(undefined);
+
+  // Experiment type state - starts as undetermined until user selects via quick action or conversation
+  const [experimentType, setExperimentType] = useState<ExperimentTypeState>('undetermined');
+
+  // Replay config state (separate from tournament config)
+  const [replayConfig, setReplayConfig] = useState<ReplayExperimentConfig>({ ...DEFAULT_REPLAY_CONFIG });
 
   // Session resume state
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
@@ -125,11 +139,13 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
         onConfigVersionsChange: setConfigVersions,
         currentVersionIndex,
         onCurrentVersionIndexChange: setCurrentVersionIndex,
+        experimentType,
+        onExperimentTypeChange: setExperimentType,
       });
     } else {
       onAssistantPanelChange(null);
     }
-  }, [mode, isMobile, config, sessionId, initialMessage, initialChatHistory, configVersions, currentVersionIndex, onAssistantPanelChange]);
+  }, [mode, isMobile, config, sessionId, initialMessage, initialChatHistory, configVersions, currentVersionIndex, onAssistantPanelChange, experimentType]);
 
   // Handle navigation state from experiment detail (edit/build actions)
   useEffect(() => {
@@ -215,6 +231,10 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     setConfig(prev => ({ ...prev, ...updates }));
   }, []);
 
+  const handleReplayConfigUpdate = useCallback((updates: Partial<ReplayExperimentConfig>) => {
+    setReplayConfig(prev => ({ ...prev, ...updates }));
+  }, []);
+
   const handleNewExperiment = useCallback(() => {
     console.log('[ExperimentDesigner] handleNewExperiment called, pendingSession:', pendingSession);
     // Check if there's a pending session to resume
@@ -226,11 +246,13 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     // No pending session, start fresh with new seed
     console.log('[ExperimentDesigner] No pending session, starting fresh');
     setConfig(createFreshConfig());
+    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG });  // Reset replay config
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
     setCurrentVersionIndex(0);
     setInitialChatHistory(undefined);
+    setExperimentType('undetermined');  // Reset experiment type
     setMode('design');
   }, [pendingSession]);
 
@@ -265,6 +287,7 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
 
     // Start fresh with new seed
     setConfig(createFreshConfig());
+    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG });  // Reset replay config
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -272,11 +295,17 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     setInitialChatHistory(undefined);
     setShowResumePrompt(false);
     setPendingSession(null);
+    setExperimentType('undetermined');  // Reset experiment type
     setMode('design');
   }, [pendingSession]);
 
   const handleViewExperiment = useCallback((experiment: ExperimentSummary) => {
-    navigate(`/admin/experiments/${experiment.id}`);
+    // Route to the correct detail page based on experiment type
+    if (experiment.experiment_type === 'replay') {
+      navigate(`/admin/replays/${experiment.id}`);
+    } else {
+      navigate(`/admin/experiments/${experiment.id}`);
+    }
   }, [navigate]);
 
   const handleBackToList = useCallback(() => {
@@ -286,10 +315,12 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   const handleExperimentLaunched = useCallback(() => {
     setMode('list');
     setConfig(createFreshConfig());
+    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG });  // Reset replay config
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
     setCurrentVersionIndex(0);
+    setExperimentType('undetermined');  // Reset experiment type
   }, []);
 
 
@@ -348,7 +379,15 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
 
       {/* Mode Content */}
       <div className="experiment-designer__content">
-        {mode === 'design' && (
+        {mode === 'design' && experimentType === 'replay' && (
+          <ReplayConfigPreview
+            config={replayConfig}
+            onConfigUpdate={handleReplayConfigUpdate}
+            onLaunch={handleExperimentLaunched}
+            sessionId={sessionId}
+          />
+        )}
+        {mode === 'design' && experimentType !== 'replay' && (
           <ConfigPreview
             config={config}
             onConfigUpdate={handleConfigUpdate}

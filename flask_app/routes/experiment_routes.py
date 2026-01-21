@@ -766,12 +766,17 @@ The tool accepts an optional `filter_play_style` parameter for keyword filtering
 
 # Quick prompts for common scenarios
 QUICK_PROMPTS = {
+    # Tournament prompts
     'compare_models': 'I want to compare GPT vs Claude decision quality in poker',
     'test_personalities': 'Help me test which AI personalities perform best',
     'test_prompts': 'I want to A/B test enabling/disabling specific prompt components',
     'minimal_prompts': 'Compare minimal prompts (all disabled) vs full prompts',
     'baseline': 'Set up a baseline measurement with default settings',
     'quick_test': 'Create a minimal 1-tournament quick test for sanity checking',
+    # Replay prompts
+    'replay_model_comparison': 'I want to see how different models would handle the same poker decisions',
+    'replay_prompt_variants': 'I want to test different prompt configurations on captured decisions',
+    'replay_guidance_injection': 'I want to see how adding guidance affects AI decisions on past captures',
 }
 
 
@@ -857,6 +862,9 @@ def chat_experiment_design():
         if not message:
             return jsonify({'error': 'Message is required'}), 400
 
+        # Get experiment type from request (may be set via quick action buttons)
+        experiment_type = data.get('experiment_type', 'undetermined')
+
         # Create or retrieve session
         if not session_id:
             session_id = str(uuid.uuid4())
@@ -865,6 +873,7 @@ def chat_experiment_design():
                 'last_config': {},
                 'config_versions': [],
                 'failure_context': failure_context,
+                'experiment_type': experiment_type,
             }
         elif session_id not in _chat_sessions:
             # Session exists but not in memory - try to restore from database
@@ -883,6 +892,7 @@ def chat_experiment_design():
                     'last_config': db_session.get('config', {}),
                     'config_versions': db_session.get('config_versions') or [],
                     'failure_context': failure_context,
+                    'experiment_type': db_session.get('experiment_type', 'undetermined'),
                 }
                 logger.info(f"Restored chat session {session_id} from database")
             else:
@@ -892,6 +902,7 @@ def chat_experiment_design():
                     'last_config': {},
                     'config_versions': [],
                     'failure_context': failure_context,
+                    'experiment_type': experiment_type,
                 }
 
         # Get session data (handle legacy format)
@@ -1043,11 +1054,15 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
                 'message_index': len(history),
             })
 
+        # Get current experiment type from session
+        current_experiment_type = session_data.get('experiment_type', 'undetermined')
+
         _chat_sessions[session_id] = {
             'history': history,
             'last_config': merged_config,  # Store the merged config for next diff
             'config_versions': config_versions,
             'failure_context': session_data.get('failure_context'),
+            'experiment_type': current_experiment_type,
         }
 
         # Persist session to database for resume functionality
@@ -1085,6 +1100,7 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
             'config_complete': is_config_complete(merged_config),
             'config_versions': config_versions,
             'current_version_index': len(config_versions) - 1 if config_versions else 0,
+            'experiment_type': current_experiment_type,
         })
 
     except Exception as e:
@@ -1146,6 +1162,52 @@ def archive_chat_session():
 
     except Exception as e:
         logger.error(f"Error archiving chat session: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/chat/set-type', methods=['POST'])
+def set_experiment_type():
+    """Set the experiment type for a chat session.
+
+    Called when the user selects an experiment type (tournament or replay)
+    via quick action buttons or conversational detection.
+
+    Request body:
+        {
+            "session_id": "uuid",
+            "experiment_type": "tournament" | "replay"
+        }
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        experiment_type = data.get('experiment_type')
+
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+
+        if experiment_type not in ('tournament', 'replay', 'undetermined'):
+            return jsonify({'error': 'experiment_type must be "tournament", "replay", or "undetermined"'}), 400
+
+        # Create or update session with experiment type
+        if session_id not in _chat_sessions:
+            _chat_sessions[session_id] = {
+                'history': [],
+                'last_config': {},
+                'config_versions': [],
+                'failure_context': None,
+                'experiment_type': experiment_type,
+            }
+        else:
+            _chat_sessions[session_id]['experiment_type'] = experiment_type
+
+        return jsonify({
+            'success': True,
+            'experiment_type': experiment_type,
+        })
+
+    except Exception as e:
+        logger.error(f"Error setting experiment type: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1714,17 +1776,42 @@ def get_experiment_games(experiment_id: int):
 
 @experiment_bp.route('/api/experiments/quick-prompts', methods=['GET'])
 def get_quick_prompts():
-    """Get quick prompt suggestions for common experiment scenarios."""
+    """Get quick prompt suggestions for common experiment scenarios.
+
+    Query params:
+        type: Optional filter by experiment type ('tournament', 'replay', or None for all)
+    """
+    experiment_type = request.args.get('type')
+
+    # Tournament prompts
+    tournament_prompts = [
+        {'id': 'compare_models', 'label': 'Compare Models', 'prompt': QUICK_PROMPTS['compare_models'], 'type': 'tournament'},
+        {'id': 'test_personalities', 'label': 'Test Personalities', 'prompt': QUICK_PROMPTS['test_personalities'], 'type': 'tournament'},
+        {'id': 'test_prompts', 'label': 'Test Prompt Components', 'prompt': QUICK_PROMPTS['test_prompts'], 'type': 'tournament'},
+        {'id': 'minimal_prompts', 'label': 'Minimal vs Full Prompts', 'prompt': QUICK_PROMPTS['minimal_prompts'], 'type': 'tournament'},
+        {'id': 'baseline', 'label': 'Baseline Measurement', 'prompt': QUICK_PROMPTS['baseline'], 'type': 'tournament'},
+        {'id': 'quick_test', 'label': 'Quick Test', 'prompt': QUICK_PROMPTS['quick_test'], 'type': 'tournament'},
+    ]
+
+    # Replay prompts
+    replay_prompts = [
+        {'id': 'replay_model_comparison', 'label': 'Compare Models on Decisions', 'prompt': QUICK_PROMPTS['replay_model_comparison'], 'type': 'replay'},
+        {'id': 'replay_prompt_variants', 'label': 'Test Prompt Variants', 'prompt': QUICK_PROMPTS['replay_prompt_variants'], 'type': 'replay'},
+        {'id': 'replay_guidance_injection', 'label': 'Test Guidance Injection', 'prompt': QUICK_PROMPTS['replay_guidance_injection'], 'type': 'replay'},
+    ]
+
+    # Filter by type if specified
+    if experiment_type == 'tournament':
+        prompts = tournament_prompts
+    elif experiment_type == 'replay':
+        prompts = replay_prompts
+    else:
+        # Return all prompts when no type filter (for initial type selection)
+        prompts = tournament_prompts + replay_prompts
+
     return jsonify({
         'success': True,
-        'prompts': [
-            {'id': 'compare_models', 'label': 'Compare Models', 'prompt': QUICK_PROMPTS['compare_models']},
-            {'id': 'test_personalities', 'label': 'Test Personalities', 'prompt': QUICK_PROMPTS['test_personalities']},
-            {'id': 'test_prompts', 'label': 'Test Prompt Components', 'prompt': QUICK_PROMPTS['test_prompts']},
-            {'id': 'minimal_prompts', 'label': 'Minimal vs Full Prompts', 'prompt': QUICK_PROMPTS['minimal_prompts']},
-            {'id': 'baseline', 'label': 'Baseline Measurement', 'prompt': QUICK_PROMPTS['baseline']},
-            {'id': 'quick_test', 'label': 'Quick Test', 'prompt': QUICK_PROMPTS['quick_test']},
-        ],
+        'prompts': prompts,
     })
 
 

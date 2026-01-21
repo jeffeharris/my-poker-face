@@ -105,6 +105,8 @@ export interface ExperimentConfig {
   parent_experiment_id?: number;
 }
 
+export type ExperimentType = 'tournament' | 'replay';
+
 export interface ExperimentSummary {
   id: number;
   name: string;
@@ -119,6 +121,8 @@ export interface ExperimentSummary {
   model: string | null;
   provider: string | null;
   summary: ExperimentResultSummary | null;
+  /** Type of experiment: 'tournament' or 'replay' */
+  experiment_type?: ExperimentType;
 }
 
 /**
@@ -391,4 +395,68 @@ export const DEFAULT_PROMPT_CONFIG: PromptConfig = {
   mind_games: true,
   persona_response: true,
   memory_keep_exchanges: 0,
+};
+
+/**
+ * Capture selection modes for replay experiments.
+ */
+export type CaptureSelectionMode = 'ids' | 'labels' | 'filters';
+
+/**
+ * Filters for selecting captures.
+ */
+export interface CaptureFilters {
+  phase?: string;
+  action?: string;
+  min_pot_odds?: number;
+  max_pot_odds?: number;
+}
+
+/**
+ * Capture selection configuration.
+ */
+export interface CaptureSelection {
+  mode: CaptureSelectionMode;
+  ids?: number[];
+  labels?: string[];
+  match_all?: boolean;
+  filters?: CaptureFilters;
+}
+
+/**
+ * Variant configuration for replay experiments.
+ */
+export interface ReplayVariantConfig {
+  label: string;
+  model?: string;
+  provider?: string;
+  prompt_preset_id?: number;
+  prompt_config?: Partial<PromptConfig>;
+  guidance_injection?: string;
+}
+
+/**
+ * Configuration for a replay experiment.
+ */
+export interface ReplayExperimentConfig {
+  name: string;
+  description: string;
+  hypothesis: string;
+  tags: string[];
+  capture_selection: CaptureSelection;
+  variants: ReplayVariantConfig[];
+}
+
+export const DEFAULT_REPLAY_CONFIG: ReplayExperimentConfig = {
+  name: '',
+  description: '',
+  hypothesis: '',
+  tags: [],
+  capture_selection: {
+    mode: 'filters',
+    filters: {},
+  },
+  variants: [
+    { label: 'Control' },
+  ],
 };
