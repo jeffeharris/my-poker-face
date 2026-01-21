@@ -1728,7 +1728,7 @@ Example hypotheses:
 - "Disabling strategic_reflection speeds up decisions without hurting quality" → A/B test prompt_config
 
 Be extremely concise. Don't repeat information across sections.
-Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array of {hypothesis, description})"""
+Respond in JSON format with keys: summary, verdict, surprises (array, can be empty), next_steps (array of {{hypothesis, description}})"""
 
             # Build results context
             results_context = {
