@@ -482,6 +482,21 @@
   box-shadow: var(--glow-amethyst);
 }
 
+.monitoring-player--eliminated {
+  opacity: 0.35;
+  filter: grayscale(0.8);
+  border-style: dashed;
+  border-color: var(--color-border-default);
+  background: var(--color-bg-surface);
+}
+
+.monitoring-player--eliminated:hover {
+  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
+  border-color: var(--color-border-hover);
+}
+
 .monitoring-player__info {
   display: flex;
   flex-direction: column;
@@ -550,6 +565,12 @@
 .monitoring-player__badge--tilt {
   background: var(--color-amber-muted);
   color: var(--color-amber);
+}
+
+.monitoring-player__badge--eliminated {
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border-default);
 }
 
 .monitoring-player__bet {

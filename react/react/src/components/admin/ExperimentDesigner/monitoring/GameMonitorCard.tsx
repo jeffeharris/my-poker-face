@@ -51,6 +51,7 @@ export function GameMonitorCard({ game, onPlayerClick }: GameMonitorCardProps) {
           players={game.players}
           communityCards={game.community_cards}
           pot={game.pot}
+          totalSeats={game.total_seats}
           onPlayerClick={handlePlayerClick}
         />
       </div>
