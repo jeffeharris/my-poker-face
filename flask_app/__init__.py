@@ -30,11 +30,12 @@ def recover_interrupted_experiments():
 
     Called on startup to detect orphaned 'running' experiments and mark them
     as 'interrupted' so users can manually resume them.
-
-    NOTE: Temporarily disabled during repository rollback.
     """
-    # TODO: Re-enable after fixing experiment repository dependencies
-    pass
+    try:
+        from .routes.experiment_routes import detect_orphaned_experiments
+        detect_orphaned_experiments()
+    except Exception as e:
+        logger.error(f"Error recovering interrupted experiments on startup: {e}")
 
 
 def create_app():

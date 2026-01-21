@@ -16,7 +16,7 @@ from poker.prompt_config import PromptConfig
 from ..extensions import persistence, limiter
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +24,15 @@ experiment_bp = Blueprint('experiments', __name__)
 
 # Store active experiment threads for status checking
 _active_experiments: Dict[int, threading.Thread] = {}
+_active_experiments_lock = threading.Lock()
 
 
 def detect_orphaned_experiments():
     """Mark experiments stuck in 'running' as 'interrupted' on startup.
 
-    This is called on module import to handle experiments that were running
-    when the server was stopped/restarted. Uses the persistence layer's
-    mark_running_experiments_interrupted() method which sets the status and
-    adds a helpful message for users.
+    Called by flask_app/__init__.py during app creation (not at module import).
+    Uses the persistence layer's mark_running_experiments_interrupted() method
+    which sets the status and adds a helpful message for users.
     """
     try:
         count = persistence.mark_running_experiments_interrupted()
@@ -40,10 +40,6 @@ def detect_orphaned_experiments():
             logger.info(f"Marked {count} orphaned experiment(s) as interrupted on startup")
     except Exception as e:
         logger.error(f"Error detecting orphaned experiments: {e}")
-
-
-# Detect orphaned experiments on module load
-detect_orphaned_experiments()
 
 
 def _complete_experiment_with_summary(experiment_id: int) -> None:
@@ -427,13 +423,33 @@ def _execute_sql_query(sql: str) -> str:
         if re.search(rf'\b{kw}\b', normalized):
             return json.dumps({"error": f"Query contains forbidden keyword: {kw}"})
 
+    # Validate: only allowed tables can be queried (for SELECT queries)
+    if is_select:
+        # Extract table names from FROM and JOIN clauses
+        # Matches: FROM table, JOIN table, LEFT JOIN table, etc.
+        table_pattern = r'\bFROM\s+(\w+)|\bJOIN\s+(\w+)'
+        matches = re.findall(table_pattern, normalized)
+        # Flatten matches (each match is a tuple with one empty string)
+        tables = {t.lower() for match in matches for t in match if t}
+
+        # Check against whitelist (case-insensitive)
+        allowed_lower = {t.lower() for t in ALLOWED_SQL_TABLES}
+        disallowed = tables - allowed_lower
+        if disallowed:
+            return json.dumps({"error": f"Tables not allowed: {', '.join(sorted(disallowed))}. Allowed: {', '.join(sorted(ALLOWED_SQL_TABLES))}"})
+
     # Execute with row limit for SELECT queries
     try:
         with sqlite3.connect(persistence.db_path) as conn:
             conn.row_factory = sqlite3.Row
             # Add LIMIT if SELECT and not present
             if is_select and 'LIMIT' not in normalized:
-                sql = sql.rstrip(';').strip() + " LIMIT 100"
+                # Strip comments before adding LIMIT to prevent bypass
+                # Handles both -- comments and /* */ comments
+                sql_clean = re.sub(r'--.*$', '', sql, flags=re.MULTILINE)
+                sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+                sql_clean = sql_clean.rstrip('; \t\n')
+                sql = sql_clean + " LIMIT 100"
             cursor = conn.execute(sql)
             rows = [dict(row) for row in cursor.fetchall()]
 
@@ -1756,6 +1772,22 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
 
 # In-memory storage for experiment assistant sessions
 _experiment_assistant_sessions: Dict[str, dict] = {}
+_experiment_assistant_last_access: Dict[str, datetime] = {}
+SESSION_TTL_HOURS = 24
+
+
+def _cleanup_stale_sessions():
+    """Remove assistant sessions not accessed within SESSION_TTL_HOURS.
+
+    Called lazily at the start of session access to prevent unbounded memory growth.
+    """
+    cutoff = datetime.now() - timedelta(hours=SESSION_TTL_HOURS)
+    stale_keys = [k for k, t in _experiment_assistant_last_access.items() if t < cutoff]
+    for key in stale_keys:
+        _experiment_assistant_sessions.pop(key, None)
+        _experiment_assistant_last_access.pop(key, None)
+    if stale_keys:
+        logger.info(f"Cleaned up {len(stale_keys)} stale experiment assistant session(s)")
 
 
 @experiment_bp.route('/api/experiments/<int:experiment_id>/chat', methods=['POST'])
@@ -1765,6 +1797,9 @@ def experiment_assistant_chat(experiment_id: int):
     The assistant knows the design history, configuration, and results.
     """
     try:
+        # Lazy cleanup of stale sessions to prevent memory leaks
+        _cleanup_stale_sessions()
+
         data = request.get_json()
         message = data.get('message', '').strip()
 
@@ -1782,6 +1817,9 @@ def experiment_assistant_chat(experiment_id: int):
             _experiment_assistant_sessions[session_key] = {
                 'history': [],
             }
+
+        # Track last access time for cleanup
+        _experiment_assistant_last_access[session_key] = datetime.now()
 
         session_data = _experiment_assistant_sessions[session_key]
         history = session_data['history']
@@ -1859,8 +1897,8 @@ def clear_experiment_chat_history(experiment_id: int):
     try:
         # Clear from memory
         session_key = f"exp_assistant_{experiment_id}"
-        if session_key in _experiment_assistant_sessions:
-            del _experiment_assistant_sessions[session_key]
+        _experiment_assistant_sessions.pop(session_key, None)
+        _experiment_assistant_last_access.pop(session_key, None)
 
         # Clear from database
         persistence.save_experiment_assistant_chat(experiment_id, [])
@@ -2075,16 +2113,17 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             logger.info(f"Experiment {experiment_id} completed with no results, generating summary from DB")
             _complete_experiment_with_summary(experiment_id)
 
+    except TournamentPausedException as e:
+        # Explicitly handle pause exception (expected behavior, not an error)
+        logger.info(f"Experiment {experiment_id} paused: {e}")
+        persistence.update_experiment_status(experiment_id, 'paused')
     except Exception as e:
         logger.error(f"Experiment {experiment_id} failed: {e}")
-        # Check if this was due to pause
-        if pause_coordinator.should_pause(experiment_id):
-            persistence.update_experiment_status(experiment_id, 'paused')
-        else:
-            persistence.update_experiment_status(experiment_id, 'failed', str(e))
+        persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
-        # Clean up thread reference (use pop to avoid race condition)
-        _active_experiments.pop(experiment_id, None)
+        # Clean up thread reference with lock for thread safety
+        with _active_experiments_lock:
+            _active_experiments.pop(experiment_id, None)
 
 
 @experiment_bp.route('/api/experiments', methods=['POST'])
@@ -2130,8 +2169,9 @@ def create_experiment():
             args=(experiment_id, config_data),
             daemon=True
         )
-        _active_experiments[experiment_id] = thread
-        thread.start()
+        with _active_experiments_lock:
+            _active_experiments[experiment_id] = thread
+            thread.start()
 
         return jsonify({
             'success': True,
@@ -2440,8 +2480,9 @@ def resume_experiment(experiment_id: int):
             args=(experiment_id, incomplete, config_dict),
             daemon=True
         )
-        _active_experiments[experiment_id] = thread
-        thread.start()
+        with _active_experiments_lock:
+            _active_experiments[experiment_id] = thread
+            thread.start()
 
         logger.info(f"Resuming experiment {experiment_id} with {len(incomplete)} incomplete tournaments")
 
@@ -2731,4 +2772,5 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
         else:
             persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
-        _active_experiments.pop(experiment_id, None)
+        with _active_experiments_lock:
+            _active_experiments.pop(experiment_id, None)
