@@ -22,18 +22,20 @@ class TestPromptConfig(unittest.TestCase):
         self.assertTrue(config.tilt_effects)
         self.assertTrue(config.mind_games)
         self.assertTrue(config.persona_response)
+        self.assertTrue(config.situational_guidance)
 
     def test_to_dict(self):
         """to_dict should serialize all fields."""
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 11)  # 10 bool + 1 int
+        self.assertEqual(len(d), 12)  # 11 bool + 1 int
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
         self.assertIn('strategic_reflection', d)
         self.assertIn('memory_keep_exchanges', d)
+        self.assertIn('situational_guidance', d)
         self.assertEqual(d['memory_keep_exchanges'], 0)
 
     def test_from_dict_full(self):
@@ -95,6 +97,7 @@ class TestPromptConfig(unittest.TestCase):
         self.assertFalse(disabled.tilt_effects)
         self.assertFalse(disabled.mind_games)
         self.assertFalse(disabled.persona_response)
+        self.assertFalse(disabled.situational_guidance)
 
         # Int field should be preserved
         self.assertEqual(disabled.memory_keep_exchanges, 5)
@@ -105,18 +108,20 @@ class TestPromptConfig(unittest.TestCase):
     def test_enable_all(self):
         """enable_all should return config with all boolean components True."""
         config = PromptConfig(mind_games=False, pot_odds=False, strategic_reflection=False,
-                             memory_keep_exchanges=3)
+                             situational_guidance=False, memory_keep_exchanges=3)
         enabled = config.enable_all()
 
         self.assertTrue(enabled.pot_odds)
         self.assertTrue(enabled.mind_games)
         self.assertTrue(enabled.strategic_reflection)
+        self.assertTrue(enabled.situational_guidance)
 
         # Int field should be preserved
         self.assertEqual(enabled.memory_keep_exchanges, 3)
 
         # Original should be unchanged
         self.assertFalse(config.mind_games)
+        self.assertFalse(config.situational_guidance)
 
     def test_strategic_reflection_and_memory_keep_exchanges(self):
         """New fields should serialize and deserialize correctly."""
@@ -129,6 +134,20 @@ class TestPromptConfig(unittest.TestCase):
         restored = PromptConfig.from_dict(d)
         self.assertFalse(restored.strategic_reflection)
         self.assertEqual(restored.memory_keep_exchanges, 10)
+
+    def test_situational_guidance_serialization(self):
+        """situational_guidance should serialize and deserialize correctly."""
+        config = PromptConfig(situational_guidance=False)
+        d = config.to_dict()
+
+        self.assertFalse(d['situational_guidance'])
+
+        restored = PromptConfig.from_dict(d)
+        self.assertFalse(restored.situational_guidance)
+
+        # Partial dict should use default (True)
+        partial = PromptConfig.from_dict({'pot_odds': False})
+        self.assertTrue(partial.situational_guidance)
 
     def test_copy_with_overrides(self):
         """copy should create a new config with overrides."""

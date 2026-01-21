@@ -550,78 +550,100 @@ class AIPlayerController:
         # Store context for fallback
         self._fallback_context = context
 
-        # Calculate pot-committed and short-stack conditions
+        # Calculate situational guidance if enabled
         game_state = self.state_machine.game_state
         player = game_state.current_player
-        cost_to_call = context.get('call_amount', 0)
-        pot_total = game_state.pot.get('total', 0)
-        already_bet = player.bet  # Amount already invested this hand
-        player_stack = player.stack
-        big_blind = game_state.current_ante or 250  # Default to 250 if not set
-
-        # Convert everything to BB for normalized reasoning
-        already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
-        stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
-        cost_to_call_bb = cost_to_call / big_blind if big_blind > 0 else 0
-
-        # Pot-committed: invested more BB than remaining stack AND facing a bet
-        # Also trigger for extreme pot odds (>20:1) with small calls (<5 BB)
         pot_committed_info = None
-        if cost_to_call > 0:
-            pot_odds = pot_total / cost_to_call
-            required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
-
-            # Trigger if: invested more than remaining OR extreme pot odds with small call
-            is_pot_committed = already_bet_bb > stack_bb
-            is_extreme_odds = pot_odds >= 20 and cost_to_call_bb < 5
-
-            if is_pot_committed or is_extreme_odds:
-                pot_committed_info = {
-                    'pot_odds': round(pot_odds, 0),
-                    'required_equity': round(required_equity, 1),
-                    'already_bet_bb': round(already_bet_bb, 1),
-                    'stack_bb': round(stack_bb, 1),
-                    'cost_to_call_bb': round(cost_to_call_bb, 1)
-                }
-
-        # Short-stack: less than 3 big blinds
         short_stack_info = None
-        if stack_bb < 3:
-            short_stack_info = {'stack_bb': round(stack_bb, 1)}
-
-        # Made hand guidance: help prevent folding strong hands
-        # Calculate equity and provide guidance based on thresholds
-        # Tone varies based on emotional state (tilted = softer guidance)
         made_hand_info = None
-        if community_cards:  # Post-flop only
-            equity = calculate_quick_equity(hole_cards, community_cards)
-            if equity is not None:
-                # Get emotional state - negative valence = tilted
-                is_tilted = False
-                if self.psychology and self.psychology.emotional_state:
-                    valence = self.psychology.emotional_state.valence
-                    is_tilted = valence < -0.2  # Negative mood threshold
 
-                # Determine guidance tier based on equity
-                # 80%+ = strong guidance, 65-79% = moderate guidance
-                if equity >= 0.80:
-                    hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-                    hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
-                    made_hand_info = {
-                        'hand_name': hand_name,
-                        'equity': round(equity * 100),
-                        'is_tilted': is_tilted,
-                        'tier': 'strong'
+        if self.prompt_config.situational_guidance:
+            cost_to_call = context.get('call_amount', 0)
+            pot_total = game_state.pot.get('total', 0)
+            already_bet = player.bet  # Amount already invested this hand
+            player_stack = player.stack
+            big_blind = game_state.current_ante or 250  # Default to 250 if not set
+
+            # Convert everything to BB for normalized reasoning
+            already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
+            stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
+            cost_to_call_bb = cost_to_call / big_blind if big_blind > 0 else 0
+
+            # Pot-committed: invested more BB than remaining stack AND facing a bet
+            # Also trigger for extreme pot odds (>20:1) with small calls (<5 BB)
+            if cost_to_call > 0:
+                pot_odds = pot_total / cost_to_call
+                required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
+
+                # Trigger if: invested more than remaining OR extreme pot odds with small call
+                is_pot_committed = already_bet_bb > stack_bb
+                is_extreme_odds = pot_odds >= 20 and cost_to_call_bb < 5
+
+                if is_pot_committed or is_extreme_odds:
+                    pot_committed_info = {
+                        'pot_odds': round(pot_odds, 0),
+                        'required_equity': round(required_equity, 1),
+                        'already_bet_bb': round(already_bet_bb, 1),
+                        'stack_bb': round(stack_bb, 1),
+                        'cost_to_call_bb': round(cost_to_call_bb, 1)
                     }
-                elif equity >= 0.65:
-                    hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-                    hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a decent hand'
-                    made_hand_info = {
-                        'hand_name': hand_name,
-                        'equity': round(equity * 100),
-                        'is_tilted': is_tilted,
-                        'tier': 'moderate'
-                    }
+
+            # Short-stack: less than 3 big blinds
+            if stack_bb < 3:
+                short_stack_info = {'stack_bb': round(stack_bb, 1)}
+
+            # Made hand guidance: help prevent folding strong hands
+            # Calculate equity and provide guidance based on thresholds
+            # Tone varies based on emotional state (tilted = softer guidance)
+            if game_state.community_cards:  # Post-flop only
+                # Convert cards to string format for equity calculation
+                def card_to_str(c):
+                    """Convert card (dict or Card object) to short string like '8h'."""
+                    if isinstance(c, dict):
+                        rank = c.get('rank', '')
+                        suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
+                        if rank == '10':
+                            rank = 'T'
+                        return f"{rank}{suit}"
+                    else:
+                        s = str(c)
+                        suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
+                        for symbol, letter in suit_map.items():
+                            s = s.replace(symbol, letter)
+                        s = s.replace('10', 'T')
+                        return s
+
+                hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
+                community_cards = [card_to_str(c) for c in game_state.community_cards]
+
+                equity = calculate_quick_equity(hole_cards, community_cards)
+                if equity is not None:
+                    # Get emotional state - negative valence = tilted
+                    is_tilted = False
+                    if self.psychology and self.psychology.emotional_state:
+                        valence = self.psychology.emotional_state.valence
+                        is_tilted = valence < -0.2  # Negative mood threshold
+
+                    # Determine guidance tier based on equity
+                    # 80%+ = strong guidance, 65-79% = moderate guidance
+                    if equity >= 0.80:
+                        hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+                        hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
+                        made_hand_info = {
+                            'hand_name': hand_name,
+                            'equity': round(equity * 100),
+                            'is_tilted': is_tilted,
+                            'tier': 'strong'
+                        }
+                    elif equity >= 0.65:
+                        hand_strength = evaluate_hand_strength(hole_cards, community_cards)
+                        hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a decent hand'
+                        made_hand_info = {
+                            'hand_name': hand_name,
+                            'equity': round(equity * 100),
+                            'is_tilted': is_tilted,
+                            'tier': 'moderate'
+                        }
 
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
@@ -654,6 +676,7 @@ class AIPlayerController:
                 'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
                 'player_hand': [str(c) for c in player.hand] if player.hand else [],
                 'valid_actions': context.get('valid_actions', []),
+                'prompt_config': self.prompt_config.to_dict() if self.prompt_config else None,
                 '_on_captured': lambda cid: captured_id.__setitem__(0, cid),  # Store capture_id
             })
             return capture_data

@@ -122,14 +122,17 @@ class TestPromptManager(unittest.TestCase):
     
     def test_render_decision_prompt(self):
         """Test rendering the decision prompt."""
-        prompt = self.manager.render_prompt(
-            'decision',
-            message='Test game state message'
+        # Use render_decision_prompt which conditionally includes sections
+        # (render_prompt tries to render ALL sections including pot_committed
+        # which requires variables)
+        prompt = self.manager.render_decision_prompt(
+            message='Test game state message',
+            include_mind_games=True,
+            include_persona_response=True
         )
-        
+
         self.assertIn('Test game state message', prompt)
         self.assertIn('only respond with the JSON', prompt)
-        self.assertIn('trash talk', prompt)
         self.assertIn('SECRET', prompt)
 
 

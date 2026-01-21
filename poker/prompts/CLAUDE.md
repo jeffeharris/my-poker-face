@@ -54,6 +54,50 @@ You have less than 3 big blinds ({stack_bb} BB).
 
 ---
 
+### `made_hand` (strong/moderate × firm/soft)
+
+**Trigger:** Post-flop when equity >= 65% (moderate tier) or >= 80% (strong tier).
+
+**Problem it solves:** AI players were folding strong hands due to emotional state (tilt) or misreading hand strength. Batch testing showed 70% improvement on folded strong hands.
+
+**Tiers:**
+- **Strong (80%+ equity):** "Folding is almost never correct" - very direct guidance
+- **Moderate (65-79% equity):** "decent showdown value" - softer guidance
+
+**Tone adaptation:**
+- **Firm:** For clear-headed players (valence >= -0.2)
+- **Soft:** For tilted players (valence < -0.2) - easier to override for personality expression
+
+**Example injection (strong_firm):**
+```
+🃏 STRONG HAND: You have {hand_name} (~{equity}% equity).
+Folding is almost never correct here. Extract value or protect your hand.
+```
+
+---
+
+## Toggle: `situational_guidance`
+
+All conditional sections (pot_committed, short_stack, made_hand) can be disabled via the `situational_guidance` toggle in PromptConfig:
+
+```python
+# Disable all situational guidance
+prompt_config = PromptConfig(situational_guidance=False)
+```
+
+Or in experiment config JSON:
+```json
+{
+  "prompt_config": {
+    "situational_guidance": false
+  }
+}
+```
+
+When disabled, the AI receives no coaching prompts for any of these scenarios.
+
+---
+
 ## Design Principles
 
 1. **BB normalization:** All values expressed in big blinds to help AI reason about relative sizes consistently across different stake levels.

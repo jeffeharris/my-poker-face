@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 # v45: Add users table for Google OAuth authentication
 # v46: Add experiment manager features (error tracking, chat sessions, image models,
 #      experiment lineage, image capture support)
-SCHEMA_VERSION = 46
+# v47: Add prompt_config_json to prompt_captures for analysis
+SCHEMA_VERSION = 47
 
 
 @dataclass
@@ -566,6 +567,7 @@ class GamePersistence:
                     target_personality TEXT,
                     target_emotion TEXT,
                     reference_image_id TEXT,
+                    prompt_config_json TEXT,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -804,6 +806,7 @@ class GamePersistence:
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
+            47: (self._migrate_v47_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2106,6 +2109,20 @@ class GamePersistence:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
 
         logger.info("Migration v46 complete: Added experiment manager features")
+
+    def _migrate_v47_add_prompt_config_to_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v47: Add prompt_config_json to prompt_captures.
+
+        This column stores the PromptConfig settings active when the capture was made,
+        making it easy to analyze how different configs affect AI behavior.
+        """
+        prompt_captures_cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'prompt_config_json' not in prompt_captures_cols:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_config_json TEXT")
+            logger.info("Added prompt_config_json column to prompt_captures")
+
+        logger.info("Migration v47 complete: prompt_config_json added to prompt_captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4071,8 +4088,10 @@ class GamePersistence:
                     -- Prompt Versioning
                     prompt_template, prompt_version, prompt_hash,
                     -- User Annotations
-                    tags, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tags, notes,
+                    -- Prompt Config (for analysis)
+                    prompt_config_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -4115,6 +4134,8 @@ class GamePersistence:
                 # User Annotations
                 json.dumps(capture.get('tags', [])),
                 capture.get('notes'),
+                # Prompt Config (for analysis)
+                json.dumps(capture.get('prompt_config')) if capture.get('prompt_config') else None,
             ))
             conn.commit()
             return cursor.lastrowid
