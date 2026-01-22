@@ -568,6 +568,8 @@ class GamePersistence:
                     target_emotion TEXT,
                     reference_image_id TEXT,
                     prompt_config_json TEXT,
+                    stack_bb REAL,
+                    already_bet_bb REAL,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -807,6 +809,7 @@ class GamePersistence:
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
             47: (self._migrate_v47_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
+            48: (self._migrate_v48_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2123,6 +2126,25 @@ class GamePersistence:
             logger.info("Added prompt_config_json column to prompt_captures")
 
         logger.info("Migration v47 complete: prompt_config_json added to prompt_captures")
+
+    def _migrate_v48_add_stack_bb_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v48: Add stack_bb and already_bet_bb to prompt_captures.
+
+        These columns enable auto-labeling of decisions in the Decision Analyzer:
+        - SHORT_STACK: Folding with < 3 BB
+        - POT_COMMITTED: Folding after investing > remaining stack
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'stack_bb' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN stack_bb REAL")
+            logger.info("Added stack_bb column to prompt_captures")
+
+        if 'already_bet_bb' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN already_bet_bb REAL")
+            logger.info("Added already_bet_bb column to prompt_captures")
+
+        logger.info("Migration v48 complete: stack_bb and already_bet_bb added to prompt_captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
