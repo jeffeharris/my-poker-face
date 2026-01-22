@@ -56,6 +56,11 @@ class PromptConfig:
     # Situational guidance components (coaching for specific game states)
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand
 
+    # Minimal prompt mode - strips everything to bare game state
+    # When True, uses minimal_prompt.py instead of full prompt system
+    # Disables personality, psychology, guidance - just pure game theory inputs
+    use_minimal_prompt: bool = False
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for persistence."""
         return {f.name: getattr(self, f.name) for f in fields(self)}

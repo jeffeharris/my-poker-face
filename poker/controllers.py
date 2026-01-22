@@ -23,6 +23,13 @@ from .ai_resilience import (
 )
 from .player_psychology import PlayerPsychology
 from .memory.commentary_generator import DecisionPlan
+from .minimal_prompt import (
+    convert_game_to_minimal_prompt,
+    parse_minimal_response,
+    convert_minimal_response_to_game_action,
+    get_position_abbrev,
+    to_bb,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -432,6 +439,10 @@ class AIPlayerController:
             else:
                 # Clear all memory (default behavior)
                 self.assistant.memory.clear()
+
+        # MINIMAL PROMPT PATH: Skip all personality/psychology and use pure game state
+        if self.prompt_config.use_minimal_prompt:
+            return self._decide_action_minimal(game_state, game_messages)
 
         # Save original messages before summarizing (for address detection)
         original_messages = game_messages
@@ -874,6 +885,184 @@ class AIPlayerController:
             )
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
+
+    def _decide_action_minimal(self, game_state, game_messages) -> Dict:
+        """
+        Minimal prompt path for pure poker decisions.
+
+        Bypasses all personality, psychology, and guidance systems.
+        Uses BB-normalized game state and simple JSON response format.
+        """
+        player = game_state.current_player
+        big_blind = game_state.current_ante
+
+        # Build action history from game messages
+        # Parse the messages to extract position, action, amount
+        action_history = self._parse_action_history_for_minimal(game_state, game_messages)
+
+        # Generate the minimal prompt
+        prompt = convert_game_to_minimal_prompt(
+            game_state,
+            player,
+            self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase),
+            action_history
+        )
+
+        print(f"[MINIMAL PROMPT]\n{prompt}\n")
+
+        # Call LLM with minimal system prompt
+        minimal_system = "You are a poker player. Analyze the situation and respond with your action in JSON format."
+
+        # Use a fresh assistant call without personality
+        from core.llm import LLMClient, CallType
+
+        llm_client = LLMClient(
+            model=self.assistant.model if hasattr(self.assistant, 'model') else None,
+            provider=self.assistant.provider if hasattr(self.assistant, 'provider') else None,
+            reasoning_effort=None,  # Disable thinking mode for compatibility with all models
+        )
+
+        llm_response = llm_client.complete(
+            messages=[
+                {"role": "system", "content": minimal_system},
+                {"role": "user", "content": prompt}
+            ],
+            json_format=True,
+            call_type=CallType.PLAYER_DECISION,
+            game_id=getattr(self, 'game_id', None),
+            player_name=self.player_name,
+            hand_number=self.current_hand_number,
+            prompt_template="minimal",  # Tag for analysis
+        )
+
+        # Extract content from response object
+        response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
+        print(f"[MINIMAL RAW RESPONSE] {response_text}")
+
+        # Parse the minimal response
+        parsed = parse_minimal_response(response_text)
+
+        # Capture prompt for replay/debugging (after parsing so we have action)
+        captured_id = getattr(llm_response, 'captured_id', None)
+        if captured_id:
+            try:
+                from core.llm.tracking import update_prompt_capture
+                action = parsed.action if parsed else 'unknown'
+                raise_amount = parsed.raise_to if parsed and parsed.raise_to else None
+                update_prompt_capture(captured_id, action_taken=action, raise_amount=raise_amount)
+            except Exception as e:
+                logger.debug(f"[MINIMAL] Failed to update prompt capture: {e}")
+
+        if parsed.parse_error:
+            logger.warning(f"[MINIMAL] Parse error: {parsed.parse_error}")
+
+        # Convert to game action format
+        game_action = convert_minimal_response_to_game_action(
+            parsed,
+            big_blind,
+            player.bet
+        )
+
+        # Add required fields for compatibility with rest of system
+        game_action.setdefault('inner_monologue', '')
+        game_action.setdefault('persona_response', '')
+        game_action.setdefault('physical', [])
+
+        print(f"[MINIMAL RESPONSE] {game_action}")
+
+        # Analyze decision for quality metrics
+        phase = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)
+        context = {
+            'game_state': game_state,
+            'phase': phase,
+            'player': player,
+            'prompt': prompt,
+        }
+        self._analyze_decision(game_action, context)
+
+        return game_action
+
+    def _parse_action_history_for_minimal(self, game_state, game_messages) -> list:
+        """
+        Parse game messages into action history format for minimal prompt.
+
+        Returns list of dicts with: position, action, amount_bb, stack_bb
+        """
+        big_blind = game_state.current_ante
+        table_positions = game_state.table_positions
+
+        # Reverse lookup: player name -> position abbreviation
+        name_to_position = {
+            name: get_position_abbrev(pos)
+            for pos, name in table_positions.items()
+        }
+
+        # Build player stacks lookup
+        name_to_stack = {p.name: p.stack for p in game_state.players}
+
+        actions = []
+
+        # Parse messages - they're typically in format:
+        # "PlayerName folds" or "PlayerName raises to $500" etc.
+        if isinstance(game_messages, str):
+            lines = game_messages.strip().split('\n')
+        elif isinstance(game_messages, list):
+            lines = game_messages
+        else:
+            return []
+
+        import re
+        for line in lines:
+            if not line.strip():
+                continue
+
+            # Try to extract player name and action
+            # Patterns: "Name folds", "Name calls $X", "Name raises to $X", "Name checks", "Name bets $X"
+            match = re.match(r'^([^:]+?)?\s*(folds?|checks?|calls?|raises?|bets?|all[- ]?in)', line.lower())
+            if not match:
+                continue
+
+            # Extract player name from start of line
+            name_match = re.match(r'^([A-Za-z][A-Za-z\s]+?)(?:\s+(?:folds?|checks?|calls?|raises?|bets?|all))', line, re.IGNORECASE)
+            if not name_match:
+                continue
+
+            player_name = name_match.group(1).strip()
+            position = name_to_position.get(player_name, '?')
+
+            # Determine action type
+            action = 'fold'
+            if 'check' in line.lower():
+                action = 'check'
+            elif 'call' in line.lower():
+                action = 'call'
+            elif 'raise' in line.lower():
+                action = 'raise'
+            elif 'bet' in line.lower():
+                action = 'bet'
+            elif 'all' in line.lower():
+                action = 'all-in'
+            elif 'fold' in line.lower():
+                action = 'fold'
+
+            # Extract amount if present
+            amount_bb = None
+            amount_match = re.search(r'\$(\d+)', line)
+            if amount_match and action in ('call', 'raise', 'bet', 'all-in'):
+                amount = int(amount_match.group(1))
+                amount_bb = to_bb(amount, big_blind)
+
+            # Get player's remaining stack
+            stack_bb = to_bb(name_to_stack.get(player_name, 0), big_blind)
+
+            actions.append({
+                'position': position,
+                'action': action,
+                'amount_bb': amount_bb,
+                'stack_bb': stack_bb if action != 'fold' else None
+            })
+
+        return actions
 
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
