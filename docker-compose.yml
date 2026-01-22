@@ -94,23 +94,9 @@ services:
     profiles:
       - production
 
-  # Metabase for API usage analytics
-  metabase:
-    image: metabase/metabase
-    ports:
-      - "${METABASE_PORT:-3002}:3000"
-    volumes:
-      - ./data:/data:ro
-      - metabase-data:/metabase-data
-    environment:
-      - MB_DB_FILE=/metabase-data/metabase.db
-    networks:
-      - poker-network
 
 volumes:
   redis-data:
-    driver: local
-  metabase-data:
     driver: local
 
 networks:
