@@ -11,8 +11,8 @@ and replay experiments. Supports:
 """
 
 import json
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
+from typing import Dict, Optional, Any
 
 # Import prompt config for type hints
 from poker.prompt_config import PromptConfig

@@ -6899,7 +6899,7 @@ class GamePersistence:
                         try:
                             capture[field] = json.loads(capture[field])
                         except json.JSONDecodeError:
-                            pass
+                            logger.debug("Failed to parse JSON for field '%s' in capture id=%s", field, capture.get('id'))
                 # Get labels for this capture
                 capture['labels'] = self.get_capture_labels(capture['id'])
                 captures.append(capture)
@@ -7196,7 +7196,7 @@ class GamePersistence:
                     try:
                         experiment[field] = json.loads(experiment[field])
                     except json.JSONDecodeError:
-                        pass
+                        logger.debug("Failed to parse JSON for field '%s' in experiment id=%s", field, experiment_id)
 
             # Get capture count
             cursor = conn.execute("""
@@ -7431,7 +7431,7 @@ class GamePersistence:
                         try:
                             exp[field] = json.loads(exp[field])
                         except json.JSONDecodeError:
-                            pass
+                            logger.debug("Failed to parse JSON for field '%s' in experiment id=%s", field, exp.get('id'))
 
                 # Calculate variant count from config
                 config = exp.get('config_json', {})

@@ -58,11 +58,6 @@ from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
-from experiments.variant_config import (
-    VariantConfig as VariantConfigClass,
-    ControlConfig as ControlConfigClass,
-    build_effective_variant_config,
-)
 from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
 
 

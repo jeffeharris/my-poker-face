@@ -23,15 +23,14 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, Optional, Any, Callable
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.llm import LLMClient, CallType
 from poker.persistence import GamePersistence
-from poker.prompt_config import PromptConfig
-from experiments.variant_config import VariantConfig, build_effective_variant_config
+from experiments.variant_config import build_effective_variant_config
 from experiments.pause_coordinator import pause_coordinator
 
 logger = logging.getLogger(__name__)
@@ -320,7 +319,7 @@ class ReplayExperimentRunner:
                         # Insert history before the current user message
                         messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_message}]
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    logger.debug("Failed to parse conversation_history for capture id=%s, proceeding without history", capture.get('id'))
 
             # Make the LLM call
             # Note: reasoning_effort not currently supported by LLMClient
