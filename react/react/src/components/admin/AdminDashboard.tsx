@@ -29,6 +29,10 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
   const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
   const [isDesignMode, setIsDesignMode] = useState(false);
 
+  // Decision Analyzer detail mode state
+  const [analyzerInDetailMode, setAnalyzerInDetailMode] = useState(false);
+  const [analyzerBackToList, setAnalyzerBackToList] = useState<(() => void) | null>(null);
+
   // Sync activeTab with initialTab when it changes (URL navigation)
   useEffect(() => {
     setActiveTab(initialTab);
@@ -43,7 +47,18 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
       setAssistantPanelProps(null);
       setIsDesignMode(false);
     }
+    // Clear analyzer detail mode when switching tabs
+    if (tab !== 'analyzer') {
+      setAnalyzerInDetailMode(false);
+      setAnalyzerBackToList(null);
+    }
   }, [onTabChange]);
+
+  // Handle Decision Analyzer detail mode changes
+  const handleAnalyzerDetailModeChange = useCallback((inDetail: boolean, backToList: () => void) => {
+    setAnalyzerInDetailMode(inDetail);
+    setAnalyzerBackToList(() => backToList);
+  }, []);
 
   // Find active tab config for header
   const activeTabConfig = SIDEBAR_ITEMS.find(t => t.id === activeTab);
@@ -68,7 +83,10 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
         <PersonalityManager embedded />
       )}
       {activeTab === 'analyzer' && (
-        <DecisionAnalyzer embedded />
+        <DecisionAnalyzer
+          embedded
+          onDetailModeChange={handleAnalyzerDetailModeChange}
+        />
       )}
       {activeTab === 'playground' && (
         <PromptPlayground embedded />
@@ -123,13 +141,22 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
       );
     }
 
+    // Determine back button behavior - if analyzer is in detail mode, go back to list
+    const handleMobileBack = () => {
+      if (activeTab === 'analyzer' && analyzerInDetailMode && analyzerBackToList) {
+        analyzerBackToList();
+      } else {
+        onBack?.();
+      }
+    };
+
     // Tab selected - show content with back to menu
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <AdminMenuContainer
           title={activeTabConfig?.label || 'Admin'}
           subtitle={activeTabConfig?.description}
-          onBack={onBack}
+          onBack={handleMobileBack}
           navItems={SIDEBAR_ITEMS}
           activeNavId={activeTab}
           onNavChange={(id) => handleTabChange(id as AdminTab)}
