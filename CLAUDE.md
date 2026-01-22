@@ -76,6 +76,34 @@ docker compose exec frontend npx tsc --noEmit
 - Verify prompt templates render correctly
 - Check that personality traits affect decisions appropriately
 
+### Database Query Utility
+
+Use `scripts/dbq.py` for quick database exploration:
+
+```bash
+# List all tables
+python3 scripts/dbq.py tables
+
+# Show table schema
+python3 scripts/dbq.py schema prompt_captures
+
+# Count rows
+python3 scripts/dbq.py count prompt_captures
+
+# Run queries (auto-limits to 20 rows)
+python3 scripts/dbq.py "SELECT id, phase, action_taken FROM prompt_captures"
+
+# With format parameters
+python3 scripts/dbq.py "SELECT * FROM prompt_captures WHERE phase = '{phase}'" --phase PRE_FLOP
+```
+
+From Python:
+```python
+from scripts.dbq import q, tables, schema, pprint
+results = q("SELECT * FROM prompt_captures WHERE phase = ?", ("PRE_FLOP",))
+pprint(results)
+```
+
 ## Architecture Overview
 
 This is a poker game with AI personalities AND an experiment platform for testing LLM capabilities at scale. The codebase follows a functional architecture with immutable state management.

@@ -16,7 +16,7 @@ from poker.prompt_config import PromptConfig
 from ..extensions import persistence, limiter
 from .. import config
 from experiments.pause_coordinator import pause_coordinator
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +24,15 @@ experiment_bp = Blueprint('experiments', __name__)
 
 # Store active experiment threads for status checking
 _active_experiments: Dict[int, threading.Thread] = {}
+_active_experiments_lock = threading.Lock()
 
 
 def detect_orphaned_experiments():
     """Mark experiments stuck in 'running' as 'interrupted' on startup.
 
-    This is called on module import to handle experiments that were running
-    when the server was stopped/restarted. Uses the persistence layer's
-    mark_running_experiments_interrupted() method which sets the status and
-    adds a helpful message for users.
+    Called by flask_app/__init__.py during app creation (not at module import).
+    Uses the persistence layer's mark_running_experiments_interrupted() method
+    which sets the status and adds a helpful message for users.
     """
     try:
         count = persistence.mark_running_experiments_interrupted()
@@ -40,10 +40,6 @@ def detect_orphaned_experiments():
             logger.info(f"Marked {count} orphaned experiment(s) as interrupted on startup")
     except Exception as e:
         logger.error(f"Error detecting orphaned experiments: {e}")
-
-
-# Detect orphaned experiments on module load
-detect_orphaned_experiments()
 
 
 def _complete_experiment_with_summary(experiment_id: int) -> None:
@@ -360,6 +356,107 @@ PERSONALITY_TOOL = {
     }
 }
 
+# Tool definition for read-only SQL queries (replay experiments)
+SQL_QUERY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "query_database",
+        "description": "Execute a read-only SQL query against the experiment database. Use this to explore captures, labels, decision analysis, presets, and personalities when designing replay experiments. Use PRAGMA table_info(table_name) to discover column schemas.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "SELECT or PRAGMA query. SELECT max 100 rows. Use PRAGMA table_info(table_name) for schema."
+                }
+            },
+            "required": ["sql"],
+            "additionalProperties": False
+        }
+    }
+}
+
+# Tables allowed for SQL queries (safety whitelist)
+ALLOWED_SQL_TABLES = {
+    'prompt_captures', 'capture_labels', 'player_decision_analysis',
+    'prompt_presets', 'personalities', 'replay_experiments',
+    'replay_results', 'api_usage'
+}
+
+
+def _execute_sql_query(sql: str) -> str:
+    """Execute a read-only SQL query against allowed tables.
+
+    Args:
+        sql: The SQL query to execute (SELECT or read-only PRAGMA)
+
+    Returns:
+        JSON string with query results or error
+    """
+    import sqlite3
+
+    # Validate: must be SELECT or read-only PRAGMA
+    normalized = sql.strip().upper()
+    is_select = normalized.startswith('SELECT')
+    is_pragma = normalized.startswith('PRAGMA')
+
+    if not is_select and not is_pragma:
+        return json.dumps({"error": "Only SELECT and PRAGMA queries allowed"})
+
+    # For PRAGMA, only allow specific read-only commands for schema discovery
+    if is_pragma:
+        # Extract pragma name (e.g., "PRAGMA TABLE_INFO(foo)" -> "TABLE_INFO")
+        pragma_match = re.match(r'PRAGMA\s+(\w+)', normalized)
+        if not pragma_match:
+            return json.dumps({"error": "Invalid PRAGMA syntax"})
+
+        pragma_name = pragma_match.group(1)
+        allowed_pragmas = {'TABLE_INFO', 'TABLE_LIST', 'INDEX_LIST', 'INDEX_INFO', 'DATABASE_LIST'}
+        if pragma_name not in allowed_pragmas:
+            return json.dumps({"error": f"PRAGMA {pragma_name} not allowed. Use: TABLE_INFO, TABLE_LIST, INDEX_LIST"})
+
+    # Validate: no dangerous keywords (even in subqueries)
+    forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'REPLACE', 'ATTACH', 'DETACH']
+    for kw in forbidden:
+        # Check for keyword as a standalone word (not part of another word)
+        if re.search(rf'\b{kw}\b', normalized):
+            return json.dumps({"error": f"Query contains forbidden keyword: {kw}"})
+
+    # Validate: only allowed tables can be queried (for SELECT queries)
+    if is_select:
+        # Extract table names from FROM and JOIN clauses
+        # Matches: FROM table, JOIN table, LEFT JOIN table, etc.
+        table_pattern = r'\bFROM\s+(\w+)|\bJOIN\s+(\w+)'
+        matches = re.findall(table_pattern, normalized)
+        # Flatten matches (each match is a tuple with one empty string)
+        tables = {t.lower() for match in matches for t in match if t}
+
+        # Check against whitelist (case-insensitive)
+        allowed_lower = {t.lower() for t in ALLOWED_SQL_TABLES}
+        disallowed = tables - allowed_lower
+        if disallowed:
+            return json.dumps({"error": f"Tables not allowed: {', '.join(sorted(disallowed))}. Allowed: {', '.join(sorted(ALLOWED_SQL_TABLES))}"})
+
+    # Execute with row limit for SELECT queries
+    try:
+        with sqlite3.connect(persistence.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            # Add LIMIT if SELECT and not present
+            if is_select and 'LIMIT' not in normalized:
+                # Strip comments before adding LIMIT to prevent bypass
+                # Handles both -- comments and /* */ comments
+                sql_clean = re.sub(r'--.*$', '', sql, flags=re.MULTILINE)
+                sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+                sql_clean = sql_clean.rstrip('; \t\n')
+                sql = sql_clean + " LIMIT 100"
+            cursor = conn.execute(sql)
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        return json.dumps({"rows": rows, "count": len(rows)})
+    except sqlite3.Error as e:
+        return json.dumps({"error": f"SQL error: {str(e)}"})
+
 
 def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
     """Execute experiment design tools.
@@ -371,6 +468,10 @@ def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
     Returns:
         JSON string with tool results
     """
+    if name == "query_database":
+        sql = args.get("sql", "")
+        return _execute_sql_query(sql)
+
     if name == "get_available_personalities":
         import sqlite3
 
@@ -764,14 +865,337 @@ The tool accepts an optional `filter_play_style` parameter for keyword filtering
 - Don't repeat information the user already knows.
 - One short paragraph of explanation is usually enough."""
 
+# System prompt for replay experiment design assistant
+REPLAY_EXPERIMENT_DESIGN_SYSTEM_PROMPT = """You are the Lab Assistant, the AI experiment design helper for replay experiments. Your job is to help users design experiments that re-run captured AI decisions with different variants (models, prompts, guidance) to test prompt effectiveness and decision quality.
+
+Replay experiments work by:
+1. Selecting captured decisions from past games (using labels, IDs, or filters)
+2. Re-running those exact prompts with different variants (models, guidance, presets)
+3. Comparing the new decisions to the original to measure improvement
+
+## Replay Experiment Config Parameters
+
+- name: Unique identifier for the experiment (required, snake_case)
+- description: What the experiment is testing
+- hypothesis: The expected outcome or question being answered
+- tags: Categories for filtering (e.g., ["model_comparison", "guidance_test"])
+
+## Capture Selection
+
+Captures are previously recorded AI decisions. Select them using one of these modes:
+
+### Mode: labels (most common)
+Select captures that have been tagged with specific labels:
+```json
+"capture_selection": {
+  "mode": "labels",
+  "labels": ["mistake", "interesting"],
+  "match_all": false,
+  "filters": {
+    "phase": "FLOP",
+    "action": "fold"
+  }
+}
+```
+- labels: Array of labels to match (e.g., "mistake", "good_call", "interesting")
+- match_all: If true, capture must have ALL labels; if false, ANY label matches
+- filters: Optional additional filters (phase, action, pot odds range)
+
+### Mode: ids
+Select specific capture IDs directly:
+```json
+"capture_selection": {
+  "mode": "ids",
+  "ids": [123, 456, 789]
+}
+```
+
+### Mode: filters
+Select by criteria without labels:
+```json
+"capture_selection": {
+  "mode": "filters",
+  "filters": {
+    "phase": "PRE_FLOP",
+    "action": "raise",
+    "min_pot_odds": 0.3,
+    "max_pot_odds": 0.6
+  }
+}
+```
+
+Available filter options:
+- phase: Game phase (PRE_FLOP, FLOP, TURN, RIVER)
+- action: Action taken (fold, check, call, raise)
+- min_pot_odds, max_pot_odds: Filter by pot odds range
+
+## Variants
+
+Each variant represents a different configuration to test. At minimum, include a Control variant that preserves original settings.
+
+Variant options:
+- label: Human-readable name (required)
+- model: LLM model to use (e.g., "gpt-4o", "claude-sonnet-4-20250514")
+- provider: LLM provider ("openai", "anthropic", "groq", "google", "mistral")
+- personality: Personality name to use (overrides original)
+- prompt_preset_id: ID of a saved prompt preset to use
+- guidance_injection: Extra text to inject into the prompt
+
+### Guidance Injection
+
+The most powerful feature for replay experiments. Add guidance text that gets injected before the "What is your move?" section:
+
+```json
+{
+  "label": "With Strategic Guidance",
+  "guidance_injection": "IMPORTANT: Before deciding, consider:\\n1. What is your hand strength relative to the board?\\n2. What hands could your opponent have that beat you?\\n3. Is the pot odds favorable for a call?"
+}
+```
+
+## Real Examples
+
+### Example 1: Test GPT vs Claude on Labeled Mistakes
+```json
+{
+  "name": "claude_vs_gpt_on_mistakes",
+  "description": "Compare how GPT-4o and Claude Sonnet handle decisions previously labeled as mistakes",
+  "hypothesis": "Claude may make different/better decisions on captured mistakes",
+  "tags": ["model_comparison", "mistakes"],
+  "capture_selection": {
+    "mode": "labels",
+    "labels": ["mistake"]
+  },
+  "variants": [
+    {
+      "label": "Control (GPT-4o)",
+      "model": "gpt-4o",
+      "provider": "openai"
+    },
+    {
+      "label": "Claude Sonnet",
+      "model": "claude-sonnet-4-20250514",
+      "provider": "anthropic"
+    }
+  ]
+}
+```
+
+### Example 2: Test Guidance Injection Impact
+```json
+{
+  "name": "guidance_impact_on_preflop",
+  "description": "Test if strategic guidance improves pre-flop decision quality",
+  "hypothesis": "Adding explicit strategic considerations will reduce mistakes",
+  "tags": ["guidance_test", "preflop"],
+  "capture_selection": {
+    "mode": "filters",
+    "filters": {
+      "phase": "PRE_FLOP"
+    }
+  },
+  "variants": [
+    {
+      "label": "Control (No Guidance)",
+      "model": "gpt-4o",
+      "provider": "openai"
+    },
+    {
+      "label": "With Position Guidance",
+      "model": "gpt-4o",
+      "provider": "openai",
+      "guidance_injection": "POSITION AWARENESS: You are in {position}. Early position requires stronger hands. Late position allows wider ranges."
+    },
+    {
+      "label": "With Stack Guidance",
+      "model": "gpt-4o",
+      "provider": "openai",
+      "guidance_injection": "STACK MANAGEMENT: Consider your stack-to-pot ratio. With a short stack, prefer all-in or fold over small raises."
+    }
+  ]
+}
+```
+
+### Example 3: Test Prompt Presets
+```json
+{
+  "name": "preset_comparison_flop",
+  "description": "Compare different prompt preset configurations on flop decisions",
+  "hypothesis": "Minimal prompts may perform as well as full prompts",
+  "tags": ["preset_test", "flop"],
+  "capture_selection": {
+    "mode": "filters",
+    "filters": {
+      "phase": "FLOP"
+    }
+  },
+  "variants": [
+    {
+      "label": "Full Prompts (preset 1)",
+      "prompt_preset_id": 1
+    },
+    {
+      "label": "Minimal Prompts (preset 2)",
+      "prompt_preset_id": 2
+    }
+  ]
+}
+```
+
+## When to Use Replay vs Tournament Experiments
+
+| Use Replay When... | Use Tournament When... |
+|-------------------|----------------------|
+| Testing specific decision types | Testing overall win rates |
+| A/B testing guidance text | Testing personalities |
+| Comparing model quality on same inputs | Running full game simulations |
+| You have labeled captures to test | You need end-to-end metrics |
+| Quick iteration on prompts | Testing psychology/commentary impact |
+
+## How to Propose Configuration Changes
+
+1. First, describe the changes you want to make in plain text
+2. Ask the user if they want to apply these changes
+3. ONLY include <config_updates> tags AFTER the user confirms
+
+Example:
+- User: "I want to test Claude on my labeled mistakes"
+- Assistant: "I'd suggest selecting captures with the 'mistake' label and comparing GPT-4o (control) vs Claude Sonnet. Want me to apply this?"
+- User: "Yes"
+- Assistant: "Done!" <config_updates>{...}</config_updates>
+
+## Tools Available
+
+You have access to the `query_database` tool that executes read-only SQL queries (SELECT and PRAGMA) against the experiment database.
+
+**IMPORTANT**: Use this tool proactively to answer questions about available data. Don't guess - query the database!
+
+### Schema Discovery
+
+Use PRAGMA to discover table schemas:
+```sql
+PRAGMA table_info(prompt_captures)  -- Get columns for a table
+SELECT name FROM sqlite_master WHERE type='table'  -- List all tables
+```
+
+### Key Tables
+
+**prompt_captures** - Captured AI decisions from past games
+- Key columns: id, game_id, player_name, hand_number, phase, action_taken
+- Game state: pot_total, cost_to_call, pot_odds, player_stack, player_hand, community_cards
+- LLM info: model, provider, latency_ms, input_tokens, output_tokens
+
+**capture_labels** - Labels/tags on captures
+- capture_id, label, label_type ('user' or 'smart')
+
+**player_decision_analysis** - Decision quality metrics (joined on capture_id)
+- decision_quality: 'optimal', 'acceptable', or 'mistake'
+- ev_lost, optimal_action, equity, required_equity
+
+**prompt_presets** - Saved prompt configurations
+- id, name, description, prompt_config (JSON), guidance_injection
+
+**personalities** - AI personalities
+- name, config_json, times_used
+
+**experiments** - All experiments (tournament and replay)
+- id, name, status, config_json, experiment_type, created_at
+
+**replay_results** - Results from replay experiments
+- experiment_id, capture_id, variant, new_action, new_quality, ev_delta
+
+**api_usage** - Usage/cost tracking
+- model, provider, input_tokens, output_tokens, latency_ms, call_type
+
+### Known Decision Quality Issues
+
+These are common AI decision problems worth testing with replay experiments:
+
+| Issue | Description | Severity |
+|-------|-------------|----------|
+| FOLD_MISTAKE | Folding hands with positive EV | HIGH |
+| BAD_ALL_IN | All-in with very low equity (often failed bluffs) | MEDIUM |
+| SHORT_STACK_FOLD | Folding with < 2 BB (should push/fold) | HIGH |
+| POT_COMMITTED_FOLD | Folding after investing > remaining stack | HIGH |
+| RAISE_WAR | 3+ raises in single betting round | MEDIUM |
+
+### Useful Queries
+
+```sql
+-- Get available labels
+SELECT label, COUNT(*) as count FROM capture_labels GROUP BY label ORDER BY count DESC
+
+-- Find fold mistakes (highest EV impact)
+SELECT pc.id, pc.player_name, pc.phase, pda.equity, pda.ev_lost
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.action_taken = 'fold' AND pda.decision_quality = 'mistake'
+ORDER BY pda.ev_lost DESC
+
+-- Bad all-ins (low equity shoves)
+SELECT pc.id, pc.player_name, pc.phase, pda.equity, pda.ev_lost
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.action_taken = 'all_in' AND pda.decision_quality = 'mistake'
+ORDER BY pda.ev_lost DESC
+
+-- Mistake rate by model
+SELECT pc.model, COUNT(*) as total,
+  SUM(CASE WHEN pda.decision_quality='mistake' THEN 1 ELSE 0 END)*100.0/COUNT(*) as mistake_pct
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+GROUP BY pc.model HAVING total >= 50 ORDER BY mistake_pct DESC
+
+-- Mistake rate by phase
+SELECT pc.phase, COUNT(*) as total,
+  SUM(CASE WHEN pda.decision_quality='mistake' THEN 1 ELSE 0 END) as mistakes,
+  SUM(pda.ev_lost) as total_ev_lost
+FROM prompt_captures pc
+JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+GROUP BY pc.phase ORDER BY total_ev_lost DESC
+
+-- Short stack situations (stack < 500 chips)
+SELECT pc.id, pc.player_name, pc.player_stack, pc.action_taken, pda.decision_quality
+FROM prompt_captures pc
+LEFT JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.player_stack < 500 AND pc.action_taken = 'fold'
+
+-- High pot odds folds (likely mistakes)
+SELECT pc.id, pc.player_name, pc.pot_odds, pc.action_taken, pda.equity
+FROM prompt_captures pc
+LEFT JOIN player_decision_analysis pda ON pc.id = pda.capture_id
+WHERE pc.pot_odds > 0.5 AND pc.action_taken = 'fold'
+
+-- Get presets with guidance
+SELECT id, name, description, guidance_injection FROM prompt_presets WHERE guidance_injection IS NOT NULL
+
+-- Worst personalities by mistake rate
+SELECT pda.player_name, COUNT(*) as decisions,
+  SUM(CASE WHEN decision_quality='mistake' THEN 1 ELSE 0 END)*100.0/COUNT(*) as mistake_pct
+FROM player_decision_analysis pda
+GROUP BY player_name HAVING decisions >= 30 ORDER BY mistake_pct DESC
+```
+
+## Response Style
+
+- Be CONCISE. Users want configs, not essays.
+- Lead with config updates when you have suggestions - put <config_updates> near the top of your response.
+- Ask about capture selection first - what decisions does the user want to test?
+- Don't repeat information the user already knows.
+- One short paragraph of explanation is usually enough."""
+
 # Quick prompts for common scenarios
 QUICK_PROMPTS = {
+    # Tournament prompts
     'compare_models': 'I want to compare GPT vs Claude decision quality in poker',
     'test_personalities': 'Help me test which AI personalities perform best',
     'test_prompts': 'I want to A/B test enabling/disabling specific prompt components',
     'minimal_prompts': 'Compare minimal prompts (all disabled) vs full prompts',
     'baseline': 'Set up a baseline measurement with default settings',
     'quick_test': 'Create a minimal 1-tournament quick test for sanity checking',
+    # Replay prompts
+    'replay_model_comparison': 'I want to see how different models would handle the same poker decisions',
+    'replay_prompt_variants': 'I want to test different prompt configurations on captured decisions',
+    'replay_guidance_injection': 'I want to see how adding guidance affects AI decisions on past captures',
 }
 
 
@@ -857,6 +1281,9 @@ def chat_experiment_design():
         if not message:
             return jsonify({'error': 'Message is required'}), 400
 
+        # Get experiment type from request (may be set via quick action buttons)
+        experiment_type = data.get('experiment_type', 'undetermined')
+
         # Create or retrieve session
         if not session_id:
             session_id = str(uuid.uuid4())
@@ -865,6 +1292,7 @@ def chat_experiment_design():
                 'last_config': {},
                 'config_versions': [],
                 'failure_context': failure_context,
+                'experiment_type': experiment_type,
             }
         elif session_id not in _chat_sessions:
             # Session exists but not in memory - try to restore from database
@@ -883,6 +1311,7 @@ def chat_experiment_design():
                     'last_config': db_session.get('config', {}),
                     'config_versions': db_session.get('config_versions') or [],
                     'failure_context': failure_context,
+                    'experiment_type': db_session.get('experiment_type', 'undetermined'),
                 }
                 logger.info(f"Restored chat session {session_id} from database")
             else:
@@ -892,6 +1321,7 @@ def chat_experiment_design():
                     'last_config': {},
                     'config_versions': [],
                     'failure_context': failure_context,
+                    'experiment_type': experiment_type,
                 }
 
         # Get session data (handle legacy format)
@@ -907,6 +1337,10 @@ def chat_experiment_design():
         # Store failure context if provided (only on first message)
         if failure_context and not session_data.get('failure_context'):
             session_data['failure_context'] = failure_context
+
+        # Update experiment_type from request if provided (e.g., user selected type via button)
+        if experiment_type != 'undetermined':
+            session_data['experiment_type'] = experiment_type
 
         # Compute diff between last known config and current config
         config_diff = _compute_config_diff(last_config, current_config)
@@ -973,9 +1407,37 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
 - One sentence explaining what changed and why it should help
 """
 
+        # Select system prompt based on experiment type
+        # Get current experiment type from session (may have been set by request or from restored session)
+        current_experiment_type = session_data.get('experiment_type', experiment_type)
+
+        if current_experiment_type == 'replay':
+            base_system_prompt = REPLAY_EXPERIMENT_DESIGN_SYSTEM_PROMPT
+        elif current_experiment_type == 'tournament':
+            base_system_prompt = EXPERIMENT_DESIGN_SYSTEM_PROMPT
+        else:
+            # For undetermined type, use a combined intro that helps guide them
+            base_system_prompt = """You are the Lab Assistant, the AI experiment design helper for AI poker testing.
+
+You help design two types of experiments:
+
+1. **Tournament Experiments**: Run full AI poker games to test personalities, models, and configurations
+   - Use when you want to measure overall win rates and play quality
+   - Great for testing psychology/commentary impact, personality comparisons
+
+2. **Replay Experiments**: Re-run captured AI decisions with different variants
+   - Use when you want to compare how different models/prompts handle the SAME decisions
+   - Great for A/B testing guidance text, comparing model quality on specific scenarios
+
+First, help the user decide which type of experiment fits their needs. Ask clarifying questions if needed.
+
+Once they've chosen (or you can infer from their request), you can guide them through the configuration.
+
+Be CONCISE. Ask what they want to test and suggest the appropriate experiment type."""
+
         # Build messages for LLM
         messages = [
-            {"role": "system", "content": EXPERIMENT_DESIGN_SYSTEM_PROMPT + config_context + failure_context_prompt}
+            {"role": "system", "content": base_system_prompt + config_context + failure_context_prompt}
         ]
 
         # Add conversation history
@@ -990,11 +1452,23 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
         # Add current user message
         messages.append({"role": "user", "content": user_message_content})
 
+        # Select tools based on experiment type
+        # - Tournament: personality tool only
+        # - Replay: SQL query tool + personality tool
+        # - Undetermined: both tools available
+        if current_experiment_type == 'tournament':
+            tools = [PERSONALITY_TOOL]
+        elif current_experiment_type == 'replay':
+            tools = [SQL_QUERY_TOOL, PERSONALITY_TOOL]
+        else:
+            # Undetermined - provide both tools
+            tools = [SQL_QUERY_TOOL, PERSONALITY_TOOL]
+
         # Call LLM with tool support - use reasoning model for better analysis
         client = LLMClient(model=config.ASSISTANT_MODEL, provider=config.ASSISTANT_PROVIDER)
         response = client.complete(
             messages=messages,
-            tools=[PERSONALITY_TOOL],
+            tools=tools,
             tool_choice="auto",
             tool_executor=_execute_experiment_tool,
             call_type=CallType.EXPERIMENT_DESIGN,
@@ -1043,11 +1517,15 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
                 'message_index': len(history),
             })
 
+        # Get current experiment type from session
+        current_experiment_type = session_data.get('experiment_type', 'undetermined')
+
         _chat_sessions[session_id] = {
             'history': history,
             'last_config': merged_config,  # Store the merged config for next diff
             'config_versions': config_versions,
             'failure_context': session_data.get('failure_context'),
+            'experiment_type': current_experiment_type,
         }
 
         # Persist session to database for resume functionality
@@ -1085,6 +1563,7 @@ Response format (NO numbered list - the config_updates tag gets hidden from user
             'config_complete': is_config_complete(merged_config),
             'config_versions': config_versions,
             'current_version_index': len(config_versions) - 1 if config_versions else 0,
+            'experiment_type': current_experiment_type,
         })
 
     except Exception as e:
@@ -1146,6 +1625,52 @@ def archive_chat_session():
 
     except Exception as e:
         logger.error(f"Error archiving chat session: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/chat/set-type', methods=['POST'])
+def set_experiment_type():
+    """Set the experiment type for a chat session.
+
+    Called when the user selects an experiment type (tournament or replay)
+    via quick action buttons or conversational detection.
+
+    Request body:
+        {
+            "session_id": "uuid",
+            "experiment_type": "tournament" | "replay"
+        }
+    """
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        experiment_type = data.get('experiment_type')
+
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+
+        if experiment_type not in ('tournament', 'replay', 'undetermined'):
+            return jsonify({'error': 'experiment_type must be "tournament", "replay", or "undetermined"'}), 400
+
+        # Create or update session with experiment type
+        if session_id not in _chat_sessions:
+            _chat_sessions[session_id] = {
+                'history': [],
+                'last_config': {},
+                'config_versions': [],
+                'failure_context': None,
+                'experiment_type': experiment_type,
+            }
+        else:
+            _chat_sessions[session_id]['experiment_type'] = experiment_type
+
+        return jsonify({
+            'success': True,
+            'experiment_type': experiment_type,
+        })
+
+    except Exception as e:
+        logger.error(f"Error setting experiment type: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1247,6 +1772,22 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
 
 # In-memory storage for experiment assistant sessions
 _experiment_assistant_sessions: Dict[str, dict] = {}
+_experiment_assistant_last_access: Dict[str, datetime] = {}
+SESSION_TTL_HOURS = 24
+
+
+def _cleanup_stale_sessions():
+    """Remove assistant sessions not accessed within SESSION_TTL_HOURS.
+
+    Called lazily at the start of session access to prevent unbounded memory growth.
+    """
+    cutoff = datetime.now() - timedelta(hours=SESSION_TTL_HOURS)
+    stale_keys = [k for k, t in _experiment_assistant_last_access.items() if t < cutoff]
+    for key in stale_keys:
+        _experiment_assistant_sessions.pop(key, None)
+        _experiment_assistant_last_access.pop(key, None)
+    if stale_keys:
+        logger.info(f"Cleaned up {len(stale_keys)} stale experiment assistant session(s)")
 
 
 @experiment_bp.route('/api/experiments/<int:experiment_id>/chat', methods=['POST'])
@@ -1256,6 +1797,9 @@ def experiment_assistant_chat(experiment_id: int):
     The assistant knows the design history, configuration, and results.
     """
     try:
+        # Lazy cleanup of stale sessions to prevent memory leaks
+        _cleanup_stale_sessions()
+
         data = request.get_json()
         message = data.get('message', '').strip()
 
@@ -1273,6 +1817,9 @@ def experiment_assistant_chat(experiment_id: int):
             _experiment_assistant_sessions[session_key] = {
                 'history': [],
             }
+
+        # Track last access time for cleanup
+        _experiment_assistant_last_access[session_key] = datetime.now()
 
         session_data = _experiment_assistant_sessions[session_key]
         history = session_data['history']
@@ -1350,8 +1897,8 @@ def clear_experiment_chat_history(experiment_id: int):
     try:
         # Clear from memory
         session_key = f"exp_assistant_{experiment_id}"
-        if session_key in _experiment_assistant_sessions:
-            del _experiment_assistant_sessions[session_key]
+        _experiment_assistant_sessions.pop(session_key, None)
+        _experiment_assistant_last_access.pop(session_key, None)
 
         # Clear from database
         persistence.save_experiment_assistant_chat(experiment_id, [])
@@ -1566,16 +2113,17 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
             logger.info(f"Experiment {experiment_id} completed with no results, generating summary from DB")
             _complete_experiment_with_summary(experiment_id)
 
+    except TournamentPausedException as e:
+        # Explicitly handle pause exception (expected behavior, not an error)
+        logger.info(f"Experiment {experiment_id} paused: {e}")
+        persistence.update_experiment_status(experiment_id, 'paused')
     except Exception as e:
         logger.error(f"Experiment {experiment_id} failed: {e}")
-        # Check if this was due to pause
-        if pause_coordinator.should_pause(experiment_id):
-            persistence.update_experiment_status(experiment_id, 'paused')
-        else:
-            persistence.update_experiment_status(experiment_id, 'failed', str(e))
+        persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
-        # Clean up thread reference (use pop to avoid race condition)
-        _active_experiments.pop(experiment_id, None)
+        # Clean up thread reference with lock for thread safety
+        with _active_experiments_lock:
+            _active_experiments.pop(experiment_id, None)
 
 
 @experiment_bp.route('/api/experiments', methods=['POST'])
@@ -1621,8 +2169,9 @@ def create_experiment():
             args=(experiment_id, config_data),
             daemon=True
         )
-        _active_experiments[experiment_id] = thread
-        thread.start()
+        with _active_experiments_lock:
+            _active_experiments[experiment_id] = thread
+            thread.start()
 
         return jsonify({
             'success': True,
@@ -1714,17 +2263,42 @@ def get_experiment_games(experiment_id: int):
 
 @experiment_bp.route('/api/experiments/quick-prompts', methods=['GET'])
 def get_quick_prompts():
-    """Get quick prompt suggestions for common experiment scenarios."""
+    """Get quick prompt suggestions for common experiment scenarios.
+
+    Query params:
+        type: Optional filter by experiment type ('tournament', 'replay', or None for all)
+    """
+    experiment_type = request.args.get('type')
+
+    # Tournament prompts
+    tournament_prompts = [
+        {'id': 'compare_models', 'label': 'Compare Models', 'prompt': QUICK_PROMPTS['compare_models'], 'type': 'tournament'},
+        {'id': 'test_personalities', 'label': 'Test Personalities', 'prompt': QUICK_PROMPTS['test_personalities'], 'type': 'tournament'},
+        {'id': 'test_prompts', 'label': 'Test Prompt Components', 'prompt': QUICK_PROMPTS['test_prompts'], 'type': 'tournament'},
+        {'id': 'minimal_prompts', 'label': 'Minimal vs Full Prompts', 'prompt': QUICK_PROMPTS['minimal_prompts'], 'type': 'tournament'},
+        {'id': 'baseline', 'label': 'Baseline Measurement', 'prompt': QUICK_PROMPTS['baseline'], 'type': 'tournament'},
+        {'id': 'quick_test', 'label': 'Quick Test', 'prompt': QUICK_PROMPTS['quick_test'], 'type': 'tournament'},
+    ]
+
+    # Replay prompts
+    replay_prompts = [
+        {'id': 'replay_model_comparison', 'label': 'Compare Models on Decisions', 'prompt': QUICK_PROMPTS['replay_model_comparison'], 'type': 'replay'},
+        {'id': 'replay_prompt_variants', 'label': 'Test Prompt Variants', 'prompt': QUICK_PROMPTS['replay_prompt_variants'], 'type': 'replay'},
+        {'id': 'replay_guidance_injection', 'label': 'Test Guidance Injection', 'prompt': QUICK_PROMPTS['replay_guidance_injection'], 'type': 'replay'},
+    ]
+
+    # Filter by type if specified
+    if experiment_type == 'tournament':
+        prompts = tournament_prompts
+    elif experiment_type == 'replay':
+        prompts = replay_prompts
+    else:
+        # Return all prompts when no type filter (for initial type selection)
+        prompts = tournament_prompts + replay_prompts
+
     return jsonify({
         'success': True,
-        'prompts': [
-            {'id': 'compare_models', 'label': 'Compare Models', 'prompt': QUICK_PROMPTS['compare_models']},
-            {'id': 'test_personalities', 'label': 'Test Personalities', 'prompt': QUICK_PROMPTS['test_personalities']},
-            {'id': 'test_prompts', 'label': 'Test Prompt Components', 'prompt': QUICK_PROMPTS['test_prompts']},
-            {'id': 'minimal_prompts', 'label': 'Minimal vs Full Prompts', 'prompt': QUICK_PROMPTS['minimal_prompts']},
-            {'id': 'baseline', 'label': 'Baseline Measurement', 'prompt': QUICK_PROMPTS['baseline']},
-            {'id': 'quick_test', 'label': 'Quick Test', 'prompt': QUICK_PROMPTS['quick_test']},
-        ],
+        'prompts': prompts,
     })
 
 
@@ -1906,8 +2480,9 @@ def resume_experiment(experiment_id: int):
             args=(experiment_id, incomplete, config_dict),
             daemon=True
         )
-        _active_experiments[experiment_id] = thread
-        thread.start()
+        with _active_experiments_lock:
+            _active_experiments[experiment_id] = thread
+            thread.start()
 
         logger.info(f"Resuming experiment {experiment_id} with {len(incomplete)} incomplete tournaments")
 
@@ -2197,4 +2772,5 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
         else:
             persistence.update_experiment_status(experiment_id, 'failed', str(e))
     finally:
-        _active_experiments.pop(experiment_id, None)
+        with _active_experiments_lock:
+            _active_experiments.pop(experiment_id, None)

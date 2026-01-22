@@ -1,4 +1,4 @@
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -25,6 +25,12 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Experiments',
     icon: <Beaker size={24} />,
     description: 'Design and run AI tournament experiments',
+  },
+  {
+    id: 'presets',
+    label: 'Presets',
+    icon: <BookMarked size={24} />,
+    description: 'Manage reusable prompt configurations',
   },
   {
     id: 'templates',

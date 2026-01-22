@@ -489,6 +489,10 @@ class AIPlayerController:
         if self.prompt_config.tilt_effects:
             message = self.psychology.apply_tilt_effects(message)
 
+        # Apply guidance injection (for experiments - extra instructions appended to prompt)
+        if self.prompt_config.guidance_injection:
+            message = message + "\n\n" + "ADDITIONAL GUIDANCE:\n" + self.prompt_config.guidance_injection
+
         print(message)
 
         # Context for fallback
