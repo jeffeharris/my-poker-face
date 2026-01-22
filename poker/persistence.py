@@ -112,7 +112,11 @@ class GamePersistence:
         if not cards_data:
             return tuple()
         return tuple(self._deserialize_card(card_data) for card_data in cards_data)
-    
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Create a new database connection with standard timeout."""
+        return sqlite3.connect(self.db_path, timeout=5.0)
+
     def _init_db(self):
         """Initialize the database schema.
 
@@ -146,7 +150,7 @@ class GamePersistence:
         24. experiments - Experiment metadata and config (v43)
         25. experiment_games - Links games to experiments (v43)
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # 1. Schema version tracking - must be first
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS schema_version (
@@ -581,6 +585,7 @@ class GamePersistence:
                     prompt_config_json TEXT,
                     stack_bb REAL,
                     already_bet_bb REAL,
+                    owner_id TEXT,
                     parent_id INTEGER,
                     error_type TEXT,
                     error_description TEXT,
@@ -590,6 +595,7 @@ class GamePersistence:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
@@ -889,7 +895,7 @@ class GamePersistence:
 
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             try:
                 cursor = conn.execute("SELECT MAX(version) FROM schema_version")
                 result = cursor.fetchone()[0]
@@ -966,6 +972,7 @@ class GamePersistence:
             56: (self._migrate_v56_add_exploitative_guidance, "Add exploitative guidance to pro and competitive presets"),
             57: (self._migrate_v57_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
             58: (self._migrate_v58_fix_squashed_features, "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns"),
+            59: (self._migrate_v59_add_owner_id_to_captures, "Add owner_id to prompt_captures for user tracking"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2433,6 +2440,7 @@ class GamePersistence:
 
         logger.info("Migration v51 complete: stack_bb and already_bet_bb added to prompt_captures")
 
+<<<<<<< HEAD
     def _migrate_v52_add_rbac_tables(self, conn: sqlite3.Connection) -> None:
         """Migration v52: Add RBAC tables for role-based access control.
 
@@ -2801,6 +2809,21 @@ class GamePersistence:
 
         logger.info("Migration v58 complete: fixed missing v54 squashed feature columns")
 
+    def _migrate_v59_add_owner_id_to_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v59: Add owner_id to prompt_captures.
+
+        This column enables tracking which user generated an image or triggered
+        an AI decision, even when the game is not associated with a specific user.
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'owner_id' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN owner_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)")
+            logger.info("Added owner_id column to prompt_captures")
+
+        logger.info("Migration v59 complete: owner_id added to prompt_captures")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2822,7 +2845,7 @@ class GamePersistence:
         game_json = json.dumps(state_dict)
         llm_configs_json = json.dumps(llm_configs) if llm_configs else None
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Use ON CONFLICT DO UPDATE to preserve columns not being updated
             # (like debug_capture_enabled) instead of INSERT OR REPLACE which
             # deletes and re-inserts, resetting unspecified columns to defaults
@@ -2852,7 +2875,7 @@ class GamePersistence:
     
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
         """Load a game state from the database."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM games WHERE game_id = ?", 
@@ -2889,7 +2912,7 @@ class GamePersistence:
         Returns:
             Dict with 'player_llm_configs' and 'default_llm_config', or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT llm_configs_json FROM games WHERE game_id = ?",
@@ -2917,7 +2940,7 @@ class GamePersistence:
 
         tracker_json = json.dumps(tracker_dict)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO tournament_tracker (game_id, tracker_json, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -2935,7 +2958,7 @@ class GamePersistence:
         Returns:
             Dict that can be passed to TournamentTracker.from_dict(), or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT tracker_json FROM tournament_tracker WHERE game_id = ?",
                 (game_id,)
@@ -2949,7 +2972,7 @@ class GamePersistence:
 
     def list_games(self, owner_id: Optional[str] = None, limit: int = 20) -> List[SavedGame]:
         """List saved games, most recently updated first. Filter by owner_id if provided."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             
             if owner_id:
@@ -2984,7 +3007,7 @@ class GamePersistence:
     
     def count_user_games(self, owner_id: str) -> int:
         """Count how many games a user owns."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT COUNT(*) FROM games WHERE owner_id = ?
             """, (owner_id,))
@@ -3036,7 +3059,7 @@ class GamePersistence:
         user_id = f"google_{google_sub}"
         now = datetime.utcnow().isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO users (id, email, name, picture, created_at, last_login, linked_guest_id, is_guest)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 0)
@@ -3067,7 +3090,7 @@ class GamePersistence:
         Returns:
             User dict if found, None otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM users WHERE id = ?",
@@ -3087,7 +3110,7 @@ class GamePersistence:
         Returns:
             User dict if found, None otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM users WHERE email = ?",
@@ -3107,7 +3130,7 @@ class GamePersistence:
         Returns:
             User dict if found, None otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM users WHERE linked_guest_id = ?",
@@ -3124,7 +3147,7 @@ class GamePersistence:
         Args:
             user_id: The user's unique identifier
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 "UPDATE users SET last_login = ? WHERE id = ?",
                 (datetime.utcnow().isoformat(), user_id)
@@ -3143,7 +3166,7 @@ class GamePersistence:
         Returns:
             Number of games transferred
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 UPDATE games
                 SET owner_id = ?, owner_name = ?, updated_at = CURRENT_TIMESTAMP
@@ -3406,7 +3429,7 @@ class GamePersistence:
         Returns:
             Set of all provider names in enabled_models table.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT DISTINCT provider
                 FROM enabled_models
@@ -3420,7 +3443,7 @@ class GamePersistence:
             Dict mapping provider name to list of enabled model names.
             Example: {'openai': ['gpt-4o', 'gpt-5-nano'], 'groq': ['llama-3.1-8b-instant']}
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT provider, model
@@ -3442,7 +3465,7 @@ class GamePersistence:
         Returns:
             List of dicts with provider, model, enabled, user_enabled, display_name, etc.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, provider, model, enabled, user_enabled, display_name, notes,
@@ -3459,7 +3482,7 @@ class GamePersistence:
         Returns:
             True if model was found and updated, False otherwise.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 UPDATE enabled_models
                 SET enabled = ?, updated_at = CURRENT_TIMESTAMP
@@ -3473,7 +3496,7 @@ class GamePersistence:
         Returns:
             True if model was found and updated, False otherwise.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 UPDATE enabled_models
                 SET display_name = COALESCE(?, display_name),
@@ -3485,7 +3508,7 @@ class GamePersistence:
 
     def delete_game(self, game_id: str) -> None:
         """Delete a game and all associated data."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Delete all associated data (order matters for foreign keys)
             conn.execute("DELETE FROM personality_snapshots WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM ai_player_state WHERE game_id = ?", (game_id,))
@@ -3494,7 +3517,7 @@ class GamePersistence:
     
     def save_message(self, game_id: str, message_type: str, message_text: str) -> None:
         """Save a game message/event."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO game_messages (game_id, message_type, message_text)
                 VALUES (?, ?, ?)
@@ -3502,7 +3525,7 @@ class GamePersistence:
     
     def load_messages(self, game_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Load recent messages for a game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM game_messages
@@ -3606,7 +3629,7 @@ class GamePersistence:
                             messages: List[Dict[str, str]], 
                             personality_state: Dict[str, Any]) -> None:
         """Save AI player conversation history and personality state."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conversation_history = json.dumps(messages)
             personality_json = json.dumps(personality_state)
             
@@ -3618,7 +3641,7 @@ class GamePersistence:
     
     def load_ai_player_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all AI player states for a game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT player_name, conversation_history, personality_state
@@ -3639,7 +3662,7 @@ class GamePersistence:
                                  hand_number: int, traits: Dict[str, Any], 
                                  pressure_levels: Optional[Dict[str, float]] = None) -> None:
         """Save a snapshot of personality state for elasticity tracking."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO personality_snapshots
                 (player_name, game_id, hand_number, personality_traits, pressure_levels)
@@ -3660,7 +3683,7 @@ class GamePersistence:
         # Remove elasticity_config from main config if it exists (to store separately)
         config_without_elasticity = {k: v for k, v in config.items() if k != 'elasticity_config'}
         
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Check if elasticity_config column exists
             cursor = conn.execute("PRAGMA table_info(personalities)")
             columns = [row[1] for row in cursor.fetchall()]
@@ -3681,7 +3704,7 @@ class GamePersistence:
     
     def load_personality(self, name: str) -> Optional[Dict[str, Any]]:
         """Load a personality configuration from the database."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             
             # Check if elasticity_config column exists
@@ -3720,7 +3743,7 @@ class GamePersistence:
     
     def increment_personality_usage(self, name: str) -> None:
         """Increment the usage counter for a personality."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 UPDATE personalities 
                 SET times_used = times_used + 1 
@@ -3729,7 +3752,7 @@ class GamePersistence:
     
     def list_personalities(self, limit: int = 50) -> List[Dict[str, Any]]:
         """List all personalities with metadata."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT name, source, created_at, updated_at, times_used, is_generated
@@ -3754,7 +3777,7 @@ class GamePersistence:
     def delete_personality(self, name: str) -> bool:
         """Delete a personality from the database."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.execute(
                     "DELETE FROM personalities WHERE name = ?",
                     (name,)
@@ -3780,7 +3803,7 @@ class GamePersistence:
         else:
             state_dict = emotional_state
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO emotional_state
                 (game_id, player_name, valence, arousal, control, focus,
@@ -3810,7 +3833,7 @@ class GamePersistence:
         Returns:
             Dict suitable for EmotionalState.from_dict(), or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM emotional_state
@@ -3842,7 +3865,7 @@ class GamePersistence:
         Returns:
             Dict mapping player_name -> emotional_state dict
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM emotional_state
@@ -3883,7 +3906,7 @@ class GamePersistence:
         tilt_state = psychology.get('tilt')
         elastic_personality = psychology.get('elastic')
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO controller_state
                 (game_id, player_name, tilt_state_json, elastic_personality_json, prompt_config_json, updated_at)
@@ -3902,7 +3925,7 @@ class GamePersistence:
         Returns:
             Dict with 'tilt_state', 'elastic_personality', and 'prompt_config' keys, or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT tilt_state_json, elastic_personality_json, prompt_config_json
@@ -3935,7 +3958,7 @@ class GamePersistence:
         Returns:
             Dict mapping player_name -> controller state dict
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json
@@ -3963,12 +3986,12 @@ class GamePersistence:
 
     def delete_emotional_state_for_game(self, game_id: str) -> None:
         """Delete all emotional states for a game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("DELETE FROM emotional_state WHERE game_id = ?", (game_id,))
 
     def delete_controller_state_for_game(self, game_id: str) -> None:
         """Delete all controller states for a game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("DELETE FROM controller_state WHERE game_id = ?", (game_id,))
 
     # Opponent Model Persistence Methods
@@ -3988,7 +4011,7 @@ class GamePersistence:
         if not models_dict:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
@@ -4048,7 +4071,7 @@ class GamePersistence:
         """
         models_dict = {}
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Load all opponent models for this game
@@ -4119,7 +4142,7 @@ class GamePersistence:
 
     def delete_opponent_models_for_game(self, game_id: str) -> None:
         """Delete all opponent models for a game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
             conn.execute("DELETE FROM memorable_hands WHERE game_id = ?", (game_id,))
 
@@ -4139,7 +4162,7 @@ class GamePersistence:
         else:
             hand_dict = recorded_hand
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 INSERT OR REPLACE INTO hand_history
                 (game_id, hand_number, timestamp, players_json, hole_cards_json,
@@ -4178,7 +4201,7 @@ class GamePersistence:
         else:
             c = commentary
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO hand_commentary
                 (game_id, hand_number, player_name, emotional_reaction,
@@ -4208,7 +4231,7 @@ class GamePersistence:
         Returns:
             List of dicts with hand_number, strategic_reflection, key_insight
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT hand_number, strategic_reflection, key_insight,
@@ -4230,7 +4253,7 @@ class GamePersistence:
         Returns:
             The maximum hand_number for this game, or 0 if no hands recorded
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT MAX(hand_number) FROM hand_history WHERE game_id = ?",
                 (game_id,)
@@ -4250,7 +4273,7 @@ class GamePersistence:
         """
         hands = []
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             query = """
@@ -4289,7 +4312,7 @@ class GamePersistence:
 
     def delete_hand_history_for_game(self, game_id: str) -> None:
         """Delete all hand history for a game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("DELETE FROM hand_history WHERE game_id = ?", (game_id,))
 
     def get_session_stats(self, game_id: str, player_name: str) -> Dict[str, Any]:
@@ -4321,7 +4344,7 @@ class GamePersistence:
             'recent_hands': []
         }
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get all hands for this game, ordered by hand_number
@@ -4464,7 +4487,7 @@ class GamePersistence:
                    starting_player_count, human_player_name, human_finishing_position,
                    started_at, standings (list of player standings)
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Save main tournament result
             conn.execute("""
                 INSERT OR REPLACE INTO tournament_results
@@ -4508,7 +4531,7 @@ class GamePersistence:
 
     def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
         """Load tournament result for a completed game."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get main result
@@ -4579,7 +4602,7 @@ class GamePersistence:
 
         biggest_pot = tournament_result.get('biggest_pot', 0)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Check if player exists
             cursor = conn.execute("""
                 SELECT * FROM player_career_stats WHERE player_name = ?
@@ -4649,7 +4672,7 @@ class GamePersistence:
 
     def get_career_stats(self, player_name: str) -> Optional[Dict[str, Any]]:
         """Get career stats for a player."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM player_career_stats WHERE player_name = ?
@@ -4673,7 +4696,7 @@ class GamePersistence:
 
     def get_tournament_history(self, player_name: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Get tournament history for a player."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT tr.*, ts.finishing_position, ts.eliminated_by
@@ -4704,7 +4727,7 @@ class GamePersistence:
 
         Returns a list of personalities with the first time they were eliminated.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             # Get unique personalities eliminated by this player, with first elimination date
             cursor = conn.execute("""
@@ -4749,7 +4772,7 @@ class GamePersistence:
             full_width: Width of full image
             full_height: Height of full image
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO avatar_images
                 (personality_name, emotion, image_data, content_type, width, height, file_size,
@@ -4779,7 +4802,7 @@ class GamePersistence:
         Returns:
             Image bytes if found, None otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT image_data FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
@@ -4794,7 +4817,7 @@ class GamePersistence:
         Returns:
             Dict with image_data, content_type, width, height, file_size or None
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT image_data, content_type, width, height, file_size
@@ -4824,7 +4847,7 @@ class GamePersistence:
         Returns:
             Full image bytes if found, None otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT full_image_data FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
@@ -4839,7 +4862,7 @@ class GamePersistence:
         Returns:
             Dict with full_image_data, content_type, full_width, full_height, full_file_size or None
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT full_image_data, content_type, full_width, full_height, full_file_size
@@ -4861,7 +4884,7 @@ class GamePersistence:
 
     def has_full_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if a full avatar image exists for the given personality and emotion."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT 1 FROM avatar_images
                 WHERE personality_name = ? AND emotion = ? AND full_image_data IS NOT NULL
@@ -4870,7 +4893,7 @@ class GamePersistence:
 
     def has_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if an avatar image exists for the given personality and emotion."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT 1 FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
@@ -4879,7 +4902,7 @@ class GamePersistence:
 
     def get_available_avatar_emotions(self, personality_name: str) -> List[str]:
         """Get list of emotions that have avatar images for a personality."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT emotion FROM avatar_images
                 WHERE personality_name = ?
@@ -4899,7 +4922,7 @@ class GamePersistence:
         Returns:
             Number of images deleted
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 DELETE FROM avatar_images WHERE personality_name = ?
             """, (personality_name,))
@@ -4911,7 +4934,7 @@ class GamePersistence:
         Returns:
             List of dicts with personality_name and emotion_count
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT personality_name, COUNT(*) as emotion_count
@@ -4926,7 +4949,7 @@ class GamePersistence:
 
     def get_avatar_stats(self) -> Dict[str, Any]:
         """Get statistics about avatar images in the database."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Total count
@@ -5023,7 +5046,7 @@ class GamePersistence:
         Returns:
             The ID of the inserted capture.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO prompt_captures (
                     -- Identity
@@ -5106,7 +5129,7 @@ class GamePersistence:
 
         Joins with api_usage to get cached_tokens, reasoning_tokens, and estimated_cost.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             # Join with api_usage to get usage metrics (cached tokens, reasoning tokens, cost)
             cursor = conn.execute("""
@@ -5217,7 +5240,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get total count
@@ -5277,7 +5300,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
             cursor = conn.execute(f"""
                 SELECT action_taken, COUNT(*) as count
@@ -5321,7 +5344,7 @@ class GamePersistence:
         notes: Optional[str] = None
     ) -> bool:
         """Update tags and notes for a prompt capture."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             if notes is not None:
                 conn.execute(
                     "UPDATE prompt_captures SET tags = ?, notes = ? WHERE id = ?",
@@ -5357,7 +5380,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute(f"DELETE FROM prompt_captures {where_clause}", params)
             conn.commit()
             return cursor.rowcount
@@ -5407,7 +5430,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get total count
@@ -5457,7 +5480,7 @@ class GamePersistence:
 
     def get_playground_capture_stats(self) -> Dict[str, Any]:
         """Get aggregate statistics for all prompt captures."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Count by call_type (legacy captures without call_type shown as 'player_decision')
@@ -5503,7 +5526,7 @@ class GamePersistence:
         if retention_days <= 0:
             return 0  # Unlimited retention
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 DELETE FROM prompt_captures
                 WHERE call_type IS NOT NULL
@@ -5533,7 +5556,7 @@ class GamePersistence:
         else:
             data = analysis
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO player_decision_analysis (
                     request_id, capture_id,
@@ -5582,7 +5605,7 @@ class GamePersistence:
 
     def get_decision_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
         """Get a single decision analysis by ID."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE id = ?",
@@ -5595,7 +5618,7 @@ class GamePersistence:
 
     def get_decision_analysis_by_request(self, request_id: str) -> Optional[Dict[str, Any]]:
         """Get decision analysis by api_usage request_id."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE request_id = ?",
@@ -5613,7 +5636,7 @@ class GamePersistence:
         Note: request_id fallback only works when request_id is non-empty,
         as some providers (Google/Gemini) don't return request IDs.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             # First try direct capture_id link (preferred, always reliable)
             cursor = conn.execute(
@@ -5673,7 +5696,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get total count
@@ -5719,7 +5742,7 @@ class GamePersistence:
         where_clause = "WHERE game_id = ?" if game_id else ""
         params = [game_id] if game_id else []
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Count by quality
             cursor = conn.execute(f"""
                 SELECT decision_quality, COUNT(*) as count
@@ -5787,7 +5810,7 @@ class GamePersistence:
         if not name:
             raise ValueError("Experiment name is required")
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json, parent_experiment_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -5826,7 +5849,7 @@ class GamePersistence:
         Returns:
             The experiment_games record ID
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO experiment_games (experiment_id, game_id, variant, variant_config_json, tournament_number)
                 VALUES (?, ?, ?, ?, ?)
@@ -5847,7 +5870,7 @@ class GamePersistence:
             experiment_id: The experiment ID
             summary: Optional summary dictionary with aggregated results
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 UPDATE experiments
                 SET status = 'completed',
@@ -5867,7 +5890,7 @@ class GamePersistence:
         Returns:
             Dictionary with experiment details or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT id, name, description, hypothesis, tags, notes, config_json,
                        status, created_at, completed_at, summary_json, parent_experiment_id
@@ -5901,7 +5924,7 @@ class GamePersistence:
         Returns:
             Dictionary with experiment details or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("SELECT id FROM experiments WHERE name = ?", (name,))
             row = cursor.fetchone()
             if not row:
@@ -5917,7 +5940,7 @@ class GamePersistence:
         Returns:
             List of dictionaries with game link details
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
                        eg.tournament_number, eg.created_at
@@ -6132,7 +6155,7 @@ class GamePersistence:
                 - avg_ev_lost: Average EV lost per decision
                 - by_player: Stats broken down by player
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Build query with optional variant filter
             variant_clause = "AND eg.variant = ?" if variant else ""
             params = [experiment_id]
@@ -6207,7 +6230,7 @@ class GamePersistence:
         Returns:
             List of experiment dictionaries with basic info and progress
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Build query with optional filters
             conditions = []
             params = []
@@ -6286,7 +6309,7 @@ class GamePersistence:
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             if status == 'completed':
                 conn.execute("""
                     UPDATE experiments
@@ -6316,7 +6339,7 @@ class GamePersistence:
             experiment_id: The experiment ID
             tags: List of tags to set (replaces existing tags)
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiments SET tags = ? WHERE id = ?",
                 (json.dumps(tags), experiment_id)
@@ -6333,7 +6356,7 @@ class GamePersistence:
         Returns:
             Number of experiments marked as interrupted.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute("""
                 UPDATE experiments
                 SET status = 'interrupted',
@@ -6358,7 +6381,7 @@ class GamePersistence:
             List of dicts with game info for incomplete tournaments:
             [{'game_id': str, 'variant': str|None, 'variant_config': dict|None, 'tournament_number': int}]
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT eg.game_id, eg.variant, eg.variant_config_json, eg.tournament_number
@@ -6406,7 +6429,7 @@ class GamePersistence:
             config_snapshot: Current config state
             config_versions: List of config version snapshots
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO experiment_chat_sessions (id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -6441,7 +6464,7 @@ class GamePersistence:
                 'updated_at': str
             }
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
@@ -6477,7 +6500,7 @@ class GamePersistence:
                 'updated_at': str
             }
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
@@ -6505,7 +6528,7 @@ class GamePersistence:
         Args:
             session_id: The session ID to archive
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiment_chat_sessions SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (session_id,)
@@ -6519,7 +6542,7 @@ class GamePersistence:
         Args:
             session_id: The session ID to delete
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute("DELETE FROM experiment_chat_sessions WHERE id = ?", (session_id,))
             conn.commit()
             logger.debug(f"Deleted chat session {session_id}")
@@ -6535,7 +6558,7 @@ class GamePersistence:
             experiment_id: The experiment ID
             chat_history: List of chat messages from the design session
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiments SET design_chat_json = ? WHERE id = ?",
                 (json.dumps(chat_history), experiment_id)
@@ -6552,7 +6575,7 @@ class GamePersistence:
         Returns:
             List of chat messages or None if no design chat stored
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT design_chat_json FROM experiments WHERE id = ?",
                 (experiment_id,)
@@ -6571,7 +6594,7 @@ class GamePersistence:
             experiment_id: The experiment ID
             chat_history: List of chat messages from the assistant session
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiments SET assistant_chat_json = ? WHERE id = ?",
                 (json.dumps(chat_history), experiment_id)
@@ -6588,7 +6611,7 @@ class GamePersistence:
         Returns:
             List of chat messages or None if no assistant chat stored
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT assistant_chat_json FROM experiments WHERE id = ?",
                 (experiment_id,)
@@ -6621,7 +6644,7 @@ class GamePersistence:
                 'overall': { ... same structure ... }
             }
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Get experiment config for max_hands calculation
             exp = self.get_experiment(experiment_id)
             if not exp:
@@ -7073,7 +7096,7 @@ class GamePersistence:
                 }
             ]
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get all games for this experiment (stable order by game_id)
@@ -7212,7 +7235,7 @@ class GamePersistence:
                 'recent_decisions': [ { hand_number, phase, action, decision_quality, ev_lost } ]
             }
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Verify game belongs to experiment and get variant config
@@ -7397,7 +7420,7 @@ class GamePersistence:
             The setting value, or default if not found
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.execute(
                     "SELECT value FROM app_settings WHERE key = ?",
                     (key,)
@@ -7420,7 +7443,7 @@ class GamePersistence:
             True if successful
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 conn.execute("""
                     INSERT INTO app_settings (key, value, description, updated_at)
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -7443,7 +7466,7 @@ class GamePersistence:
             Dict mapping setting keys to their values and metadata
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute("""
                     SELECT key, value, description, updated_at
@@ -7471,7 +7494,7 @@ class GamePersistence:
             True if the setting was deleted, False if not found
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.execute(
                     "DELETE FROM app_settings WHERE key = ?",
                     (key,)
@@ -7510,7 +7533,7 @@ class GamePersistence:
             ValueError: If a preset with the same name already exists
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.execute("""
                     INSERT INTO prompt_presets (name, description, prompt_config, guidance_injection, owner_id)
                     VALUES (?, ?, ?, ?, ?)
@@ -7537,7 +7560,7 @@ class GamePersistence:
         Returns:
             Preset data as dict, or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
@@ -7569,7 +7592,7 @@ class GamePersistence:
         Returns:
             Preset data as dict, or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
@@ -7606,7 +7629,7 @@ class GamePersistence:
         Returns:
             List of preset data dicts
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             if owner_id:
                 # Include system presets for all users, plus user's own presets
@@ -7688,7 +7711,7 @@ class GamePersistence:
         params.append(preset_id)
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.execute(
                     f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ?",
                     params
@@ -7711,7 +7734,7 @@ class GamePersistence:
             True if the preset was deleted, False if not found
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.execute(
                     "DELETE FROM prompt_presets WHERE id = ?",
                     (preset_id,)
@@ -7747,7 +7770,7 @@ class GamePersistence:
             List of labels that were actually added (excludes duplicates)
         """
         added = []
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             for label in labels:
                 label = label.strip().lower()
                 if not label:
@@ -7843,7 +7866,7 @@ class GamePersistence:
         Returns:
             Number of labels that were removed
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             total_removed = 0
             for label in labels:
                 label = label.strip().lower()
@@ -7868,7 +7891,7 @@ class GamePersistence:
         Returns:
             List of label dicts with 'label', 'label_type', 'created_at'
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT label, label_type, created_at
@@ -7887,7 +7910,7 @@ class GamePersistence:
         Returns:
             List of dicts with 'name', 'count', 'label_type'
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             if label_type:
                 cursor = conn.execute("""
@@ -7937,7 +7960,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(f"""
                 SELECT cl.label, COUNT(*) as count
@@ -8067,7 +8090,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Build label matching subquery
@@ -8169,7 +8192,7 @@ class GamePersistence:
         total_added = 0
         captures_touched = set()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             for capture_id in capture_ids:
                 for label in labels:
                     try:
@@ -8208,7 +8231,7 @@ class GamePersistence:
         if not labels or not capture_ids:
             return {'captures_affected': 0, 'labels_removed': 0}
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Build query with multiple capture_ids
             id_placeholders = ','.join(['?' for _ in capture_ids])
             label_placeholders = ','.join(['?' for _ in labels])
@@ -8269,7 +8292,7 @@ class GamePersistence:
             'variants': variants
         }
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Create the experiment record
             cursor = conn.execute("""
                 INSERT INTO experiments (
@@ -8358,7 +8381,7 @@ class GamePersistence:
         Returns:
             The replay_results record ID
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Get original action and quality for comparison
             cursor = conn.execute("""
                 SELECT original_action, original_quality, original_ev_lost
@@ -8414,7 +8437,7 @@ class GamePersistence:
         Returns:
             Experiment data with capture count and result progress, or None
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get experiment
@@ -8488,7 +8511,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}"
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get total count
@@ -8528,7 +8551,7 @@ class GamePersistence:
         Returns:
             Dict with summary statistics by variant
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             # Overall stats
             cursor = conn.execute("""
                 SELECT
@@ -8600,7 +8623,7 @@ class GamePersistence:
         Returns:
             List of capture details with original info
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT rec.*, pc.player_name, pc.phase, pc.pot_odds,
@@ -8639,7 +8662,7 @@ class GamePersistence:
 
         where_clause = f"WHERE {' AND '.join(conditions)}"
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
 
             # Get total count

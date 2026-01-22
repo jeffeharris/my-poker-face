@@ -401,6 +401,7 @@ def capture_prompt(
     game_id: Optional[str] = None,
     player_name: Optional[str] = None,
     hand_number: Optional[int] = None,
+    owner_id: Optional[str] = None,
     debug_mode: bool = False,
     enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> bool:
@@ -454,6 +455,7 @@ def capture_prompt(
         # Build base capture data
         capture_data = {
             'game_id': game_id,
+            'owner_id': owner_id,
             'player_name': player_name,
             'hand_number': hand_number,
             'phase': call_type.value,  # Default phase from call_type
@@ -484,7 +486,7 @@ def capture_prompt(
         with sqlite3.connect(db_path) as conn:
             conn.execute("""
                 INSERT INTO prompt_captures (
-                    game_id, player_name, hand_number, phase, call_type,
+                    game_id, owner_id, player_name, hand_number, phase, call_type,
                     system_prompt, user_message, ai_response,
                     conversation_history, raw_api_response,
                     provider, model, reasoning_effort,
@@ -497,6 +499,7 @@ def capture_prompt(
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 capture_data.get('game_id'),
+                capture_data.get('owner_id'),
                 capture_data.get('player_name'),
                 capture_data.get('hand_number'),
                 capture_data.get('phase'),
@@ -664,8 +667,9 @@ def capture_image_prompt(
                     provider, model, latency_ms,
                     is_image_capture, image_prompt, image_url, image_data,
                     image_size, image_width, image_height,
-                    target_personality, target_emotion, reference_image_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    target_personality, target_emotion, reference_image_id,
+                    owner_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 game_id,
                 target_personality,  # Use as player_name for filtering
@@ -687,6 +691,7 @@ def capture_image_prompt(
                 target_personality,
                 target_emotion,
                 reference_image_id,
+                owner_id,
             ))
 
             capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
