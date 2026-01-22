@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Settings, ArrowLeft, CheckCircle } from 'lucide-react';
 import { ExperimentChat, type InitialMessage } from './ExperimentChat';
 import { ConfigPreview } from './ConfigPreview';
-import type { ExperimentConfig, ConfigVersion, ChatMessage } from './types';
+import type { ExperimentConfig, ConfigVersion, ChatMessage, ExperimentType } from './types';
 import './MobileExperimentDesign.css';
 
 type DesignTab = 'chat' | 'configure';
@@ -14,6 +14,8 @@ interface MobileExperimentDesignProps {
   onConfigUpdate: (updates: Partial<ExperimentConfig>) => void;
   onLaunch: () => void;
   onBack: () => void;
+  experimentType?: ExperimentType | 'undetermined';
+  onExperimentTypeChange?: (type: ExperimentType | 'undetermined') => void;
   initialMessage?: InitialMessage | null;
   initialChatHistory?: ChatMessage[];
   configVersions?: ConfigVersion[];
@@ -39,6 +41,8 @@ export function MobileExperimentDesign({
   onConfigUpdate,
   onLaunch,
   onBack,
+  experimentType,
+  onExperimentTypeChange,
   initialMessage,
   initialChatHistory,
   configVersions,
@@ -129,6 +133,8 @@ export function MobileExperimentDesign({
               sessionId={sessionId}
               onSessionIdChange={onSessionIdChange}
               onConfigUpdate={onConfigUpdate}
+              experimentType={experimentType}
+              onExperimentTypeChange={onExperimentTypeChange}
               initialMessage={initialMessage}
               initialChatHistory={initialChatHistory}
               configVersions={configVersions}

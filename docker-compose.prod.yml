@@ -86,22 +86,11 @@ services:
     networks:
       - poker-network
 
-  metabase:
-    image: metabase/metabase
-    restart: unless-stopped
-    volumes:
-      - ./data:/data:ro
-      - metabase-data:/metabase-data
-    environment:
-      - MB_DB_FILE=/metabase-data/metabase.db
-    networks:
-      - poker-network
 
 volumes:
   redis-data:
   caddy-data:
   caddy-config:
-  metabase-data:
 
 networks:
   poker-network:
