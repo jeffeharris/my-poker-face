@@ -5,7 +5,7 @@ import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { useViewport } from '../../../hooks/useViewport';
 import { MobileFilterSheet } from '../shared/MobileFilterSheet';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
+import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, LabelStats } from './types';
 import { InterrogationChat } from './InterrogationChat';
 import './DecisionAnalyzer.css';
 
@@ -35,6 +35,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
 
   const [captures, setCaptures] = useState<PromptCapture[]>([]);
   const [stats, setStats] = useState<CaptureStats | null>(null);
+  const [labelStats, setLabelStats] = useState<LabelStats | null>(null);
   const [analysisStats, setAnalysisStats] = useState<DecisionAnalysisStats | null>(null);
   const [selectedCapture, setSelectedCapture] = useState<PromptCapture | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<DecisionAnalysis | null>(null);
@@ -131,6 +132,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
       if (filters.action) params.set('action', filters.action);
       if (filters.phase) params.set('phase', filters.phase);
       if (filters.min_pot_odds !== undefined) params.set('min_pot_odds', filters.min_pot_odds.toString());
+      if (filters.min_pot_size !== undefined) params.set('min_pot_size', filters.min_pot_size.toString());
+      if (filters.max_pot_size !== undefined) params.set('max_pot_size', filters.max_pot_size.toString());
+      if (filters.min_big_blind !== undefined) params.set('min_big_blind', filters.min_big_blind.toString());
+      if (filters.max_big_blind !== undefined) params.set('max_big_blind', filters.max_big_blind.toString());
+      if (filters.labels && filters.labels.length > 0) params.set('labels', filters.labels.join(','));
+      if (filters.labelMatchAll) params.set('label_match_all', 'true');
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
 
@@ -146,6 +153,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
       const data = await response.json();
       setCaptures(data.captures || []);
       setStats(data.stats);
+      setLabelStats(data.label_stats || null);
       setTotal(data.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -320,7 +328,31 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
     if (filters.action) count++;
     if (filters.phase) count++;
     if (filters.min_pot_odds !== undefined) count++;
+    if (filters.labels && filters.labels.length > 0) count += filters.labels.length;
     return count;
+  };
+
+  // Toggle a label in the filter
+  const toggleLabelFilter = (label: string) => {
+    const currentLabels = filters.labels || [];
+    const newLabels = currentLabels.includes(label)
+      ? currentLabels.filter(l => l !== label)
+      : [...currentLabels, label];
+    setFilters({ ...filters, labels: newLabels.length > 0 ? newLabels : undefined, offset: 0 });
+  };
+
+  // Format label name for display
+  const formatLabelName = (label: string) => {
+    return label.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  // Get severity class for label
+  const getLabelSeverity = (label: string): 'high' | 'medium' | 'low' => {
+    const highSeverity = ['fold_mistake', 'high_ev_loss', 'short_stack_fold', 'pot_committed_fold'];
+    const mediumSeverity = ['bad_all_in', 'suspicious_fold'];
+    if (highSeverity.includes(label)) return 'high';
+    if (mediumSeverity.includes(label)) return 'medium';
+    return 'low';
   };
 
   const activeFilterCount = getActiveFilterCount();
@@ -375,7 +407,17 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
               {capture.player_hand.join(' ')}
             </div>
           )}
-          {isSuspiciousFold(capture) && (
+          {/* Display labels for this capture */}
+          {capture.labels && capture.labels.length > 0 && (
+            <div className="capture-labels">
+              {capture.labels.map(({ label }) => (
+                <span key={label} className={`capture-label capture-label--${getLabelSeverity(label)}`}>
+                  {formatLabelName(label)}
+                </span>
+              ))}
+            </div>
+          )}
+          {isSuspiciousFold(capture) && !capture.labels?.some(l => l.label === 'suspicious_fold') && (
             <div className="suspicious-badge">Suspicious Fold</div>
           )}
         </div>
@@ -517,6 +559,24 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
               </div>
             </div>
           )}
+          {/* Label stats row - clickable chips */}
+          {labelStats && Object.keys(labelStats).length > 0 && (
+            <div className="stat-row label-stats-row">
+              {Object.entries(labelStats)
+                .filter(([, count]) => count > 0)
+                .map(([label, count]) => (
+                  <button
+                    key={label}
+                    className={`label-chip label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
+                    onClick={() => toggleLabelFilter(label)}
+                    type="button"
+                  >
+                    <span className="label-chip__count">{count}</span>
+                    <span className="label-chip__name">{formatLabelName(label)}</span>
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -556,7 +616,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
               })}
             />
 
-            <button onClick={() => setFilters({ limit: 50, offset: 0 })}>
+            <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined })}>
               Clear Filters
             </button>
 
@@ -1454,11 +1514,33 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
             />
           </div>
 
+          {/* Label filter chips */}
+          {labelStats && Object.keys(labelStats).length > 0 && (
+            <div className="debugger-filter-group">
+              <label className="debugger-filter-label">Labels</label>
+              <div className="debugger-filter-chips">
+                {Object.entries(labelStats)
+                  .filter(([, count]) => count > 0)
+                  .map(([label, count]) => (
+                    <button
+                      key={label}
+                      className={`label-chip label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
+                      onClick={() => toggleLabelFilter(label)}
+                      type="button"
+                    >
+                      <span className="label-chip__count">{count}</span>
+                      <span className="label-chip__name">{formatLabelName(label)}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <div className="debugger-filter-actions">
             <button
               className="debugger-filter-clear"
               onClick={() => {
-                setFilters({ limit: 50, offset: 0 });
+                setFilters({ limit: 50, offset: 0, labels: undefined });
                 setFilterSheetOpen(false);
               }}
               type="button"

@@ -4307,6 +4307,7 @@ class GamePersistence:
                     game_id, player_name, hand_number,
                     -- Game State
                     phase, pot_total, cost_to_call, pot_odds, player_stack,
+                    stack_bb, already_bet_bb,
                     community_cards, player_hand, valid_actions,
                     -- Decision
                     action_taken, raise_amount,
@@ -4326,7 +4327,7 @@ class GamePersistence:
                     tags, notes,
                     -- Prompt Config (for analysis)
                     prompt_config_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -4338,6 +4339,8 @@ class GamePersistence:
                 capture.get('cost_to_call'),
                 capture.get('pot_odds'),
                 capture.get('player_stack'),
+                capture.get('stack_bb'),
+                capture.get('already_bet_bb'),
                 json.dumps(capture.get('community_cards')) if capture.get('community_cards') else None,
                 json.dumps(capture.get('player_hand')) if capture.get('player_hand') else None,
                 json.dumps(capture.get('valid_actions')) if capture.get('valid_actions') else None,
@@ -6705,6 +6708,49 @@ class GamePersistence:
             logger.debug(f"Added labels {added} to capture {capture_id}")
         return added
 
+    def compute_and_store_auto_labels(self, capture_id: int, capture_data: Dict[str, Any]) -> List[str]:
+        """Compute auto-labels for a capture based on rules and store them.
+
+        Labels are computed based on the capture data at capture time.
+        Stored with label_type='auto' to distinguish from user-added labels.
+
+        Args:
+            capture_id: The prompt_captures ID
+            capture_data: Dict containing capture fields (action_taken, pot_odds, stack_bb, already_bet_bb, etc.)
+
+        Returns:
+            List of auto-labels that were added
+        """
+        labels = []
+        action = capture_data.get('action_taken')
+        pot_odds = capture_data.get('pot_odds')
+        stack_bb = capture_data.get('stack_bb')
+        already_bet_bb = capture_data.get('already_bet_bb')
+
+        # SHORT_STACK: Folding with < 3 BB is almost always wrong
+        if action == 'fold' and stack_bb is not None and stack_bb < 3:
+            labels.append('short_stack_fold')
+
+        # POT_COMMITTED: Folding after investing more than remaining stack
+        if (action == 'fold' and
+                already_bet_bb is not None and
+                stack_bb is not None and
+                already_bet_bb > stack_bb):
+            labels.append('pot_committed_fold')
+
+        # SUS_FOLD: Suspicious fold - high pot odds (getting good price)
+        if action == 'fold' and pot_odds is not None and pot_odds >= 5:
+            # Only add if not already flagged with more specific labels
+            if 'short_stack_fold' not in labels and 'pot_committed_fold' not in labels:
+                labels.append('suspicious_fold')
+
+        # Store labels if any were computed
+        if labels:
+            self.add_capture_labels(capture_id, labels, label_type='auto')
+            logger.debug(f"Auto-labeled capture {capture_id}: {labels}")
+
+        return labels
+
     def remove_capture_labels(
         self,
         capture_id: int,
@@ -6782,6 +6828,49 @@ class GamePersistence:
                 """)
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_label_stats(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        call_type: Optional[str] = None
+    ) -> Dict[str, int]:
+        """Get label counts filtered by game_id, player_name, and/or call_type.
+
+        Args:
+            game_id: Optional filter by game
+            player_name: Optional filter by player
+            call_type: Optional filter by call type
+
+        Returns:
+            Dict mapping label name to count
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("pc.game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("pc.player_name = ?")
+            params.append(player_name)
+        if call_type:
+            conditions.append("pc.call_type = ?")
+            params.append(call_type)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(f"""
+                SELECT cl.label, COUNT(*) as count
+                FROM capture_labels cl
+                JOIN prompt_captures pc ON cl.capture_id = pc.id
+                {where_clause}
+                GROUP BY cl.label
+                ORDER BY count DESC, cl.label
+            """, params)
+            return {row['label']: row['count'] for row in cursor.fetchall()}
+
     def search_captures_with_labels(
         self,
         labels: List[str],
@@ -6792,6 +6881,11 @@ class GamePersistence:
         phase: Optional[str] = None,
         min_pot_odds: Optional[float] = None,
         max_pot_odds: Optional[float] = None,
+        call_type: Optional[str] = None,
+        min_pot_size: Optional[float] = None,
+        max_pot_size: Optional[float] = None,
+        min_big_blind: Optional[float] = None,
+        max_big_blind: Optional[float] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -6806,6 +6900,11 @@ class GamePersistence:
             phase: Optional filter by game phase
             min_pot_odds: Optional minimum pot odds filter
             max_pot_odds: Optional maximum pot odds filter
+            call_type: Optional filter by call type (e.g., 'player_decision')
+            min_pot_size: Optional minimum pot total filter
+            max_pot_size: Optional maximum pot total filter
+            min_big_blind: Optional minimum big blind filter (computed from stack_bb)
+            max_big_blind: Optional maximum big blind filter (computed from stack_bb)
             limit: Maximum results to return
             offset: Pagination offset
 
@@ -6823,6 +6922,7 @@ class GamePersistence:
                 phase=phase,
                 min_pot_odds=min_pot_odds,
                 max_pot_odds=max_pot_odds,
+                call_type=call_type,
                 limit=limit,
                 offset=offset
             )
@@ -6849,6 +6949,22 @@ class GamePersistence:
         if max_pot_odds is not None:
             conditions.append("pc.pot_odds <= ?")
             params.append(max_pot_odds)
+        if call_type:
+            conditions.append("pc.call_type = ?")
+            params.append(call_type)
+        if min_pot_size is not None:
+            conditions.append("pc.pot_total >= ?")
+            params.append(min_pot_size)
+        if max_pot_size is not None:
+            conditions.append("pc.pot_total <= ?")
+            params.append(max_pot_size)
+        # Big blind filtering: compute BB from player_stack / stack_bb
+        if min_big_blind is not None:
+            conditions.append("pc.stack_bb > 0 AND (pc.player_stack / pc.stack_bb) >= ?")
+            params.append(min_big_blind)
+        if max_big_blind is not None:
+            conditions.append("pc.stack_bb > 0 AND (pc.player_stack / pc.stack_bb) <= ?")
+            params.append(max_big_blind)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
