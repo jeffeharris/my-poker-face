@@ -47,10 +47,13 @@ def get_capture_db_path() -> str:
     if env_path:
         return env_path
 
-    # Auto-detect (legacy behavior)
+    # Auto-detect based on environment
     if Path('/app/data').exists():
         return '/app/data/poker_games.db'
-    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    
+    # Default to data directory in project root
+    project_root = Path(__file__).parent.parent.parent
+    return str(project_root / 'data' / 'poker_games.db')
 
 
 @dataclass
@@ -655,8 +658,6 @@ def capture_image_prompt(
                     logger.debug(f"Could not get image dimensions: {e}")
             except Exception as e:
                 logger.warning(f"Failed to download image for capture: {e}")
-                # Continue without image data - at least capture the prompt
-
         db_path = get_capture_db_path()
 
         with sqlite3.connect(db_path) as conn:

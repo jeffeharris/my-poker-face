@@ -58,8 +58,16 @@ class SavedGame:
 class GamePersistence:
     """Handles persistence of poker games to SQLite database."""
 
-    def __init__(self, db_path: str = "poker_games.db"):
+    def __init__(self, db_path: str = "data/poker_games.db"):
         self.db_path = db_path
+        # Ensure directory exists
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+            except OSError as e:
+                logger.warning(f"Could not create database directory {db_dir}: {e}")
+        
         self._enable_wal_mode()
         self._init_db()
         self._run_migrations()
@@ -536,7 +544,7 @@ class GamePersistence:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)")
 
-            # 21. Prompt captures (v18, v19, v24, v30, v33, v39, v53)
+            # 21. Prompt captures (v18, v19, v24, v30, v33, v39, v53, v52)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_captures (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -596,21 +604,22 @@ class GamePersistence:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
-            # These indexes are on columns added by migrations v33, v39, and v53
+            # These indexes are on columns added by migrations v33, v39, v52, and v53
             # Use try-except to handle older databases that haven't been migrated yet
             try:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)")
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
 
             # 21b. Reference images (v53) - for image-to-image generation
             conn.execute("""
