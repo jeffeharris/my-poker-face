@@ -616,6 +616,25 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
               })}
             />
 
+            {/* Label filter chips - desktop */}
+            {labelStats && Object.keys(labelStats).length > 0 && (
+              <div className="debugger-filter-chips debugger-filter-chips--inline">
+                {Object.entries(labelStats)
+                  .filter(([, count]) => count > 0)
+                  .map(([label, count]) => (
+                    <button
+                      key={label}
+                      className={`label-chip label-chip--small label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
+                      onClick={() => toggleLabelFilter(label)}
+                      type="button"
+                    >
+                      <span className="label-chip__count">{count}</span>
+                      <span className="label-chip__name">{formatLabelName(label)}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+
             <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined })}>
               Clear Filters
             </button>

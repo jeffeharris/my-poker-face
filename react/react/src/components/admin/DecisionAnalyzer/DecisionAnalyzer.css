@@ -1883,6 +1883,32 @@
   gap: 0.5rem;
 }
 
+/* Inline filter chips for desktop filter bar */
+.debugger-filter-chips--inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+/* Smaller chips for desktop filter bar */
+.label-chip--small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  border-radius: 12px;
+}
+
+.label-chip--small .label-chip__count {
+  min-width: 1rem;
+}
+
+.label-chip--small .label-chip__name {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ========== Capture Labels (on list items) ========== */
 
 .capture-labels {
