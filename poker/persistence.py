@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 # v56: Add exploitative guidance to pro and competitive presets
 # v57: Add raise_amount_bb to player_decision_analysis for BB-normalized mode
 # v58: Fix v54 squash - apply missing heartbeat, outcome, and system preset columns
-SCHEMA_VERSION = 58
+# v59: Add owner_id to prompt_captures for multi-user tracking
+SCHEMA_VERSION = 59
 
 
 @dataclass
@@ -975,7 +976,7 @@ class GamePersistence:
             59: (self._migrate_v59_add_owner_id_to_captures, "Add owner_id to prompt_captures for user tracking"),
         }
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             for version in range(current_version + 1, SCHEMA_VERSION + 1):
                 if version in migrations:
                     migrate_func, description = migrations[version]
@@ -2440,7 +2441,6 @@ class GamePersistence:
 
         logger.info("Migration v51 complete: stack_bb and already_bet_bb added to prompt_captures")
 
-<<<<<<< HEAD
     def _migrate_v52_add_rbac_tables(self, conn: sqlite3.Connection) -> None:
         """Migration v52: Add RBAC tables for role-based access control.
 
