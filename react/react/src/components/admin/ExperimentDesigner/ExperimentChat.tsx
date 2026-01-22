@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Loader2, Sparkles, GitCompare } from 'lucide-react';
-import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage } from './types';
+import { Send, Loader2, Sparkles, GitCompare, Beaker, Repeat2 } from 'lucide-react';
+import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage, ExperimentType } from './types';
 import { config as appConfig } from '../../../config';
 
 interface QuickPrompt {
   id: string;
   label: string;
   prompt: string;
+  type?: 'tournament' | 'replay';
 }
 
 export interface InitialMessage {
@@ -27,6 +28,10 @@ export interface ExperimentChatProps {
   onConfigVersionsChange?: (versions: ConfigVersion[]) => void;
   currentVersionIndex?: number;
   onCurrentVersionIndexChange?: (index: number) => void;
+  /** Current experiment type (tournament, replay, or undetermined) */
+  experimentType?: ExperimentType | 'undetermined';
+  /** Callback when experiment type changes */
+  onExperimentTypeChange?: (type: ExperimentType | 'undetermined') => void;
 }
 
 export function ExperimentChat({
@@ -40,6 +45,8 @@ export function ExperimentChat({
   onConfigVersionsChange,
   currentVersionIndex: _currentVersionIndex,
   onCurrentVersionIndexChange,
+  experimentType = 'undetermined',
+  onExperimentTypeChange,
 }: ExperimentChatProps) {
   // Initialize messages from initial history if provided
   const [messages, setMessages] = useState<ChatMessage[]>(initialChatHistory || []);
@@ -50,13 +57,18 @@ export function ExperimentChat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasSentInitialMessage = useRef(false);
 
-  // Fetch quick prompts on mount
+  // Fetch quick prompts - refetch when experiment type changes
   useEffect(() => {
+    console.log('[ExperimentChat] experimentType changed to:', experimentType);
     const fetchQuickPrompts = async () => {
       try {
-        const response = await fetch(`${appConfig.API_URL}/api/experiments/quick-prompts`);
+        // Pass type filter if determined, otherwise fetch all
+        const typeParam = experimentType !== 'undetermined' ? `?type=${experimentType}` : '';
+        console.log('[ExperimentChat] Fetching quick prompts with type:', typeParam || 'all');
+        const response = await fetch(`${appConfig.API_URL}/api/experiments/quick-prompts${typeParam}`);
         const data = await response.json();
         if (data.success) {
+          console.log('[ExperimentChat] Got prompts:', data.prompts.length);
           setQuickPrompts(data.prompts);
         }
       } catch (err) {
@@ -64,7 +76,7 @@ export function ExperimentChat({
       }
     };
     fetchQuickPrompts();
-  }, []);
+  }, [experimentType]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -72,7 +84,7 @@ export function ExperimentChat({
   }, [messages]);
 
   // Define sendMessage BEFORE the useEffect that uses it
-  const sendMessage = useCallback(async (messageText: string, contextForFailure?: LabAssistantContext | null) => {
+  const sendMessage = useCallback(async (messageText: string, contextForFailure?: LabAssistantContext | null, forceExperimentType?: ExperimentType) => {
     if (!messageText.trim() || loading) return;
 
     // Add user message to display
@@ -90,6 +102,7 @@ export function ExperimentChat({
           session_id: sessionId,
           current_config: config,
           failure_context: contextForFailure || null,
+          experiment_type: forceExperimentType || experimentType,
         }),
       });
 
@@ -99,6 +112,11 @@ export function ExperimentChat({
         // Update session ID if new
         if (data.session_id && data.session_id !== sessionId) {
           onSessionIdChange(data.session_id);
+        }
+
+        // Update experiment type if returned from backend
+        if (data.experiment_type && data.experiment_type !== experimentType) {
+          onExperimentTypeChange?.(data.experiment_type);
         }
 
         // Add assistant response with optional config diff
@@ -142,7 +160,7 @@ export function ExperimentChat({
     } finally {
       setLoading(false);
     }
-  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId, onConfigVersionsChange, onCurrentVersionIndexChange]);
+  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId, onConfigVersionsChange, onCurrentVersionIndexChange, experimentType, onExperimentTypeChange]);
 
   // Handle initial message on mount (e.g., for failure analysis)
   // Use ref to prevent double-send in React StrictMode (state checks are unreliable due to async updates)
@@ -156,10 +174,16 @@ export function ExperimentChat({
   // Add initial welcome message (only on mount when messages is empty and no initial history)
   useEffect(() => {
     if (messages.length === 0 && !initialMessage && !initialChatHistory) {
+      const welcomeMessage = experimentType === 'undetermined'
+        ? "Hi! I'm your Lab Assistant. What would you like to test?\n\nChoose an experiment type below, or just describe what you want to figure out and I'll help you design the right experiment."
+        : experimentType === 'tournament'
+        ? "Great! Let's design a tournament experiment. Tell me what you want to test, or use one of the quick prompts below to get started."
+        : "Great! Let's design a replay experiment. Tell me what you want to test with captured decisions, or use one of the quick prompts below to get started.";
+
       setMessages([
         {
           role: 'assistant',
-          content: "Hi! I'm your Lab Assistant. Tell me what you want to test, and I'll help you configure an AI poker tournament experiment.\n\nYou can describe your testing goals, or use one of the quick prompts below to get started.",
+          content: welcomeMessage,
         },
       ]);
     }
@@ -179,7 +203,19 @@ export function ExperimentChat({
   };
 
   const handleQuickPrompt = (prompt: QuickPrompt) => {
-    sendMessage(prompt.prompt);
+    // If the prompt has a type and we haven't set one yet, set it
+    if (prompt.type && experimentType === 'undetermined') {
+      onExperimentTypeChange?.(prompt.type);
+    }
+    sendMessage(prompt.prompt, null, prompt.type);
+  };
+
+  // Handle direct type selection via buttons
+  const handleTypeSelection = (type: ExperimentType) => {
+    console.log('[ExperimentChat] handleTypeSelection called with:', type);
+    console.log('[ExperimentChat] onExperimentTypeChange exists:', !!onExperimentTypeChange);
+    onExperimentTypeChange?.(type);
+    // Don't send a message, just update the type - the UI will change to show type-specific prompts
   };
 
   return (
@@ -222,22 +258,59 @@ export function ExperimentChat({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Type Selection Buttons (shown when type is undetermined) */}
+      {messages.length <= 1 && experimentType === 'undetermined' && (
+        <div className="experiment-chat__type-selection">
+          <div className="experiment-chat__type-selection-label">
+            Choose experiment type:
+          </div>
+          <div className="experiment-chat__type-selection-buttons">
+            <button
+              className="experiment-chat__type-btn experiment-chat__type-btn--tournament"
+              onClick={() => handleTypeSelection('tournament')}
+              type="button"
+              disabled={loading}
+            >
+              <Beaker size={18} />
+              <div className="experiment-chat__type-btn-content">
+                <span className="experiment-chat__type-btn-title">Tournament</span>
+                <span className="experiment-chat__type-btn-desc">Run AI players against each other</span>
+              </div>
+            </button>
+            <button
+              className="experiment-chat__type-btn experiment-chat__type-btn--replay"
+              onClick={() => handleTypeSelection('replay')}
+              type="button"
+              disabled={loading}
+            >
+              <Repeat2 size={18} />
+              <div className="experiment-chat__type-btn-content">
+                <span className="experiment-chat__type-btn-title">Replay</span>
+                <span className="experiment-chat__type-btn-desc">Re-run captured decisions</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Quick Prompts */}
       {messages.length <= 1 && quickPrompts.length > 0 && (
         <div className="experiment-chat__quick-prompts">
           <div className="experiment-chat__quick-prompts-label">
             <Sparkles size={14} />
-            Quick Start
+            {experimentType === 'undetermined' ? 'Or start with a quick prompt:' : 'Quick Start'}
           </div>
           <div className="experiment-chat__quick-prompts-list">
             {quickPrompts.map((prompt) => (
               <button
                 key={prompt.id}
-                className="experiment-chat__quick-prompt-btn"
+                className={`experiment-chat__quick-prompt-btn ${prompt.type ? `experiment-chat__quick-prompt-btn--${prompt.type}` : ''}`}
                 onClick={() => handleQuickPrompt(prompt)}
                 type="button"
                 disabled={loading}
               >
+                {prompt.type === 'replay' && <Repeat2 size={12} />}
+                {prompt.type === 'tournament' && <Beaker size={12} />}
                 {prompt.label}
               </button>
             ))}

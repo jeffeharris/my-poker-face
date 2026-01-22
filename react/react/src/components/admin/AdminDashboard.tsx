@@ -5,6 +5,7 @@ import { PersonalityManager } from './PersonalityManager';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { PromptPlayground } from '../debug/PromptPlayground';
 import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
+import { PromptPresetManager } from './PromptPresetManager';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
@@ -79,6 +80,9 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
           onAssistantPanelChange={setAssistantPanelProps}
           onDesignModeChange={setIsDesignMode}
         />
+      )}
+      {activeTab === 'presets' && (
+        <PromptPresetManager embedded />
       )}
       {activeTab === 'templates' && (
         <TemplateEditor embedded />
