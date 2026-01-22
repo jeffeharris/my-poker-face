@@ -293,7 +293,7 @@ export function DecisionAnalyzer({ onBack, embedded = false }: DecisionAnalyzerP
   };
 
   const content = (
-    <div className="decision-analyzer">
+    <div className={`decision-analyzer${embedded ? ' decision-analyzer--embedded' : ''}`}>
       {/* Stats Summary */}
       {stats && (
         <div className="debugger-stats">
