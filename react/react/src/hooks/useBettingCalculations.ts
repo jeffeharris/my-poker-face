@@ -146,9 +146,12 @@ export function useBettingCalculations(
     const halfBB = bigBlind / 2;
     const snapIncrement = Math.max(5, Math.round(halfBB / 5) * 5);
 
-    // Round to nearest snap increment
+    // Round to nearest snap increment, relative to min raise
+    // This ensures consistent jumps from the starting point
     const roundToSnap = (value: number): number => {
-      return Math.round(value / snapIncrement) * snapIncrement;
+      const offset = value - safeMinRaiseTo;
+      const snappedOffset = Math.round(offset / snapIncrement) * snapIncrement;
+      return safeMinRaiseTo + snappedOffset;
     };
 
     // Magnetic snap points - pot fractions that the slider "sticks" to
@@ -163,8 +166,8 @@ export function useBettingCalculations(
 
     // Snap with magnetic attraction to pot fractions
     const snapWithMagnets = (value: number): number => {
-      // Check if we're close to a magnetic snap point (within 1BB)
-      const magnetThreshold = bigBlind;
+      // Check if we're close to a magnetic snap point (within 0.5BB / snap increment)
+      const magnetThreshold = snapIncrement;
       for (const snapPoint of magneticSnapPoints) {
         if (Math.abs(value - snapPoint) <= magnetThreshold) {
           return snapPoint;
