@@ -2922,7 +2922,14 @@ class GamePersistence:
 
         Returns:
             True if successful, False if group doesn't exist
+
+        Raises:
+            ValueError: If trying to assign a guest user to admin group (except guest_jeff for dev)
         """
+        # Prevent guest users from being assigned to admin group (except guest_jeff for dev)
+        if group_name == 'admin' and user_id.startswith('guest_') and user_id != 'guest_jeff':
+            raise ValueError("Guest users cannot be assigned to the admin group")
+
         with sqlite3.connect(self.db_path) as conn:
             # Get group ID
             cursor = conn.execute("SELECT id FROM groups WHERE name = ?", (group_name,))

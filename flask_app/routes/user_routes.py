@@ -81,6 +81,13 @@ def assign_user_group(user_id: str):
                 'error': f'Group {group_name} not found'
             }), 404
 
+    except ValueError as e:
+        # Guest user restriction or other validation error
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+
     except Exception as e:
         logger.error(f"Error assigning user to group: {e}")
         return jsonify({

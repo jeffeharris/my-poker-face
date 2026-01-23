@@ -119,6 +119,76 @@
   background: rgba(255, 193, 7, 0.03);
 }
 
+/* Guest badge */
+.um-user__guest {
+  color: var(--color-text-muted);
+  font-weight: normal;
+  margin-left: var(--space-1);
+  font-size: var(--font-size-xs);
+  background: var(--admin-card-bg);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--admin-card-border);
+}
+
+/* Actions column */
+.um-actions-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.um-actions__disabled {
+  color: var(--color-text-disabled);
+}
+
+/* Toggle button */
+.um-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.um-toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.um-toggle-btn--grant {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.um-toggle-btn--grant:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.um-toggle-btn--revoke {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.um-toggle-btn--revoke:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.um-toggle-btn__spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Responsive Adjustments */
 @media (max-width: 768px) {
   .um-stats {
@@ -140,13 +210,15 @@
     font-size: var(--font-size-xs);
   }
 
-  /* Hide Cost, Hands, Games columns on mobile (keep Name, Groups, Last Active) */
+  /* Hide Cost, Hands, Games, Last Active columns on mobile (keep Name, Groups, Actions) */
   .admin-table th:nth-child(3),
   .admin-table td:nth-child(3),
   .admin-table th:nth-child(4),
   .admin-table td:nth-child(4),
   .admin-table th:nth-child(5),
-  .admin-table td:nth-child(5) {
+  .admin-table td:nth-child(5),
+  .admin-table th:nth-child(6),
+  .admin-table td:nth-child(6) {
     display: none;
   }
 
@@ -156,6 +228,11 @@
   }
 
   .um-user__email {
+    display: none;
+  }
+
+  /* Compact toggle button on mobile */
+  .um-toggle-btn span {
     display: none;
   }
 }

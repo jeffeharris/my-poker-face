@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Shield, User, Users, RefreshCw } from 'lucide-react';
+import { Shield, User, Users, RefreshCw, ShieldCheck, ShieldOff, Loader2 } from 'lucide-react';
 import { config } from '../../config';
 import { useAuth } from '../../hooks/useAuth';
 import './AdminShared.css';
@@ -66,6 +66,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState<AlertState | null>(null);
+  const [togglingUser, setTogglingUser] = useState<string | null>(null);
 
   // Clear alert after timeout
   useEffect(() => {
@@ -107,6 +108,58 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  // Toggle admin status for a user
+  const toggleAdmin = useCallback(async (userId: string, isCurrentlyAdmin: boolean) => {
+    setTogglingUser(userId);
+    try {
+      const url = isCurrentlyAdmin
+        ? `${config.API_URL}/api/admin/users/${userId}/groups/admin`
+        : `${config.API_URL}/api/admin/users/${userId}/groups`;
+
+      const response = await fetch(url, {
+        method: isCurrentlyAdmin ? 'DELETE' : 'POST',
+        credentials: 'include',
+        headers: isCurrentlyAdmin ? undefined : { 'Content-Type': 'application/json' },
+        body: isCurrentlyAdmin ? undefined : JSON.stringify({ group: 'admin' }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update admin status');
+      }
+
+      // Update local state optimistically
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId
+            ? {
+                ...u,
+                groups: isCurrentlyAdmin
+                  ? u.groups.filter((g) => g !== 'admin')
+                  : [...u.groups, 'admin'],
+              }
+            : u
+        )
+      );
+
+      setAlert({
+        type: 'success',
+        message: isCurrentlyAdmin
+          ? `Removed admin access from ${users.find((u) => u.id === userId)?.name}`
+          : `Granted admin access to ${users.find((u) => u.id === userId)?.name}`,
+      });
+    } catch (error) {
+      console.error('Error toggling admin status:', error);
+      setAlert({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to update admin status',
+      });
+    } finally {
+      setTogglingUser(null);
+    }
+  }, [users]);
 
   // Render loading state
   if (loading) {
@@ -184,11 +237,16 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                 <th>Hands</th>
                 <th>Games</th>
                 <th>Last Active</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {users.map((user) => {
                 const isCurrentUser = user.id === currentUser?.id;
+                const isAdmin = user.groups.includes('admin');
+                const isToggling = togglingUser === user.id;
+                // Guest users can't be made admin (except guest_jeff for dev)
+                const canToggleAdmin = !user.is_guest || user.id === 'guest_jeff';
 
                 return (
                   <tr key={user.id} className={isCurrentUser ? 'um-row--current' : ''}>
@@ -210,6 +268,9 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                             {user.name}
                             {isCurrentUser && (
                               <span className="um-user__you">(you)</span>
+                            )}
+                            {user.is_guest && (
+                              <span className="um-user__guest">Guest</span>
                             )}
                           </span>
                           {user.email && (
@@ -244,6 +305,29 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                     <td className="um-stat-cell">{user.stats.games_completed}</td>
                     <td className="um-date-cell">
                       {formatDate(user.stats.last_active)}
+                    </td>
+                    <td className="um-actions-cell">
+                      {isCurrentUser ? (
+                        <span className="um-actions__disabled">-</span>
+                      ) : canToggleAdmin ? (
+                        <button
+                          className={`um-toggle-btn ${isAdmin ? 'um-toggle-btn--revoke' : 'um-toggle-btn--grant'}`}
+                          onClick={() => toggleAdmin(user.id, isAdmin)}
+                          disabled={isToggling}
+                          title={isAdmin ? 'Revoke admin access' : 'Grant admin access'}
+                        >
+                          {isToggling ? (
+                            <Loader2 size={14} className="um-toggle-btn__spinner" />
+                          ) : isAdmin ? (
+                            <ShieldOff size={14} />
+                          ) : (
+                            <ShieldCheck size={14} />
+                          )}
+                          <span>{isAdmin ? 'Revoke' : 'Grant'}</span>
+                        </button>
+                      ) : (
+                        <span className="um-actions__disabled" title="Guest users cannot be admins">-</span>
+                      )}
                     </td>
                   </tr>
                 );
