@@ -104,18 +104,22 @@ export function ActionButtons({
             <span className="bet-label">You'll {playerOptions.includes('raise') ? 'raise to' : 'bet'}:</span>
             <span className="bet-total">${betAmount}</span>
           </div>
-          {calc.callAmount > 0 && (
-            <div className="bet-breakdown">
-              <span className="call-portion">Call ${breakdown.callPortion}</span>
-              <span className="plus">+</span>
-              <span className="raise-portion">Raise ${breakdown.raisePortion}</span>
-            </div>
-          )}
+          <div className="bet-breakdown">
+            {calc.callAmount > 0 ? (
+              <>
+                <span className="call-portion">Call ${breakdown.callPortion}</span>
+                <span className="plus">+</span>
+                <span className="raise-portion">Raise ${breakdown.raisePortion}</span>
+              </>
+            ) : (
+              <span className="total-portion">Adding ${breakdown.totalToAdd} to pot</span>
+            )}
+          </div>
           <div className="stack-after">
             Stack after: ${breakdown.stackAfter}
           </div>
           <div className="snap-info">
-            Increments: ${calc.snapIncrement} (½ BB)
+            Increments: ${calc.snapIncrement}
           </div>
         </div>
 

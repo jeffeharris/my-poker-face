@@ -144,14 +144,18 @@ export function MobileActionButtons({
           </div>
         </div>
 
-        {/* Breakdown display - matches desktop */}
-        {calc.callAmount > 0 && (
-          <div className="raise-breakdown">
-            <span className="breakdown-call">Call ${breakdown.callPortion}</span>
-            <span className="breakdown-plus">+</span>
-            <span className="breakdown-raise">Raise ${breakdown.raisePortion}</span>
-          </div>
-        )}
+        {/* Breakdown display */}
+        <div className="raise-breakdown">
+          {calc.callAmount > 0 ? (
+            <>
+              <span className="breakdown-call">Call ${breakdown.callPortion}</span>
+              <span className="breakdown-plus">+</span>
+              <span className="breakdown-raise">Raise ${breakdown.raisePortion}</span>
+            </>
+          ) : (
+            <span className="breakdown-total">Adding ${breakdown.totalToAdd} to pot</span>
+          )}
+        </div>
 
         <div className="quick-bet-buttons">
           {calc.quickBets.map(({ label, amount, id }) => (

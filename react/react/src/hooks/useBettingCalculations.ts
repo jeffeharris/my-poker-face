@@ -141,9 +141,10 @@ export function useBettingCalculations(
       full: Math.max(safeMinRaiseTo, safePotSize),
     };
 
-    // Calculate snap increment based on big blind (0.5BB increments)
-    // This feels natural to poker players who think in BB
-    const snapIncrement = Math.max(1, Math.floor(bigBlind / 2));
+    // Calculate snap increment: 0.5BB rounded to nearest 5
+    // BB=75 → 37.5 → 40, BB=100 → 50, BB=20 → 10
+    const halfBB = bigBlind / 2;
+    const snapIncrement = Math.max(5, Math.round(halfBB / 5) * 5);
 
     // Round to nearest snap increment
     const roundToSnap = (value: number): number => {
