@@ -99,7 +99,7 @@ Your persona_response is what you say OUT LOUD to your opponents at the table. T
 
 Response format:
 You must always respond in JSON format with these fields:
-{"action": "...", "adding_to_pot": 0, "persona_response": "...", "inner_monologue": "..."}"""
+{"action": "...", "raise_to": 0, "persona_response": "...", "inner_monologue": "..."}"""
 
         # Note: These prompts include "Recent Actions" which already contain table chatter
         self.sample_decision_prompts = [
@@ -220,10 +220,10 @@ What is your move, Batman?"""
         ]
 
         self.sample_ai_responses = [
-            '{"action": "raise", "adding_to_pot": 30, "inner_monologue": "Premium hand in early position. Time to build a pot.", "persona_response": "The night is young, Joker."}',
-            '{"action": "raise", "adding_to_pot": 100, "inner_monologue": "Flopped a flush draw with two overs. Very strong.", "persona_response": "I see the fear in your eyes."}',
-            '{"action": "raise", "adding_to_pot": 300, "inner_monologue": "Made the flush. Time to extract maximum value.", "persona_response": "Justice comes for everyone, Joker."}',
-            '{"action": "check", "adding_to_pot": 0, "inner_monologue": "Already have the nuts. Let him bet into me.", "persona_response": "*silent stare*"}'
+            '{"action": "raise", "raise_to": 30, "inner_monologue": "Premium hand in early position. Time to build a pot.", "persona_response": "The night is young, Joker."}',
+            '{"action": "raise", "raise_to": 100, "inner_monologue": "Flopped a flush draw with two overs. Very strong.", "persona_response": "I see the fear in your eyes."}',
+            '{"action": "raise", "raise_to": 300, "inner_monologue": "Made the flush. Time to extract maximum value.", "persona_response": "Justice comes for everyone, Joker."}',
+            '{"action": "check", "raise_to": 0, "inner_monologue": "Already have the nuts. Let him bet into me.", "persona_response": "*silent stare*"}'
         ]
 
     def test_current_config_values(self):
@@ -512,9 +512,9 @@ Current: RIVER decision"""
 
         # Keep only the action part of previous decisions
         decision_history = [
-            {"action": "raise", "adding_to_pot": 30, "round": "PRE_FLOP"},
-            {"action": "raise", "adding_to_pot": 100, "round": "FLOP"},
-            {"action": "raise", "adding_to_pot": 300, "round": "TURN"},
+            {"action": "raise", "raise_to": 30, "round": "PRE_FLOP"},
+            {"action": "raise", "raise_to": 100, "round": "FLOP"},
+            {"action": "raise", "raise_to": 300, "round": "TURN"},
         ]
 
         compact_history = json.dumps(decision_history)

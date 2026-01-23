@@ -338,7 +338,7 @@ class ReplayExperimentRunner:
                 result_data = {"raw": response.content, "parse_error": True}
 
             new_action = result_data.get('action', 'unknown')
-            new_raise_amount = result_data.get('adding_to_pot')
+            new_raise_amount = result_data.get('raise_to')
 
             # Assess quality (simplified - could be enhanced)
             new_quality = self._assess_quality(capture, new_action, new_raise_amount)

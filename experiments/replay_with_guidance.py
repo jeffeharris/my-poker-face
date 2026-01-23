@@ -164,7 +164,7 @@ def replay_decision(capture: dict, guidance_text: str, verbose: bool = False) ->
 
     return {
         "action": result.get("action"),
-        "adding_to_pot": result.get("adding_to_pot"),
+        "raise_to": result.get("raise_to"),
         "inner_monologue": result.get("inner_monologue"),
         "full_response": result
     }
@@ -230,8 +230,8 @@ def main():
         try:
             result = replay_decision(capture, guidance_text, verbose=args.verbose)
             print(f"New action: {result['action']}")
-            if result.get('adding_to_pot'):
-                print(f"Adding to pot: {result['adding_to_pot']}")
+            if result.get('raise_to'):
+                print(f"Raise to: {result['raise_to']}")
             print(f"Inner monologue: {result.get('inner_monologue', 'N/A')[:200]}...")
 
             # Did it improve?

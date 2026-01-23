@@ -17,7 +17,7 @@ class TestSilentAIMessages(unittest.TestCase):
         # AI response without persona_response (quiet player)
         response_dict = {
             'action': 'fold',
-            'adding_to_pot': 0,
+            'raise_to': 0,
             'inner_monologue': 'Bad hand, better fold'
             # No persona_response or physical
         }
@@ -42,7 +42,7 @@ class TestSilentAIMessages(unittest.TestCase):
         # AI response with persona_response (chatty player)
         response_dict = {
             'action': 'raise',
-            'adding_to_pot': 100,
+            'raise_to': 100,
             'inner_monologue': 'Great hand!',
             'persona_response': 'Time to turn up the heat!',
             'physical': 'smirks confidently'
@@ -65,7 +65,7 @@ class TestSilentAIMessages(unittest.TestCase):
         # AI response with '...' (old behavior)
         response_dict = {
             'action': 'check',
-            'adding_to_pot': 0,
+            'raise_to': 0,
             'persona_response': '...',
             'physical': '...'
         }

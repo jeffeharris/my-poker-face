@@ -122,10 +122,10 @@ class TestResponseValidation(unittest.TestCase):
     
     def test_validate_valid_response(self):
         """Should pass through valid response."""
-        response = {"action": "call", "adding_to_pot": 100}
+        response = {"action": "call", "raise_to": 100}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
-        self.assertEqual(result, {"action": "call", "adding_to_pot": 100})
+        self.assertEqual(result, {"action": "call", "raise_to": 100})
     
     def test_validate_invalid_action(self):
         """Should fix invalid action."""
@@ -133,64 +133,64 @@ class TestResponseValidation(unittest.TestCase):
         valid_actions = ["fold", "check", "call"]
         result = validate_ai_response(response, valid_actions)
         self.assertIn(result["action"], valid_actions)
-        self.assertEqual(result["adding_to_pot"], 0)  # Check doesn't need amount
+        self.assertEqual(result["raise_to"], 0)  # Check doesn't need amount
     
     def test_validate_negative_amount(self):
         """Should fix negative amounts."""
         response = {"action": "raise", "amount": -50}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
-        self.assertEqual(result["adding_to_pot"], 0)
+        self.assertEqual(result["raise_to"], 0)
     
     def test_validate_non_dict_response(self):
         """Should handle non-dict responses."""
         result = validate_ai_response("not a dict", ["fold"])
-        self.assertEqual(result, {"action": "fold", "adding_to_pot": 0})
+        self.assertEqual(result, {"action": "fold", "raise_to": 0})
     
     def test_validate_string_amount(self):
         """Should convert string amounts to int."""
         response = {"action": "call", "amount": "100"}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
-        self.assertEqual(result["adding_to_pot"], 100)
+        self.assertEqual(result["raise_to"], 100)
     
     def test_validate_capitalized_action(self):
         """Should normalize capitalized actions to lowercase."""
         # Test "Raise" -> "raise"
-        response = {"action": "Raise", "adding_to_pot": 100}
+        response = {"action": "Raise", "raise_to": 100}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
         self.assertEqual(result["action"], "raise")
-        self.assertEqual(result["adding_to_pot"], 100)
+        self.assertEqual(result["raise_to"], 100)
         
         # Test "Call" -> "call"
-        response = {"action": "Call", "adding_to_pot": 50}
+        response = {"action": "Call", "raise_to": 50}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
         self.assertEqual(result["action"], "call")
-        self.assertEqual(result["adding_to_pot"], 50)
+        self.assertEqual(result["raise_to"], 50)
         
         # Test "Fold" -> "fold"
-        response = {"action": "Fold", "adding_to_pot": 0}
+        response = {"action": "Fold", "raise_to": 0}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
         self.assertEqual(result["action"], "fold")
-        self.assertEqual(result["adding_to_pot"], 0)
+        self.assertEqual(result["raise_to"], 0)
         
         # Test "Check" -> "check"
-        response = {"action": "Check", "adding_to_pot": 0}
+        response = {"action": "Check", "raise_to": 0}
         valid_actions = ["fold", "check"]
         result = validate_ai_response(response, valid_actions)
         self.assertEqual(result["action"], "check")
-        self.assertEqual(result["adding_to_pot"], 0)
+        self.assertEqual(result["raise_to"], 0)
     
     def test_validate_mixed_case_action(self):
         """Should normalize mixed-case actions to lowercase."""
-        response = {"action": "CALL", "adding_to_pot": 75}
+        response = {"action": "CALL", "raise_to": 75}
         valid_actions = ["fold", "call", "raise"]
         result = validate_ai_response(response, valid_actions)
         self.assertEqual(result["action"], "call")
-        self.assertEqual(result["adding_to_pot"], 75)
+        self.assertEqual(result["raise_to"], 75)
 
 
 class TestFallbackDecorator(unittest.TestCase):
@@ -272,7 +272,7 @@ class TestFallbackStrategies(unittest.TestCase):
         # Should call when check not available
         result = mock_ai_call(valid_actions=["fold", "call", "raise"], call_amount=50)
         self.assertEqual(result["action"], "call")
-        self.assertEqual(result["adding_to_pot"], 50)
+        self.assertEqual(result["raise_to"], 50)
         
         # Should fold when no other option
         result = mock_ai_call(valid_actions=["fold"])
