@@ -294,10 +294,16 @@ class PromptManager:
     def stop_hot_reload(self) -> None:
         """Stop the file watcher. Call this on shutdown."""
         if self._observer:
-            self._observer.stop()
-            self._observer.join(timeout=2.0)
-            self._observer = None
-            logger.info("[PromptManager] Hot-reload stopped")
+            try:
+                self._observer.stop()
+                # Only join if the observer thread was actually started
+                if self._observer.is_alive():
+                    self._observer.join(timeout=2.0)
+                logger.info("[PromptManager] Hot-reload stopped")
+            except Exception as e:
+                logger.debug(f"[PromptManager] Error stopping hot-reload: {e}")
+            finally:
+                self._observer = None
 
         if self._debounce_timer:
             self._debounce_timer.cancel()
@@ -417,7 +423,8 @@ class PromptManager:
         include_persona_response: bool = True,
         pot_committed_info: dict | None = None,
         short_stack_info: dict | None = None,
-        made_hand_info: dict | None = None
+        made_hand_info: dict | None = None,
+        equity_verdict_info: dict | None = None
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -430,6 +437,7 @@ class PromptManager:
             pot_committed_info: Dict with {pot_odds, required_equity, already_bet} if pot-committed
             short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
             made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
+            equity_verdict_info: Dict with {equity, required_equity, verdict, pot_odds} for GTO foundation
 
         Returns:
             Rendered decision prompt
@@ -470,6 +478,32 @@ class PromptManager:
                 sections_to_render.append(template.sections[section_name].format(
                     hand_name=made_hand_info.get('hand_name', 'a strong hand'),
                     equity=made_hand_info.get('equity', 0)
+                ))
+
+        # Include equity verdict if applicable (GTO foundation)
+        if equity_verdict_info:
+            # Get both equity values (fall back to equity_random if equity_ranges unavailable)
+            equity_random = equity_verdict_info.get('equity_random', equity_verdict_info.get('equity', 0))
+            equity_ranges = equity_verdict_info.get('equity_ranges', equity_random)
+            opponent_stats = equity_verdict_info.get('opponent_stats', '')
+
+            # Choose template based on whether verdict is provided
+            if equity_verdict_info.get('verdict') and 'equity_verdict_with_call' in template.sections:
+                sections_to_render.append(template.sections['equity_verdict_with_call'].format(
+                    equity_random=equity_random,
+                    equity_ranges=equity_ranges,
+                    required_equity=equity_verdict_info.get('required_equity', 0),
+                    pot_odds=equity_verdict_info.get('pot_odds', 0),
+                    verdict=equity_verdict_info.get('verdict', ''),
+                    opponent_stats=opponent_stats,
+                ))
+            elif 'equity_verdict' in template.sections:
+                sections_to_render.append(template.sections['equity_verdict'].format(
+                    equity_random=equity_random,
+                    equity_ranges=equity_ranges,
+                    required_equity=equity_verdict_info.get('required_equity', 0),
+                    pot_odds=equity_verdict_info.get('pot_odds', 0),
+                    opponent_stats=opponent_stats,
                 ))
 
         if include_mind_games and 'mind_games' in template.sections:

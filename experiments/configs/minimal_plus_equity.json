@@ -1,0 +1,62 @@
+{
+  "name": "minimal_plus_equity",
+  "description": "Test impact of equity comparison on minimal prompt baseline",
+  "hypothesis": "Adding equity comparison to minimal prompt improves decision quality without full prompt complexity",
+  "tags": ["minimal-prompt", "equity", "gto", "ablation"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 2000,
+  "big_blind": 40,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "control": {
+    "label": "Minimal-Only",
+    "prompt_config": {
+      "use_minimal_prompt": true,
+      "show_equity_always": false,
+      "show_equity_verdict": false
+    }
+  },
+  "variants": [
+    {
+      "label": "Minimal+Equity",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "show_equity_always": true,
+        "show_equity_verdict": false,
+        "situational_guidance": false,
+        "session_memory": false,
+        "opponent_intel": false,
+        "strategic_reflection": false,
+        "chattiness": false,
+        "emotional_state": false,
+        "tilt_effects": false,
+        "mind_games": false,
+        "persona_response": false
+      }
+    },
+    {
+      "label": "Minimal+Equity+Verdict",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "show_equity_always": true,
+        "show_equity_verdict": true,
+        "situational_guidance": false,
+        "session_memory": false,
+        "opponent_intel": false,
+        "strategic_reflection": false,
+        "chattiness": false,
+        "emotional_state": false,
+        "tilt_effects": false,
+        "mind_games": false,
+        "persona_response": false
+      }
+    }
+  ]
+}

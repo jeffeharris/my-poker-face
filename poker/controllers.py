@@ -30,6 +30,11 @@ from .minimal_prompt import (
     get_position_abbrev,
     to_bb,
 )
+from .hand_ranges import (
+    build_opponent_info,
+    calculate_equity_vs_ranges,
+    format_opponent_stats,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -567,6 +572,7 @@ class AIPlayerController:
         pot_committed_info = None
         short_stack_info = None
         made_hand_info = None
+        equity_verdict_info = None
 
         if self.prompt_config.situational_guidance:
             cost_to_call = context.get('call_amount', 0)
@@ -656,6 +662,121 @@ class AIPlayerController:
                             'tier': 'moderate'
                         }
 
+        # Calculate equity verdict if enabled (GTO foundation - always show the math)
+        if self.prompt_config.show_equity_always and cost_to_call > 0:
+            pot_total = game_state.pot.get('total', 0)
+            pot_odds = pot_total / cost_to_call if cost_to_call > 0 else 0
+            required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
+
+            # Convert cards for equity calculation
+            def card_to_str(c):
+                """Convert card (dict or Card object) to short string like '8h'."""
+                if isinstance(c, dict):
+                    rank = c.get('rank', '')
+                    suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
+                    if rank == '10':
+                        rank = 'T'
+                    return f"{rank}{suit}"
+                else:
+                    s = str(c)
+                    suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
+                    for symbol, letter in suit_map.items():
+                        s = s.replace(symbol, letter)
+                    s = s.replace('10', 'T')
+                    return s
+
+            hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
+            community_cards = [card_to_str(c) for c in game_state.community_cards]
+
+            # Calculate equity (post-flop) or use preflop estimates
+            if community_cards:
+                equity = calculate_quick_equity(hole_cards, community_cards)
+            else:
+                # Preflop: use hand ranking as rough equity estimate
+                canonical = _get_canonical_hand(hole_cards)
+                if canonical in PREMIUM_HANDS:
+                    equity = 0.75  # Premium hands ~75% equity vs random
+                elif canonical in TOP_10_HANDS:
+                    equity = 0.65  # Top 10% ~65% equity
+                elif canonical in TOP_20_HANDS:
+                    equity = 0.55  # Top 20% ~55% equity
+                elif canonical in TOP_35_HANDS:
+                    equity = 0.50  # Top 35% ~50% equity
+                else:
+                    equity = 0.40  # Below average ~40% equity
+
+            if equity is not None:
+                equity_pct = round(equity * 100)
+
+                # Calculate equity vs ranges (uses opponent position/stats)
+                equity_ranges_pct = None
+                opponent_stats_str = ""
+                try:
+                    # Get opponents still in hand
+                    opponents_in_hand = [
+                        p for p in game_state.players
+                        if not p.is_folded and p.name != player.name
+                    ]
+
+                    if opponents_in_hand:
+                        # Get positions
+                        table_positions = game_state.table_positions
+                        position_by_name = {name: pos for pos, name in table_positions.items()}
+
+                        # Build OpponentInfo objects
+                        opponent_infos = []
+                        for opp in opponents_in_hand:
+                            opp_position = position_by_name.get(opp.name, "button")
+
+                            # Get observed stats from opponent model manager
+                            opp_model_data = None
+                            if self.opponent_model_manager:
+                                opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                                if opp_model and opp_model.tendencies:
+                                    opp_model_data = opp_model.tendencies.to_dict()
+
+                            opponent_infos.append(build_opponent_info(
+                                name=opp.name,
+                                position=opp_position,
+                                opponent_model=opp_model_data,
+                            ))
+
+                        # Calculate equity vs ranges
+                        equity_vs_ranges = calculate_equity_vs_ranges(
+                            hole_cards, community_cards, opponent_infos, iterations=300
+                        )
+                        if equity_vs_ranges is not None:
+                            equity_ranges_pct = round(equity_vs_ranges * 100)
+
+                        # Format opponent stats for display
+                        opponent_stats_str = format_opponent_stats(opponent_infos)
+                except Exception as e:
+                    logger.debug(f"Range equity calculation failed: {e}")
+
+                # Determine verdict (consider both equities)
+                if self.prompt_config.show_equity_verdict:
+                    if equity_pct >= required_equity:
+                        if equity_ranges_pct is not None and equity_ranges_pct >= required_equity:
+                            verdict = "CALL is +EV vs both"
+                        elif equity_ranges_pct is not None:
+                            verdict = f"CALL +EV vs random, MARGINAL vs ranges"
+                        else:
+                            verdict = "CALL is +EV"
+                    else:
+                        verdict = "FOLD is correct"
+                else:
+                    verdict = None
+
+                equity_verdict_info = {
+                    'equity_random': equity_pct,
+                    'equity_ranges': equity_ranges_pct if equity_ranges_pct is not None else equity_pct,
+                    'required_equity': round(required_equity, 1),
+                    'verdict': verdict,
+                    'pot_odds': round(pot_odds, 1),
+                    'cost_to_call': cost_to_call,
+                    'opponent_stats': opponent_stats_str,
+                }
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
             message=message,
@@ -663,7 +784,8 @@ class AIPlayerController:
             include_persona_response=self.prompt_config.persona_response,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
-            made_hand_info=made_hand_info
+            made_hand_info=made_hand_info,
+            equity_verdict_info=equity_verdict_info
         )
 
         # Store capture_id via callback (keeps LLM layer decoupled from capture)

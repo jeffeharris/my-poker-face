@@ -8,7 +8,7 @@
   "num_players": 4,
   "starting_stack": 2000,
   "big_blind": 40,
-  "model": "gpt-4o-mini",
+  "model": "gpt-5-nano",
   "provider": "openai",
   "capture_prompts": true,
   "control": {

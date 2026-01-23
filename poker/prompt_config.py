@@ -32,6 +32,8 @@ class PromptConfig:
         mind_games: MIND GAMES instruction (read opponent table talk)
         persona_response: PERSONA RESPONSE instruction (trash talk guidance)
         situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
+        show_equity_always: Always show equity vs required equity comparison for all decisions
+        show_equity_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
     """
 
     # Game state components
@@ -55,6 +57,10 @@ class PromptConfig:
 
     # Situational guidance components (coaching for specific game states)
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand
+
+    # GTO Foundation components (math-first decision support)
+    show_equity_always: bool = False  # Always show equity verdict for all decisions
+    show_equity_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
 
     # Minimal prompt mode - strips everything to bare game state
     # When True, uses minimal_prompt.py instead of full prompt system

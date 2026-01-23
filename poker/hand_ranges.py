@@ -578,3 +578,142 @@ def build_opponent_info(
         info.aggression = opponent_model.get('aggression_factor')
 
     return info
+
+
+def calculate_equity_vs_ranges(
+    player_hand: List[str],
+    community_cards: List[str],
+    opponent_infos: List[OpponentInfo],
+    iterations: int = 500,
+) -> Optional[float]:
+    """Calculate equity vs opponent hand ranges using fallback hierarchy.
+
+    Uses the following priority for range estimation:
+    1. In-game observed stats (VPIP-based, if enough hands observed)
+    2. Position-based static ranges (fallback)
+
+    Args:
+        player_hand: Hero's hole cards as strings ['Ah', 'Kd']
+        community_cards: Board cards as strings
+        opponent_infos: List of OpponentInfo objects with position/stats
+        iterations: Monte Carlo iterations (default 500 for speed)
+
+    Returns:
+        Win probability (0.0-1.0) or None if calculation fails
+    """
+    try:
+        import eval7
+
+        def _convert_card(card_str: str) -> str:
+            """Convert card string to eval7 format (e.g., 'Ah' -> 'Ah')."""
+            if len(card_str) == 2:
+                return card_str
+            elif len(card_str) == 3 and card_str[0] == '1':
+                # Handle '10h' -> 'Th'
+                return 'T' + card_str[2]
+            return card_str
+
+        # Parse hero's hand
+        hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
+        board = [eval7.Card(_convert_card(c)) for c in community_cards] if community_cards else []
+
+        # Build set of excluded cards (hero's hand + board)
+        excluded_cards = set(player_hand + (community_cards or []))
+
+        # Build deck excluding known cards
+        all_known = set(hero_hand + board)
+        deck = [c for c in eval7.Deck().cards if c not in all_known]
+
+        wins = 0
+        valid_iterations = 0
+        rng = random.Random()
+        config = EquityConfig()
+
+        for _ in range(iterations):
+            # Sample opponent hands from ranges
+            opponent_hands_raw = sample_hands_for_opponent_infos(
+                opponent_infos, excluded_cards, config, rng
+            )
+
+            # Skip iteration if we couldn't sample valid hands
+            if None in opponent_hands_raw:
+                continue
+
+            valid_iterations += 1
+
+            # Convert to eval7 cards
+            opponent_hands = []
+            opp_cards_set = set()
+            for hand in opponent_hands_raw:
+                opp_hand = [eval7.Card(_convert_card(hand[0])), eval7.Card(_convert_card(hand[1]))]
+                opponent_hands.append(opp_hand)
+                opp_cards_set.add(opp_hand[0])
+                opp_cards_set.add(opp_hand[1])
+
+            # Build deck excluding all known cards for this iteration
+            iter_deck = [c for c in deck if c not in opp_cards_set]
+            rng.shuffle(iter_deck)
+
+            # Deal remaining board cards
+            cards_needed = 5 - len(board)
+            sim_board = board + iter_deck[:cards_needed]
+
+            # Evaluate hands
+            hero_score = eval7.evaluate(hero_hand + sim_board)
+
+            # Check if hero beats all opponents
+            hero_wins = True
+            for opp_hand in opponent_hands:
+                opp_score = eval7.evaluate(opp_hand + sim_board)
+                if opp_score > hero_score:  # Higher is better in eval7
+                    hero_wins = False
+                    break
+
+            if hero_wins:
+                wins += 1
+
+        return wins / valid_iterations if valid_iterations > 0 else None
+
+    except Exception as e:
+        logger.debug(f"Equity vs ranges calculation failed: {e}")
+        return None
+
+
+def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
+    """Format opponent stats for display in prompt.
+
+    Args:
+        opponent_infos: List of OpponentInfo objects
+
+    Returns:
+        Formatted string like "  BTN: loose (VPIP=35%, PFR=28%)\n  SB: tight (VPIP=18%)"
+    """
+    lines = []
+    for opp in opponent_infos:
+        # Get position abbreviation
+        pos_abbrev = opp.position.upper()[:3] if opp.position else "???"
+
+        # Determine tightness label
+        if opp.vpip is not None:
+            vpip_pct = int(opp.vpip * 100)
+            if vpip_pct >= 35:
+                tightness = "loose"
+            elif vpip_pct <= 20:
+                tightness = "tight"
+            else:
+                tightness = "average"
+
+            # Format stats
+            stats_parts = [f"VPIP={vpip_pct}%"]
+            if opp.pfr is not None:
+                stats_parts.append(f"PFR={int(opp.pfr * 100)}%")
+
+            lines.append(f"  {pos_abbrev}: {tightness} ({', '.join(stats_parts)})")
+        else:
+            # No observed stats - use position-based defaults
+            from .hand_ranges import get_position_group, get_range_percentage
+            pos_group = get_position_group(opp.position)
+            range_pct = int(get_range_percentage(pos_group) * 100)
+            lines.append(f"  {pos_abbrev}: position-based (~{range_pct}% range)")
+
+    return "\n".join(lines) if lines else ""
