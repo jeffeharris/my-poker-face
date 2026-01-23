@@ -2991,7 +2991,7 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             # Get total cost from api_usage
             cursor = conn.execute("""
-                SELECT COALESCE(SUM(cost), 0) as total_cost
+                SELECT COALESCE(SUM(estimated_cost), 0) as total_cost
                 FROM api_usage
                 WHERE owner_id = ?
             """, (user_id,))
