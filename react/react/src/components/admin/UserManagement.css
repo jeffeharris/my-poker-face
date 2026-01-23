@@ -157,6 +157,7 @@
 .um-toggle-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
@@ -165,6 +166,7 @@
   border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
+  min-width: 75px; /* Reserve space so Grant/Revoke don't shift */
 }
 
 .um-toggle-btn:disabled {
