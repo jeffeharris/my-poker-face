@@ -319,12 +319,38 @@
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .prm-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.prm-table thead {
+  display: block;
+  padding-right: 18px; /* Account for scrollbar width + buffer */
+  background: #1e2433;
+}
+
+.prm-table thead tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.prm-table tbody {
+  display: block;
+  max-height: 450px;
+  overflow-y: scroll;
+  padding-right: 10px; /* Buffer from edge */
+}
+
+.prm-table tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
 }
 
 .prm-table th {
@@ -336,7 +362,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: transparent;
 }
 
 .prm-table__th--sortable {
@@ -349,9 +375,22 @@
   color: var(--color-gold);
 }
 
-.prm-table__th--cost {
+.prm-table__th--cost,
+.prm-table__cost {
   text-align: right;
 }
+
+/* Column widths - Provider, Model, then cost columns */
+.prm-table th:nth-child(1),
+.prm-table td:nth-child(1) {
+  width: 100px;
+}
+
+.prm-table th:nth-child(n+3),
+.prm-table td:nth-child(n+3) {
+  width: 105px;
+}
+
 
 .prm-sort-indicator {
   margin-left: var(--space-1);
@@ -412,6 +451,7 @@
 .prm-table__model {
   font-family: var(--font-mono);
   color: var(--color-gold-light);
+  white-space: nowrap;
 }
 
 .prm-table__cost {
