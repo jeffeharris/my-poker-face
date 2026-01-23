@@ -281,22 +281,17 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                     </td>
                     <td>
                       <div className="um-groups">
-                        {user.groups.length > 0 ? (
-                          user.groups.map((group) => (
-                            <span
-                              key={group}
-                              className={`admin-badge ${
-                                group === 'admin'
-                                  ? 'admin-badge--warning'
-                                  : 'admin-badge--default'
-                              }`}
-                            >
-                              {group === 'admin' && <Shield size={12} />}
-                              {group}
-                            </span>
-                          ))
+                        {isAdmin ? (
+                          <span className="admin-badge admin-badge--warning">
+                            <Shield size={12} />
+                            admin
+                          </span>
+                        ) : user.groups.includes('user') ? (
+                          <span className="admin-badge admin-badge--default">
+                            user
+                          </span>
                         ) : (
-                          <span className="um-groups__none">-</span>
+                          <span className="um-groups__placeholder">-</span>
                         )}
                       </div>
                     </td>

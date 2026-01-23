@@ -103,6 +103,18 @@
   color: var(--color-text-disabled);
 }
 
+/* Reserve space for badge so table doesn't shift */
+.um-groups {
+  min-width: 70px;
+}
+
+.um-groups__placeholder {
+  display: inline-block;
+  min-width: 50px;
+  text-align: center;
+  color: var(--color-text-disabled);
+}
+
 /* Stat cells */
 .um-stat-cell {
   font-variant-numeric: tabular-nums;
