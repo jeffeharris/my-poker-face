@@ -1,6 +1,7 @@
 import { Card } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import type { Player } from '../../../types/player';
+import type { BettingContext } from '../../../types/game';
 import './PlayerCommandCenter.css';
 
 interface PlayerCommandCenterProps {
@@ -16,6 +17,7 @@ interface PlayerCommandCenterProps {
   isDealer: boolean;
   isSmallBlind: boolean;
   isBigBlind: boolean;
+  bettingContext?: BettingContext;
 }
 
 export function PlayerCommandCenter({
@@ -31,6 +33,7 @@ export function PlayerCommandCenter({
   isDealer,
   isSmallBlind,
   isBigBlind,
+  bettingContext,
 }: PlayerCommandCenterProps) {
   const costToCall = Math.max(0, highestBet - player.bet);
 
@@ -112,6 +115,7 @@ export function PlayerCommandCenter({
             potSize={potSize}
             onAction={onAction}
             inline={true}
+            bettingContext={bettingContext}
           />
         </div>
       )}

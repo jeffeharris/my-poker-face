@@ -56,7 +56,7 @@ class BettingContext:
         """Stack available for betting (after calling)."""
         return max(0, self.player_stack - self.cost_to_call)
 
-    def validate_and_sanitize(self, raise_to_amount: int) -> Tuple[bool, int, str]:
+    def validate_and_sanitize(self, raise_to_amount: int) -> Tuple[int, str]:
         """
         Validate and auto-correct a raise TO amount.
 
@@ -64,25 +64,22 @@ class BettingContext:
             raise_to_amount: The total amount the player wants to bet to.
 
         Returns:
-            Tuple of (is_valid, sanitized_amount, message)
-            - is_valid: True if the original amount was valid
+            Tuple of (sanitized_amount, message)
             - sanitized_amount: The corrected amount to use
-            - message: Description of any corrections made
+            - message: Description of any corrections made (empty if no correction)
         """
         original = raise_to_amount
         sanitized = raise_to_amount
         message = ""
-        is_valid = True
 
         # Can't raise more than all-in
         if raise_to_amount > self.max_raise_to:
             sanitized = self.max_raise_to
             message = f"Amount ${original} exceeds stack, converting to all-in ${sanitized}"
-            is_valid = False
 
         # All-in is always valid, even if below min raise
         if sanitized == self.max_raise_to:
-            return (is_valid, sanitized, message)
+            return (sanitized, message)
 
         # Must meet minimum raise unless going all-in
         if sanitized < self.min_raise_to:
@@ -93,9 +90,8 @@ class BettingContext:
             else:
                 sanitized = self.min_raise_to
                 message = f"Amount ${original} below minimum, adjusted to ${sanitized}"
-            is_valid = False
 
-        return (is_valid, sanitized, message)
+        return (sanitized, message)
 
     def get_raise_by_amount(self, raise_to_amount: int) -> int:
         """

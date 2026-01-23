@@ -484,13 +484,13 @@ def player_raise(game_state, raise_to_amount: int):
     context = BettingContext.from_game_state(game_state)
 
     # Validate and auto-correct the raise amount
-    is_valid, sanitized_amount, correction_msg = context.validate_and_sanitize(raise_to_amount)
+    sanitized_amount, correction_msg = context.validate_and_sanitize(raise_to_amount)
 
     if correction_msg:
         logger.debug(f"[RAISE] {player.name}: {correction_msg}")
 
     # If raising to all-in, use the all_in function for proper handling
-    if sanitized_amount >= player.stack + player.bet:
+    if sanitized_amount == player.stack + player.bet:
         return player_all_in(game_state)
 
     # Calculate the raise increment (for tracking min raise) and total to add

@@ -112,22 +112,19 @@ class TestValidateAndSanitize(unittest.TestCase):
 
     def test_valid_raise_within_range(self):
         """A raise within valid range is accepted."""
-        is_valid, amount, msg = self.context.validate_and_sanitize(200)
-        self.assertTrue(is_valid)
+        amount, msg = self.context.validate_and_sanitize(200)
         self.assertEqual(amount, 200)
         self.assertEqual(msg, "")
 
     def test_raise_below_minimum_adjusted_to_min(self):
         """A raise below minimum is adjusted to min_raise_to."""
-        is_valid, amount, msg = self.context.validate_and_sanitize(120)
-        self.assertFalse(is_valid)
+        amount, msg = self.context.validate_and_sanitize(120)
         self.assertEqual(amount, 150)  # min_raise_to
         self.assertIn("below minimum", msg)
 
     def test_raise_above_stack_adjusted_to_all_in(self):
         """A raise above stack is converted to all-in."""
-        is_valid, amount, msg = self.context.validate_and_sanitize(1500)
-        self.assertFalse(is_valid)
+        amount, msg = self.context.validate_and_sanitize(1500)
         self.assertEqual(amount, 1000)  # max_raise_to (all-in)
         self.assertIn("all-in", msg)
 
@@ -143,21 +140,21 @@ class TestValidateAndSanitize(unittest.TestCase):
             available_actions=('all_in', 'fold'),
         )
         # Request any amount - should get all-in
-        is_valid, amount, msg = context.validate_and_sanitize(60)
+        amount, msg = context.validate_and_sanitize(60)
         # All-in below min is valid
         self.assertEqual(amount, 60)
 
     def test_exact_min_raise_is_valid(self):
         """Exactly min_raise_to is valid."""
-        is_valid, amount, msg = self.context.validate_and_sanitize(150)
-        self.assertTrue(is_valid)
+        amount, msg = self.context.validate_and_sanitize(150)
         self.assertEqual(amount, 150)
+        self.assertEqual(msg, "")
 
     def test_exact_all_in_is_valid(self):
         """Exactly all-in amount is valid."""
-        is_valid, amount, msg = self.context.validate_and_sanitize(1000)
-        self.assertTrue(is_valid)
+        amount, msg = self.context.validate_and_sanitize(1000)
         self.assertEqual(amount, 1000)
+        self.assertEqual(msg, "")
 
 
 class TestGetCallAndRaiseBreakdown(unittest.TestCase):
