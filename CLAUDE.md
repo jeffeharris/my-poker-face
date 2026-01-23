@@ -42,31 +42,29 @@ cd react/react && npm run dev  # Frontend
 
 ### Testing
 
-**Important**: Run tests inside Docker to ensure all dependencies are available.
+**Important**: All tests run inside Docker. Use `scripts/test.py` for easy test execution.
 
 ```bash
-# Run all tests in Docker (recommended)
-docker compose exec backend python -m unittest discover -s tests -p "test*.py"
+# Using the test runner script (recommended)
+python3 scripts/test.py                  # Run all Python tests
+python3 scripts/test.py --quick          # Run fast tests only (skip slow/integration)
+python3 scripts/test.py test_card        # Run tests matching 'test_card'
+python3 scripts/test.py -k "flush"       # Run tests matching pytest pattern
+python3 scripts/test.py --ts             # TypeScript type checking
+python3 scripts/test.py --all            # Python + TypeScript
+python3 scripts/test.py --list           # List all test files
+python3 scripts/test.py --status         # Check if containers are running
 
-# Run specific test module in Docker
-docker compose exec backend python -m unittest tests.core.test_card
+# From Python/Claude:
+from scripts.test import run, ts, quick, status
+run()                    # Run all Python tests
+run("test_card")         # Run tests matching pattern
+quick()                  # Fast tests only
+ts()                     # TypeScript type checking
+status()                 # Check containers
 
-# Run with verbose output
-docker compose exec backend python -m unittest discover -s tests -p "test*.py" -v
-
-# Run prompt management tests
-docker compose exec backend python -m pytest tests/test_prompt_management.py tests/test_prompt_golden_path.py -v
-
-# Test persistence layer
-docker compose exec backend python -m pytest tests/test_persistence.py -v
-
-# Test AI resilience and error handling
-docker compose exec backend python -m pytest tests/test_ai_resilience.py -v
-
-# Test prompt system improvements
-docker compose exec backend python -m pytest tests/test_prompt_improvements.py -v
-
-# TypeScript type checking for React
+# Direct Docker commands (if needed)
+docker compose exec backend python -m pytest tests/ -k "test_card" -v
 docker compose exec frontend npx tsc --noEmit
 ```
 
@@ -75,6 +73,56 @@ docker compose exec frontend npx tsc --noEmit
 - Test personality loading from JSON
 - Verify prompt templates render correctly
 - Check that personality traits affect decisions appropriately
+
+### Database Location
+
+**IMPORTANT**: The database path differs between environments:
+- **Docker (Flask app)**: `/app/data/poker_games.db` (mounted from `./data/`)
+- **Local development**: `poker_games.db` in project root
+
+When running commands in Docker, always use the correct path:
+```bash
+# Correct - uses the Flask app's database
+docker compose exec backend python -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/poker_games.db')
+# ... queries
+"
+
+# WRONG - creates/uses a separate database file
+docker compose exec backend python -c "
+from poker.persistence import GamePersistence
+p = GamePersistence()  # Uses poker_games.db, not /app/data/poker_games.db
+"
+```
+
+### Database Query Utility
+
+Use `scripts/dbq.py` for quick database exploration:
+
+```bash
+# List all tables
+python3 scripts/dbq.py tables
+
+# Show table schema
+python3 scripts/dbq.py schema prompt_captures
+
+# Count rows
+python3 scripts/dbq.py count prompt_captures
+
+# Run queries (auto-limits to 20 rows)
+python3 scripts/dbq.py "SELECT id, phase, action_taken FROM prompt_captures"
+
+# With format parameters
+python3 scripts/dbq.py "SELECT * FROM prompt_captures WHERE phase = '{phase}'" --phase PRE_FLOP
+```
+
+From Python:
+```python
+from scripts.dbq import q, tables, schema, pprint
+results = q("SELECT * FROM prompt_captures WHERE phase = ?", ("PRE_FLOP",))
+pprint(results)
+```
 
 ## Architecture Overview
 

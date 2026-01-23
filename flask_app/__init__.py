@@ -30,11 +30,12 @@ def recover_interrupted_experiments():
 
     Called on startup to detect orphaned 'running' experiments and mark them
     as 'interrupted' so users can manually resume them.
-
-    NOTE: Temporarily disabled during repository rollback.
     """
-    # TODO: Re-enable after fixing experiment repository dependencies
-    pass
+    try:
+        from .routes.experiment_routes import detect_orphaned_experiments
+        detect_orphaned_experiments()
+    except Exception as e:
+        logger.error(f"Error recovering interrupted experiments on startup: {e}")
 
 
 def create_app():
@@ -83,7 +84,7 @@ def register_error_handlers(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
-    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp, experiment_bp
+    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp, experiment_bp, prompt_preset_bp, capture_label_bp, replay_experiment_bp, user_bp
 
     app.register_blueprint(game_bp)
     app.register_blueprint(debug_bp)
@@ -93,6 +94,10 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(admin_dashboard_bp)
     app.register_blueprint(prompt_debug_bp)
     app.register_blueprint(experiment_bp)
+    app.register_blueprint(prompt_preset_bp)
+    app.register_blueprint(capture_label_bp)
+    app.register_blueprint(replay_experiment_bp)
+    app.register_blueprint(user_bp)
 
 
 def register_socket_handlers() -> None:

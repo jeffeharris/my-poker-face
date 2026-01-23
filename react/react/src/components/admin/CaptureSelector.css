@@ -1,0 +1,932 @@
+/**
+ * Capture Selector - AI Decision Capture Browser
+ *
+ * Styles for browsing, filtering, and labeling captured AI decisions
+ */
+
+/* ============================================
+   Container
+   ============================================ */
+
+.cs-container {
+  padding: var(--space-4);
+}
+
+.cs-container--embedded {
+  padding: 0;
+}
+
+/* ============================================
+   Alert Toast
+   ============================================ */
+
+.cs-alert {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(16px);
+  z-index: var(--z-toast);
+  animation: csAlertSlideIn 0.4s var(--ease-out-expo);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+@keyframes csAlertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cs-alert--success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--color-emerald);
+}
+
+.cs-alert--error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.cs-alert--info {
+  background: rgba(212, 165, 116, 0.15);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  color: var(--color-gold-light);
+}
+
+.cs-alert__icon {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+}
+
+.cs-alert__message {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.cs-alert__close {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.cs-alert__close:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.cs-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-16);
+  color: var(--color-text-muted);
+}
+
+.cs-loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 193, 7, 0.1);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: csSpin 1s linear infinite;
+}
+
+@keyframes csSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.cs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.cs-header__text {
+  flex: 1;
+}
+
+.cs-header__title {
+  color: var(--color-gold);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.cs-header__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.cs-header__filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cs-header__filter-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--color-text);
+}
+
+.cs-header__filter-toggle--active {
+  background: rgba(255, 193, 7, 0.1);
+  border-color: rgba(255, 193, 7, 0.3);
+  color: var(--color-gold);
+}
+
+.cs-filter-badge {
+  background: var(--color-gold);
+  color: var(--color-black);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  min-width: 18px;
+  text-align: center;
+}
+
+/* ============================================
+   Filters Panel
+   ============================================ */
+
+.cs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+  animation: csSlideDown 0.2s ease-out;
+}
+
+@keyframes csSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cs-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 150px;
+}
+
+.cs-filter-group--range {
+  min-width: 200px;
+}
+
+.cs-filter-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cs-select {
+  padding: var(--space-2) var(--space-3);
+  padding-right: var(--space-8);
+  background-color: var(--color-bg-tertiary, #151820);
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23d4a574' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right var(--space-2) center;
+  background-repeat: no-repeat;
+  background-size: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.cs-select:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+
+.cs-select option {
+  background-color: var(--color-bg-elevated, #1a1a1f);
+  color: var(--color-text-primary, #e5e5e5);
+}
+
+.cs-input {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  transition: border-color 0.2s ease;
+}
+
+.cs-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+
+.cs-input--small {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.cs-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cs-range-inputs .cs-input {
+  width: 70px;
+}
+
+.cs-range-separator {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.cs-clear-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #ef4444;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  align-self: flex-end;
+  margin-top: auto;
+}
+
+.cs-clear-filters:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* ============================================
+   Label Selector
+   ============================================ */
+
+.cs-label-selector {
+  position: relative;
+}
+
+.cs-label-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  width: 100%;
+  min-width: 180px;
+  transition: border-color 0.2s ease;
+}
+
+.cs-label-dropdown-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cs-label-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: var(--space-1);
+  background: var(--color-bg-elevated, #1a1a1f);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  animation: csSlideDown 0.15s ease-out;
+}
+
+.cs-label-dropdown__empty {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.cs-label-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.cs-label-option:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cs-label-option--selected {
+  background: rgba(255, 193, 7, 0.1);
+}
+
+.cs-label-option__check {
+  width: 16px;
+  color: var(--color-gold);
+}
+
+.cs-label-option__name {
+  flex: 1;
+}
+
+.cs-label-option__count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.cs-match-all {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.cs-match-all input {
+  accent-color: var(--color-gold);
+}
+
+/* ============================================
+   Selected Labels Pills
+   ============================================ */
+
+.cs-selected-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.cs-label-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: var(--radius-full);
+  color: var(--color-gold);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.cs-label-pill button {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.cs-label-pill button:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Selection Bar
+   ============================================ */
+
+.cs-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.2);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+}
+
+.cs-selection-bar__count {
+  color: var(--color-gold);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.cs-selection-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cs-btn--primary {
+  background: var(--color-gold);
+  color: var(--color-black);
+}
+
+.cs-btn--primary:hover:not(:disabled) {
+  background: var(--color-gold-light);
+}
+
+.cs-btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-btn--ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.cs-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.cs-btn--danger {
+  color: #ef4444;
+}
+
+.cs-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* ============================================
+   Bulk Actions
+   ============================================ */
+
+.cs-bulk-actions {
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cs-bulk-add {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cs-bulk-add .cs-input {
+  flex: 1;
+}
+
+.cs-bulk-remove {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cs-bulk-remove__label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.cs-bulk-remove__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cs-remove-label-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-sm);
+  color: #ef4444;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cs-remove-label-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* ============================================
+   Captures List
+   ============================================ */
+
+.cs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-12);
+  text-align: center;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+}
+
+.cs-capture {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.cs-capture:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.cs-capture--expanded {
+  border-color: rgba(255, 193, 7, 0.25);
+}
+
+.cs-capture--selected {
+  border-color: rgba(255, 193, 7, 0.4);
+  background: rgba(255, 193, 7, 0.05);
+}
+
+.cs-capture__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.cs-capture__header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cs-capture__checkbox {
+  flex-shrink: 0;
+}
+
+.cs-capture__checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-gold);
+  cursor: pointer;
+}
+
+.cs-capture__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.cs-capture__player {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.cs-capture__action {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+.cs-capture__action--fold {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.cs-capture__action--check {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.cs-capture__action--call {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.cs-capture__action--raise {
+  background: rgba(34, 197, 94, 0.15);
+  color: #34d399;
+}
+
+.cs-capture__phase {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.cs-capture__odds {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+}
+
+.cs-capture__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.cs-capture__model {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+}
+
+.cs-capture__date {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  opacity: 0.7;
+}
+
+.cs-capture__chevron {
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+}
+
+/* ============================================
+   Capture Labels
+   ============================================ */
+
+.cs-capture__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.cs-capture-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+}
+
+.cs-capture-label--user {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+
+.cs-capture-label--smart {
+  background: rgba(34, 197, 94, 0.15);
+  color: #34d399;
+}
+
+.cs-capture-label__remove {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.cs-capture-label__remove:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Capture Details
+   ============================================ */
+
+.cs-capture__details {
+  padding: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+  animation: csSlideDown 0.2s ease-out;
+}
+
+.cs-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.cs-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cs-detail-item--full {
+  grid-column: 1 / -1;
+}
+
+.cs-detail-item__label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cs-detail-item__value {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+
+.cs-quick-label {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cs-quick-label .cs-input {
+  width: 100%;
+  max-width: 300px;
+}
+
+/* ============================================
+   Pagination
+   ============================================ */
+
+.cs-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  margin-top: var(--space-4);
+}
+
+.cs-pagination__btn {
+  padding: var(--space-2) var(--space-4);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cs-pagination__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--color-text);
+}
+
+.cs-pagination__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cs-pagination__info {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  .cs-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cs-filters {
+    flex-direction: column;
+  }
+
+  .cs-filter-group {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .cs-capture__summary {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .cs-capture__meta {
+    display: none;
+  }
+
+  .cs-selection-bar {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .cs-selection-bar__actions {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .cs-bulk-add {
+    flex-direction: column;
+  }
+
+  .cs-bulk-add .cs-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .cs-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -34,6 +34,7 @@ class PromptConfig:
         situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
         show_equity_always: Always show equity vs required equity comparison for all decisions
         show_equity_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
+        guidance_injection: Extra text to append to decision prompts (for experiments)
     """
 
     # Game state components
@@ -66,6 +67,9 @@ class PromptConfig:
     # When True, uses minimal_prompt.py instead of full prompt system
     # Disables personality, psychology, guidance - just pure game theory inputs
     use_minimal_prompt: bool = False
+
+    # Experiment support
+    guidance_injection: str = ""  # Extra text appended to decision prompts
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for persistence."""

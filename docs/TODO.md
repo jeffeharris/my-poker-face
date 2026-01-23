@@ -62,6 +62,7 @@
 | Difficulty Levels | Easy/Medium/Hard AI opponents | 🔴 Open | Medium | Adjust decision quality |
 | Voice/TTS Integration | AI players speak their responses | 🔴 Open | Low | Enhanced immersion |
 | Personality Matchups | Special interactions between specific personalities | 🔴 Open | Low | Trump vs Obama banter |
+| RAISE_WAR Detection | Detect 3+ raises in single betting round as problematic scenario | 🔴 Open | Medium | Requires cross-decision aggregation: group captures by (game_id, hand_number, phase), count raises per group. See docs/analysis/SCENARIO_QUERIES.md for detection logic. Threshold: 3+ raises = RAISE_WAR, 7+ = EXTREME_RAISE_WAR |
 
 ## Testing Gaps
 

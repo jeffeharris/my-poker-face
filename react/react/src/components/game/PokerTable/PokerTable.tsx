@@ -255,6 +255,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
               isDealer={isHumanDealer}
               isSmallBlind={isHumanSmallBlind}
               isBigBlind={isHumanBigBlind}
+              bettingContext={gameState.betting_context}
             />
           )
         }

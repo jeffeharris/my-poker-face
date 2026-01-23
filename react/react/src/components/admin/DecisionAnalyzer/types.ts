@@ -35,6 +35,7 @@ export interface PromptCapture {
   tags: string[];
   notes: string | null;
   raw_api_response: string | null;
+  labels?: Array<{ label: string; label_type: string; created_at: string }>;
 }
 
 export interface CaptureStats {
@@ -44,11 +45,15 @@ export interface CaptureStats {
   suspicious_folds: number;
 }
 
+// Label statistics - mapping from label name to count
+export type LabelStats = Record<string, number>;
+
 export interface CaptureListResponse {
   success: boolean;
   captures: PromptCapture[];
   total: number;
   stats: CaptureStats;
+  label_stats?: LabelStats;
 }
 
 export interface ReplayResponse {
@@ -71,7 +76,13 @@ export interface CaptureFilters {
   phase?: string;
   min_pot_odds?: number;
   max_pot_odds?: number;
+  min_pot_size?: number;
+  max_pot_size?: number;
+  min_big_blind?: number;
+  max_big_blind?: number;
   tags?: string[];
+  labels?: string[];
+  labelMatchAll?: boolean;
   limit?: number;
   offset?: number;
 }

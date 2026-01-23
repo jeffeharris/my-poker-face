@@ -1815,7 +1815,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
         /* ==========================================
            MOBILE: Original Bottom Sheet Layout
            ========================================== */
-        <div className="pm-container">
+        <div className={`pm-container${embedded ? ' pm-container--embedded' : ''}`}>
           {/* Character Selector Trigger */}
           <button
             type="button"

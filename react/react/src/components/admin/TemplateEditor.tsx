@@ -57,6 +57,85 @@ const MenuIcon = () => (
 );
 
 // ============================================
+// Mobile Template Selector (Bottom Sheet)
+// ============================================
+
+interface TemplateSelectorProps {
+  templates: TemplateSummary[];
+  selected: string | null;
+  onSelect: (name: string) => void;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+function TemplateSelector({ templates, selected, onSelect, isOpen, onClose }: TemplateSelectorProps) {
+  const [search, setSearch] = useState('');
+
+  const filtered = templates.filter(t =>
+    t.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSelect = (name: string) => {
+    onSelect(name);
+    onClose();
+  };
+
+  return (
+    <>
+      <div className={`te-sheet-backdrop ${isOpen ? 'te-sheet-backdrop--visible' : ''}`} onClick={onClose} />
+      <div className={`te-sheet ${isOpen ? 'te-sheet--open' : ''}`}>
+        <div className="te-sheet__handle" onClick={onClose}>
+          <div className="te-sheet__handle-bar" />
+        </div>
+        <div className="te-sheet__header">
+          <h3 className="te-sheet__title">Select Template</h3>
+          <span className="te-sheet__count">{templates.length} templates</span>
+        </div>
+        <div className="te-sheet__search">
+          <span className="te-sheet__search-icon">
+            <SearchIcon />
+          </span>
+          <input
+            type="text"
+            className="te-sheet__search-input"
+            placeholder="Search templates..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="te-sheet__list">
+          {filtered.map((t, index) => (
+            <button
+              key={t.name}
+              type="button"
+              className={`te-sheet__item ${selected === t.name ? 'te-sheet__item--active' : ''}`}
+              onClick={() => handleSelect(t.name)}
+              style={{ animationDelay: `${index * 20}ms` }}
+            >
+              <span className="te-sheet__item-avatar">{t.name.charAt(0).toUpperCase()}</span>
+              <div className="te-sheet__item-content">
+                <span className="te-sheet__item-name">{t.name}</span>
+                <span className="te-sheet__item-meta">v{t.version} - {t.section_count} sections</span>
+              </div>
+              {selected === t.name && (
+                <span className="te-sheet__item-check">
+                  <CheckIcon />
+                </span>
+              )}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <div className="te-sheet__empty">
+              No templates found matching "{search}"
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================
 // Sub-components
 // ============================================
 
@@ -132,7 +211,7 @@ function MasterList({ templates, selected, onSelect, search, onSearchChange }: M
 
 export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   // Responsive breakpoints
-  const { isDesktop, isTablet } = useViewport();
+  const { isDesktop, isTablet, isMobile } = useViewport();
 
   // Core state
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
@@ -149,6 +228,8 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   // UI state for master-detail
   const [masterSearch, setMasterSearch] = useState('');
   const [masterPanelOpen, setMasterPanelOpen] = useState(false);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [variablesExpanded, setVariablesExpanded] = useState(false);
 
   // Fetch template list
   const fetchTemplates = useCallback(async () => {
@@ -286,6 +367,45 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   }
 
   // Editor content (scrollable)
+  // Variables panel (collapsible) - rendered separately on mobile
+  const variablesPanel = selectedTemplate && selectedTemplate.variables.length > 0 ? (
+    <div className={`te-variables ${variablesExpanded ? 'te-variables--expanded' : ''}`}>
+      <button
+        type="button"
+        className="te-variables__header"
+        onClick={() => setVariablesExpanded(!variablesExpanded)}
+      >
+        <span>Preview Variables</span>
+        <span className="te-variables__count">{selectedTemplate.variables.length}</span>
+        <svg
+          className="te-variables__chevron"
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+        >
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      {variablesExpanded && (
+        <div className="te-variables__grid">
+          {selectedTemplate.variables.map(v => (
+            <div key={v} className="te-variables__item">
+              <label>{v}</label>
+              <input
+                type="text"
+                className="admin-input"
+                value={previewVariables[v] || ''}
+                onChange={(e) => setPreviewVariables(prev => ({ ...prev, [v]: e.target.value }))}
+                placeholder={`{${v}}`}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   const editorContent = selectedTemplate ? (
     <>
       {/* Section Tabs */}
@@ -312,26 +432,8 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
         />
       </div>
 
-      {/* Variables */}
-      {selectedTemplate.variables.length > 0 && (
-        <div className="te-variables">
-          <div className="te-variables__header">Preview Variables</div>
-          <div className="te-variables__grid">
-            {selectedTemplate.variables.map(v => (
-              <div key={v} className="te-variables__item">
-                <label>{v}</label>
-                <input
-                  type="text"
-                  className="admin-input"
-                  value={previewVariables[v] || ''}
-                  onChange={(e) => setPreviewVariables(prev => ({ ...prev, [v]: e.target.value }))}
-                  placeholder={`{${v}}`}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Variables - inline for desktop/tablet */}
+      {!isMobile && variablesPanel}
 
       {/* Preview Result */}
       {previewResult && (
@@ -353,14 +455,37 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
   // Empty state content
   const emptyContent = (
-    <div className="admin-detail__empty">
-      <div className="admin-detail__empty-icon">📝</div>
-      <h3 className="admin-detail__empty-title">No Template Selected</h3>
-      <p className="admin-detail__empty-description">
-        Select a template from the list to edit its sections
+    <div className={isMobile ? "admin-empty" : "admin-detail__empty"}>
+      <div className={isMobile ? "admin-empty__icon" : "admin-detail__empty-icon"} style={{ fontSize: '64px', opacity: 0.5 }}>📝</div>
+      <h3 className={isMobile ? "admin-empty__title" : "admin-detail__empty-title"}>No Template Selected</h3>
+      <p className={isMobile ? "admin-empty__description" : "admin-detail__empty-description"}>
+        {isMobile ? 'Choose a template above to edit' : 'Select a template from the list to edit its sections'}
       </p>
     </div>
   );
+
+  // Mobile action bar
+  const mobileActionBar = selectedTemplate ? (
+    <div className="te-actions">
+      <div className="te-actions__secondary">
+        <button
+          className="admin-btn admin-btn--secondary"
+          onClick={previewTemplate}
+        >
+          Preview
+        </button>
+      </div>
+      <div className="te-actions__primary">
+        <button
+          className="admin-btn admin-btn--primary"
+          onClick={saveTemplate}
+          disabled={!isDirty || saving}
+        >
+          {saving ? 'Saving...' : isDirty ? 'Save Changes' : 'Saved'}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className={`te-container ${embedded ? 'te-container--embedded' : ''}`}>
@@ -387,82 +512,142 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
         </div>
       )}
 
-      {/* Master-Detail Layout */}
-      <div className="admin-master-detail">
-        {/* Master Panel (sidebar) */}
-        <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
-          <MasterList
+      {/* MOBILE LAYOUT */}
+      {isMobile ? (
+        <div className="te-mobile-container">
+          {/* Template Selector Trigger */}
+          <button
+            type="button"
+            className="te-selector-trigger"
+            onClick={() => setSelectorOpen(true)}
+          >
+            {selectedTemplate ? (
+              <>
+                <span className="te-selector-trigger__avatar">{selectedTemplate.name.charAt(0).toUpperCase()}</span>
+                <div className="te-selector-trigger__content">
+                  <span className="te-selector-trigger__name">{selectedTemplate.name}</span>
+                  <span className="te-selector-trigger__meta">v{selectedTemplate.version} - {Object.keys(selectedTemplate.sections).length} sections</span>
+                </div>
+                <span className="te-selector-trigger__change">Change</span>
+              </>
+            ) : (
+              <>
+                <span className="te-selector-trigger__icon">📝</span>
+                <span className="te-selector-trigger__placeholder">Select a template to edit</span>
+              </>
+            )}
+            <svg className="te-selector-trigger__chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+
+          {/* Template Selector Bottom Sheet */}
+          <TemplateSelector
             templates={templates}
             selected={selectedTemplate?.name || null}
             onSelect={fetchTemplate}
-            search={masterSearch}
-            onSearchChange={setMasterSearch}
+            isOpen={selectorOpen}
+            onClose={() => setSelectorOpen(false)}
           />
-        </aside>
 
-        {/* Detail Panel */}
-        <main className="admin-detail">
-          {/* Tablet toggle button (hidden on desktop) */}
-          {isTablet && !isDesktop && (
-            <button
-              type="button"
-              className="admin-master-toggle"
-              onClick={() => setMasterPanelOpen(!masterPanelOpen)}
-            >
-              <MenuIcon />
-              <span>{selectedTemplate?.name || 'Select Template'}</span>
-            </button>
+          {/* Editor or Empty State */}
+          {selectedTemplate ? (
+            <div className="te-editor">
+              {editorContent}
+            </div>
+          ) : (
+            emptyContent
           )}
 
-          {/* Detail header when template selected */}
+          {/* Fixed bottom bar: Variables + Actions */}
           {selectedTemplate && (
-            <div className="admin-detail__header">
-              <div>
-                <h2 className="admin-detail__title">{selectedTemplate.name}</h2>
-                <p className="admin-detail__subtitle">
-                  v{selectedTemplate.version} • {Object.keys(selectedTemplate.sections).length} sections
-                </p>
-              </div>
+            <div className="te-bottom-bar">
+              {variablesPanel}
+              {mobileActionBar}
             </div>
           )}
+        </div>
+      ) : (
+        /* TABLET & DESKTOP LAYOUT */
+        <div className="admin-master-detail">
+          {/* Master Panel (sidebar) */}
+          <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
+            <MasterList
+              templates={templates}
+              selected={selectedTemplate?.name || null}
+              onSelect={(name) => {
+                fetchTemplate(name);
+                if (!isDesktop) setMasterPanelOpen(false);
+              }}
+              search={masterSearch}
+              onSearchChange={setMasterSearch}
+            />
+          </aside>
 
-          {/* Detail content (scrollable) */}
-          <div className="admin-detail__content">
-            {editorContent || emptyContent}
-          </div>
+          {/* Detail Panel */}
+          <main className="admin-detail">
+            {/* Tablet toggle button (hidden on desktop) */}
+            {isTablet && !isDesktop && (
+              <button
+                type="button"
+                className="admin-master-toggle"
+                onClick={() => setMasterPanelOpen(!masterPanelOpen)}
+              >
+                <MenuIcon />
+                <span>{selectedTemplate?.name || 'Select Template'}</span>
+              </button>
+            )}
 
-          {/* Action bar (fixed at bottom) */}
-          {selectedTemplate && (
-            <div className="admin-detail__footer">
-              <div className="admin-detail__footer-secondary">
-                <button
-                  className="admin-btn admin-btn--secondary"
-                  onClick={previewTemplate}
-                >
-                  Preview
-                </button>
+            {/* Detail header when template selected */}
+            {selectedTemplate && (
+              <div className="admin-detail__header">
+                <div>
+                  <h2 className="admin-detail__title">{selectedTemplate.name}</h2>
+                  <p className="admin-detail__subtitle">
+                    v{selectedTemplate.version} • {Object.keys(selectedTemplate.sections).length} sections
+                  </p>
+                </div>
               </div>
-              <div className="admin-detail__footer-primary">
-                <button
-                  className="admin-btn admin-btn--primary"
-                  onClick={saveTemplate}
-                  disabled={!isDirty || saving}
-                >
-                  {saving ? 'Saving...' : isDirty ? 'Save Changes' : 'Saved'}
-                </button>
-              </div>
+            )}
+
+            {/* Detail content (scrollable) */}
+            <div className="admin-detail__content">
+              {editorContent || emptyContent}
             </div>
-          )}
-        </main>
 
-        {/* Backdrop for tablet sidebar */}
-        {isTablet && !isDesktop && masterPanelOpen && (
-          <div
-            className="te-backdrop"
-            onClick={() => setMasterPanelOpen(false)}
-          />
-        )}
-      </div>
+            {/* Action bar (fixed at bottom) */}
+            {selectedTemplate && (
+              <div className="admin-detail__footer">
+                <div className="admin-detail__footer-secondary">
+                  <button
+                    className="admin-btn admin-btn--secondary"
+                    onClick={previewTemplate}
+                  >
+                    Preview
+                  </button>
+                </div>
+                <div className="admin-detail__footer-primary">
+                  <button
+                    className="admin-btn admin-btn--primary"
+                    onClick={saveTemplate}
+                    disabled={!isDirty || saving}
+                  >
+                    {saving ? 'Saving...' : isDirty ? 'Save Changes' : 'Saved'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* Backdrop for tablet sidebar */}
+          {isTablet && !isDesktop && masterPanelOpen && (
+            <div
+              className="te-backdrop"
+              onClick={() => setMasterPanelOpen(false)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

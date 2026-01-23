@@ -25,8 +25,13 @@ logger = logging.getLogger(__name__)
 # v45: Add users table for Google OAuth authentication
 # v46: Add experiment manager features (error tracking, chat sessions, image models,
 #      experiment lineage, image capture support)
-# v47: Add prompt_config_json to prompt_captures for analysis
-SCHEMA_VERSION = 47
+# v47: Add prompt_presets table for reusable prompt configurations
+# v48: Add capture_labels table for tagging captured AI decisions
+# v49: Add replay experiment tables and experiment_type column
+# v50: Add prompt_config_json to prompt_captures for analysis
+# v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
+# v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
+SCHEMA_VERSION = 52
 
 
 @dataclass
@@ -568,6 +573,8 @@ class GamePersistence:
                     target_emotion TEXT,
                     reference_image_id TEXT,
                     prompt_config_json TEXT,
+                    stack_bb REAL,
+                    already_bet_bb REAL,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
                 )
             """)
@@ -739,6 +746,131 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)")
 
+            # 28. Prompt presets (v47) - Saved, reusable prompt configurations
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS prompt_presets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    prompt_config TEXT,
+                    guidance_injection TEXT,
+                    owner_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)")
+
+            # 29. Capture labels (v48) - Tags/labels for captured AI decisions
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS capture_labels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    label TEXT NOT NULL,
+                    label_type TEXT DEFAULT 'user',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(capture_id, label)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)")
+
+            # 30. Replay experiment captures (v49) - Links captures to replay experiments
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS replay_experiment_captures (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    original_action TEXT,
+                    original_quality TEXT,
+                    original_ev_lost REAL,
+                    UNIQUE(experiment_id, capture_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_experiment ON replay_experiment_captures(experiment_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_capture ON replay_experiment_captures(capture_id)")
+
+            # 31. Replay results (v49) - Results from replaying captures with variants
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS replay_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    variant TEXT NOT NULL,
+                    new_response TEXT,
+                    new_action TEXT,
+                    new_raise_amount INTEGER,
+                    new_quality TEXT,
+                    new_ev_lost REAL,
+                    action_changed BOOLEAN,
+                    quality_change TEXT,
+                    ev_delta REAL,
+                    provider TEXT,
+                    model TEXT,
+                    reasoning_effort TEXT,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    latency_ms INTEGER,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(experiment_id, capture_id, variant)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_experiment ON replay_results(experiment_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_capture ON replay_results(capture_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)")
+
+            # 32. Groups table (v52) - RBAC groups
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    is_system BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name)")
+
+            # 33. User-Group mapping (v52) - many-to-many
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    assigned_by TEXT,
+                    UNIQUE(user_id, group_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id)")
+
+            # 34. Permissions table (v52) - Available permissions
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    category TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_permissions_name ON permissions(name)")
+
+            # 35. Group-Permission mapping (v52) - many-to-many
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS group_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+                    UNIQUE(group_id, permission_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_permissions(group_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_permission ON group_permissions(permission_id)")
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with sqlite3.connect(self.db_path) as conn:
@@ -806,7 +938,12 @@ class GamePersistence:
             44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
             45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
             46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
-            47: (self._migrate_v47_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
+            47: (self._migrate_v47_add_prompt_presets, "Add prompt_presets table for reusable prompt configurations"),
+            48: (self._migrate_v48_add_capture_labels, "Add capture_labels table for tagging captured AI decisions"),
+            49: (self._migrate_v49_add_replay_experiment_tables, "Add replay experiment tables and experiment_type column"),
+            50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
+            51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
+            52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2110,8 +2247,139 @@ class GamePersistence:
 
         logger.info("Migration v46 complete: Added experiment manager features")
 
-    def _migrate_v47_add_prompt_config_to_captures(self, conn: sqlite3.Connection) -> None:
-        """Migration v47: Add prompt_config_json to prompt_captures.
+    def _migrate_v47_add_prompt_presets(self, conn: sqlite3.Connection) -> None:
+        """Migration v47: Add prompt_presets table for reusable prompt configurations.
+
+        This table stores saved prompt configurations that can be applied to
+        tournament variants or replay experiments for A/B testing.
+        """
+        # Check if table already exists (for fresh databases)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='prompt_presets'"
+        )
+        if cursor.fetchone():
+            logger.info("prompt_presets table already exists, skipping creation")
+        else:
+            conn.execute("""
+                CREATE TABLE prompt_presets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    prompt_config TEXT,
+                    guidance_injection TEXT,
+                    owner_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)")
+            logger.info("Created prompt_presets table")
+
+        logger.info("Migration v47 complete: Added prompt_presets table")
+
+    def _migrate_v48_add_capture_labels(self, conn: sqlite3.Connection) -> None:
+        """Migration v48: Add capture_labels table for tagging captured AI decisions.
+
+        This table enables labeling/tagging of captured AI decisions for easier
+        filtering and selection in replay experiments.
+        """
+        # Check if table already exists (for fresh databases)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='capture_labels'"
+        )
+        if cursor.fetchone():
+            logger.info("capture_labels table already exists, skipping creation")
+        else:
+            conn.execute("""
+                CREATE TABLE capture_labels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    label TEXT NOT NULL,
+                    label_type TEXT DEFAULT 'user',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(capture_id, label)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)")
+            logger.info("Created capture_labels table")
+
+        logger.info("Migration v48 complete: Added capture_labels table")
+
+    def _migrate_v49_add_replay_experiment_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v49: Add replay experiment tables and experiment_type column.
+
+        This migration adds tables for replay experiments that re-run captured
+        AI decisions with different variants (models, prompts, etc.).
+        """
+        # Add experiment_type column to experiments table
+        cursor = conn.execute("PRAGMA table_info(experiments)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'experiment_type' not in columns:
+            conn.execute("ALTER TABLE experiments ADD COLUMN experiment_type TEXT DEFAULT 'tournament'")
+            logger.info("Added experiment_type column to experiments table")
+
+        # Create replay_experiment_captures table
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='replay_experiment_captures'"
+        )
+        if not cursor.fetchone():
+            conn.execute("""
+                CREATE TABLE replay_experiment_captures (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    original_action TEXT,
+                    original_quality TEXT,
+                    original_ev_lost REAL,
+                    UNIQUE(experiment_id, capture_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_experiment ON replay_experiment_captures(experiment_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_capture ON replay_experiment_captures(capture_id)")
+            logger.info("Created replay_experiment_captures table")
+
+        # Create replay_results table
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='replay_results'"
+        )
+        if not cursor.fetchone():
+            conn.execute("""
+                CREATE TABLE replay_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+                    capture_id INTEGER NOT NULL REFERENCES prompt_captures(id) ON DELETE CASCADE,
+                    variant TEXT NOT NULL,
+                    new_response TEXT,
+                    new_action TEXT,
+                    new_raise_amount INTEGER,
+                    new_quality TEXT,
+                    new_ev_lost REAL,
+                    action_changed BOOLEAN,
+                    quality_change TEXT,
+                    ev_delta REAL,
+                    provider TEXT,
+                    model TEXT,
+                    reasoning_effort TEXT,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    latency_ms INTEGER,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(experiment_id, capture_id, variant)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_experiment ON replay_results(experiment_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_capture ON replay_results(capture_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)")
+            logger.info("Created replay_results table")
+
+        logger.info("Migration v49 complete: Added replay experiment tables")
+
+    def _migrate_v50_add_prompt_config_to_captures(self, conn: sqlite3.Connection) -> None:
+        """Migration v50: Add prompt_config_json to prompt_captures.
 
         This column stores the PromptConfig settings active when the capture was made,
         making it easy to analyze how different configs affect AI behavior.
@@ -2122,7 +2390,150 @@ class GamePersistence:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_config_json TEXT")
             logger.info("Added prompt_config_json column to prompt_captures")
 
-        logger.info("Migration v47 complete: prompt_config_json added to prompt_captures")
+        logger.info("Migration v50 complete: prompt_config_json added to prompt_captures")
+
+    def _migrate_v51_add_stack_bb_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v51: Add stack_bb and already_bet_bb to prompt_captures.
+
+        These columns enable auto-labeling of decisions in the Decision Analyzer:
+        - SHORT_STACK: Folding with < 3 BB
+        - POT_COMMITTED: Folding after investing > remaining stack
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'stack_bb' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN stack_bb REAL")
+            logger.info("Added stack_bb column to prompt_captures")
+
+        if 'already_bet_bb' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN already_bet_bb REAL")
+            logger.info("Added already_bet_bb column to prompt_captures")
+
+        logger.info("Migration v51 complete: stack_bb and already_bet_bb added to prompt_captures")
+
+    def _migrate_v52_add_rbac_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v52: Add RBAC tables for role-based access control.
+
+        Creates 4 tables for managing user groups and permissions:
+        - groups: Admin, user, etc.
+        - user_groups: Maps users to groups (many-to-many)
+        - permissions: Available permissions like can_access_admin_tools
+        - group_permissions: Maps groups to permissions (many-to-many)
+
+        Also seeds initial data:
+        - Groups: admin (system), user (system)
+        - Permissions: can_access_admin_tools, can_access_full_game
+        - admin group: both permissions
+        - user group: can_access_full_game only
+        """
+        # Check if tables already exist (for fresh databases)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='groups'"
+        )
+        if not cursor.fetchone():
+            # Create groups table
+            conn.execute("""
+                CREATE TABLE groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    is_system BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX idx_groups_name ON groups(name)")
+            logger.info("Created groups table")
+
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_groups'"
+        )
+        if not cursor.fetchone():
+            # Create user_groups table
+            conn.execute("""
+                CREATE TABLE user_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    assigned_by TEXT,
+                    UNIQUE(user_id, group_id)
+                )
+            """)
+            conn.execute("CREATE INDEX idx_user_groups_user ON user_groups(user_id)")
+            conn.execute("CREATE INDEX idx_user_groups_group ON user_groups(group_id)")
+            logger.info("Created user_groups table")
+
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='permissions'"
+        )
+        if not cursor.fetchone():
+            # Create permissions table
+            conn.execute("""
+                CREATE TABLE permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    category TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX idx_permissions_name ON permissions(name)")
+            logger.info("Created permissions table")
+
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='group_permissions'"
+        )
+        if not cursor.fetchone():
+            # Create group_permissions table
+            conn.execute("""
+                CREATE TABLE group_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+                    UNIQUE(group_id, permission_id)
+                )
+            """)
+            conn.execute("CREATE INDEX idx_group_permissions_group ON group_permissions(group_id)")
+            conn.execute("CREATE INDEX idx_group_permissions_permission ON group_permissions(permission_id)")
+            logger.info("Created group_permissions table")
+
+        # Seed initial data
+        # Insert default groups if they don't exist
+        conn.execute("""
+            INSERT OR IGNORE INTO groups (name, description, is_system)
+            VALUES ('admin', 'Administrators with full access to admin tools', 1)
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO groups (name, description, is_system)
+            VALUES ('user', 'Registered users with full game access', 1)
+        """)
+
+        # Insert default permissions
+        conn.execute("""
+            INSERT OR IGNORE INTO permissions (name, description, category)
+            VALUES ('can_access_admin_tools', 'Access to the Admin Tools dashboard', 'admin')
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO permissions (name, description, category)
+            VALUES ('can_access_full_game', 'Access to full game features including menu and game selection', 'game')
+        """)
+
+        # Grant can_access_admin_tools to admin group
+        conn.execute("""
+            INSERT OR IGNORE INTO group_permissions (group_id, permission_id)
+            SELECT g.id, p.id
+            FROM groups g, permissions p
+            WHERE g.name = 'admin' AND p.name = 'can_access_admin_tools'
+        """)
+
+        # Grant can_access_full_game to both admin and user groups
+        conn.execute("""
+            INSERT OR IGNORE INTO group_permissions (group_id, permission_id)
+            SELECT g.id, p.id
+            FROM groups g, permissions p
+            WHERE g.name IN ('admin', 'user') AND p.name = 'can_access_full_game'
+        """)
+
+        logger.info("Migration v52 complete: RBAC tables added with initial data")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -2347,6 +2758,12 @@ class GamePersistence:
                 VALUES (?, ?, ?, ?, ?, ?, ?, 0)
             """, (user_id, email, name, picture, now, now, linked_guest_id))
 
+            # Auto-assign to 'user' group for full game access
+            conn.execute("""
+                INSERT OR IGNORE INTO user_groups (user_id, group_id, assigned_by)
+                SELECT ?, id, 'system' FROM groups WHERE name = 'user'
+            """, (user_id,))
+
         return {
             'id': user_id,
             'email': email,
@@ -2449,6 +2866,255 @@ class GamePersistence:
                 WHERE owner_id = ?
             """, (to_owner_id, to_owner_name, from_owner_id))
             return cursor.rowcount
+
+    # ==================== RBAC / Group Management Methods ====================
+
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Get all users (both Google and guest users).
+
+        Returns:
+            List of user dicts with groups included.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get all users
+            cursor = conn.execute("""
+                SELECT id, email, name, picture, created_at, last_login, linked_guest_id, is_guest
+                FROM users
+                ORDER BY last_login DESC NULLS LAST, created_at DESC
+            """)
+            rows = cursor.fetchall()
+
+            # Build enriched user dicts immutably (functional approach)
+            return [
+                {**dict(row), 'groups': self.get_user_groups(row['id'])}
+                for row in rows
+            ]
+
+    def get_user_groups(self, user_id: str) -> List[str]:
+        """Get all group names for a user.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            List of group names the user belongs to
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT g.name
+                FROM groups g
+                JOIN user_groups ug ON g.id = ug.group_id
+                WHERE ug.user_id = ?
+                ORDER BY g.name
+            """, (user_id,))
+            return [row[0] for row in cursor.fetchall()]
+
+    def get_user_permissions(self, user_id: str) -> List[str]:
+        """Get all permissions for a user via their groups.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            List of permission names the user has
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT p.name
+                FROM permissions p
+                JOIN group_permissions gp ON p.id = gp.permission_id
+                JOIN user_groups ug ON gp.group_id = ug.group_id
+                WHERE ug.user_id = ?
+                ORDER BY p.name
+            """, (user_id,))
+            return [row[0] for row in cursor.fetchall()]
+
+    def assign_user_to_group(self, user_id: str, group_name: str, assigned_by: Optional[str] = None) -> bool:
+        """Assign a user to a group.
+
+        Args:
+            user_id: The user's ID
+            group_name: The name of the group
+            assigned_by: ID of the user making the assignment
+
+        Returns:
+            True if successful, False if group doesn't exist
+
+        Raises:
+            ValueError: If trying to assign a guest user to admin group (unless configured via INITIAL_ADMIN_EMAIL)
+            ValueError: If user_id doesn't exist in database (for non-guest users)
+        """
+        # Guest users can only be assigned to admin if configured via INITIAL_ADMIN_EMAIL
+        # (handled at startup by initialize_admin_from_env)
+        # For runtime API calls, prevent guest admin assignment
+        if group_name == 'admin' and user_id.startswith('guest_'):
+            # Check if this guest is the configured initial admin
+            initial_admin = os.environ.get('INITIAL_ADMIN_EMAIL', '')
+            if user_id != initial_admin:
+                raise ValueError("Guest users cannot be assigned to the admin group")
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Validate user exists (skip for guest_ users - they're session-only)
+            if not user_id.startswith('guest_'):
+                cursor = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+                if not cursor.fetchone():
+                    raise ValueError(f"User {user_id} does not exist")
+
+            # Get group ID
+            cursor = conn.execute("SELECT id FROM groups WHERE name = ?", (group_name,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            group_id = row[0]
+
+            # Insert the mapping (or ignore if already exists)
+            conn.execute("""
+                INSERT OR IGNORE INTO user_groups (user_id, group_id, assigned_by)
+                VALUES (?, ?, ?)
+            """, (user_id, group_id, assigned_by))
+
+            return True
+
+    def remove_user_from_group(self, user_id: str, group_name: str) -> bool:
+        """Remove a user from a group.
+
+        Args:
+            user_id: The user's ID
+            group_name: The name of the group
+
+        Returns:
+            True if successfully removed, False if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                DELETE FROM user_groups
+                WHERE user_id = ? AND group_id = (SELECT id FROM groups WHERE name = ?)
+            """, (user_id, group_name))
+            return cursor.rowcount > 0
+
+    def count_users_in_group(self, group_name: str) -> int:
+        """Count the number of users in a group.
+
+        Args:
+            group_name: The name of the group
+
+        Returns:
+            Number of users in the group
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*)
+                FROM user_groups ug
+                JOIN groups g ON ug.group_id = g.id
+                WHERE g.name = ?
+            """, (group_name,))
+            return cursor.fetchone()[0]
+
+    def get_all_groups(self) -> List[Dict[str, Any]]:
+        """Get all available groups.
+
+        Returns:
+            List of group dicts with id, name, description, is_system
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, name, description, is_system, created_at
+                FROM groups
+                ORDER BY is_system DESC, name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_user_stats(self, user_id: str) -> Dict[str, Any]:
+        """Get statistics for a user from api_usage and games tables.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            Dict with total_cost, hands_played, games_completed, last_active
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Get total cost from api_usage
+            cursor = conn.execute("""
+                SELECT COALESCE(SUM(estimated_cost), 0) as total_cost
+                FROM api_usage
+                WHERE owner_id = ?
+            """, (user_id,))
+            total_cost = cursor.fetchone()[0] or 0
+
+            # Get hands played (count of player_decision calls)
+            cursor = conn.execute("""
+                SELECT COUNT(*) as hands_played
+                FROM api_usage
+                WHERE owner_id = ? AND call_type = 'player_decision'
+            """, (user_id,))
+            hands_played = cursor.fetchone()[0] or 0
+
+            # Get games completed (distinct game_ids)
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT game_id) as games_completed
+                FROM games
+                WHERE owner_id = ?
+            """, (user_id,))
+            games_completed = cursor.fetchone()[0] or 0
+
+            # Get last active timestamp
+            cursor = conn.execute("""
+                SELECT MAX(created_at) as last_active
+                FROM api_usage
+                WHERE owner_id = ?
+            """, (user_id,))
+            last_active_row = cursor.fetchone()
+            last_active = last_active_row[0] if last_active_row else None
+
+            return {
+                'total_cost': round(total_cost, 4),
+                'hands_played': hands_played,
+                'games_completed': games_completed,
+                'last_active': last_active
+            }
+
+    def initialize_admin_from_env(self) -> Optional[str]:
+        """Assign admin group to user with INITIAL_ADMIN_EMAIL.
+
+        Called on startup to ensure the initial admin is configured.
+        Supports both email addresses (for Google users) and guest IDs (e.g., "guest_jeff").
+
+        Returns:
+            User ID of the admin if found and assigned, None otherwise
+        """
+        admin_id = os.environ.get('INITIAL_ADMIN_EMAIL')
+        if not admin_id:
+            return None
+
+        # Support guest format: if starts with "guest_", use as user_id directly
+        if admin_id.startswith('guest_'):
+            user_id = admin_id
+            logger.info(f"INITIAL_ADMIN_EMAIL configured for guest user: {user_id}")
+        else:
+            # Regular email - look up user
+            user = self.get_user_by_email(admin_id)
+            if not user:
+                logger.info(f"Initial admin email {admin_id} not found in users table yet")
+                return None
+            user_id = user['id']
+
+        # Check if user already has admin group
+        groups = self.get_user_groups(user_id)
+        if 'admin' in groups:
+            logger.debug(f"User {user_id} already has admin group")
+            return user_id
+
+        # Assign admin group
+        if self.assign_user_to_group(user_id, 'admin', assigned_by='system'):
+            logger.info(f"Assigned admin group to {user_id}")
+            return user_id
+
+        return None
 
     def get_available_providers(self) -> Set[str]:
         """Get the set of all providers in the system.
@@ -4072,6 +4738,7 @@ class GamePersistence:
                     game_id, player_name, hand_number,
                     -- Game State
                     phase, pot_total, cost_to_call, pot_odds, player_stack,
+                    stack_bb, already_bet_bb,
                     community_cards, player_hand, valid_actions,
                     -- Decision
                     action_taken, raise_amount,
@@ -4091,7 +4758,7 @@ class GamePersistence:
                     tags, notes,
                     -- Prompt Config (for analysis)
                     prompt_config_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 # Identity
                 capture.get('game_id'),
@@ -4103,6 +4770,8 @@ class GamePersistence:
                 capture.get('cost_to_call'),
                 capture.get('pot_odds'),
                 capture.get('player_stack'),
+                capture.get('stack_bb'),
+                capture.get('already_bet_bb'),
                 json.dumps(capture.get('community_cards')) if capture.get('community_cards') else None,
                 json.dumps(capture.get('player_hand')) if capture.get('player_hand') else None,
                 json.dumps(capture.get('valid_actions')) if capture.get('valid_actions') else None,
@@ -6189,3 +6858,1159 @@ class GamePersistence:
         except Exception as e:
             logger.error(f"Failed to delete setting '{key}': {e}")
             return False
+
+    # ========================================
+    # Prompt Preset Methods (v47)
+    # ========================================
+
+    def create_prompt_preset(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        prompt_config: Optional[Dict[str, Any]] = None,
+        guidance_injection: Optional[str] = None,
+        owner_id: Optional[str] = None
+    ) -> int:
+        """Create a new prompt preset.
+
+        Args:
+            name: Unique name for the preset
+            description: Optional description of the preset
+            prompt_config: PromptConfig toggles as dict
+            guidance_injection: Extra guidance text to append to prompts
+            owner_id: Optional owner ID for multi-tenant support
+
+        Returns:
+            The ID of the created preset
+
+        Raises:
+            ValueError: If a preset with the same name already exists
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("""
+                    INSERT INTO prompt_presets (name, description, prompt_config, guidance_injection, owner_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    name,
+                    description,
+                    json.dumps(prompt_config) if prompt_config else None,
+                    guidance_injection,
+                    owner_id
+                ))
+                conn.commit()
+                preset_id = cursor.lastrowid
+                logger.info(f"Created prompt preset '{name}' with ID {preset_id}")
+                return preset_id
+        except sqlite3.IntegrityError:
+            raise ValueError(f"Prompt preset with name '{name}' already exists")
+
+    def get_prompt_preset(self, preset_id: int) -> Optional[Dict[str, Any]]:
+        """Get a prompt preset by ID.
+
+        Args:
+            preset_id: The preset ID
+
+        Returns:
+            Preset data as dict, or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, name, description, prompt_config, guidance_injection,
+                       owner_id, created_at, updated_at
+                FROM prompt_presets
+                WHERE id = ?
+            """, (preset_id,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+                    'guidance_injection': row['guidance_injection'],
+                    'owner_id': row['owner_id'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                }
+            return None
+
+    def get_prompt_preset_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get a prompt preset by name.
+
+        Args:
+            name: The preset name
+
+        Returns:
+            Preset data as dict, or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, name, description, prompt_config, guidance_injection,
+                       owner_id, created_at, updated_at
+                FROM prompt_presets
+                WHERE name = ?
+            """, (name,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+                    'guidance_injection': row['guidance_injection'],
+                    'owner_id': row['owner_id'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                }
+            return None
+
+    def list_prompt_presets(
+        self,
+        owner_id: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """List all prompt presets.
+
+        Args:
+            owner_id: Optional filter by owner ID
+            limit: Maximum number of results
+
+        Returns:
+            List of preset data dicts
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if owner_id:
+                cursor = conn.execute("""
+                    SELECT id, name, description, prompt_config, guidance_injection,
+                           owner_id, created_at, updated_at
+                    FROM prompt_presets
+                    WHERE owner_id = ? OR owner_id IS NULL
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                """, (owner_id, limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT id, name, description, prompt_config, guidance_injection,
+                           owner_id, created_at, updated_at
+                    FROM prompt_presets
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                """, (limit,))
+
+            return [
+                {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
+                    'guidance_injection': row['guidance_injection'],
+                    'owner_id': row['owner_id'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def update_prompt_preset(
+        self,
+        preset_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        prompt_config: Optional[Dict[str, Any]] = None,
+        guidance_injection: Optional[str] = None
+    ) -> bool:
+        """Update a prompt preset.
+
+        Args:
+            preset_id: The preset ID to update
+            name: Optional new name
+            description: Optional new description
+            prompt_config: Optional new prompt config
+            guidance_injection: Optional new guidance text
+
+        Returns:
+            True if the preset was updated, False if not found
+
+        Raises:
+            ValueError: If the new name conflicts with an existing preset
+        """
+        updates = []
+        params = []
+
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if prompt_config is not None:
+            updates.append("prompt_config = ?")
+            params.append(json.dumps(prompt_config))
+        if guidance_injection is not None:
+            updates.append("guidance_injection = ?")
+            params.append(guidance_injection)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(preset_id)
+
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ?",
+                    params
+                )
+                conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated prompt preset ID {preset_id}")
+                    return True
+                return False
+        except sqlite3.IntegrityError:
+            raise ValueError(f"Prompt preset with name '{name}' already exists")
+
+    def delete_prompt_preset(self, preset_id: int) -> bool:
+        """Delete a prompt preset.
+
+        Args:
+            preset_id: The preset ID to delete
+
+        Returns:
+            True if the preset was deleted, False if not found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM prompt_presets WHERE id = ?",
+                    (preset_id,)
+                )
+                conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"Deleted prompt preset ID {preset_id}")
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Failed to delete prompt preset {preset_id}: {e}")
+            return False
+
+    # ==================== Capture Labels Methods ====================
+    # These methods support labeling/tagging captured AI decisions for
+    # filtering and selection in replay experiments.
+    # ================================================================
+
+    def add_capture_labels(
+        self,
+        capture_id: int,
+        labels: List[str],
+        label_type: str = 'user'
+    ) -> List[str]:
+        """Add labels to a captured AI decision.
+
+        Args:
+            capture_id: The prompt_captures ID
+            labels: List of label strings to add
+            label_type: Type of label ('user' for manual, 'smart' for auto-generated)
+
+        Returns:
+            List of labels that were actually added (excludes duplicates)
+        """
+        added = []
+        with sqlite3.connect(self.db_path) as conn:
+            for label in labels:
+                label = label.strip().lower()
+                if not label:
+                    continue
+                try:
+                    conn.execute("""
+                        INSERT INTO capture_labels (capture_id, label, label_type)
+                        VALUES (?, ?, ?)
+                    """, (capture_id, label, label_type))
+                    added.append(label)
+                except sqlite3.IntegrityError:
+                    # Label already exists for this capture, skip
+                    pass
+            conn.commit()
+        if added:
+            logger.debug(f"Added labels {added} to capture {capture_id}")
+        return added
+
+    def compute_and_store_auto_labels(self, capture_id: int, capture_data: Dict[str, Any]) -> List[str]:
+        """Compute auto-labels for a capture based on rules and store them.
+
+        Labels are computed based on the capture data at capture time.
+        Stored with label_type='auto' to distinguish from user-added labels.
+
+        Args:
+            capture_id: The prompt_captures ID
+            capture_data: Dict containing capture fields (action_taken, pot_odds, stack_bb, already_bet_bb, etc.)
+
+        Returns:
+            List of auto-labels that were added
+        """
+        labels = []
+        action = capture_data.get('action_taken')
+        pot_odds = capture_data.get('pot_odds')
+        stack_bb = capture_data.get('stack_bb')
+        already_bet_bb = capture_data.get('already_bet_bb')
+
+        # SHORT_STACK: Folding with < 3 BB is almost always wrong
+        if action == 'fold' and stack_bb is not None and stack_bb < 3:
+            labels.append('short_stack_fold')
+
+        # POT_COMMITTED: Folding after investing more than remaining stack
+        if (action == 'fold' and
+                already_bet_bb is not None and
+                stack_bb is not None and
+                already_bet_bb > stack_bb):
+            labels.append('pot_committed_fold')
+
+        # SUS_FOLD: Suspicious fold - high pot odds (getting good price)
+        if action == 'fold' and pot_odds is not None and pot_odds >= 5:
+            # Only add if not already flagged with more specific labels
+            if 'short_stack_fold' not in labels and 'pot_committed_fold' not in labels:
+                labels.append('suspicious_fold')
+
+        # Store labels if any were computed
+        if labels:
+            self.add_capture_labels(capture_id, labels, label_type='auto')
+            logger.debug(f"Auto-labeled capture {capture_id}: {labels}")
+
+        return labels
+
+    def remove_capture_labels(
+        self,
+        capture_id: int,
+        labels: List[str]
+    ) -> int:
+        """Remove labels from a captured AI decision.
+
+        Args:
+            capture_id: The prompt_captures ID
+            labels: List of label strings to remove
+
+        Returns:
+            Number of labels that were removed
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            total_removed = 0
+            for label in labels:
+                label = label.strip().lower()
+                if not label:
+                    continue
+                cursor = conn.execute("""
+                    DELETE FROM capture_labels
+                    WHERE capture_id = ? AND label = ?
+                """, (capture_id, label))
+                total_removed += cursor.rowcount
+            conn.commit()
+        if total_removed:
+            logger.debug(f"Removed {total_removed} label(s) from capture {capture_id}")
+        return total_removed
+
+    def get_capture_labels(self, capture_id: int) -> List[Dict[str, Any]]:
+        """Get all labels for a captured AI decision.
+
+        Args:
+            capture_id: The prompt_captures ID
+
+        Returns:
+            List of label dicts with 'label', 'label_type', 'created_at'
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT label, label_type, created_at
+                FROM capture_labels
+                WHERE capture_id = ?
+                ORDER BY label
+            """, (capture_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def list_all_labels(self, label_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all unique labels with counts.
+
+        Args:
+            label_type: Optional filter by label type ('user' or 'smart')
+
+        Returns:
+            List of dicts with 'name', 'count', 'label_type'
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if label_type:
+                cursor = conn.execute("""
+                    SELECT label as name, label_type, COUNT(*) as count
+                    FROM capture_labels
+                    WHERE label_type = ?
+                    GROUP BY label, label_type
+                    ORDER BY count DESC, label
+                """, (label_type,))
+            else:
+                cursor = conn.execute("""
+                    SELECT label as name, label_type, COUNT(*) as count
+                    FROM capture_labels
+                    GROUP BY label, label_type
+                    ORDER BY count DESC, label
+                """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_label_stats(
+        self,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        call_type: Optional[str] = None
+    ) -> Dict[str, int]:
+        """Get label counts filtered by game_id, player_name, and/or call_type.
+
+        Args:
+            game_id: Optional filter by game
+            player_name: Optional filter by player
+            call_type: Optional filter by call type
+
+        Returns:
+            Dict mapping label name to count
+        """
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("pc.game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("pc.player_name = ?")
+            params.append(player_name)
+        if call_type:
+            conditions.append("pc.call_type = ?")
+            params.append(call_type)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(f"""
+                SELECT cl.label, COUNT(*) as count
+                FROM capture_labels cl
+                JOIN prompt_captures pc ON cl.capture_id = pc.id
+                {where_clause}
+                GROUP BY cl.label
+                ORDER BY count DESC, cl.label
+            """, params)
+            return {row['label']: row['count'] for row in cursor.fetchall()}
+
+    def search_captures_with_labels(
+        self,
+        labels: List[str],
+        match_all: bool = False,
+        game_id: Optional[str] = None,
+        player_name: Optional[str] = None,
+        action: Optional[str] = None,
+        phase: Optional[str] = None,
+        min_pot_odds: Optional[float] = None,
+        max_pot_odds: Optional[float] = None,
+        call_type: Optional[str] = None,
+        min_pot_size: Optional[float] = None,
+        max_pot_size: Optional[float] = None,
+        min_big_blind: Optional[float] = None,
+        max_big_blind: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """Search captures by labels and optional filters.
+
+        Args:
+            labels: List of labels to search for
+            match_all: If True, captures must have ALL labels; if False, ANY label
+            game_id: Optional filter by game
+            player_name: Optional filter by player
+            action: Optional filter by action taken
+            phase: Optional filter by game phase
+            min_pot_odds: Optional minimum pot odds filter
+            max_pot_odds: Optional maximum pot odds filter
+            call_type: Optional filter by call type (e.g., 'player_decision')
+            min_pot_size: Optional minimum pot total filter
+            max_pot_size: Optional maximum pot total filter
+            min_big_blind: Optional minimum big blind filter (computed from stack_bb)
+            max_big_blind: Optional maximum big blind filter (computed from stack_bb)
+            limit: Maximum results to return
+            offset: Pagination offset
+
+        Returns:
+            Dict with 'captures' list and 'total' count
+        """
+        # Normalize labels
+        labels = [l.strip().lower() for l in labels if l.strip()]
+        if not labels:
+            # No labels specified, fallback to regular listing
+            return self.list_prompt_captures(
+                game_id=game_id,
+                player_name=player_name,
+                action=action,
+                phase=phase,
+                min_pot_odds=min_pot_odds,
+                max_pot_odds=max_pot_odds,
+                call_type=call_type,
+                limit=limit,
+                offset=offset
+            )
+
+        # Build base conditions
+        conditions = []
+        params = []
+
+        if game_id:
+            conditions.append("pc.game_id = ?")
+            params.append(game_id)
+        if player_name:
+            conditions.append("pc.player_name = ?")
+            params.append(player_name)
+        if action:
+            conditions.append("pc.action_taken = ?")
+            params.append(action)
+        if phase:
+            conditions.append("pc.phase = ?")
+            params.append(phase)
+        if min_pot_odds is not None:
+            conditions.append("pc.pot_odds >= ?")
+            params.append(min_pot_odds)
+        if max_pot_odds is not None:
+            conditions.append("pc.pot_odds <= ?")
+            params.append(max_pot_odds)
+        if call_type:
+            conditions.append("pc.call_type = ?")
+            params.append(call_type)
+        if min_pot_size is not None:
+            conditions.append("pc.pot_total >= ?")
+            params.append(min_pot_size)
+        if max_pot_size is not None:
+            conditions.append("pc.pot_total <= ?")
+            params.append(max_pot_size)
+        # Big blind filtering: compute BB from player_stack / stack_bb
+        if min_big_blind is not None:
+            conditions.append("pc.stack_bb > 0 AND (pc.player_stack / pc.stack_bb) >= ?")
+            params.append(min_big_blind)
+        if max_big_blind is not None:
+            conditions.append("pc.stack_bb > 0 AND (pc.player_stack / pc.stack_bb) <= ?")
+            params.append(max_big_blind)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Build label matching subquery
+            label_placeholders = ','.join(['?' for _ in labels])
+            params_for_labels = [l for l in labels]
+
+            if match_all:
+                # Must have ALL specified labels
+                label_subquery = f"""
+                    pc.id IN (
+                        SELECT capture_id
+                        FROM capture_labels
+                        WHERE label IN ({label_placeholders})
+                        GROUP BY capture_id
+                        HAVING COUNT(DISTINCT label) = ?
+                    )
+                """
+                params_for_labels.append(len(labels))
+            else:
+                # Must have ANY of the specified labels
+                label_subquery = f"""
+                    pc.id IN (
+                        SELECT capture_id
+                        FROM capture_labels
+                        WHERE label IN ({label_placeholders})
+                    )
+                """
+
+            # Combine label filter with other conditions
+            if where_clause:
+                full_where = f"{where_clause} AND {label_subquery}"
+            else:
+                full_where = f"WHERE {label_subquery}"
+
+            # Count query
+            count_query = f"""
+                SELECT COUNT(DISTINCT pc.id)
+                FROM prompt_captures pc
+                {full_where}
+            """
+            count_params = params + params_for_labels
+            cursor = conn.execute(count_query, count_params)
+            total = cursor.fetchone()[0]
+
+            # Data query
+            data_query = f"""
+                SELECT DISTINCT pc.id, pc.created_at, pc.game_id, pc.player_name,
+                       pc.hand_number, pc.phase, pc.action_taken, pc.pot_total,
+                       pc.cost_to_call, pc.pot_odds, pc.player_stack,
+                       pc.community_cards, pc.player_hand, pc.model, pc.provider,
+                       pc.latency_ms, pc.tags, pc.notes
+                FROM prompt_captures pc
+                {full_where}
+                ORDER BY pc.created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            data_params = params + params_for_labels + [limit, offset]
+            cursor = conn.execute(data_query, data_params)
+
+            captures = []
+            for row in cursor.fetchall():
+                capture = dict(row)
+                # Parse JSON fields
+                for field in ['community_cards', 'player_hand', 'tags']:
+                    if capture.get(field):
+                        try:
+                            capture[field] = json.loads(capture[field])
+                        except json.JSONDecodeError:
+                            logger.debug("Failed to parse JSON for field '%s' in capture id=%s", field, capture.get('id'))
+                # Get labels for this capture
+                capture['labels'] = self.get_capture_labels(capture['id'])
+                captures.append(capture)
+
+            return {
+                'captures': captures,
+                'total': total
+            }
+
+    def bulk_add_capture_labels(
+        self,
+        capture_ids: List[int],
+        labels: List[str],
+        label_type: str = 'user'
+    ) -> Dict[str, int]:
+        """Add labels to multiple captures at once.
+
+        Args:
+            capture_ids: List of prompt_captures IDs
+            labels: Labels to add to all captures
+            label_type: Type of label
+
+        Returns:
+            Dict with 'captures_affected' and 'labels_added' counts
+        """
+        labels = [l.strip().lower() for l in labels if l.strip()]
+        if not labels or not capture_ids:
+            return {'captures_affected': 0, 'labels_added': 0}
+
+        total_added = 0
+        captures_touched = set()
+
+        with sqlite3.connect(self.db_path) as conn:
+            for capture_id in capture_ids:
+                for label in labels:
+                    try:
+                        conn.execute("""
+                            INSERT INTO capture_labels (capture_id, label, label_type)
+                            VALUES (?, ?, ?)
+                        """, (capture_id, label, label_type))
+                        total_added += 1
+                        captures_touched.add(capture_id)
+                    except sqlite3.IntegrityError:
+                        # Label already exists for this capture
+                        pass
+            conn.commit()
+
+        logger.info(f"Bulk added {total_added} label(s) to {len(captures_touched)} capture(s)")
+        return {
+            'captures_affected': len(captures_touched),
+            'labels_added': total_added
+        }
+
+    def bulk_remove_capture_labels(
+        self,
+        capture_ids: List[int],
+        labels: List[str]
+    ) -> Dict[str, int]:
+        """Remove labels from multiple captures at once.
+
+        Args:
+            capture_ids: List of prompt_captures IDs
+            labels: Labels to remove from all captures
+
+        Returns:
+            Dict with 'captures_affected' and 'labels_removed' counts
+        """
+        labels = [l.strip().lower() for l in labels if l.strip()]
+        if not labels or not capture_ids:
+            return {'captures_affected': 0, 'labels_removed': 0}
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Build query with multiple capture_ids
+            id_placeholders = ','.join(['?' for _ in capture_ids])
+            label_placeholders = ','.join(['?' for _ in labels])
+
+            cursor = conn.execute(f"""
+                DELETE FROM capture_labels
+                WHERE capture_id IN ({id_placeholders})
+                AND label IN ({label_placeholders})
+            """, capture_ids + labels)
+            conn.commit()
+            removed = cursor.rowcount
+
+        logger.info(f"Bulk removed {removed} label(s) from captures")
+        return {
+            'captures_affected': len(capture_ids),
+            'labels_removed': removed
+        }
+
+    # ==================== Replay Experiment Methods ====================
+    # These methods support replay experiments that re-run captured AI
+    # decisions with different variants (models, prompts, etc.).
+    # ===================================================================
+
+    def create_replay_experiment(
+        self,
+        name: str,
+        capture_ids: List[int],
+        variants: List[Dict[str, Any]],
+        description: Optional[str] = None,
+        hypothesis: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        parent_experiment_id: Optional[int] = None
+    ) -> int:
+        """Create a new replay experiment.
+
+        Args:
+            name: Unique experiment name
+            capture_ids: List of prompt_captures IDs to replay
+            variants: List of variant configurations
+            description: Optional experiment description
+            hypothesis: Optional hypothesis being tested
+            tags: Optional list of tags
+            parent_experiment_id: Optional parent for lineage tracking
+
+        Returns:
+            The experiment_id of the created record
+        """
+        config = {
+            'name': name,
+            'description': description,
+            'hypothesis': hypothesis,
+            'tags': tags or [],
+            'experiment_type': 'replay',
+            'capture_selection': {
+                'mode': 'ids',
+                'ids': capture_ids
+            },
+            'variants': variants
+        }
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Create the experiment record
+            cursor = conn.execute("""
+                INSERT INTO experiments (
+                    name, description, hypothesis, tags, notes,
+                    config_json, experiment_type, parent_experiment_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'replay', ?)
+            """, (
+                name,
+                description,
+                hypothesis,
+                json.dumps(tags or []),
+                None,  # notes
+                json.dumps(config),
+                parent_experiment_id,
+            ))
+            experiment_id = cursor.lastrowid
+
+            # Link captures to the experiment
+            for capture_id in capture_ids:
+                # Get original capture info for reference
+                capture_cursor = conn.execute("""
+                    SELECT action_taken FROM prompt_captures WHERE id = ?
+                """, (capture_id,))
+                capture_row = capture_cursor.fetchone()
+                original_action = capture_row[0] if capture_row else None
+
+                # Get decision analysis if available
+                analysis_cursor = conn.execute("""
+                    SELECT decision_quality, ev_lost FROM player_decision_analysis
+                    WHERE capture_id = ?
+                """, (capture_id,))
+                analysis_row = analysis_cursor.fetchone()
+                original_quality = analysis_row[0] if analysis_row else None
+                original_ev_lost = analysis_row[1] if analysis_row else None
+
+                conn.execute("""
+                    INSERT INTO replay_experiment_captures (
+                        experiment_id, capture_id, original_action,
+                        original_quality, original_ev_lost
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                """, (experiment_id, capture_id, original_action, original_quality, original_ev_lost))
+
+            conn.commit()
+            logger.info(f"Created replay experiment '{name}' with id {experiment_id}, {len(capture_ids)} captures")
+            return experiment_id
+
+    def add_replay_result(
+        self,
+        experiment_id: int,
+        capture_id: int,
+        variant: str,
+        new_response: str,
+        new_action: str,
+        new_raise_amount: Optional[int] = None,
+        new_quality: Optional[str] = None,
+        new_ev_lost: Optional[float] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        latency_ms: Optional[int] = None,
+        error_message: Optional[str] = None
+    ) -> int:
+        """Add a result from replaying a capture with a variant.
+
+        Args:
+            experiment_id: The experiment ID
+            capture_id: The prompt_captures ID
+            variant: The variant label
+            new_response: The new AI response
+            new_action: The new action taken
+            new_raise_amount: Optional new raise amount
+            new_quality: Optional quality assessment
+            new_ev_lost: Optional EV lost calculation
+            provider: LLM provider used
+            model: Model used
+            reasoning_effort: Reasoning effort setting
+            input_tokens: Input token count
+            output_tokens: Output token count
+            latency_ms: Response latency
+            error_message: Error if the replay failed
+
+        Returns:
+            The replay_results record ID
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Get original action and quality for comparison
+            cursor = conn.execute("""
+                SELECT original_action, original_quality, original_ev_lost
+                FROM replay_experiment_captures
+                WHERE experiment_id = ? AND capture_id = ?
+            """, (experiment_id, capture_id))
+            row = cursor.fetchone()
+            original_action = row[0] if row else None
+            original_quality = row[1] if row else None
+            original_ev_lost = row[2] if row else None
+
+            # Determine if action changed
+            action_changed = new_action != original_action if original_action else None
+
+            # Determine quality change
+            quality_change = None
+            if original_quality and new_quality:
+                if original_quality == 'mistake' and new_quality != 'mistake':
+                    quality_change = 'improved'
+                elif original_quality != 'mistake' and new_quality == 'mistake':
+                    quality_change = 'degraded'
+                else:
+                    quality_change = 'unchanged'
+
+            # Calculate EV delta
+            ev_delta = None
+            if original_ev_lost is not None and new_ev_lost is not None:
+                ev_delta = original_ev_lost - new_ev_lost  # Positive = improvement
+
+            cursor = conn.execute("""
+                INSERT INTO replay_results (
+                    experiment_id, capture_id, variant, new_response, new_action,
+                    new_raise_amount, new_quality, new_ev_lost, action_changed,
+                    quality_change, ev_delta, provider, model, reasoning_effort,
+                    input_tokens, output_tokens, latency_ms, error_message
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                experiment_id, capture_id, variant, new_response, new_action,
+                new_raise_amount, new_quality, new_ev_lost, action_changed,
+                quality_change, ev_delta, provider, model, reasoning_effort,
+                input_tokens, output_tokens, latency_ms, error_message
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_replay_experiment(self, experiment_id: int) -> Optional[Dict[str, Any]]:
+        """Get a replay experiment with its captures and progress.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            Experiment data with capture count and result progress, or None
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get experiment
+            cursor = conn.execute("""
+                SELECT * FROM experiments WHERE id = ? AND experiment_type = 'replay'
+            """, (experiment_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            experiment = dict(row)
+
+            # Parse JSON fields
+            for field in ['config_json', 'summary_json', 'tags']:
+                if experiment.get(field):
+                    try:
+                        experiment[field] = json.loads(experiment[field])
+                    except json.JSONDecodeError:
+                        logger.debug("Failed to parse JSON for field '%s' in experiment id=%s", field, experiment_id)
+
+            # Get capture count
+            cursor = conn.execute("""
+                SELECT COUNT(*) FROM replay_experiment_captures
+                WHERE experiment_id = ?
+            """, (experiment_id,))
+            experiment['capture_count'] = cursor.fetchone()[0]
+
+            # Get variants from config
+            config = experiment.get('config_json', {})
+            variants = config.get('variants', []) if isinstance(config, dict) else []
+            experiment['variant_count'] = len(variants)
+
+            # Get result progress
+            cursor = conn.execute("""
+                SELECT COUNT(*) FROM replay_results WHERE experiment_id = ?
+            """, (experiment_id,))
+            experiment['results_completed'] = cursor.fetchone()[0]
+            experiment['results_total'] = experiment['capture_count'] * experiment['variant_count']
+
+            return experiment
+
+    def get_replay_results(
+        self,
+        experiment_id: int,
+        variant: Optional[str] = None,
+        quality_change: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """Get replay results for an experiment.
+
+        Args:
+            experiment_id: The experiment ID
+            variant: Optional filter by variant
+            quality_change: Optional filter by quality change ('improved', 'degraded', 'unchanged')
+            limit: Maximum results to return
+            offset: Pagination offset
+
+        Returns:
+            Dict with 'results' list and 'total' count
+        """
+        conditions = ["replay_results.experiment_id = ?"]
+        params = [experiment_id]
+
+        if variant:
+            conditions.append("replay_results.variant = ?")
+            params.append(variant)
+        if quality_change:
+            conditions.append("replay_results.quality_change = ?")
+            params.append(quality_change)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}"
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM replay_results {where_clause}
+            """, params)
+            total = cursor.fetchone()[0]
+
+            # Get results with pagination
+            # Note: Don't alias replay_results since where_clause uses full table name
+            cursor = conn.execute(f"""
+                SELECT replay_results.*, pc.player_name, pc.phase, pc.pot_odds,
+                       rec.original_action, rec.original_quality, rec.original_ev_lost
+                FROM replay_results
+                JOIN replay_experiment_captures rec
+                    ON rec.experiment_id = replay_results.experiment_id
+                    AND rec.capture_id = replay_results.capture_id
+                JOIN prompt_captures pc ON pc.id = replay_results.capture_id
+                {where_clause}
+                ORDER BY replay_results.created_at DESC
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+
+            results = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                'results': results,
+                'total': total
+            }
+
+    def get_replay_results_summary(self, experiment_id: int) -> Dict[str, Any]:
+        """Get summary statistics for replay experiment results.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            Dict with summary statistics by variant
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Overall stats
+            cursor = conn.execute("""
+                SELECT
+                    COUNT(*) as total_results,
+                    SUM(CASE WHEN action_changed = 1 THEN 1 ELSE 0 END) as actions_changed,
+                    SUM(CASE WHEN quality_change = 'improved' THEN 1 ELSE 0 END) as improved,
+                    SUM(CASE WHEN quality_change = 'degraded' THEN 1 ELSE 0 END) as degraded,
+                    SUM(CASE WHEN quality_change = 'unchanged' THEN 1 ELSE 0 END) as unchanged,
+                    AVG(ev_delta) as avg_ev_delta,
+                    SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END) as errors
+                FROM replay_results
+                WHERE experiment_id = ?
+            """, (experiment_id,))
+            row = cursor.fetchone()
+
+            overall = {
+                'total_results': row[0] or 0,
+                'actions_changed': row[1] or 0,
+                'improved': row[2] or 0,
+                'degraded': row[3] or 0,
+                'unchanged': row[4] or 0,
+                'avg_ev_delta': row[5],
+                'errors': row[6] or 0,
+            }
+
+            # Stats by variant
+            cursor = conn.execute("""
+                SELECT
+                    variant,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN action_changed = 1 THEN 1 ELSE 0 END) as actions_changed,
+                    SUM(CASE WHEN quality_change = 'improved' THEN 1 ELSE 0 END) as improved,
+                    SUM(CASE WHEN quality_change = 'degraded' THEN 1 ELSE 0 END) as degraded,
+                    AVG(ev_delta) as avg_ev_delta,
+                    AVG(latency_ms) as avg_latency,
+                    SUM(input_tokens) as total_input_tokens,
+                    SUM(output_tokens) as total_output_tokens,
+                    SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END) as errors
+                FROM replay_results
+                WHERE experiment_id = ?
+                GROUP BY variant
+            """, (experiment_id,))
+
+            by_variant = {}
+            for row in cursor.fetchall():
+                by_variant[row[0]] = {
+                    'total': row[1],
+                    'actions_changed': row[2] or 0,
+                    'improved': row[3] or 0,
+                    'degraded': row[4] or 0,
+                    'avg_ev_delta': row[5],
+                    'avg_latency': row[6],
+                    'total_input_tokens': row[7] or 0,
+                    'total_output_tokens': row[8] or 0,
+                    'errors': row[9] or 0,
+                }
+
+            return {
+                'overall': overall,
+                'by_variant': by_variant
+            }
+
+    def get_replay_experiment_captures(self, experiment_id: int) -> List[Dict[str, Any]]:
+        """Get the captures linked to a replay experiment.
+
+        Args:
+            experiment_id: The experiment ID
+
+        Returns:
+            List of capture details with original info
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT rec.*, pc.player_name, pc.phase, pc.pot_odds,
+                       pc.pot_total, pc.cost_to_call, pc.player_stack,
+                       pc.model as original_model, pc.provider as original_provider
+                FROM replay_experiment_captures rec
+                JOIN prompt_captures pc ON pc.id = rec.capture_id
+                WHERE rec.experiment_id = ?
+                ORDER BY pc.created_at DESC
+            """, (experiment_id,))
+
+            return [dict(row) for row in cursor.fetchall()]
+
+    def list_replay_experiments(
+        self,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List replay experiments.
+
+        Args:
+            status: Optional filter by status
+            limit: Maximum results to return
+            offset: Pagination offset
+
+        Returns:
+            Dict with 'experiments' list and 'total' count
+        """
+        conditions = ["experiment_type = 'replay'"]
+        params = []
+
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}"
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get total count
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM experiments {where_clause}
+            """, params)
+            total = cursor.fetchone()[0]
+
+            # Get experiments with pagination
+            cursor = conn.execute(f"""
+                SELECT e.*,
+                    (SELECT COUNT(*) FROM replay_experiment_captures rec WHERE rec.experiment_id = e.id) as capture_count,
+                    (SELECT COUNT(*) FROM replay_results rr WHERE rr.experiment_id = e.id) as results_completed
+                FROM experiments e
+                {where_clause}
+                ORDER BY e.created_at DESC
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+
+            experiments = []
+            for row in cursor.fetchall():
+                exp = dict(row)
+                # Parse JSON fields
+                for field in ['config_json', 'summary_json', 'tags']:
+                    if exp.get(field):
+                        try:
+                            exp[field] = json.loads(exp[field])
+                        except json.JSONDecodeError:
+                            logger.debug("Failed to parse JSON for field '%s' in experiment id=%s", field, exp.get('id'))
+
+                # Calculate variant count from config
+                config = exp.get('config_json', {})
+                variants = config.get('variants', []) if isinstance(config, dict) else []
+                exp['variant_count'] = len(variants)
+                exp['results_total'] = exp['capture_count'] * exp['variant_count']
+
+                experiments.append(exp)
+
+            return {
+                'experiments': experiments,
+                'total': total
+            }

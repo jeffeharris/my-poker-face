@@ -6,6 +6,19 @@ export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 
 
 export type ExperimentMode = 'design' | 'list' | 'detail';
 
+/**
+ * Saved prompt configuration preset.
+ */
+export interface PromptPreset {
+  id: number;
+  name: string;
+  description?: string;
+  prompt_config?: Partial<PromptConfig>;
+  guidance_injection?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PromptConfig {
   pot_odds: boolean;
   hand_strength: boolean;
@@ -47,7 +60,13 @@ export interface VariantConfig {
   label: string;
   model?: string;
   provider?: string;
+  /** Per-variant personality assignment (does not inherit from control) */
+  personality?: string;
+  /** Load prompt config from a saved preset */
+  prompt_preset_id?: number;
   prompt_config?: Partial<PromptConfig>;
+  /** Extra text appended to decision prompts for this variant */
+  guidance_injection?: string;
   /** Enable tilt + emotional state generation. Inherits from control if not set. */
   enable_psychology?: boolean;
   /** Enable commentary generation. Inherits from control if not set. */
@@ -86,6 +105,8 @@ export interface ExperimentConfig {
   parent_experiment_id?: number;
 }
 
+export type ExperimentType = 'tournament' | 'replay';
+
 export interface ExperimentSummary {
   id: number;
   name: string;
@@ -100,6 +121,8 @@ export interface ExperimentSummary {
   model: string | null;
   provider: string | null;
   summary: ExperimentResultSummary | null;
+  /** Type of experiment: 'tournament' or 'replay' */
+  experiment_type?: ExperimentType;
 }
 
 /**
@@ -372,4 +395,68 @@ export const DEFAULT_PROMPT_CONFIG: PromptConfig = {
   mind_games: true,
   persona_response: true,
   memory_keep_exchanges: 0,
+};
+
+/**
+ * Capture selection modes for replay experiments.
+ */
+export type CaptureSelectionMode = 'ids' | 'labels' | 'filters';
+
+/**
+ * Filters for selecting captures.
+ */
+export interface CaptureFilters {
+  phase?: string;
+  action?: string;
+  min_pot_odds?: number;
+  max_pot_odds?: number;
+}
+
+/**
+ * Capture selection configuration.
+ */
+export interface CaptureSelection {
+  mode: CaptureSelectionMode;
+  ids?: number[];
+  labels?: string[];
+  match_all?: boolean;
+  filters?: CaptureFilters;
+}
+
+/**
+ * Variant configuration for replay experiments.
+ */
+export interface ReplayVariantConfig {
+  label: string;
+  model?: string;
+  provider?: string;
+  prompt_preset_id?: number;
+  prompt_config?: Partial<PromptConfig>;
+  guidance_injection?: string;
+}
+
+/**
+ * Configuration for a replay experiment.
+ */
+export interface ReplayExperimentConfig {
+  name: string;
+  description: string;
+  hypothesis: string;
+  tags: string[];
+  capture_selection: CaptureSelection;
+  variants: ReplayVariantConfig[];
+}
+
+export const DEFAULT_REPLAY_CONFIG: ReplayExperimentConfig = {
+  name: '',
+  description: '',
+  hypothesis: '',
+  tags: [],
+  capture_selection: {
+    mode: 'filters',
+    filters: {},
+  },
+  variants: [
+    { label: 'Control' },
+  ],
 };

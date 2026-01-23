@@ -4,13 +4,15 @@ import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 
 import { AdminDashboard } from './AdminDashboard';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import { AdminSidebar } from './AdminSidebar';
+import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
+import { ReplayResults } from './ReplayResults';
 import { useViewport } from '../../hooks/useViewport';
+import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
-import { getAdminToken } from '../../utils/api';
 import type { AdminTab } from './AdminSidebar';
 
-const VALID_TABS: AdminTab[] = ['personalities', 'analyzer', 'playground', 'experiments', 'templates', 'settings', 'debug'];
+const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
 
 /**
  * Wrapper for experiment detail view with URL params
@@ -290,6 +292,151 @@ function ExperimentDetailWrapper() {
   );
 }
 
+/**
+ * Wrapper for replay experiment results view with URL params
+ */
+function ReplayResultsWrapper() {
+  const { experimentId } = useParams<{ experimentId: string }>();
+  const navigate = useNavigate();
+  const { isMobile } = useViewport();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const experimentIdNum = experimentId ? parseInt(experimentId, 10) : NaN;
+
+  const handleBack = () => {
+    navigate('/admin/experiments');
+  };
+
+  if (!experimentId || isNaN(experimentIdNum)) {
+    return <Navigate to="/admin/experiments" replace />;
+  }
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <div className="admin-main__content admin-main__content--mobile">
+          <ReplayResults
+            experimentId={experimentIdNum}
+            onBack={handleBack}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout with sidebar + content
+  return (
+    <div className="admin-dashboard-layout">
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab="experiments"
+        onTabChange={(tab) => navigate(`/admin/${tab}`)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="admin-main">
+        <header className="admin-main__header">
+          <button
+            className="admin-main__back"
+            onClick={handleBack}
+            aria-label="Go back to experiments"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">Replay Results</h1>
+            <p className="admin-main__subtitle">View replay experiment results and analysis</p>
+          </div>
+        </header>
+        <div className="admin-main__content">
+          <ReplayResults
+            experimentId={experimentIdNum}
+            onBack={handleBack}
+          />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/**
+ * Wrapper for new experiment design page (/admin/experiments/new)
+ */
+function NewExperimentWrapper() {
+  const navigate = useNavigate();
+  const { isMobile } = useViewport();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [assistantPanelProps, setAssistantPanelProps] = useState<AssistantPanelProps | null>(null);
+
+  const handleBack = () => {
+    navigate('/admin/experiments');
+  };
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <div className="admin-main__content admin-main__content--mobile">
+          <ExperimentDesigner
+            embedded
+            initialMode="design"
+            onAssistantPanelChange={setAssistantPanelProps}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout with sidebar + content + assistant panel
+  return (
+    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab="experiments"
+        onTabChange={(tab) => navigate(`/admin/${tab}`)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="admin-main">
+        <header className="admin-main__header">
+          <button
+            className="admin-main__back"
+            onClick={handleBack}
+            aria-label="Go back to experiments"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">New Experiment</h1>
+            <p className="admin-main__subtitle">Design a new experiment with the Lab Assistant</p>
+          </div>
+        </header>
+        <div className="admin-main__content">
+          <ExperimentDesigner
+            embedded
+            initialMode="design"
+            onAssistantPanelChange={setAssistantPanelProps}
+          />
+        </div>
+      </main>
+
+      {/* Docked Assistant Panel (page-level) */}
+      {assistantPanelProps && (
+        <div className="admin-assistant-panel admin-assistant-panel--docked">
+          <div className="admin-assistant-panel__header">
+            <h3>
+              <MessageSquare size={18} />
+              Lab Assistant
+            </h3>
+          </div>
+          <ExperimentChat {...assistantPanelProps} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminTabWrapper() {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
@@ -348,17 +495,30 @@ function AdminIndex() {
 }
 
 export function AdminRoutes() {
-  // Eagerly extract and persist admin token from URL on mount
-  // This ensures the token is saved to localStorage even before any API calls
-  useEffect(() => {
-    getAdminToken();
-  }, []);
+  const { user, isLoading } = useAuth();
+  const canAccessAdmin = hasPermission(user, 'can_access_admin_tools');
+
+  // Show loading while checking auth
+  if (isLoading) {
+    return (
+      <div className="admin-loading" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="admin-loading__spinner" />
+      </div>
+    );
+  }
+
+  // Redirect non-admins to menu
+  if (!canAccessAdmin) {
+    return <Navigate to="/menu" replace />;
+  }
 
   return (
     <Routes>
       <Route index element={<AdminIndex />} />
-      {/* Experiment detail route - must come before :tab to match first */}
+      {/* Experiment routes - specific paths must come before :experimentId to match first */}
+      <Route path="experiments/new" element={<NewExperimentWrapper />} />
       <Route path="experiments/:experimentId" element={<ExperimentDetailWrapper />} />
+      <Route path="replays/:experimentId" element={<ReplayResultsWrapper />} />
       <Route path=":tab" element={<AdminTabWrapper />} />
     </Routes>
   );

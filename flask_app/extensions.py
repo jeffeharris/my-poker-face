@@ -19,6 +19,7 @@ from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
 from poker.pricing_loader import sync_pricing_from_yaml, sync_enabled_models
+from poker.authorization import init_authorization
 
 from . import config
 
@@ -157,6 +158,9 @@ def init_auth(app: Flask) -> None:
     from poker.auth import AuthManager
     auth_manager = AuthManager(app, persistence, oauth)
 
+    # Initialize authorization service
+    init_authorization(persistence, auth_manager)
+
 
 def init_extensions(app: Flask) -> None:
     """Initialize all Flask extensions with the app."""
@@ -183,6 +187,12 @@ def init_extensions(app: Flask) -> None:
 
     # Initialize auth
     init_auth(app)
+
+    # Initialize admin from environment variable
+    if persistence:
+        admin_user_id = persistence.initialize_admin_from_env()
+        if admin_user_id:
+            logger.info(f"Initial admin configured: {admin_user_id}")
 
     # Initialize personality generator
     init_personality_generator()

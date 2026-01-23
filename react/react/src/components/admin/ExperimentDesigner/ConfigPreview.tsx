@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X, Shuffle } from 'lucide-react';
-import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion } from './types';
+import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion, PromptPreset } from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
@@ -61,6 +61,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   const [abTestingExpanded, setAbTestingExpanded] = useState(false);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
   const [availablePersonalities, setAvailablePersonalities] = useState<string[]>([]);
+  const [availablePresets, setAvailablePresets] = useState<PromptPreset[]>([]);
   const [tagInput, setTagInput] = useState('');
   // Store seed when disabled so we can restore it when re-enabled
   const [savedSeed, setSavedSeed] = useState<number>(() => config.random_seed ?? generateSeed());
@@ -89,6 +90,24 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
       }
     };
     fetchPersonalities();
+  }, []);
+
+  // Fetch available prompt presets on mount
+  useEffect(() => {
+    const fetchPresets = async () => {
+      try {
+        const response = await fetch(`${appConfig.API_URL}/api/prompt-presets`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+        if (data.success && data.presets) {
+          setAvailablePresets(data.presets);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch prompt presets:', err);
+      }
+    };
+    fetchPresets();
   }, []);
 
 
@@ -259,7 +278,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
     onConfigUpdate({ variants: [...variants, newVariant] });
   };
 
-  const handleVariantUpdate = (index: number, field: keyof VariantConfig, value: string | boolean | undefined) => {
+  const handleVariantUpdate = (index: number, field: keyof VariantConfig, value: string | boolean | number | undefined) => {
     const variants = [...(config.variants || [])];
     variants[index] = { ...variants[index], [field]: value };
     onConfigUpdate({ variants });
@@ -684,6 +703,48 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 value={variant.label || ''}
                                 onChange={(e) => handleVariantUpdate(index, 'label', e.target.value)}
                                 placeholder={`Variant ${index + 1}`}
+                              />
+                            </label>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Personality
+                              <select
+                                className="config-preview__select"
+                                value={variant.personality || ''}
+                                onChange={(e) => handleVariantUpdate(index, 'personality', e.target.value || undefined)}
+                                title="Per-variant personality assignment"
+                              >
+                                <option value="">Random / Default</option>
+                                {availablePersonalities.map(p => (
+                                  <option key={p} value={p}>{p}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="config-preview__label config-preview__label--inline">
+                              Prompt Preset
+                              <select
+                                className="config-preview__select"
+                                value={variant.prompt_preset_id?.toString() || ''}
+                                onChange={(e) => {
+                                  const presetId = e.target.value ? parseInt(e.target.value) : undefined;
+                                  handleVariantUpdate(index, 'prompt_preset_id', presetId);
+                                }}
+                                title="Load prompt configuration from a saved preset"
+                              >
+                                <option value="">No preset (use defaults)</option>
+                                {availablePresets.map(preset => (
+                                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="config-preview__label">
+                              Guidance Injection
+                              <textarea
+                                className="config-preview__input config-preview__textarea config-preview__textarea--small"
+                                rows={2}
+                                value={variant.guidance_injection || ''}
+                                onChange={(e) => handleVariantUpdate(index, 'guidance_injection', e.target.value || undefined)}
+                                placeholder="Extra instructions appended to decision prompts..."
+                                title="Additional guidance text appended to AI decision prompts"
                               />
                             </label>
                             <label className="config-preview__label config-preview__label--inline">

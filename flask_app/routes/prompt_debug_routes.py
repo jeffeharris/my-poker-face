@@ -41,7 +41,13 @@ def list_captures():
         phase: Filter by phase (PRE_FLOP, FLOP, TURN, RIVER)
         min_pot_odds: Filter by minimum pot odds
         max_pot_odds: Filter by maximum pot odds
+        min_pot_size: Filter by minimum pot total
+        max_pot_size: Filter by maximum pot total
+        min_big_blind: Filter by minimum big blind value
+        max_big_blind: Filter by maximum big blind value
         tags: Comma-separated tags to filter by
+        labels: Comma-separated labels to filter by (uses capture_labels table)
+        label_match_all: If 'true', require ALL labels; if 'false' (default), require ANY
         call_type: Filter by call type (default: 'player_decision', use 'all' for all types)
         limit: Max results (default 50)
         offset: Pagination offset (default 0)
@@ -52,6 +58,11 @@ def list_captures():
     if call_type == 'all':
         call_type = None
 
+    # Parse labels filter
+    labels_str = request.args.get('labels', '')
+    labels = [l.strip() for l in labels_str.split(',') if l.strip()] if labels_str else None
+    label_match_all = request.args.get('label_match_all', 'false').lower() == 'true'
+
     filters = {
         'game_id': request.args.get('game_id'),
         'player_name': request.args.get('player_name'),
@@ -59,6 +70,10 @@ def list_captures():
         'phase': request.args.get('phase'),
         'min_pot_odds': float(request.args.get('min_pot_odds')) if request.args.get('min_pot_odds') else None,
         'max_pot_odds': float(request.args.get('max_pot_odds')) if request.args.get('max_pot_odds') else None,
+        'min_pot_size': float(request.args.get('min_pot_size')) if request.args.get('min_pot_size') else None,
+        'max_pot_size': float(request.args.get('max_pot_size')) if request.args.get('max_pot_size') else None,
+        'min_big_blind': float(request.args.get('min_big_blind')) if request.args.get('min_big_blind') else None,
+        'max_big_blind': float(request.args.get('max_big_blind')) if request.args.get('max_big_blind') else None,
         'tags': request.args.get('tags', '').split(',') if request.args.get('tags') else None,
         'call_type': call_type,
         'limit': int(request.args.get('limit', 50)),
@@ -68,10 +83,36 @@ def list_captures():
     # Remove None values
     filters = {k: v for k, v in filters.items() if v is not None}
 
-    result = persistence.list_prompt_captures(**filters)
+    # Use label-based search if labels are provided, otherwise use regular listing
+    if labels:
+        result = persistence.search_captures_with_labels(
+            labels=labels,
+            match_all=label_match_all,
+            game_id=filters.get('game_id'),
+            player_name=filters.get('player_name'),
+            action=filters.get('action'),
+            phase=filters.get('phase'),
+            min_pot_odds=filters.get('min_pot_odds'),
+            max_pot_odds=filters.get('max_pot_odds'),
+            call_type=filters.get('call_type'),
+            min_pot_size=filters.get('min_pot_size'),
+            max_pot_size=filters.get('max_pot_size'),
+            min_big_blind=filters.get('min_big_blind'),
+            max_big_blind=filters.get('max_big_blind'),
+            limit=filters.get('limit', 50),
+            offset=filters.get('offset', 0),
+        )
+    else:
+        result = persistence.list_prompt_captures(**filters)
 
     # Also get stats (pass call_type filter to ensure stats match the filtered view)
     stats = persistence.get_prompt_capture_stats(
+        game_id=filters.get('game_id'),
+        call_type=filters.get('call_type')
+    )
+
+    # Also get label stats
+    label_stats = persistence.get_label_stats(
         game_id=filters.get('game_id'),
         call_type=filters.get('call_type')
     )
@@ -80,7 +121,36 @@ def list_captures():
         'success': True,
         'captures': result['captures'],
         'total': result['total'],
-        'stats': stats
+        'stats': stats,
+        'label_stats': label_stats
+    })
+
+
+@prompt_debug_bp.route('/api/prompt-debug/label-stats', methods=['GET'])
+def get_label_stats():
+    """Get label statistics for prompt captures.
+
+    Query params:
+        game_id: Filter by game (optional)
+        player_name: Filter by AI player (optional)
+        call_type: Filter by call type (default: 'player_decision', use 'all' for all types)
+
+    Returns:
+        JSON with label counts: { "label_name": count, ... }
+    """
+    call_type = request.args.get('call_type', 'player_decision')
+    if call_type == 'all':
+        call_type = None
+
+    label_stats = persistence.get_label_stats(
+        game_id=request.args.get('game_id'),
+        player_name=request.args.get('player_name'),
+        call_type=call_type
+    )
+
+    return jsonify({
+        'success': True,
+        'label_stats': label_stats
     })
 
 

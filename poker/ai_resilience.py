@@ -68,7 +68,7 @@ class FallbackActionSelector:
             max_raise: Maximum raise amount
 
         Returns:
-            Dict with 'action' and 'adding_to_pot' keys
+            Dict with 'action' and 'raise_to' keys
         """
         if strategy == AIFallbackStrategy.CONSERVATIVE:
             return FallbackActionSelector._conservative(valid_actions, call_amount)
@@ -86,11 +86,11 @@ class FallbackActionSelector:
     def _conservative(valid_actions: List[str], call_amount: int) -> Dict[str, Any]:
         """Conservative strategy: check when possible, call when necessary, never raise"""
         if 'check' in valid_actions:
-            return {"action": "check", "adding_to_pot": 0}
+            return {"action": "check", "raise_to": 0}
         elif 'call' in valid_actions:
-            return {"action": "call", "adding_to_pot": call_amount}
+            return {"action": "call", "raise_to": call_amount}
         else:
-            return {"action": "fold", "adding_to_pot": 0}
+            return {"action": "fold", "raise_to": 0}
 
     @staticmethod
     def _random_valid(
@@ -112,7 +112,7 @@ class FallbackActionSelector:
 
         if not available_weights:
             # Prefer check over fold as ultimate fallback
-            return {"action": "check" if 'check' in valid_actions else "fold", "adding_to_pot": 0}
+            return {"action": "check" if 'check' in valid_actions else "fold", "raise_to": 0}
 
         # Normalize weights
         total_weight = sum(available_weights.values())
@@ -124,13 +124,13 @@ class FallbackActionSelector:
             weights=list(normalized_weights.values())
         )[0]
 
-        adding_to_pot = 0
+        raise_to = 0
         if action == 'call':
-            adding_to_pot = call_amount
+            raise_to = call_amount
         elif action == 'raise':
-            adding_to_pot = random.randint(min_raise, min(max_raise, min_raise * DEFAULT_MAX_RAISE_MULTIPLIER))
+            raise_to = random.randint(min_raise, min(max_raise, min_raise * DEFAULT_MAX_RAISE_MULTIPLIER))
 
-        return {"action": action, "adding_to_pot": adding_to_pot}
+        return {"action": action, "raise_to": raise_to}
 
     @staticmethod
     def _personality_based(
@@ -149,18 +149,18 @@ class FallbackActionSelector:
         # More aggressive players more likely to raise/call
         if 'raise' in valid_actions and aggression > AGGRESSION_RAISE_THRESHOLD:
             if random.random() < aggression:
-                adding_to_pot = max(min_raise, int(min_raise + (max_raise - min_raise) * aggression * 0.3))
-                return {"action": "raise", "adding_to_pot": adding_to_pot}
+                raise_to = max(min_raise, int(min_raise + (max_raise - min_raise) * aggression * 0.3))
+                return {"action": "raise", "raise_to": raise_to}
 
         if 'call' in valid_actions and aggression > AGGRESSION_CALL_THRESHOLD:
             if random.random() < (aggression + 0.2):  # Slightly favor calling
-                return {"action": "call", "adding_to_pot": call_amount}
+                return {"action": "call", "raise_to": call_amount}
 
         if 'check' in valid_actions:
-            return {"action": "check", "adding_to_pot": 0}
+            return {"action": "check", "raise_to": 0}
 
         # Low aggression or no good options = fold
-        return {"action": "fold", "adding_to_pot": 0}
+        return {"action": "fold", "raise_to": 0}
 
 
 class CircuitBreaker:
@@ -390,8 +390,8 @@ def _get_fallback_response(args: tuple, kwargs: dict, strategy: AIFallbackStrate
         # Prefer check over fold even in error cases
         valid_actions = kwargs.get('valid_actions', [])
         if 'check' in valid_actions:
-            return {"action": "check", "adding_to_pot": 0}
-        return {"action": "fold", "adding_to_pot": 0}
+            return {"action": "check", "raise_to": 0}
+        return {"action": "fold", "raise_to": 0}
 
 
 # Legacy functions - delegate to FallbackActionSelector for backwards compatibility
@@ -485,11 +485,11 @@ def validate_ai_response(response: Union[Dict[str, Any], str], valid_actions: Li
 
         if not isinstance(response, dict):
             logger.error(f"Invalid response type: {type(response)}")
-            return {"action": "fold", "adding_to_pot": 0}
+            return {"action": "fold", "raise_to": 0}
 
         action = response.get('action', '').lower()
-        # Support both 'adding_to_pot' (preferred) and 'amount' (legacy) keys
-        adding_to_pot = response.get('adding_to_pot', response.get('amount', 0))
+        # Support both 'raise_to' (preferred) and 'amount' (legacy) keys
+        raise_to = response.get('raise_to', response.get('amount', 0))
 
         # Ensure action is valid
         if action not in valid_actions:
@@ -497,23 +497,23 @@ def validate_ai_response(response: Union[Dict[str, Any], str], valid_actions: Li
             # Try to find a reasonable alternative
             if 'check' in valid_actions:
                 action = 'check'
-                adding_to_pot = 0
+                raise_to = 0
             elif 'call' in valid_actions:
                 action = 'call'
                 # Amount should be provided by game context
             else:
                 action = 'fold'
-                adding_to_pot = 0
+                raise_to = 0
 
-        # Ensure adding_to_pot is reasonable
+        # Ensure raise_to is reasonable
         try:
-            adding_to_pot = int(adding_to_pot)
-            if adding_to_pot < 0:
-                adding_to_pot = 0
+            raise_to = int(raise_to)
+            if raise_to < 0:
+                raise_to = 0
         except (ValueError, TypeError):
-            adding_to_pot = 0
+            raise_to = 0
 
-        return {"action": action, "adding_to_pot": adding_to_pot}
+        return {"action": action, "raise_to": raise_to}
     except Exception as e:
         logger.error(f"Error validating AI response: {e}")
-        return {"action": "fold", "adding_to_pot": 0}
+        return {"action": "fold", "raise_to": 0}

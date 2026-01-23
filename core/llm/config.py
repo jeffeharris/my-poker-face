@@ -91,6 +91,9 @@ MISTRAL_AVAILABLE_MODELS = [
     "mistral-small-latest",     # Fast, cheap ($0.20/$0.60 per M tokens)
     "mistral-medium-latest",    # Balanced
     "mistral-large-latest",     # Most capable ($2/$6 per M tokens)
+    "labs-mistral-small-creative",  # Creative variant ($0.10/$0.30 per M tokens)
+    "ministral-3b-latest",      # Tiny, cheapest ($0.10/$0.10 per M tokens)
+    "ministral-8b-latest",      # Small ($0.15/$0.15 per M tokens)
 ]
 
 # =============================================================================
