@@ -13,6 +13,7 @@ from flask_socketio import join_room
 
 from poker.controllers import AIPlayerController
 from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
+from poker.betting_context import BettingContext
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
 from poker.elasticity_manager import ElasticityManager
@@ -399,6 +400,9 @@ def api_game_state(game_id):
     community_cards = [card.to_dict() if hasattr(card, 'to_dict') else card for card in game_state.community_cards]
     messages = format_messages_for_api(current_game_data.get('messages', []))
 
+    # Build betting context for current player
+    betting_context = BettingContext.from_game_state(game_state).to_dict()
+
     response = {
         'players': players,
         'community_cards': community_cards,
@@ -413,7 +417,8 @@ def api_game_state(game_id):
         'min_raise': game_state.min_raise_amount,
         'big_blind': game_state.current_ante,
         'messages': messages,
-        'game_id': game_id
+        'game_id': game_id,
+        'betting_context': betting_context,
     }
 
     return jsonify(response)

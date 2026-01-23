@@ -509,7 +509,7 @@ RESPONSE_FORMAT = {
 
     # PHASE 5: COMMITMENT (Final action - decided LAST after thinking it through)
     "action": "REQUIRED: Your final action from the provided options",
-    "adding_to_pot": "REQUIRED if raising: Amount to raise BY (not total bet, just the raise above the call)"
+    "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)"
 }
 
 
@@ -544,7 +544,7 @@ PERSONA_EXAMPLES = {
 
             # PHASE 5: COMMITMENT
             "action": "check",
-            "adding_to_pot": 0
+            "raise_to": 0
         }
     },
     "Clint Eastwood": {
@@ -575,7 +575,7 @@ PERSONA_EXAMPLES = {
 
             # PHASE 5: COMMITMENT
             "action": "raise",
-            "adding_to_pot": 50  # This is raise BY $50, not raise TO $50
+            "raise_to": 150  # This is raise TO $150, assuming highest_bet was $100
         }
     }
 }

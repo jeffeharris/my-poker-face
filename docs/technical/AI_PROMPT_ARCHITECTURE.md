@@ -174,7 +174,7 @@ This document describes the different systems that work together to create promp
                     │  • physical (gestures)         │
                     │ Action:                        │
                     │  • action (fold/check/call/raise)
-                    │  • adding_to_pot (raise amount)│
+                    │  • raise_to (total bet amount) │
                     └────────────────────────────────┘
 ```
 

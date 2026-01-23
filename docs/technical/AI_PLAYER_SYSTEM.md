@@ -100,7 +100,7 @@ The AI responds with structured JSON containing both game actions and roleplay e
   
   // Game Action
   "action": "raise",
-  "adding_to_pot": 200,
+  "raise_to": 200,
   
   // Roleplay Elements
   "inner_monologue": "These idiots don't know what hit them...",

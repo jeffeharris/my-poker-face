@@ -303,7 +303,6 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
   const [filterProvider, setFilterProvider] = useState('');
   const [currentOnly, setCurrentOnly] = useState(true);
   const [providers, setProviders] = useState<string[]>([]);
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [enabledModels, setEnabledModels] = useState<Set<string>>(new Set());
   const [newPricing, setNewPricing] = useState<NewPricing>({
     provider: '',
@@ -723,27 +722,6 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
     }
   };
 
-  // Delete pricing entry
-  const handleDelete = async (id: number) => {
-    try {
-      const response = await adminAPI.fetch(`/admin/pricing/${id}`, {
-        method: 'DELETE',
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setAlert({ type: 'success', message: 'Pricing entry deleted' });
-        setDeleteConfirm(null);
-        fetchPricing();
-      } else {
-        setAlert({ type: 'error', message: data.error || 'Failed to delete pricing' });
-      }
-    } catch (error) {
-      setAlert({ type: 'error', message: 'Failed to connect to server' });
-    }
-  };
-
   // Clear alert after timeout
   useEffect(() => {
     if (alert) {
@@ -868,7 +846,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
                   className="prm-table__th--sortable prm-table__th--cost"
                   onClick={() => handleSortClick(unit)}
                 >
-                  {currentUnitLabels[unit]} <SortIndicator column={unit} />
+                  {(currentUnitLabels as Record<string, string>)[unit]} <SortIndicator column={unit} />
                 </th>
               ))}
             </tr>

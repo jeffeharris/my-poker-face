@@ -426,6 +426,7 @@ export function MobilePokerTable({
             potSize={gameState.pot.total}
             onAction={handlePlayerAction}
             onQuickChat={() => setShowQuickChat(true)}
+            bettingContext={gameState.betting_context}
           />
         ) : (
           <div className="mobile-action-buttons">

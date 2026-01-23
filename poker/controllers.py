@@ -538,7 +538,7 @@ class AIPlayerController:
                 hand_strategy=response_dict.get('hand_strategy'),
                 inner_monologue=response_dict.get('inner_monologue', ''),
                 action=response_dict.get('action', ''),
-                amount=response_dict.get('adding_to_pot', 0),
+                amount=response_dict.get('raise_to', 0),
                 pot_size=game_state.pot.get('total', 0),
                 timestamp=datetime.now()
             )
@@ -722,58 +722,52 @@ class AIPlayerController:
             response_dict.setdefault('action', default_action)
             logger.warning(f"AI response was missing action, defaulted to {default_action}")
         
-        # Set default for adding_to_pot if not present, and ensure it's an int
+        # Set default for raise_to if not present, and ensure it's an int
         # (AI may return numbers as strings in JSON)
-        if 'adding_to_pot' not in response_dict:
-            response_dict['adding_to_pot'] = 0
+        if 'raise_to' not in response_dict:
+            response_dict['raise_to'] = 0
         else:
             try:
-                response_dict['adding_to_pot'] = int(response_dict['adding_to_pot'])
+                response_dict['raise_to'] = int(response_dict['raise_to'])
             except (ValueError, TypeError):
-                logger.warning(f"Invalid adding_to_pot value: {response_dict['adding_to_pot']}, defaulting to 0")
-                response_dict['adding_to_pot'] = 0
+                logger.warning(f"Invalid raise_to value: {response_dict['raise_to']}, defaulting to 0")
+                response_dict['raise_to'] = 0
 
         # Normalize action to lowercase for consistency (before validation checks)
         if 'action' in response_dict:
             response_dict['action'] = response_dict['action'].lower()
-        
-        # Fix common AI mistake: saying "raise" but setting adding_to_pot to 0
-        if response_dict.get('action') == 'raise' and response_dict.get('adding_to_pot', 0) == 0:
+
+        # AI now uses "raise TO" semantics directly - raise_to is the total bet amount
+        # Fix common AI mistake: saying "raise" but setting raise_to to 0
+        if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) == 0:
             # Try to extract amount from persona_response
             import re
             persona_response = response_dict.get('persona_response', '')
-            
-            # Look for patterns like "raise by $500" or "raise you $500" or "raise to $500"
+            highest_bet = game_state.highest_bet
+            min_raise = context.get('min_raise', MIN_RAISE)
+
+            # Look for patterns like "raise to $500" or "raise $500"
             raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
             if raise_match:
                 mentioned_amount = int(raise_match.group(1))
-                
-                # Check if it's "raise to" vs "raise by"
-                if 'raise to' in persona_response.lower():
-                    # Convert "raise to" to "raise by"
-                    cost_to_call = context.get('call_amount', 0)
-                    response_dict['adding_to_pot'] = max(10, mentioned_amount - cost_to_call)
-                    response_dict['raise_amount_corrected'] = True
-                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}', converting to raise by ${response_dict['adding_to_pot']} (cost to call: ${cost_to_call})")
-                else:
-                    # Direct "raise by" amount
-                    response_dict['adding_to_pot'] = mentioned_amount
-                    response_dict['raise_amount_corrected'] = True
-                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said raise but adding_to_pot was 0, extracted ${mentioned_amount} from persona_response")
-            else:
-                # Default to minimum raise
-                response_dict['adding_to_pot'] = context.get('min_raise', MIN_RAISE)
+                response_dict['raise_to'] = mentioned_amount
                 response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
+                logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}', using as raise TO amount")
+            else:
+                # Default to minimum raise TO amount
+                min_raise_to = highest_bet + min_raise
+                response_dict['raise_to'] = min_raise_to
+                response_dict['raise_amount_corrected'] = True
+                logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount, defaulting to min raise TO ${min_raise_to}")
         
         # Validate action is valid
         if valid_actions and response_dict['action'] not in valid_actions:
             logger.warning(f"AI chose invalid action {response_dict['action']}, validating...")
             validated = validate_ai_response(response_dict, valid_actions)
             response_dict['action'] = validated['action']
-            # Preserve adding_to_pot if it was set, otherwise use validated value
-            if response_dict.get('adding_to_pot', 0) == 0:
-                response_dict['adding_to_pot'] = validated.get('adding_to_pot', 0)
+            # Preserve raise_to if it was set, otherwise use validated value
+            if response_dict.get('raise_to', 0) == 0:
+                response_dict['raise_to'] = validated.get('raise_to', 0)
 
         # Analyze decision quality (always, for monitoring)
         self._analyze_decision(response_dict, context)
@@ -782,7 +776,7 @@ class AIPlayerController:
         if captured_id[0]:
             from core.llm.tracking import update_prompt_capture
             action = response_dict.get('action')
-            raise_amount = response_dict.get('adding_to_pot') if action == 'raise' else None
+            raise_amount = response_dict.get('raise_to') if action == 'raise' else None
             update_prompt_capture(captured_id[0], action_taken=action, raise_amount=raise_amount)
 
             # Compute and store auto-labels based on capture data
@@ -883,7 +877,7 @@ class AIPlayerController:
                 player_stack=player.stack,
                 num_opponents=num_opponents,
                 action_taken=response_dict.get('action'),
-                raise_amount=response_dict.get('adding_to_pot'),
+                raise_amount=response_dict.get('raise_to'),
                 request_id=request_id,
                 player_position=player_position,
                 opponent_positions=opponent_positions,
@@ -1013,7 +1007,7 @@ def human_player_action(ui_data: dict, player_options: List[str]) -> Dict:
 
     response_dict = {
         "action": player_choice,
-        "adding_to_pot": bet_amount,
+        "raise_to": bet_amount,
     }
 
     return response_dict
