@@ -3,16 +3,15 @@
 import logging
 import os
 import re
-import secrets
 import sqlite3
 from datetime import datetime, timezone
-from functools import wraps
 from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from .. import config
 from ..services import game_state_service
 from core.llm import UsageTracker
+from poker.authorization import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -41,81 +40,8 @@ def _get_date_modifier(range_param: str) -> str:
     return modifiers.get(range_param, '-7 days')
 
 
-def _check_admin_auth() -> tuple[bool, str]:
-    """Check if the request has valid admin authentication.
-
-    Authentication is required when ADMIN_TOKEN is set in environment.
-    Token can be provided via:
-    - Authorization: Bearer <token> header
-    - ?admin_token=<token> query parameter (for browser access)
-
-    Returns:
-        Tuple of (is_authenticated, error_message)
-    """
-    admin_token = os.environ.get('ADMIN_TOKEN')
-
-    # If no token is configured, allow access (but log warning in production-like envs)
-    if not admin_token:
-        if not config.is_development:
-            logger.warning("ADMIN_TOKEN not set - admin endpoints unprotected")
-        return True, ""
-
-    # Check Authorization header first
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        provided_token = auth_header[7:]
-        if secrets.compare_digest(provided_token, admin_token):
-            return True, ""
-
-    # Check query parameter (for browser access to HTML pages)
-    provided_token = request.args.get('admin_token', '')
-    if provided_token and secrets.compare_digest(provided_token, admin_token):
-        return True, ""
-
-    return False, "Invalid or missing admin token"
-
-
-def _admin_required(f):
-    """Decorator to restrict admin endpoints with authentication.
-
-    Security:
-    - In production: ADMIN_TOKEN is REQUIRED for access
-    - In development: Access allowed by default, optionally require token with ADMIN_REQUIRE_TOKEN=true
-    - Token can be provided via Authorization header or query parameter
-    """
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        admin_token = os.environ.get('ADMIN_TOKEN')
-
-        # In production: ADMIN_TOKEN is required
-        if not config.is_development:
-            if not admin_token:
-                return jsonify({
-                    'error': 'Admin dashboard requires ADMIN_TOKEN to be configured in production'
-                }), 403
-
-            is_authenticated, error_msg = _check_admin_auth()
-            if not is_authenticated:
-                return jsonify({
-                    'error': error_msg,
-                    'hint': 'Set Authorization: Bearer YOUR_TOKEN header'
-                }), 401
-
-            return f(*args, **kwargs)
-
-        # In development: optionally require token
-        require_token = os.environ.get('ADMIN_REQUIRE_TOKEN', 'false').lower() == 'true'
-        if admin_token and require_token:
-            is_authenticated, error_msg = _check_admin_auth()
-            if not is_authenticated:
-                return jsonify({
-                    'error': error_msg,
-                    'hint': 'Add ?admin_token=YOUR_TOKEN to the URL or set Authorization: Bearer YOUR_TOKEN header'
-                }), 401
-
-        return f(*args, **kwargs)
-    return decorated
-
+# Decorator alias for admin-only routes using RBAC
+_admin_required = require_permission('can_access_admin_tools')
 
 # Keep old decorator name as alias for backwards compatibility
 _dev_only = _admin_required

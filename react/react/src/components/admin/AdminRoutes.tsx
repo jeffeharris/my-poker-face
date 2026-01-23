@@ -10,7 +10,6 @@ import { ReplayResults } from './ReplayResults';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
-import { getAdminToken } from '../../utils/api';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
@@ -498,12 +497,6 @@ function AdminIndex() {
 export function AdminRoutes() {
   const { user, isLoading } = useAuth();
   const canAccessAdmin = hasPermission(user, 'can_access_admin_tools');
-
-  // Eagerly extract and persist admin token from URL on mount
-  // This ensures the token is saved to localStorage even before any API calls
-  useEffect(() => {
-    getAdminToken();
-  }, []);
 
   // Show loading while checking auth
   if (isLoading) {
