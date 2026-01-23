@@ -31,6 +31,8 @@
 .action-panel.inline.betting-interface {
   animation: none;
   /* Override inline's transparent background for betting interface */
+  width: 100%;
+  max-width: none;
   background: linear-gradient(
     165deg,
     rgba(28, 32, 38, 0.98) 0%,
@@ -444,7 +446,7 @@
 
   .betting-interface {
     min-width: auto;
-    width: 94%;
+    width: 100%;
     max-width: none;
     padding: 1rem;
   }

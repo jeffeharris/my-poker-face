@@ -1,7 +1,6 @@
 import { Card } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import type { Player } from '../../../types/player';
-import { config } from '../../../config';
 import './PlayerCommandCenter.css';
 
 interface PlayerCommandCenterProps {
@@ -41,6 +40,13 @@ export function PlayerCommandCenter({
         isCurrentPlayer ? 'is-active' : ''
       } ${player.is_folded ? 'is-folded' : ''} ${player.is_all_in ? 'is-all-in' : ''}`}
     >
+      {/* Bet pill - positioned at top, overlapping border */}
+      {player.bet > 0 && (
+        <div className="command-center__bet-pill">
+          Bet: ${player.bet}
+        </div>
+      )}
+
       {/* Top section: Cards + Info */}
       <div className="command-center__top">
         {/* Player cards (larger display) */}
@@ -60,31 +66,14 @@ export function PlayerCommandCenter({
 
         {/* Player info */}
         <div className="command-center__info">
-          <div className="command-center__avatar">
-            {player.avatar_url ? (
-              <img
-                src={`${config.API_URL}${player.avatar_url}`}
-                alt={player.name}
-                className="avatar-image"
-              />
-            ) : (
-              <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
-            )}
-          </div>
           <div className="command-center__details">
             <div className="command-center__name">{player.name}</div>
             <div className="command-center__stack">
-              <span className="stack-label">Stack:</span>
               <span className="stack-value">${player.stack.toLocaleString()}</span>
             </div>
-            {player.bet > 0 && (
-              <div className="command-center__current-bet">
-                Bet: ${player.bet}
-              </div>
-            )}
             {costToCall > 0 && !player.is_folded && (
               <div className="command-center__to-call">
-                To call: ${costToCall}
+                To call: <span className="to-call-amount">${costToCall}</span>
               </div>
             )}
           </div>

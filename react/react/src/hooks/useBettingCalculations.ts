@@ -155,24 +155,41 @@ export function useBettingCalculations(
     };
 
     // Magnetic snap points - pot fractions that the slider "sticks" to
+    // Always include min and max (all-in) as magnetic points
     const magneticSnapPoints = [
+      safeMinRaiseTo,
       potFractions.quarter,
       potFractions.third,
       potFractions.half,
       potFractions.twoThirds,
       potFractions.threeQuarters,
       potFractions.full,
+      safeMaxRaiseTo,
     ].filter(v => v >= safeMinRaiseTo && v <= safeMaxRaiseTo);
 
-    // Snap with magnetic attraction to pot fractions
+    // Snap with magnetic attraction to pot fractions and min/max
     const snapWithMagnets = (value: number): number => {
-      // Check if we're close to a magnetic snap point (within 0.5BB / snap increment)
-      const magnetThreshold = snapIncrement;
+      // Use larger threshold for min and max to make them easier to hit
+      const edgeThreshold = snapIncrement * 1.5;
+      const normalThreshold = snapIncrement;
+
+      // Check min and max first with larger threshold
+      if (Math.abs(value - safeMinRaiseTo) <= edgeThreshold) {
+        return safeMinRaiseTo;
+      }
+      if (Math.abs(value - safeMaxRaiseTo) <= edgeThreshold) {
+        return safeMaxRaiseTo;
+      }
+
+      // Check other magnetic snap points
       for (const snapPoint of magneticSnapPoints) {
-        if (Math.abs(value - snapPoint) <= magnetThreshold) {
-          return snapPoint;
+        if (snapPoint !== safeMinRaiseTo && snapPoint !== safeMaxRaiseTo) {
+          if (Math.abs(value - snapPoint) <= normalThreshold) {
+            return snapPoint;
+          }
         }
       }
+
       // Otherwise, round to normal snap increment
       return roundToSnap(value);
     };
@@ -202,9 +219,8 @@ export function useBettingCalculations(
 
     // Get default raise amount (for initial slider position)
     const getDefaultRaise = (): number => {
-      // Default to highest bet + 2x big blind, snapped
-      const defaultAmount = safeHighestBet + Math.max(safeMinRaise, bigBlind * 2);
-      return roundToSnap(Math.min(defaultAmount, safeMaxRaiseTo));
+      // Default to minimum raise
+      return safeMinRaiseTo;
     };
 
     // Build quick bet buttons (filtered by what player can afford)
