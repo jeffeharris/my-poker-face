@@ -1,4 +1,9 @@
 import { useState } from 'react';
+import {
+  useBettingCalculations,
+  createBettingContext,
+  type BettingContext,
+} from '../../../hooks/useBettingCalculations';
 import './ActionButtons.css';
 
 interface ActionButtonsProps {
@@ -11,6 +16,7 @@ interface ActionButtonsProps {
   potSize: number;
   onAction: (action: string, amount?: number) => void;
   inline?: boolean;  // When true, disables fixed positioning for embedded use
+  bettingContext?: BettingContext;  // Optional - use if provided by backend
 }
 
 export function ActionButtons({
@@ -23,60 +29,40 @@ export function ActionButtons({
   potSize,
   onAction,
   inline = false,
+  bettingContext: providedContext,
 }: ActionButtonsProps) {
   const [showBetInterface, setShowBetInterface] = useState(false);
-  const [betAmount, setBetAmount] = useState(minRaise || 0);
   const [selectedQuickBet, setSelectedQuickBet] = useState<string | null>(null);
 
-  // Ensure all values are valid numbers
-  // minRaise from backend is the minimum RAISE BY amount (typically big blind)
-  const safeMinRaise = Math.max(1, minRaise || bigBlind || 20);
-  const safePotSize = Math.max(0, potSize || 0);
-  const safeHighestBet = Math.max(0, highestBet || 0);
-  const safeCurrentBet = Math.max(0, currentPlayerBet || 0);
-  const safeStack = Math.max(0, currentPlayerStack || 0);
+  // Create betting context from props if not provided
+  const bettingContext = providedContext ?? createBettingContext({
+    playerStack: currentPlayerStack,
+    playerCurrentBet: currentPlayerBet,
+    highestBet,
+    potSize,
+    minRaise,
+    playerOptions,
+  });
 
-  const callAmount = Math.max(0, safeHighestBet - safeCurrentBet);
+  // Use the shared hook for all calculations
+  const calc = useBettingCalculations(bettingContext, bigBlind);
 
-  // Calculate raise amounts as pot fractions
-  // These are the TOTAL amounts to raise TO (displayed to user, converted to "raise BY" when sent)
-  const oneQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize / 4));
-  const oneThirdPot = Math.max(safeMinRaise, Math.floor(safePotSize / 3));
-  const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
-  const twoThirdsPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.67));
-  const fullPot = Math.max(safeMinRaise, safePotSize);
-  const defaultRaise = safeHighestBet + Math.max(safeMinRaise, bigBlind * 2);
-
-  // Calculate snap increment based on big blind
-  const getSnapIncrement = () => {
-    if (bigBlind <= 2) return 1;      // $1 increments for micro stakes
-    if (bigBlind <= 10) return 5;     // $5 increments for small stakes
-    if (bigBlind <= 50) return 10;    // $10 increments for mid stakes
-    if (bigBlind <= 200) return 25;   // $25 increments for higher stakes
-    if (bigBlind <= 1000) return 50;  // $50 increments for high stakes
-    return 100;                        // $100 increments for nosebleeds
-  };
-
-  const snapIncrement = getSnapIncrement();
-
-  // Round to nearest snap increment
-  const roundToSnap = (value: number) => {
-    return Math.round(value / snapIncrement) * snapIncrement;
-  };
+  // Bet amount state - initialize to default raise
+  const [betAmount, setBetAmount] = useState(calc.getDefaultRaise());
 
   const handleBetRaise = () => {
     setShowBetInterface(true);
-    setBetAmount(roundToSnap(defaultRaise));
+    setBetAmount(calc.getDefaultRaise());
   };
 
   const submitBet = () => {
-    // Allow bet if it meets min raise OR if it's an all-in (even below min)
-    const isValidBet = (betAmount >= safeMinRaise || betAmount === safeStack) && betAmount <= safeStack;
+    // Allow bet if valid OR if it's all-in (even below min)
+    const isAllIn = betAmount === calc.safeMaxRaiseTo;
+    const isValidBet = calc.isValidRaise(betAmount) || isAllIn;
+
     if (isValidBet) {
-      // Convert "raise TO" (what user sees) to "raise BY" (what backend expects)
-      // Backend's player_raise adds cost_to_call internally, so we send the raise increment
-      const raiseByAmount = betAmount - safeHighestBet;
-      onAction('raise', raiseByAmount);
+      // Send the "raise TO" amount directly - backend now expects this
+      onAction('raise', betAmount);
       setShowBetInterface(false);
       setSelectedQuickBet(null);
     }
@@ -90,10 +76,13 @@ export function ActionButtons({
   // Update bet amount and track which button was selected
   const selectBetAmount = (amount: number, buttonId: string | null = null) => {
     // Always round to snap increment except for all-in
-    const snappedAmount = buttonId === 'all-in' ? amount : roundToSnap(amount);
+    const snappedAmount = buttonId === 'all-in' ? amount : calc.roundToSnap(amount);
     setBetAmount(snappedAmount);
     setSelectedQuickBet(buttonId);
   };
+
+  // Get breakdown for display
+  const breakdown = calc.getBreakdown(betAmount);
 
   if (showBetInterface) {
     return (
@@ -103,9 +92,9 @@ export function ActionButtons({
             {playerOptions.includes('raise') ? 'Raise' : 'Bet'}
           </div>
           <div className="bet-info">
-            <span className="info-item">Stack: ${safeStack}</span>
-            <span className="info-item">Pot: ${safePotSize}</span>
-            {callAmount > 0 && <span className="info-item">To Call: ${callAmount}</span>}
+            <span className="info-item">Stack: ${calc.safeStack}</span>
+            <span className="info-item">Pot: ${calc.safePotSize}</span>
+            {calc.callAmount > 0 && <span className="info-item">To Call: ${calc.callAmount}</span>}
           </div>
         </div>
 
@@ -115,82 +104,34 @@ export function ActionButtons({
             <span className="bet-label">You'll {playerOptions.includes('raise') ? 'raise to' : 'bet'}:</span>
             <span className="bet-total">${betAmount}</span>
           </div>
-          {callAmount > 0 && (
+          {calc.callAmount > 0 && (
             <div className="bet-breakdown">
-              <span className="call-portion">Call ${callAmount}</span>
+              <span className="call-portion">Call ${breakdown.callPortion}</span>
               <span className="plus">+</span>
-              <span className="raise-portion">Raise ${betAmount - callAmount}</span>
+              <span className="raise-portion">Raise ${breakdown.raisePortion}</span>
             </div>
           )}
           <div className="stack-after">
-            Stack after: ${safeStack - betAmount}
+            Stack after: ${breakdown.stackAfter}
           </div>
           <div className="snap-info">
-            Increments: ${snapIncrement}
+            Increments: ${calc.snapIncrement}
           </div>
         </div>
 
         <div className="bet-options">
           {/* Quick bet buttons */}
           <div className="quick-bets">
-            <button
-              className={`bet-button ${selectedQuickBet === 'min' && betAmount === safeMinRaise ? 'selected' : ''}`}
-              onClick={() => selectBetAmount(safeMinRaise, 'min')}
-              disabled={safeMinRaise > safeStack}
-            >
-              Min<br/>${safeMinRaise}
-            </button>
-            {oneQuarterPot > safeMinRaise && (
+            {calc.quickBets.map(({ label, amount, id }) => (
               <button
-                className={`bet-button ${selectedQuickBet === '1/4' && betAmount === oneQuarterPot ? 'selected' : ''}`}
-                onClick={() => selectBetAmount(oneQuarterPot, '1/4')}
-                disabled={oneQuarterPot > safeStack}
+                key={id}
+                className={`bet-button ${id === 'all-in' ? 'all-in' : ''} ${selectedQuickBet === id && betAmount === amount ? 'selected' : ''}`}
+                onClick={() => selectBetAmount(amount, id)}
+                disabled={amount > calc.safeMaxRaiseTo}
               >
-                ¼ Pot<br/>${oneQuarterPot}
+                {label}<br/>${amount}
               </button>
-            )}
-            {oneThirdPot > safeMinRaise && (
-              <button
-                className={`bet-button ${selectedQuickBet === '1/3' && betAmount === oneThirdPot ? 'selected' : ''}`}
-                onClick={() => selectBetAmount(oneThirdPot, '1/3')}
-                disabled={oneThirdPot > safeStack}
-              >
-                ⅓ Pot<br/>${oneThirdPot}
-              </button>
-            )}
-            {halfPot > safeMinRaise && (
-              <button
-                className={`bet-button ${selectedQuickBet === '1/2' && betAmount === halfPot ? 'selected' : ''}`}
-                onClick={() => selectBetAmount(halfPot, '1/2')}
-                disabled={halfPot > safeStack}
-              >
-                ½ Pot<br/>${halfPot}
-              </button>
-            )}
-            {twoThirdsPot > safeMinRaise && (
-              <button
-                className={`bet-button ${selectedQuickBet === '2/3' && betAmount === twoThirdsPot ? 'selected' : ''}`}
-                onClick={() => selectBetAmount(twoThirdsPot, '2/3')}
-                disabled={twoThirdsPot > safeStack}
-              >
-                ⅔ Pot<br/>${twoThirdsPot}
-              </button>
-            )}
-            {fullPot > safeMinRaise && (
-              <button
-                className={`bet-button ${selectedQuickBet === 'pot' && betAmount === fullPot ? 'selected' : ''}`}
-                onClick={() => selectBetAmount(fullPot, 'pot')}
-                disabled={fullPot > safeStack}
-              >
-                Pot<br/>${fullPot}
-              </button>
-            )}
-            <button
-              className={`bet-button all-in ${selectedQuickBet === 'all-in' && betAmount === safeStack ? 'selected' : ''}`}
-              onClick={() => selectBetAmount(safeStack, 'all-in')}
-            >
-              All-In<br/>${safeStack}
-            </button>
+            ))}
           </div>
 
           {/* Enhanced Slider with Snap Points */}
@@ -205,45 +146,45 @@ export function ActionButtons({
             <input
               type="range"
               className="bet-slider"
-              min={safeMinRaise}
-              max={safeStack}
+              min={calc.safeMinRaiseTo}
+              max={calc.safeMaxRaiseTo}
               value={betAmount}
               onChange={(e) => {
                 const value = parseInt(e.target.value);
                 if (!isNaN(value)) {
                   // Round to snap increment for smooth sliding
-                  const snappedValue = roundToSnap(value);
-                  
+                  const snappedValue = calc.roundToSnap(value);
+
                   // Also check for pot-based snap points
                   const potSnapPoints = [
-                    oneThirdPot,
-                    halfPot,
-                    twoThirdsPot,
-                    fullPot
-                  ].filter(v => v >= safeMinRaise && v <= safeStack);
-                  
+                    calc.potFractions.third,
+                    calc.potFractions.half,
+                    calc.potFractions.twoThirds,
+                    calc.potFractions.full
+                  ].filter(v => v >= calc.safeMinRaiseTo && v <= calc.safeMaxRaiseTo);
+
                   // If we're very close to a pot-based snap point, use it instead
-                  const snapThreshold = snapIncrement * 2;
+                  const snapThreshold = calc.snapIncrement * 2;
                   let finalValue = snappedValue;
-                  
+
                   for (const snapPoint of potSnapPoints) {
                     if (Math.abs(value - snapPoint) < snapThreshold) {
                       finalValue = snapPoint;
                       break;
                     }
                   }
-                  
+
                   setBetAmount(finalValue);
                   setSelectedQuickBet(null);
                 }
               }}
             />
             <div className="slider-labels">
-              <span>${safeMinRaise}</span>
+              <span>${calc.safeMinRaiseTo}</span>
               <span className="pot-marker" style={{ left: '33%' }}>⅓</span>
               <span className="pot-marker" style={{ left: '50%' }}>½</span>
               <span className="pot-marker" style={{ left: '67%' }}>⅔</span>
-              <span>${safeStack}</span>
+              <span>${calc.safeMaxRaiseTo}</span>
             </div>
           </div>
 
@@ -252,72 +193,72 @@ export function ActionButtons({
             <input
               type="number"
               className="custom-bet-input"
-              placeholder={`Enter amount ($${safeMinRaise}-$${safeStack})`}
+              placeholder={`Enter amount ($${calc.safeMinRaiseTo}-$${calc.safeMaxRaiseTo})`}
               value={betAmount}
               onChange={(e) => {
                 const val = parseInt(e.target.value);
                 if (!isNaN(val)) {
                   // Don't snap while typing, just enforce min/max
-                  setBetAmount(Math.min(safeStack, Math.max(safeMinRaise, val)));
+                  setBetAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val)));
                   setSelectedQuickBet(null);
                 } else if (e.target.value === '') {
-                  setBetAmount(safeMinRaise);
+                  setBetAmount(calc.safeMinRaiseTo);
                 }
               }}
               onBlur={(e) => {
                 // Snap to increment when user finishes typing
                 const val = parseInt(e.target.value);
                 if (!isNaN(val)) {
-                  setBetAmount(Math.min(safeStack, Math.max(safeMinRaise, roundToSnap(val))));
+                  setBetAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, calc.roundToSnap(val))));
                 }
               }}
               onFocus={(e) => e.target.select()}
-              min={safeMinRaise}
-              max={safeStack}
+              min={calc.safeMinRaiseTo}
+              max={calc.safeMaxRaiseTo}
             />
             <div className="input-shortcuts">
-              <button 
+              <button
                 className="shortcut-btn"
                 onClick={() => {
                   const doubled = betAmount * 2;
-                  setBetAmount(Math.min(safeStack, roundToSnap(doubled)));
+                  setBetAmount(Math.min(calc.safeMaxRaiseTo, calc.roundToSnap(doubled)));
                   setSelectedQuickBet(null);
                 }}
-                disabled={betAmount * 2 > safeStack}
+                disabled={betAmount * 2 > calc.safeMaxRaiseTo}
               >
                 2x
               </button>
-              <button 
+              <button
                 className="shortcut-btn"
                 onClick={() => {
                   const halved = betAmount / 2;
-                  setBetAmount(Math.max(safeMinRaise, roundToSnap(halved)));
+                  setBetAmount(Math.max(calc.safeMinRaiseTo, calc.roundToSnap(halved)));
                   setSelectedQuickBet(null);
                 }}
               >
                 ½x
               </button>
-              <button 
+              <button
                 className="shortcut-btn"
                 onClick={() => {
-                  const increased = betAmount + snapIncrement;
-                  setBetAmount(Math.min(safeStack, increased));
+                  const increased = betAmount + calc.snapIncrement;
+                  setBetAmount(Math.min(calc.safeMaxRaiseTo, increased));
                   setSelectedQuickBet(null);
                 }}
-                disabled={betAmount + snapIncrement > safeStack}
+                disabled={betAmount + calc.snapIncrement > calc.safeMaxRaiseTo}
               >
-                +${snapIncrement}
+                +${calc.snapIncrement}
               </button>
-              <button 
+              <button
                 className="shortcut-btn"
                 onClick={() => {
-                  const decreased = betAmount - snapIncrement;
-                  setBetAmount(Math.max(safeMinRaise, decreased));
+                  const decreased = betAmount - calc.snapIncrement;
+                  setBetAmount(Math.max(calc.safeMinRaiseTo, decreased));
                   setSelectedQuickBet(null);
                 }}
-                disabled={betAmount - snapIncrement < safeMinRaise}
+                disabled={betAmount - calc.snapIncrement < calc.safeMinRaiseTo}
               >
-                -${snapIncrement}
+                -${calc.snapIncrement}
               </button>
             </div>
           </div>
@@ -330,7 +271,7 @@ export function ActionButtons({
           <button
             className="action-button confirm"
             onClick={submitBet}
-            disabled={(betAmount < safeMinRaise && betAmount !== safeStack) || betAmount > safeStack}
+            disabled={!calc.isValidRaise(betAmount) && betAmount !== calc.safeMaxRaiseTo}
           >
             {playerOptions.includes('raise') ? `Raise $${betAmount}` : `Bet $${betAmount}`}
           </button>
@@ -343,52 +284,52 @@ export function ActionButtons({
     <div className={`action-panel ${inline ? 'inline' : ''}`}>
       <div className="action-buttons">
         {playerOptions.includes('fold') && (
-          <button 
+          <button
             className="action-button fold"
             onClick={() => onAction('fold')}
           >
             Fold
           </button>
         )}
-        
+
         {playerOptions.includes('check') && (
-          <button 
+          <button
             className="action-button check"
             onClick={() => onAction('check')}
           >
             Check
           </button>
         )}
-        
+
         {playerOptions.includes('call') && (
-          <button 
+          <button
             className="action-button call"
             onClick={() => onAction('call')}
           >
-            Call ${callAmount}
+            Call ${calc.callAmount}
           </button>
         )}
-        
+
         {playerOptions.includes('bet') && (
-          <button 
+          <button
             className="action-button bet"
             onClick={handleBetRaise}
           >
             Bet
           </button>
         )}
-        
+
         {playerOptions.includes('raise') && (
-          <button 
+          <button
             className="action-button raise"
             onClick={handleBetRaise}
           >
             Raise
           </button>
         )}
-        
+
         {playerOptions.includes('all_in') && (
-          <button 
+          <button
             className="action-button all-in"
             onClick={() => onAction('all_in')}
           >

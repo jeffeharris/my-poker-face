@@ -1,6 +1,24 @@
 import type { Player } from './player';
 import type { ChatMessage } from './chat';
 
+/**
+ * Betting context from the backend.
+ * Provides all betting constraints using "raise TO" semantics.
+ */
+export interface BettingContext {
+  player_stack: number;
+  player_current_bet: number;
+  highest_bet: number;
+  pot_total: number;
+  min_raise_amount: number;
+  available_actions: string[];
+  // Computed properties
+  cost_to_call: number;
+  min_raise_to: number;
+  max_raise_to: number;
+  effective_stack: number;
+}
+
 export interface GameState {
   players: Player[];
   community_cards: string[];
@@ -17,6 +35,7 @@ export interface GameState {
   small_blind: number;
   hand_number: number;
   messages: ChatMessage[];
+  betting_context?: BettingContext;
 }
 
 // Used by WinnerAnnouncement component

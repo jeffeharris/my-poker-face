@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import { Check, MessageCircle } from 'lucide-react';
+import {
+  useBettingCalculations,
+  createBettingContext,
+  type BettingContext,
+} from '../../hooks/useBettingCalculations';
 import './MobileActionButtons.css';
 
 interface MobileActionButtonsProps {
@@ -12,6 +17,7 @@ interface MobileActionButtonsProps {
   potSize: number;
   onAction: (action: string, amount?: number) => void;
   onQuickChat?: () => void;
+  bettingContext?: BettingContext;  // Optional - use if provided by backend
 }
 
 export function MobileActionButtons({
@@ -23,45 +29,46 @@ export function MobileActionButtons({
   bigBlind,
   potSize,
   onAction,
-  onQuickChat
+  onQuickChat,
+  bettingContext: providedContext,
 }: MobileActionButtonsProps) {
   const [showRaiseSheet, setShowRaiseSheet] = useState(false);
-  const [raiseAmount, setRaiseAmount] = useState(minRaise || bigBlind * 2);
 
-  const safeMinRaise = Math.max(1, minRaise || bigBlind || 20);
-  const safePotSize = Math.max(0, potSize || 0);
-  const safeHighestBet = Math.max(0, highestBet || 0);
-  const safeCurrentBet = Math.max(0, currentPlayerBet || 0);
-  const safeStack = Math.max(0, currentPlayerStack || 0);
-  const callAmount = Math.max(0, safeHighestBet - safeCurrentBet);
+  // Create betting context from props if not provided
+  const bettingContext = providedContext ?? createBettingContext({
+    playerStack: currentPlayerStack,
+    playerCurrentBet: currentPlayerBet,
+    highestBet,
+    potSize,
+    minRaise,
+    playerOptions,
+  });
 
-  const oneQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize / 4));
-  const halfPot = Math.max(safeMinRaise, Math.floor(safePotSize / 2));
-  const threeQuarterPot = Math.max(safeMinRaise, Math.floor(safePotSize * 0.75));
-  const fullPot = Math.max(safeMinRaise, safePotSize);
+  // Use the shared hook for all calculations
+  const calc = useBettingCalculations(bettingContext, bigBlind);
+
+  // Raise amount state - initialize to min raise TO
+  const [raiseAmount, setRaiseAmount] = useState(calc.safeMinRaiseTo);
 
   const handleRaise = () => {
-    setRaiseAmount(safeMinRaise);
+    setRaiseAmount(calc.safeMinRaiseTo);
     setShowRaiseSheet(true);
   };
 
   const submitRaise = () => {
-    // Allow raise if it meets min raise OR if it's an all-in (even below min)
-    const isValidRaise = (raiseAmount >= safeMinRaise || raiseAmount === safeStack) && raiseAmount <= safeStack;
+    // Allow raise if valid OR if it's all-in (even below min)
+    const isAllIn = raiseAmount === calc.safeMaxRaiseTo;
+    const isValidRaise = calc.isValidRaise(raiseAmount) || isAllIn;
+
     if (isValidRaise) {
+      // Send the "raise TO" amount directly - backend now expects this
       onAction('raise', raiseAmount);
       setShowRaiseSheet(false);
     }
   };
 
-  const quickBets = [
-    { label: 'Min', amount: safeMinRaise, alwaysShow: true },
-    { label: '¼ Pot', amount: oneQuarterPot, alwaysShow: false },
-    { label: '½ Pot', amount: halfPot, alwaysShow: false },
-    { label: '¾ Pot', amount: threeQuarterPot, alwaysShow: false },
-    { label: 'Pot', amount: fullPot, alwaysShow: false },
-    { label: 'All-In', amount: safeStack, alwaysShow: true },
-  ].filter(b => b.amount <= safeStack && (b.alwaysShow || b.amount > safeMinRaise));
+  // Get breakdown for display
+  const breakdown = calc.getBreakdown(raiseAmount);
 
   if (showRaiseSheet) {
     return (
@@ -76,32 +83,44 @@ export function MobileActionButtons({
           <button
             className="confirm-btn"
             onClick={submitRaise}
-            disabled={(raiseAmount < safeMinRaise && raiseAmount !== safeStack) || raiseAmount > safeStack}
+            disabled={!calc.isValidRaise(raiseAmount) && raiseAmount !== calc.safeMaxRaiseTo}
           >
             Confirm
           </button>
         </div>
 
         <div className="raise-amount-display">
-          <span className="amount-label">Amount</span>
+          <span className="amount-label">
+            {playerOptions.includes('raise') ? 'Raise to' : 'Bet'}
+          </span>
           <div className="amount-with-2x">
             <span className="amount-value">${raiseAmount}</span>
             <button
               className="double-btn"
-              onClick={() => setRaiseAmount(Math.min(safeStack, raiseAmount * 2))}
-              disabled={raiseAmount * 2 > safeStack}
+              onClick={() => setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount * 2))}
+              disabled={raiseAmount * 2 > calc.safeMaxRaiseTo}
             >
               2x
             </button>
           </div>
         </div>
 
+        {/* Breakdown display - matches desktop */}
+        {calc.callAmount > 0 && (
+          <div className="raise-breakdown">
+            <span className="breakdown-call">Call ${breakdown.callPortion}</span>
+            <span className="breakdown-plus">+</span>
+            <span className="breakdown-raise">Raise ${breakdown.raisePortion}</span>
+          </div>
+        )}
+
         <div className="quick-bet-buttons">
-          {quickBets.map(({ label, amount }) => (
+          {calc.quickBets.map(({ label, amount, id }) => (
             <button
-              key={label}
+              key={id}
               className={`quick-bet-btn ${raiseAmount === amount ? 'selected' : ''}`}
               onClick={() => setRaiseAmount(amount)}
+              disabled={amount > calc.safeMaxRaiseTo}
             >
               {label}
               <span className="quick-bet-amount">${amount}</span>
@@ -113,19 +132,19 @@ export function MobileActionButtons({
           <input
             type="range"
             className="raise-slider"
-            min={safeMinRaise}
-            max={safeStack}
+            min={calc.safeMinRaiseTo}
+            max={calc.safeMaxRaiseTo}
             value={raiseAmount}
             onChange={(e) => setRaiseAmount(parseInt(e.target.value))}
           />
           <div className="slider-labels">
-            <span>${safeMinRaise}</span>
-            <span>${safeStack}</span>
+            <span>${calc.safeMinRaiseTo}</span>
+            <span>${calc.safeMaxRaiseTo}</span>
           </div>
         </div>
 
         <div className="stack-preview">
-          Stack after: ${safeStack - raiseAmount}
+          Stack after: ${breakdown.stackAfter}
         </div>
       </div>
     );
@@ -159,7 +178,7 @@ export function MobileActionButtons({
           onClick={() => onAction('call')}
         >
           <span className="btn-icon">→</span>
-          <span className="btn-label">Call ${callAmount}</span>
+          <span className="btn-label">Call ${calc.callAmount}</span>
         </button>
       )}
 
@@ -181,7 +200,7 @@ export function MobileActionButtons({
           onClick={() => onAction('all_in')}
         >
           <span className="btn-icon">★</span>
-          <span className="btn-label">All-In ${safeStack}</span>
+          <span className="btn-label">All-In ${calc.safeStack}</span>
         </button>
       )}
 

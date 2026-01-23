@@ -737,34 +737,59 @@ class AIPlayerController:
         if 'action' in response_dict:
             response_dict['action'] = response_dict['action'].lower()
         
+        # Backend now uses "raise TO" semantics - all amounts are total bet amounts
+        # Convert AI's adding_to_pot (which was historically "raise BY") to "raise TO"
+        if response_dict.get('action') == 'raise':
+            highest_bet = game_state.highest_bet
+            adding_to_pot = response_dict.get('adding_to_pot', 0)
+
+            # If AI returned a non-zero amount, convert from raise BY to raise TO
+            if adding_to_pot > 0:
+                # Check if the amount looks like a "raise TO" (greater than highest bet)
+                # or a "raise BY" (increment that should be added to highest bet)
+                if adding_to_pot > highest_bet:
+                    # Likely already a "raise TO" amount - use as is
+                    pass
+                else:
+                    # Likely a "raise BY" amount - convert to "raise TO"
+                    raise_to_amount = highest_bet + adding_to_pot
+                    response_dict['adding_to_pot'] = raise_to_amount
+                    logger.debug(f"[RAISE_CONVERT] {self.player_name}: converted raise BY ${adding_to_pot} to raise TO ${raise_to_amount}")
+
         # Fix common AI mistake: saying "raise" but setting adding_to_pot to 0
         if response_dict.get('action') == 'raise' and response_dict.get('adding_to_pot', 0) == 0:
             # Try to extract amount from persona_response
             import re
             persona_response = response_dict.get('persona_response', '')
-            
+            cost_to_call = context.get('call_amount', 0)
+            highest_bet = game_state.highest_bet
+            min_raise = context.get('min_raise', MIN_RAISE)
+            player_stack = game_state.current_player.stack
+            player_bet = game_state.current_player.bet
+
             # Look for patterns like "raise by $500" or "raise you $500" or "raise to $500"
             raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
             if raise_match:
                 mentioned_amount = int(raise_match.group(1))
-                
+
                 # Check if it's "raise to" vs "raise by"
                 if 'raise to' in persona_response.lower():
-                    # Convert "raise to" to "raise by"
-                    cost_to_call = context.get('call_amount', 0)
-                    response_dict['adding_to_pot'] = max(10, mentioned_amount - cost_to_call)
-                    response_dict['raise_amount_corrected'] = True
-                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}', converting to raise by ${response_dict['adding_to_pot']} (cost to call: ${cost_to_call})")
-                else:
-                    # Direct "raise by" amount
+                    # AI said "raise to $X" - use as is (already in raise TO semantics)
                     response_dict['adding_to_pot'] = mentioned_amount
                     response_dict['raise_amount_corrected'] = True
-                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said raise but adding_to_pot was 0, extracted ${mentioned_amount} from persona_response")
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}', using as raise TO amount")
+                else:
+                    # AI said "raise by $X" - convert to raise TO
+                    raise_to_amount = highest_bet + mentioned_amount
+                    response_dict['adding_to_pot'] = raise_to_amount
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise by ${mentioned_amount}', converting to raise TO ${raise_to_amount}")
             else:
-                # Default to minimum raise
-                response_dict['adding_to_pot'] = context.get('min_raise', MIN_RAISE)
+                # Default to minimum raise TO amount
+                min_raise_to = highest_bet + min_raise
+                response_dict['adding_to_pot'] = min_raise_to
                 response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount and no amount in message, defaulting to minimum raise of ${response_dict['adding_to_pot']}")
+                logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount, defaulting to min raise TO ${min_raise_to}")
         
         # Validate action is valid
         if valid_actions and response_dict['action'] not in valid_actions:

@@ -8,6 +8,7 @@ from typing import Tuple, Mapping, List, Optional, Dict
 from core.card import Card
 from .hand_evaluator import HandEvaluator, rank_to_display
 from .utils import obj_to_dict
+from .betting_context import BettingContext
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,16 @@ class PokerGameState:
         The minimum raise must be at least the size of the last raise (or big blind if no raises yet).
         """
         return self.last_raise_amount
+
+    @property
+    def call_amount(self) -> int:
+        """Amount the current player needs to call (match the highest bet)."""
+        return max(0, self.highest_bet - self.current_player.bet)
+
+    @property
+    def max_raise_amount(self) -> int:
+        """Maximum raise amount (player's remaining stack)."""
+        return self.current_player.stack
 
     @property
     def can_big_blind_take_pre_flop_action(self) -> bool:
@@ -453,16 +464,45 @@ def player_fold(game_state):
     return game_state.update(discard_pile=new_discard_pile)
 
 
-def player_raise(game_state, amount: int):
+def player_raise(game_state, raise_to_amount: int):
     """
-    Player raises the current highest bet by the provided amount.
+    Player raises TO the specified total bet amount.
+
+    Args:
+        game_state: Current game state
+        raise_to_amount: Total amount player wants to bet TO (not increment).
+                        This is the final bet amount the player will have.
+
+    Auto-corrects:
+        - If > stack: converts to all-in
+        - If < min_raise_to: uses min_raise_to (unless all-in)
+
+    Returns:
+        Updated game state after the raise.
     """
-    # Calculate the cost_to_call as the difference between the current highest bet and the players current bet
-    cost_to_call = game_state.highest_bet - game_state.current_player.bet
-    game_state = place_bet(game_state=game_state, amount=amount + cost_to_call)
+    player = game_state.current_player
+    context = BettingContext.from_game_state(game_state)
+
+    # Validate and auto-correct the raise amount
+    is_valid, sanitized_amount, correction_msg = context.validate_and_sanitize(raise_to_amount)
+
+    if correction_msg:
+        logger.debug(f"[RAISE] {player.name}: {correction_msg}")
+
+    # If raising to all-in, use the all_in function for proper handling
+    if sanitized_amount >= player.stack + player.bet:
+        return player_all_in(game_state)
+
+    # Calculate the raise increment (for tracking min raise) and total to add
+    raise_by_amount = sanitized_amount - game_state.highest_bet
+    total_to_add = sanitized_amount - player.bet
+
+    # Place the bet (total amount to add to reach the raise_to amount)
+    game_state = place_bet(game_state=game_state, amount=total_to_add)
+
     # Track the raise amount for minimum raise calculations and increment raise counter
     game_state = game_state.update(
-        last_raise_amount=amount,
+        last_raise_amount=raise_by_amount,
         raises_this_round=game_state.raises_this_round + 1
     )
     return game_state

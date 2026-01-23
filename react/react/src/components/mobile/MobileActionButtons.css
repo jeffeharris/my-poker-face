@@ -201,6 +201,33 @@
   cursor: not-allowed;
 }
 
+/* Raise breakdown display */
+.raise-breakdown {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.breakdown-call {
+  color: #2196f3;
+  font-weight: 500;
+}
+
+.breakdown-plus {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.breakdown-raise {
+  color: #ff9800;
+  font-weight: 500;
+}
+
 .quick-bet-buttons {
   display: flex;
   gap: 8px;
