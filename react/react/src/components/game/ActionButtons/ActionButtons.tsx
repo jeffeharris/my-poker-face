@@ -108,11 +108,15 @@ export function ActionButtons({
                 <input
                   type="number"
                   className="bet-amount-input"
-                  defaultValue={betAmount}
+                  value={betAmount}
                   onChange={(e) => {
                     const val = parseInt(e.target.value);
                     if (!isNaN(val) && val > 0) {
                       setBetAmount(val);
+                      setSelectedQuickBet(null);
+                    } else if (e.target.value === '') {
+                      // Allow clearing - will be fixed on blur
+                      setBetAmount(calc.safeMinRaiseTo);
                       setSelectedQuickBet(null);
                     }
                   }}
@@ -120,6 +124,8 @@ export function ActionButtons({
                     const val = parseInt(e.target.value);
                     if (!isNaN(val)) {
                       setBetAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, calc.roundToSnap(val))));
+                    } else {
+                      setBetAmount(calc.safeMinRaiseTo);
                     }
                     setIsEditingAmount(false);
                   }}
@@ -137,6 +143,12 @@ export function ActionButtons({
                 <span
                   className="bet-total clickable"
                   onClick={() => setIsEditingAmount(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setIsEditingAmount(true);
+                    }
+                  }}
                   role="button"
                   tabIndex={0}
                   title="Click to edit"

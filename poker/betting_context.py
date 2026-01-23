@@ -7,7 +7,7 @@ eliminating the "raise TO" vs "raise BY" confusion by standardizing on
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, TYPE_CHECKING
+from typing import Dict, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .poker_game import PokerGameState

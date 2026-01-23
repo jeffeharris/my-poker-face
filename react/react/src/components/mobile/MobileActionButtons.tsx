@@ -99,12 +99,15 @@ export function MobileActionButtons({
               <input
                 type="number"
                 className="amount-input"
-                defaultValue={raiseAmount}
+                value={raiseAmount}
                 onChange={(e) => {
                   // Allow free typing - no clamping during input
                   const val = parseInt(e.target.value);
                   if (!isNaN(val) && val > 0) {
                     setRaiseAmount(val);
+                  } else if (e.target.value === '') {
+                    // Allow clearing - will be fixed on blur
+                    setRaiseAmount(calc.safeMinRaiseTo);
                   }
                 }}
                 onBlur={(e) => {
@@ -112,6 +115,8 @@ export function MobileActionButtons({
                   const val = parseInt(e.target.value);
                   if (!isNaN(val)) {
                     setRaiseAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val)));
+                  } else {
+                    setRaiseAmount(calc.safeMinRaiseTo);
                   }
                   setIsEditingAmount(false);
                 }}
@@ -128,6 +133,12 @@ export function MobileActionButtons({
               <span
                 className="amount-value"
                 onClick={() => setIsEditingAmount(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setIsEditingAmount(true);
+                  }
+                }}
                 role="button"
                 tabIndex={0}
               >

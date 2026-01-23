@@ -512,16 +512,31 @@ def player_all_in(game_state):
     """
     Player bets all of their remaining chips.
     Counts as a raise if the amount exceeds the cost to call.
+
+    Updates last_raise_amount only for "full raises" - where the raise increment
+    is >= the current last_raise_amount. A "short all-in" (raising less than the
+    minimum) doesn't change the min raise for subsequent players.
     """
     player = game_state.current_player
-    cost_to_call = game_state.highest_bet - player.bet
+    previous_highest_bet = game_state.highest_bet
+    cost_to_call = previous_highest_bet - player.bet
     all_in_amount = player.stack
 
     game_state = place_bet(game_state=game_state, amount=all_in_amount)
 
     # Count as a raise if going all-in for more than the call amount
     if all_in_amount > cost_to_call:
-        game_state = game_state.update(raises_this_round=game_state.raises_this_round + 1)
+        # Calculate the raise increment (how much above the previous high bet)
+        new_highest_bet = game_state.highest_bet
+        raise_by = new_highest_bet - previous_highest_bet
+
+        # Only update last_raise_amount if this is a "full raise" (>= current min raise)
+        # A "short all-in" doesn't reopen betting or change the min raise
+        updates = {'raises_this_round': game_state.raises_this_round + 1}
+        if raise_by >= game_state.last_raise_amount:
+            updates['last_raise_amount'] = raise_by
+
+        game_state = game_state.update(**updates)
     return game_state
 
 

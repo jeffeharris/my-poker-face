@@ -8,24 +8,10 @@
  */
 
 import { useMemo } from 'react';
+import type { BettingContext } from '../types/game';
 
-/**
- * BettingContext from the backend API.
- * All amounts are absolute chip values.
- */
-export interface BettingContext {
-  player_stack: number;
-  player_current_bet: number;
-  highest_bet: number;
-  pot_total: number;
-  min_raise_amount: number;
-  available_actions: string[];
-  // Computed properties from backend
-  cost_to_call: number;
-  min_raise_to: number;
-  max_raise_to: number;
-  effective_stack: number;
-}
+// Re-export BettingContext for consumers of this hook
+export type { BettingContext };
 
 /**
  * Pot fraction quick bet amounts.
@@ -132,13 +118,14 @@ export function useBettingCalculations(
     const safeMaxRaiseTo = Math.max(0, safeContext.max_raise_to || (safeCurrentBet + safeStack));
 
     // Calculate pot fraction amounts (as "raise TO" amounts)
+    // A "half pot raise" means raising BY half the pot, so total bet = highest_bet + (pot * fraction)
     const potFractions: PotFractions = {
-      quarter: Math.max(safeMinRaiseTo, Math.floor(safePotSize / 4)),
-      third: Math.max(safeMinRaiseTo, Math.floor(safePotSize / 3)),
-      half: Math.max(safeMinRaiseTo, Math.floor(safePotSize / 2)),
-      twoThirds: Math.max(safeMinRaiseTo, Math.floor(safePotSize * 0.67)),
-      threeQuarters: Math.max(safeMinRaiseTo, Math.floor(safePotSize * 0.75)),
-      full: Math.max(safeMinRaiseTo, safePotSize),
+      quarter: Math.max(safeMinRaiseTo, safeHighestBet + Math.floor(safePotSize * 0.25)),
+      third: Math.max(safeMinRaiseTo, safeHighestBet + Math.floor(safePotSize / 3)),
+      half: Math.max(safeMinRaiseTo, safeHighestBet + Math.floor(safePotSize * 0.5)),
+      twoThirds: Math.max(safeMinRaiseTo, safeHighestBet + Math.floor(safePotSize * 0.67)),
+      threeQuarters: Math.max(safeMinRaiseTo, safeHighestBet + Math.floor(safePotSize * 0.75)),
+      full: Math.max(safeMinRaiseTo, safeHighestBet + safePotSize),
     };
 
     // Calculate snap increment: 0.5BB rounded to nearest 5
