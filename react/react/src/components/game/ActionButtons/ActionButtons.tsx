@@ -115,7 +115,7 @@ export function ActionButtons({
             Stack after: ${breakdown.stackAfter}
           </div>
           <div className="snap-info">
-            Increments: ${calc.snapIncrement}
+            Increments: ${calc.snapIncrement} (½ BB)
           </div>
         </div>
 
@@ -152,29 +152,9 @@ export function ActionButtons({
               onChange={(e) => {
                 const value = parseInt(e.target.value);
                 if (!isNaN(value)) {
-                  // Round to snap increment for smooth sliding
-                  const snappedValue = calc.roundToSnap(value);
-
-                  // Also check for pot-based snap points
-                  const potSnapPoints = [
-                    calc.potFractions.third,
-                    calc.potFractions.half,
-                    calc.potFractions.twoThirds,
-                    calc.potFractions.full
-                  ].filter(v => v >= calc.safeMinRaiseTo && v <= calc.safeMaxRaiseTo);
-
-                  // If we're very close to a pot-based snap point, use it instead
-                  const snapThreshold = calc.snapIncrement * 2;
-                  let finalValue = snappedValue;
-
-                  for (const snapPoint of potSnapPoints) {
-                    if (Math.abs(value - snapPoint) < snapThreshold) {
-                      finalValue = snapPoint;
-                      break;
-                    }
-                  }
-
-                  setBetAmount(finalValue);
+                  // Use magnetic snapping (0.5BB increments with pot fraction magnets)
+                  const snappedValue = calc.snapWithMagnets(value);
+                  setBetAmount(snappedValue);
                   setSelectedQuickBet(null);
                 }
               }}

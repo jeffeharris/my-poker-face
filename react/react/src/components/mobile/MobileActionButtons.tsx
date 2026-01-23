@@ -33,6 +33,7 @@ export function MobileActionButtons({
   bettingContext: providedContext,
 }: MobileActionButtonsProps) {
   const [showRaiseSheet, setShowRaiseSheet] = useState(false);
+  const [isEditingAmount, setIsEditingAmount] = useState(false);
 
   // Create betting context from props if not provided
   const bettingContext = providedContext ?? createBettingContext({
@@ -94,7 +95,45 @@ export function MobileActionButtons({
             {playerOptions.includes('raise') ? 'Raise to' : 'Bet'}
           </span>
           <div className="amount-with-2x">
-            <span className="amount-value">${raiseAmount}</span>
+            {isEditingAmount ? (
+              <input
+                type="number"
+                className="amount-input"
+                defaultValue={raiseAmount}
+                onChange={(e) => {
+                  // Allow free typing - no clamping during input
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val) && val > 0) {
+                    setRaiseAmount(val);
+                  }
+                }}
+                onBlur={(e) => {
+                  // Enforce limits when done typing
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) {
+                    setRaiseAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val)));
+                  }
+                  setIsEditingAmount(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                autoFocus
+                onFocus={(e) => e.target.select()}
+                inputMode="numeric"
+              />
+            ) : (
+              <span
+                className="amount-value"
+                onClick={() => setIsEditingAmount(true)}
+                role="button"
+                tabIndex={0}
+              >
+                ${raiseAmount}
+              </span>
+            )}
             <button
               className="double-btn"
               onClick={() => setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount * 2))}
@@ -135,7 +174,13 @@ export function MobileActionButtons({
             min={calc.safeMinRaiseTo}
             max={calc.safeMaxRaiseTo}
             value={raiseAmount}
-            onChange={(e) => setRaiseAmount(parseInt(e.target.value))}
+            onChange={(e) => {
+              const value = parseInt(e.target.value);
+              if (!isNaN(value)) {
+                // Use magnetic snapping (0.5BB increments with pot fraction magnets)
+                setRaiseAmount(calc.snapWithMagnets(value));
+              }
+            }}
           />
           <div className="slider-labels">
             <span>${calc.safeMinRaiseTo}</span>

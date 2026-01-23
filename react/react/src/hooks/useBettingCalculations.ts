@@ -76,14 +76,18 @@ export interface BettingCalculations {
   // Pot fraction amounts (all as "raise TO" amounts)
   potFractions: PotFractions;
 
-  // Slider snap increment
+  // Slider snap increment (0.5BB based)
   snapIncrement: number;
+
+  // Magnetic snap points (pot fractions within valid range)
+  magneticSnapPoints: number[];
 
   // Quick bet buttons (filtered by affordability)
   quickBets: QuickBet[];
 
   // Helper functions
   roundToSnap: (value: number) => number;
+  snapWithMagnets: (value: number) => number;
   isValidRaise: (amount: number) => boolean;
   getBreakdown: (raiseToAmount: number) => RaiseBreakdown;
   getDefaultRaise: () => number;
@@ -137,21 +141,36 @@ export function useBettingCalculations(
       full: Math.max(safeMinRaiseTo, safePotSize),
     };
 
-    // Calculate snap increment based on big blind
-    const getSnapIncrement = () => {
-      if (bigBlind <= 2) return 1;       // $1 increments for micro stakes
-      if (bigBlind <= 10) return 5;      // $5 increments for small stakes
-      if (bigBlind <= 50) return 10;     // $10 increments for mid stakes
-      if (bigBlind <= 200) return 25;    // $25 increments for higher stakes
-      if (bigBlind <= 1000) return 50;   // $50 increments for high stakes
-      return 100;                         // $100 increments for nosebleeds
-    };
-
-    const snapIncrement = getSnapIncrement();
+    // Calculate snap increment based on big blind (0.5BB increments)
+    // This feels natural to poker players who think in BB
+    const snapIncrement = Math.max(1, Math.floor(bigBlind / 2));
 
     // Round to nearest snap increment
     const roundToSnap = (value: number): number => {
       return Math.round(value / snapIncrement) * snapIncrement;
+    };
+
+    // Magnetic snap points - pot fractions that the slider "sticks" to
+    const magneticSnapPoints = [
+      potFractions.quarter,
+      potFractions.third,
+      potFractions.half,
+      potFractions.twoThirds,
+      potFractions.threeQuarters,
+      potFractions.full,
+    ].filter(v => v >= safeMinRaiseTo && v <= safeMaxRaiseTo);
+
+    // Snap with magnetic attraction to pot fractions
+    const snapWithMagnets = (value: number): number => {
+      // Check if we're close to a magnetic snap point (within 1BB)
+      const magnetThreshold = bigBlind;
+      for (const snapPoint of magneticSnapPoints) {
+        if (Math.abs(value - snapPoint) <= magnetThreshold) {
+          return snapPoint;
+        }
+      }
+      // Otherwise, round to normal snap increment
+      return roundToSnap(value);
     };
 
     // Check if a raise TO amount is valid
@@ -210,8 +229,10 @@ export function useBettingCalculations(
       callAmount,
       potFractions,
       snapIncrement,
+      magneticSnapPoints,
       quickBets,
       roundToSnap,
+      snapWithMagnets,
       isValidRaise,
       getBreakdown,
       getDefaultRaise,
