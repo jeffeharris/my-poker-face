@@ -76,6 +76,28 @@ docker compose exec frontend npx tsc --noEmit
 - Verify prompt templates render correctly
 - Check that personality traits affect decisions appropriately
 
+### Database Location
+
+**IMPORTANT**: The database path differs between environments:
+- **Docker (Flask app)**: `/app/data/poker_games.db` (mounted from `./data/`)
+- **Local development**: `poker_games.db` in project root
+
+When running commands in Docker, always use the correct path:
+```bash
+# Correct - uses the Flask app's database
+docker compose exec backend python -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/poker_games.db')
+# ... queries
+"
+
+# WRONG - creates/uses a separate database file
+docker compose exec backend python -c "
+from poker.persistence import GamePersistence
+p = GamePersistence()  # Uses poker_games.db, not /app/data/poker_games.db
+"
+```
+
 ### Database Query Utility
 
 Use `scripts/dbq.py` for quick database exploration:
