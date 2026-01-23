@@ -234,7 +234,7 @@ class TestResponseFormat(unittest.TestCase):
     def test_response_format_keys(self):
         """Test that response format has all required keys."""
         required_keys = [
-            'play_style', 'action', 'adding_to_pot',
+            'play_style', 'action', 'raise_to',
             'persona_response', 'new_confidence', 'new_attitude'
         ]
         

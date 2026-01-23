@@ -1120,7 +1120,7 @@ def handle_ai_action(game_id: str) -> None:
 
         action = player_response_dict['action']
         # Ensure amount is int (defensive - controllers.py should handle this, but be safe)
-        amount = int(player_response_dict.get('adding_to_pot', 0) or 0)
+        amount = int(player_response_dict.get('raise_to', 0) or 0)
         player_message = player_response_dict.get('persona_response', '')
         player_physical_description = player_response_dict.get('physical', '')
 
@@ -1142,7 +1142,7 @@ def handle_ai_action(game_id: str) -> None:
         )
 
         action = fallback_result['action']
-        amount = fallback_result['adding_to_pot']
+        amount = fallback_result['raise_to']
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
 

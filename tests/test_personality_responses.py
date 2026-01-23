@@ -52,7 +52,7 @@ class TestPersonalityResponses(unittest.TestCase):
         
         return {
             "action": action,
-            "adding_to_pot": amount,
+            "raise_to": amount,
             "persona_response": responses['verbal'],
             "physical": responses['physical'],
             "inner_monologue": responses['thought'],
@@ -224,7 +224,7 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"    - Bluff Tendency: {ai_player.personality_config['personality_traits']['bluff_tendency']:.0%}")
             print(f"    - Aggression: {ai_player.personality_config['personality_traits']['aggression']:.0%}")
             print(f"  Decision: {response['action'].upper()}" + 
-                  (f" ${response.get('adding_to_pot', 0)}" if response.get('adding_to_pot', 0) > 0 else ""))
+                  (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
             print(f"  Says: \"{response['persona_response']}\"")
             print(f"  Physical: {', '.join(response['physical'])}")
             print(f"  Strategy: {response['hand_strategy']}")
@@ -258,7 +258,7 @@ class TestPersonalityResponses(unittest.TestCase):
             
             print(f"\n{player_name}:")
             print(f"  Action: {response['action'].upper()}" + 
-                  (f" ${response.get('adding_to_pot', 0)}" if response.get('adding_to_pot', 0) > 0 else ""))
+                  (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
             print(f"  Says: \"{response['persona_response']}\"")
             
             # Verify decisions match personality

@@ -69,11 +69,11 @@
 .stadium-layout__command-center {
   position: absolute;
   bottom: var(--space-4);
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
   z-index: var(--z-dropdown);
-  width: 100%;
-  max-width: 600px;
+  display: flex;
+  justify-content: center;
   padding: 0 var(--space-4);
 }
 

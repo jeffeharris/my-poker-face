@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
 import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
+import { PricingManager } from './PricingManager';
 import './AdminShared.css';
 import './UnifiedSettings.css';
 
@@ -77,18 +78,6 @@ interface StorageStats {
   total_mb: number;
   categories: Record<string, CategoryStats>;
   tables: Record<string, { rows: number; bytes: number }>;
-}
-
-// Pricing types
-interface PricingEntry {
-  id: number;
-  provider: string;
-  model: string;
-  unit: string;
-  cost: number;
-  valid_from: string | null;
-  valid_until: string | null;
-  notes: string | null;
 }
 
 interface AlertState {
@@ -176,22 +165,6 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   // Storage state
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [storageLoading, setStorageLoading] = useState(true);
-
-  // Pricing state
-  const [pricing, setPricing] = useState<PricingEntry[]>([]);
-  const [pricingLoading, setPricingLoading] = useState(true);
-  const [pricingProviders, setPricingProviders] = useState<string[]>([]);
-  const [filterProvider, setFilterProvider] = useState('');
-  const [currentOnly, setCurrentOnly] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-  const [newPricing, setNewPricing] = useState({
-    provider: '',
-    model: '',
-    unit: 'input_tokens_1m',
-    cost: '',
-    notes: '',
-  });
 
   // Auto-dismiss alerts
   useEffect(() => {
@@ -546,98 +519,6 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
     }
   }, []);
 
-  // ============================================
-  // Pricing Logic
-  // ============================================
-
-  const fetchPricing = useCallback(async () => {
-    try {
-      setPricingLoading(true);
-      const params = new URLSearchParams();
-      if (filterProvider) params.append('provider', filterProvider);
-      if (currentOnly) params.append('current_only', 'true');
-
-      const response = await adminFetch(`/admin/pricing?${params}`);
-      const data = await response.json();
-
-      if (data.success) {
-        setPricing(data.pricing || []);
-      } else {
-        showAlert('error', data.error || 'Failed to load pricing');
-      }
-    } catch {
-      showAlert('error', 'Failed to connect to server');
-    } finally {
-      setPricingLoading(false);
-    }
-  }, [filterProvider, currentOnly]);
-
-  const fetchPricingProviders = useCallback(async () => {
-    try {
-      const response = await adminFetch(`/admin/pricing/providers`);
-      const data = await response.json();
-      if (data.success) {
-        setPricingProviders(data.providers.map((p: { provider: string }) => p.provider));
-      }
-    } catch (error) {
-      console.error('Failed to fetch providers:', error);
-    }
-  }, []);
-
-  const handleAddPricing = async () => {
-    if (!newPricing.provider || !newPricing.model || !newPricing.unit || !newPricing.cost) {
-      showAlert('error', 'Please fill in all required fields');
-      return;
-    }
-
-    try {
-      const response = await adminFetch(`/admin/pricing`, {
-        method: 'POST',
-        body: JSON.stringify({
-          provider: newPricing.provider,
-          model: newPricing.model,
-          unit: newPricing.unit,
-          cost: parseFloat(newPricing.cost),
-          notes: newPricing.notes || undefined,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        showAlert('success', 'Pricing entry added');
-        setShowAddModal(false);
-        setNewPricing({ provider: '', model: '', unit: 'input_tokens_1m', cost: '', notes: '' });
-        fetchPricing();
-        fetchPricingProviders();
-      } else {
-        showAlert('error', data.error || 'Failed to add pricing');
-      }
-    } catch {
-      showAlert('error', 'Failed to connect to server');
-    }
-  };
-
-  const handleDeletePricing = async (id: number) => {
-    try {
-      const response = await adminFetch(`/admin/pricing/${id}`, {
-        method: 'DELETE',
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        showAlert('success', 'Pricing entry deleted');
-        setDeleteConfirm(null);
-        fetchPricing();
-      } else {
-        showAlert('error', data.error || 'Failed to delete pricing');
-      }
-    } catch {
-      showAlert('error', 'Failed to connect to server');
-    }
-  };
-
   // Load data when category changes (models handled by useAdminResource hook)
   useEffect(() => {
     if (activeCategory === 'models' && !systemSettings) {
@@ -647,18 +528,9 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       fetchCaptureData();
     } else if (activeCategory === 'storage' && !storage) {
       fetchStorage();
-    } else if (activeCategory === 'pricing' && pricing.length === 0) {
-      fetchPricing();
-      fetchPricingProviders();
     }
-  }, [activeCategory, systemSettings, captureSettings, storage, pricing.length, fetchSystemData, fetchCaptureData, fetchStorage, fetchPricing, fetchPricingProviders]);
-
-  // Refetch pricing when filters change
-  useEffect(() => {
-    if (activeCategory === 'pricing') {
-      fetchPricing();
-    }
-  }, [filterProvider, currentOnly, activeCategory, fetchPricing]);
+    // Pricing is handled by the PricingManager component
+  }, [activeCategory, systemSettings, captureSettings, storage, fetchSystemData, fetchCaptureData, fetchStorage]);
 
   const activeCategoryConfig = CATEGORIES.find(c => c.id === activeCategory);
 
@@ -1041,113 +913,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   };
 
   const renderPricingSection = () => {
-    if (pricingLoading && pricing.length === 0) {
-      return (
-        <div className="admin-loading">
-          <div className="admin-loading__spinner" />
-          <span className="admin-loading__text">Loading pricing...</span>
-        </div>
-      );
-    }
-
-    return (
-      <div className="us-pricing">
-        <div className="us-pricing__header">
-          <div className="us-pricing__filters">
-            <select
-              className="admin-input admin-select"
-              value={filterProvider}
-              onChange={(e) => setFilterProvider(e.target.value)}
-            >
-              <option value="">All Providers</option>
-              {pricingProviders.map(p => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-
-            <label className="admin-checkbox">
-              <input
-                type="checkbox"
-                className="admin-checkbox__input"
-                checked={currentOnly}
-                onChange={(e) => setCurrentOnly(e.target.checked)}
-              />
-              <span className="admin-checkbox__label">Current only</span>
-            </label>
-          </div>
-
-          <button
-            type="button"
-            className="admin-btn admin-btn--primary"
-            onClick={() => setShowAddModal(true)}
-          >
-            + Add Entry
-          </button>
-        </div>
-
-        <div className="us-pricing__table-wrapper">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Model</th>
-                <th>Unit</th>
-                <th>Cost</th>
-                <th>Valid From</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pricing.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="us-pricing__empty">
-                    No pricing entries found
-                  </td>
-                </tr>
-              ) : (
-                pricing.map(entry => (
-                  <tr key={entry.id} className={entry.valid_until ? 'us-pricing__row--expired' : ''}>
-                    <td>{entry.provider}</td>
-                    <td className="us-pricing__model">{entry.model}</td>
-                    <td>{entry.unit}</td>
-                    <td className="us-pricing__cost">{formatCost(entry.cost, entry.unit)}</td>
-                    <td>{entry.valid_from ? new Date(entry.valid_from).toLocaleDateString() : '-'}</td>
-                    <td>
-                      {deleteConfirm === entry.id ? (
-                        <div className="us-pricing__confirm">
-                          <button
-                            type="button"
-                            className="admin-btn admin-btn--danger admin-btn--sm"
-                            onClick={() => handleDeletePricing(entry.id)}
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            type="button"
-                            className="admin-btn admin-btn--ghost admin-btn--sm"
-                            onClick={() => setDeleteConfirm(null)}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="admin-btn admin-btn--ghost admin-btn--sm"
-                          onClick={() => setDeleteConfirm(entry.id)}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
+    return <PricingManager embedded />;
   };
 
   const renderContent = () => {
@@ -1216,104 +982,6 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         </div>
       </main>
 
-      {/* Add Pricing Modal */}
-      {showAddModal && (
-        <div className="admin-modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-modal__header">
-              <h3 className="admin-modal__title">Add Pricing Entry</h3>
-              <button className="admin-modal__close" onClick={() => setShowAddModal(false)}>×</button>
-            </div>
-
-            <div className="admin-modal__body">
-              <div className="admin-form-group">
-                <label className="admin-label">Provider *</label>
-                <input
-                  type="text"
-                  className="admin-input"
-                  value={newPricing.provider}
-                  onChange={(e) => setNewPricing(p => ({ ...p, provider: e.target.value }))}
-                  placeholder="e.g., openai"
-                  list="providers-list"
-                />
-                <datalist id="providers-list">
-                  {pricingProviders.map(p => (
-                    <option key={p} value={p} />
-                  ))}
-                </datalist>
-              </div>
-
-              <div className="admin-form-group">
-                <label className="admin-label">Model *</label>
-                <input
-                  type="text"
-                  className="admin-input"
-                  value={newPricing.model}
-                  onChange={(e) => setNewPricing(p => ({ ...p, model: e.target.value }))}
-                  placeholder="e.g., gpt-4o"
-                />
-              </div>
-
-              <div className="admin-form-group">
-                <label className="admin-label">Unit *</label>
-                <select
-                  className="admin-input admin-select"
-                  value={newPricing.unit}
-                  onChange={(e) => setNewPricing(p => ({ ...p, unit: e.target.value }))}
-                >
-                  <option value="input_tokens_1m">Input Tokens (per 1M)</option>
-                  <option value="output_tokens_1m">Output Tokens (per 1M)</option>
-                  <option value="cached_input_tokens_1m">Cached Input Tokens (per 1M)</option>
-                  <option value="reasoning_tokens_1m">Reasoning Tokens (per 1M)</option>
-                  <option value="image_1024x1024">Image (1024x1024)</option>
-                  <option value="image_512x512">Image (512x512)</option>
-                </select>
-              </div>
-
-              <div className="admin-form-group">
-                <label className="admin-label">Cost (USD) *</label>
-                <input
-                  type="number"
-                  className="admin-input"
-                  value={newPricing.cost}
-                  onChange={(e) => setNewPricing(p => ({ ...p, cost: e.target.value }))}
-                  placeholder="e.g., 2.50"
-                  step="0.001"
-                  min="0"
-                />
-              </div>
-
-              <div className="admin-form-group">
-                <label className="admin-label">Notes</label>
-                <input
-                  type="text"
-                  className="admin-input"
-                  value={newPricing.notes}
-                  onChange={(e) => setNewPricing(p => ({ ...p, notes: e.target.value }))}
-                  placeholder="Optional notes"
-                />
-              </div>
-            </div>
-
-            <div className="admin-modal__footer">
-              <button
-                type="button"
-                className="admin-btn admin-btn--secondary"
-                onClick={() => setShowAddModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="admin-btn admin-btn--primary"
-                onClick={handleAddPricing}
-              >
-                Add Entry
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1354,14 +1022,6 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(i > 1 ? 2 : 0)} ${sizes[i]}`;
-}
-
-function formatCost(cost: number, unit: string) {
-  const isPerMillion = unit.includes('_1m');
-  if (isPerMillion) {
-    return `$${cost.toFixed(2)} / 1M`;
-  }
-  return `$${cost.toFixed(4)}`;
 }
 
 export default UnifiedSettings;

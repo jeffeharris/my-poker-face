@@ -16,7 +16,7 @@ class ResponseValidator:
     
     # Fields required conditionally
     CONDITIONALLY_REQUIRED = {
-        "adding_to_pot": lambda response: response.get("action") in ["raise", "all-in"],
+        "raise_to": lambda response: response.get("action") in ["raise", "all-in"],
         "hand_strategy": lambda context: context.get("hand_action_count", 0) == 1
     }
     
@@ -61,7 +61,7 @@ class ResponseValidator:
         
         # Check conditionally required fields
         for field, condition in self.CONDITIONALLY_REQUIRED.items():
-            if field == "adding_to_pot" and condition(response):
+            if field == "raise_to" and condition(response):
                 if field not in response:
                     self.errors.append(f"Missing required field: {field} (required when action is raise/all-in)")
             elif field == "hand_strategy" and condition(context):
@@ -73,15 +73,15 @@ class ResponseValidator:
             if response["action"] not in context["valid_actions"]:
                 self.errors.append(f"Invalid action: {response['action']}. Must be one of: {context['valid_actions']}")
         
-        # Validate and normalize adding_to_pot to int if present
-        if "adding_to_pot" in response:
+        # Validate and normalize raise_to to int if present
+        if "raise_to" in response:
             try:
-                amount = int(response["adding_to_pot"])
-                response["adding_to_pot"] = amount  # Convert in place
+                amount = int(response["raise_to"])
+                response["raise_to"] = amount  # Convert in place
                 if amount < 0:
-                    self.errors.append("adding_to_pot must be non-negative")
+                    self.errors.append("raise_to must be non-negative")
             except (ValueError, TypeError):
-                self.errors.append("adding_to_pot must be a number")
+                self.errors.append("raise_to must be a number")
         
         # Check for unknown fields
         all_known_fields = (
@@ -154,6 +154,6 @@ class ResponseValidator:
             messages.append("- hand_strategy (your approach for this entire hand)")
         
         messages.append("\nConditionally required:")
-        messages.append("- adding_to_pot (if you raise or go all-in)")
+        messages.append("- raise_to (if you raise or go all-in)")
         
         return "\n".join(messages)

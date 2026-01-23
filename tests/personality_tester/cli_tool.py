@@ -51,8 +51,8 @@ What is your move?"""
         response = ai.get_player_response(message)
         
         decision = response.get('action', 'unknown').upper()
-        if response.get('adding_to_pot', 0) > 0:
-            decision += f" ${response.get('adding_to_pot')}"
+        if response.get('raise_to', 0) > 0:
+            decision += f" ${response.get('raise_to')}"
             
         print(f"  Decision: {decision}")
         print(f'  Says: "{response.get("persona_response", "...")}"')

@@ -852,7 +852,7 @@ class AITournamentRunner:
                         self.total_latency += latency
 
                         action = response.get('action', 'fold')
-                        amount = response.get('adding_to_pot', 0)
+                        amount = response.get('raise_to', 0)
 
                         logger.debug(f"  {current_player.name}: {action} {amount if amount else ''}")
 
