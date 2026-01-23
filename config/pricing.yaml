@@ -257,6 +257,27 @@ providers:
       capabilities:
         json: true
 
+    # Labs Mistral Small Creative
+    labs-mistral-small-creative:
+      input_tokens_1m: 0.10
+      output_tokens_1m: 0.30
+      capabilities:
+        json: true
+
+    # Ministral 3B
+    ministral-3b-latest:
+      input_tokens_1m: 0.10
+      output_tokens_1m: 0.10
+      capabilities:
+        json: true
+
+    # Ministral 8B
+    ministral-8b-latest:
+      input_tokens_1m: 0.15
+      output_tokens_1m: 0.15
+      capabilities:
+        json: true
+
   google:
     # Gemini 2.0 Flash
     gemini-2.0-flash:
