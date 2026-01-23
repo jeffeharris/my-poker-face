@@ -116,6 +116,15 @@ def remove_user_group(user_id: str, group_name: str):
                 'error': 'You cannot remove yourself from the admin group'
             }), 400
 
+        # Prevent removing the last admin from the system
+        if group_name == 'admin':
+            admin_count = persistence.count_users_in_group('admin')
+            if admin_count <= 1:
+                return jsonify({
+                    'success': False,
+                    'error': 'Cannot remove the last admin from the system'
+                }), 400
+
         success = persistence.remove_user_from_group(user_id, group_name)
 
         if success:

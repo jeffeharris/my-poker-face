@@ -2878,19 +2878,19 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Get all Google users
+            # Get all users
             cursor = conn.execute("""
                 SELECT id, email, name, picture, created_at, last_login, linked_guest_id, is_guest
                 FROM users
                 ORDER BY last_login DESC NULLS LAST, created_at DESC
             """)
-            users = [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
 
-            # Add groups for each user
-            for user in users:
-                user['groups'] = self.get_user_groups(user['id'])
-
-            return users
+            # Build enriched user dicts immutably (functional approach)
+            return [
+                {**dict(row), 'groups': self.get_user_groups(row['id'])}
+                for row in rows
+            ]
 
     def get_user_groups(self, user_id: str) -> List[str]:
         """Get all group names for a user.
@@ -2943,13 +2943,25 @@ class GamePersistence:
             True if successful, False if group doesn't exist
 
         Raises:
-            ValueError: If trying to assign a guest user to admin group (except guest_jeff for dev)
+            ValueError: If trying to assign a guest user to admin group (unless configured via INITIAL_ADMIN_EMAIL)
+            ValueError: If user_id doesn't exist in database (for non-guest users)
         """
-        # Prevent guest users from being assigned to admin group (except guest_jeff for dev)
-        if group_name == 'admin' and user_id.startswith('guest_') and user_id != 'guest_jeff':
-            raise ValueError("Guest users cannot be assigned to the admin group")
+        # Guest users can only be assigned to admin if configured via INITIAL_ADMIN_EMAIL
+        # (handled at startup by initialize_admin_from_env)
+        # For runtime API calls, prevent guest admin assignment
+        if group_name == 'admin' and user_id.startswith('guest_'):
+            # Check if this guest is the configured initial admin
+            initial_admin = os.environ.get('INITIAL_ADMIN_EMAIL', '')
+            if user_id != initial_admin:
+                raise ValueError("Guest users cannot be assigned to the admin group")
 
         with sqlite3.connect(self.db_path) as conn:
+            # Validate user exists (skip for guest_ users - they're session-only)
+            if not user_id.startswith('guest_'):
+                cursor = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+                if not cursor.fetchone():
+                    raise ValueError(f"User {user_id} does not exist")
+
             # Get group ID
             cursor = conn.execute("SELECT id FROM groups WHERE name = ?", (group_name,))
             row = cursor.fetchone()
@@ -2982,6 +2994,24 @@ class GamePersistence:
                 WHERE user_id = ? AND group_id = (SELECT id FROM groups WHERE name = ?)
             """, (user_id, group_name))
             return cursor.rowcount > 0
+
+    def count_users_in_group(self, group_name: str) -> int:
+        """Count the number of users in a group.
+
+        Args:
+            group_name: The name of the group
+
+        Returns:
+            Number of users in the group
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*)
+                FROM user_groups ug
+                JOIN groups g ON ug.group_id = g.id
+                WHERE g.name = ?
+            """, (group_name,))
+            return cursor.fetchone()[0]
 
     def get_all_groups(self) -> List[Dict[str, Any]]:
         """Get all available groups.
@@ -3052,30 +3082,37 @@ class GamePersistence:
         """Assign admin group to user with INITIAL_ADMIN_EMAIL.
 
         Called on startup to ensure the initial admin is configured.
+        Supports both email addresses (for Google users) and guest IDs (e.g., "guest_jeff").
 
         Returns:
             User ID of the admin if found and assigned, None otherwise
         """
-        import os
-        admin_email = os.environ.get('INITIAL_ADMIN_EMAIL')
-        if not admin_email:
+        admin_id = os.environ.get('INITIAL_ADMIN_EMAIL')
+        if not admin_id:
             return None
 
-        user = self.get_user_by_email(admin_email)
-        if not user:
-            logger.info(f"Initial admin email {admin_email} not found in users table yet")
-            return None
+        # Support guest format: if starts with "guest_", use as user_id directly
+        if admin_id.startswith('guest_'):
+            user_id = admin_id
+            logger.info(f"INITIAL_ADMIN_EMAIL configured for guest user: {user_id}")
+        else:
+            # Regular email - look up user
+            user = self.get_user_by_email(admin_id)
+            if not user:
+                logger.info(f"Initial admin email {admin_id} not found in users table yet")
+                return None
+            user_id = user['id']
 
         # Check if user already has admin group
-        groups = self.get_user_groups(user['id'])
+        groups = self.get_user_groups(user_id)
         if 'admin' in groups:
-            logger.debug(f"User {user['id']} already has admin group")
-            return user['id']
+            logger.debug(f"User {user_id} already has admin group")
+            return user_id
 
         # Assign admin group
-        if self.assign_user_to_group(user['id'], 'admin', assigned_by='system'):
-            logger.info(f"Assigned admin group to {user['id']} ({admin_email})")
-            return user['id']
+        if self.assign_user_to_group(user_id, 'admin', assigned_by='system'):
+            logger.info(f"Assigned admin group to {user_id}")
+            return user_id
 
         return None
 

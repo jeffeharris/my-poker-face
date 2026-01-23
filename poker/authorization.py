@@ -145,7 +145,8 @@ def get_authorization_service() -> Optional[AuthorizationService]:
 def require_permission(permission: str):
     """Convenience decorator for requiring permissions.
 
-    Uses the global authorization service.
+    Uses the global authorization service. Checks permissions directly
+    instead of creating nested decorators on each request.
 
     Args:
         permission: The permission name required
@@ -162,6 +163,32 @@ def require_permission(permission: str):
                     'error': 'Server configuration error',
                     'code': 'AUTH_NOT_CONFIGURED'
                 }), 500
-            return authorization_service.require_permission(permission)(f)(*args, **kwargs)
+
+            # Check permission directly instead of creating nested decorator
+            user = authorization_service.auth_manager.get_current_user()
+            if not user:
+                return jsonify({
+                    'error': 'Authentication required',
+                    'code': 'AUTH_REQUIRED'
+                }), 401
+
+            user_id = user.get('id')
+            if not user_id:
+                return jsonify({
+                    'error': 'Invalid user session',
+                    'code': 'INVALID_SESSION'
+                }), 401
+
+            if not authorization_service.has_permission(user_id, permission):
+                logger.warning(
+                    f"User {user_id} denied access: missing permission '{permission}'"
+                )
+                return jsonify({
+                    'error': 'Permission denied',
+                    'code': 'PERMISSION_DENIED',
+                    'required_permission': permission
+                }), 403
+
+            return f(*args, **kwargs)
         return decorated_function
     return decorator

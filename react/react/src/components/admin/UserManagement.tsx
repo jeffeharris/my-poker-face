@@ -110,7 +110,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
   }, [fetchUsers]);
 
   // Toggle admin status for a user
-  const toggleAdmin = useCallback(async (userId: string, isCurrentlyAdmin: boolean) => {
+  const toggleAdmin = useCallback(async (userId: string, userName: string, isCurrentlyAdmin: boolean) => {
     setTogglingUser(userId);
     try {
       const url = isCurrentlyAdmin
@@ -130,7 +130,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
         throw new Error(data.error || 'Failed to update admin status');
       }
 
-      // Update local state optimistically
+      // Update local state after successful API call
       setUsers((prev) =>
         prev.map((u) =>
           u.id === userId
@@ -147,8 +147,8 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
       setAlert({
         type: 'success',
         message: isCurrentlyAdmin
-          ? `Removed admin access from ${users.find((u) => u.id === userId)?.name}`
-          : `Granted admin access to ${users.find((u) => u.id === userId)?.name}`,
+          ? `Removed admin access from ${userName}`
+          : `Granted admin access to ${userName}`,
       });
     } catch (error) {
       console.error('Error toggling admin status:', error);
@@ -159,7 +159,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
     } finally {
       setTogglingUser(null);
     }
-  }, [users]);
+  }, []);
 
   // Render loading state
   if (loading) {
@@ -245,8 +245,8 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                 const isCurrentUser = user.id === currentUser?.id;
                 const isAdmin = user.groups.includes('admin');
                 const isToggling = togglingUser === user.id;
-                // Guest users can't be made admin (except guest_jeff for dev)
-                const canToggleAdmin = !user.is_guest || user.id === 'guest_jeff';
+                // Guest users can't be made admin via UI (backend enforces INITIAL_ADMIN_EMAIL for guest admin)
+                const canToggleAdmin = !user.is_guest;
 
                 return (
                   <tr key={user.id} className={isCurrentUser ? 'um-row--current' : ''}>
@@ -307,7 +307,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                       ) : canToggleAdmin ? (
                         <button
                           className={`um-toggle-btn ${isAdmin ? 'um-toggle-btn--revoke' : 'um-toggle-btn--grant'}`}
-                          onClick={() => toggleAdmin(user.id, isAdmin)}
+                          onClick={() => toggleAdmin(user.id, user.name, isAdmin)}
                           disabled={isToggling}
                           title={isAdmin ? 'Revoke admin access' : 'Grant admin access'}
                         >

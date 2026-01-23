@@ -90,21 +90,14 @@ export function useAuth() {
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      // On error, keep localStorage user if available
-      const storedUser = localStorage.getItem('currentUser');
-      if (storedUser) {
-        setAuthState({
-          user: JSON.parse(storedUser),
-          isLoading: false,
-          isAuthenticated: true,
-        });
-      } else {
-        setAuthState({
-          user: null,
-          isLoading: false,
-          isAuthenticated: false,
-        });
-      }
+      // On error, err on the side of security: treat user as unauthenticated
+      // This prevents stale permissions from being used when backend is unreachable
+      localStorage.removeItem('currentUser');
+      setAuthState({
+        user: null,
+        isLoading: false,
+        isAuthenticated: false,
+      });
     }
   }, []);
 
