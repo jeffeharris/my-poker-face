@@ -2422,8 +2422,9 @@ class GamePersistence:
 
         Also seeds initial data:
         - Groups: admin (system), user (system)
-        - Permission: can_access_admin_tools
-        - Grant can_access_admin_tools to admin group
+        - Permissions: can_access_admin_tools, can_access_full_game
+        - admin group: both permissions
+        - user group: can_access_full_game only
         """
         # Check if tables already exist (for fresh databases)
         cursor = conn.execute(
@@ -2503,13 +2504,17 @@ class GamePersistence:
         """)
         conn.execute("""
             INSERT OR IGNORE INTO groups (name, description, is_system)
-            VALUES ('user', 'Regular users with no admin access', 1)
+            VALUES ('user', 'Registered users with full game access', 1)
         """)
 
-        # Insert default permission
+        # Insert default permissions
         conn.execute("""
             INSERT OR IGNORE INTO permissions (name, description, category)
             VALUES ('can_access_admin_tools', 'Access to the Admin Tools dashboard', 'admin')
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO permissions (name, description, category)
+            VALUES ('can_access_full_game', 'Access to full game features including menu and game selection', 'game')
         """)
 
         # Grant can_access_admin_tools to admin group
@@ -2518,6 +2523,14 @@ class GamePersistence:
             SELECT g.id, p.id
             FROM groups g, permissions p
             WHERE g.name = 'admin' AND p.name = 'can_access_admin_tools'
+        """)
+
+        # Grant can_access_full_game to both admin and user groups
+        conn.execute("""
+            INSERT OR IGNORE INTO group_permissions (group_id, permission_id)
+            SELECT g.id, p.id
+            FROM groups g, permissions p
+            WHERE g.name IN ('admin', 'user') AND p.name = 'can_access_full_game'
         """)
 
         logger.info("Migration v52 complete: RBAC tables added with initial data")
@@ -2744,6 +2757,12 @@ class GamePersistence:
                 INSERT INTO users (id, email, name, picture, created_at, last_login, linked_guest_id, is_guest)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 0)
             """, (user_id, email, name, picture, now, now, linked_guest_id))
+
+            # Auto-assign to 'user' group for full game access
+            conn.execute("""
+                INSERT OR IGNORE INTO user_groups (user_id, group_id, assigned_by)
+                SELECT ?, id, 'system' FROM groups WHERE name = 'user'
+            """, (user_id,))
 
         return {
             'id': user_id,
