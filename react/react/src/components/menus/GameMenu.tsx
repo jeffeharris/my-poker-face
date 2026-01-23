@@ -3,6 +3,7 @@ import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, Chevron
 import { PageLayout, PageHeader } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useViewport } from '../../hooks/useViewport';
+import { useAuth, hasPermission } from '../../hooks/useAuth';
 import './GameMenu.css';
 
 // ============================================
@@ -179,6 +180,8 @@ export function GameMenu({
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const { isDesktop } = useViewport();
+  const { user } = useAuth();
+  const canAccessAdmin = hasPermission(user, 'can_access_admin_tools');
 
   return (
     <PageLayout variant="centered" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'}>
@@ -293,7 +296,7 @@ export function GameMenu({
             </button>
           )}
 
-          {playerName.toLowerCase() === 'jeff' && onAdminDashboard && (
+          {canAccessAdmin && onAdminDashboard && (
             <button
               className="menu-option admin-dashboard"
               onClick={onAdminDashboard}

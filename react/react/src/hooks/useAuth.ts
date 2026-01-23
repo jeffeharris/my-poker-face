@@ -6,6 +6,17 @@ interface User {
   name: string;
   is_guest: boolean;
   created_at: string;
+  permissions?: string[];
+}
+
+/**
+ * Check if a user has a specific permission.
+ * @param user - The user object (can be null)
+ * @param permission - The permission name to check
+ * @returns true if the user has the permission, false otherwise
+ */
+export function hasPermission(user: User | null, permission: string): boolean {
+  return user?.permissions?.includes(permission) ?? false;
 }
 
 interface AuthState {
@@ -23,25 +34,25 @@ export function useAuth() {
 
   const checkAuth = useCallback(async () => {
     try {
-      // Check localStorage first
+      // Use localStorage for initial state while loading, but always verify with backend
       const storedUser = localStorage.getItem('currentUser');
       const authToken = localStorage.getItem('authToken');
-      
+
+      // Set initial state from localStorage (optimistic)
       if (storedUser) {
         const user = JSON.parse(storedUser);
         setAuthState({
           user,
-          isLoading: false,
+          isLoading: true, // Still loading - will verify with backend
           isAuthenticated: true,
         });
-        return;
       }
 
-      // Check with backend
+      // Always check with backend to get fresh permissions
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
-      
+
       if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
@@ -59,6 +70,7 @@ export function useAuth() {
             isLoading: false,
             isAuthenticated: true,
           });
+          // Update localStorage with fresh data including permissions
           localStorage.setItem('currentUser', JSON.stringify(data.user));
         } else {
           setAuthState({
@@ -66,6 +78,7 @@ export function useAuth() {
             isLoading: false,
             isAuthenticated: false,
           });
+          localStorage.removeItem('currentUser');
         }
       } else {
         setAuthState({
@@ -73,14 +86,25 @@ export function useAuth() {
           isLoading: false,
           isAuthenticated: false,
         });
+        localStorage.removeItem('currentUser');
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      setAuthState({
-        user: null,
-        isLoading: false,
-        isAuthenticated: false,
-      });
+      // On error, keep localStorage user if available
+      const storedUser = localStorage.getItem('currentUser');
+      if (storedUser) {
+        setAuthState({
+          user: JSON.parse(storedUser),
+          isLoading: false,
+          isAuthenticated: true,
+        });
+      } else {
+        setAuthState({
+          user: null,
+          isLoading: false,
+          isAuthenticated: false,
+        });
+      }
     }
   }, []);
 

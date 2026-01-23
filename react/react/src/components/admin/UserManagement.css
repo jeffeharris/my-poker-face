@@ -1,0 +1,161 @@
+/* ==========================================================================
+   User Management Component Styles
+   ========================================================================== */
+
+/* Stats Summary */
+.um-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.um-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-4);
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+}
+
+.um-stat__value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+  line-height: 1.2;
+}
+
+.um-stat__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: var(--space-1);
+}
+
+/* Table Container */
+.um-table-container {
+  overflow-x: auto;
+}
+
+/* User Cell */
+.um-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.um-user__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.um-user__avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  color: var(--color-text-muted);
+}
+
+.um-user__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.um-user__name {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.um-user__you {
+  color: var(--color-text-muted);
+  font-weight: normal;
+  margin-left: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.um-user__email {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Groups */
+.um-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.um-groups__none {
+  color: var(--color-text-disabled);
+}
+
+/* Stat cells */
+.um-stat-cell {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.um-date-cell {
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+/* Current user row highlight */
+.um-row--current {
+  background: rgba(255, 193, 7, 0.03);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .um-stats {
+    gap: var(--space-2);
+  }
+
+  .um-stat {
+    padding: var(--space-3);
+  }
+
+  .um-stat__value {
+    font-size: var(--font-size-xl);
+  }
+
+  /* Adjust table for mobile */
+  .admin-table th,
+  .admin-table td {
+    padding: var(--space-2);
+    font-size: var(--font-size-xs);
+  }
+
+  /* Hide Cost, Hands, Games columns on mobile (keep Name, Groups, Last Active) */
+  .admin-table th:nth-child(3),
+  .admin-table td:nth-child(3),
+  .admin-table th:nth-child(4),
+  .admin-table td:nth-child(4),
+  .admin-table th:nth-child(5),
+  .admin-table td:nth-child(5) {
+    display: none;
+  }
+
+  .um-user__avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .um-user__email {
+    display: none;
+  }
+}

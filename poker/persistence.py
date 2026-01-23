@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 # v48: Add capture_labels table for tagging captured AI decisions
 # v49: Add replay experiment tables and experiment_type column
 # v50: Add prompt_config_json to prompt_captures for analysis
-SCHEMA_VERSION = 51
+# v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
+# v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
+SCHEMA_VERSION = 52
 
 
 @dataclass
@@ -820,6 +822,55 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)")
 
+            # 32. Groups table (v52) - RBAC groups
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    is_system BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name)")
+
+            # 33. User-Group mapping (v52) - many-to-many
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    assigned_by TEXT,
+                    UNIQUE(user_id, group_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id)")
+
+            # 34. Permissions table (v52) - Available permissions
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    category TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_permissions_name ON permissions(name)")
+
+            # 35. Group-Permission mapping (v52) - many-to-many
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS group_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+                    UNIQUE(group_id, permission_id)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_permissions(group_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_permission ON group_permissions(permission_id)")
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with sqlite3.connect(self.db_path) as conn:
@@ -892,6 +943,7 @@ class GamePersistence:
             49: (self._migrate_v49_add_replay_experiment_tables, "Add replay experiment tables and experiment_type column"),
             50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
+            52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2359,6 +2411,117 @@ class GamePersistence:
 
         logger.info("Migration v51 complete: stack_bb and already_bet_bb added to prompt_captures")
 
+    def _migrate_v52_add_rbac_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v52: Add RBAC tables for role-based access control.
+
+        Creates 4 tables for managing user groups and permissions:
+        - groups: Admin, user, etc.
+        - user_groups: Maps users to groups (many-to-many)
+        - permissions: Available permissions like can_access_admin_tools
+        - group_permissions: Maps groups to permissions (many-to-many)
+
+        Also seeds initial data:
+        - Groups: admin (system), user (system)
+        - Permission: can_access_admin_tools
+        - Grant can_access_admin_tools to admin group
+        """
+        # Check if tables already exist (for fresh databases)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='groups'"
+        )
+        if not cursor.fetchone():
+            # Create groups table
+            conn.execute("""
+                CREATE TABLE groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    is_system BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX idx_groups_name ON groups(name)")
+            logger.info("Created groups table")
+
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_groups'"
+        )
+        if not cursor.fetchone():
+            # Create user_groups table
+            conn.execute("""
+                CREATE TABLE user_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    assigned_by TEXT,
+                    UNIQUE(user_id, group_id)
+                )
+            """)
+            conn.execute("CREATE INDEX idx_user_groups_user ON user_groups(user_id)")
+            conn.execute("CREATE INDEX idx_user_groups_group ON user_groups(group_id)")
+            logger.info("Created user_groups table")
+
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='permissions'"
+        )
+        if not cursor.fetchone():
+            # Create permissions table
+            conn.execute("""
+                CREATE TABLE permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    category TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX idx_permissions_name ON permissions(name)")
+            logger.info("Created permissions table")
+
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='group_permissions'"
+        )
+        if not cursor.fetchone():
+            # Create group_permissions table
+            conn.execute("""
+                CREATE TABLE group_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    permission_id INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+                    UNIQUE(group_id, permission_id)
+                )
+            """)
+            conn.execute("CREATE INDEX idx_group_permissions_group ON group_permissions(group_id)")
+            conn.execute("CREATE INDEX idx_group_permissions_permission ON group_permissions(permission_id)")
+            logger.info("Created group_permissions table")
+
+        # Seed initial data
+        # Insert default groups if they don't exist
+        conn.execute("""
+            INSERT OR IGNORE INTO groups (name, description, is_system)
+            VALUES ('admin', 'Administrators with full access to admin tools', 1)
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO groups (name, description, is_system)
+            VALUES ('user', 'Regular users with no admin access', 1)
+        """)
+
+        # Insert default permission
+        conn.execute("""
+            INSERT OR IGNORE INTO permissions (name, description, category)
+            VALUES ('can_access_admin_tools', 'Access to the Admin Tools dashboard', 'admin')
+        """)
+
+        # Grant can_access_admin_tools to admin group
+        conn.execute("""
+            INSERT OR IGNORE INTO group_permissions (group_id, permission_id)
+            SELECT g.id, p.id
+            FROM groups g, permissions p
+            WHERE g.name = 'admin' AND p.name = 'can_access_admin_tools'
+        """)
+
+        logger.info("Migration v52 complete: RBAC tables added with initial data")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2684,6 +2847,211 @@ class GamePersistence:
                 WHERE owner_id = ?
             """, (to_owner_id, to_owner_name, from_owner_id))
             return cursor.rowcount
+
+    # ==================== RBAC / Group Management Methods ====================
+
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Get all users (both Google and guest users).
+
+        Returns:
+            List of user dicts with groups included.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get all Google users
+            cursor = conn.execute("""
+                SELECT id, email, name, picture, created_at, last_login, linked_guest_id, is_guest
+                FROM users
+                ORDER BY last_login DESC NULLS LAST, created_at DESC
+            """)
+            users = [dict(row) for row in cursor.fetchall()]
+
+            # Add groups for each user
+            for user in users:
+                user['groups'] = self.get_user_groups(user['id'])
+
+            return users
+
+    def get_user_groups(self, user_id: str) -> List[str]:
+        """Get all group names for a user.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            List of group names the user belongs to
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT g.name
+                FROM groups g
+                JOIN user_groups ug ON g.id = ug.group_id
+                WHERE ug.user_id = ?
+                ORDER BY g.name
+            """, (user_id,))
+            return [row[0] for row in cursor.fetchall()]
+
+    def get_user_permissions(self, user_id: str) -> List[str]:
+        """Get all permissions for a user via their groups.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            List of permission names the user has
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT p.name
+                FROM permissions p
+                JOIN group_permissions gp ON p.id = gp.permission_id
+                JOIN user_groups ug ON gp.group_id = ug.group_id
+                WHERE ug.user_id = ?
+                ORDER BY p.name
+            """, (user_id,))
+            return [row[0] for row in cursor.fetchall()]
+
+    def assign_user_to_group(self, user_id: str, group_name: str, assigned_by: Optional[str] = None) -> bool:
+        """Assign a user to a group.
+
+        Args:
+            user_id: The user's ID
+            group_name: The name of the group
+            assigned_by: ID of the user making the assignment
+
+        Returns:
+            True if successful, False if group doesn't exist
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Get group ID
+            cursor = conn.execute("SELECT id FROM groups WHERE name = ?", (group_name,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            group_id = row[0]
+
+            # Insert the mapping (or ignore if already exists)
+            conn.execute("""
+                INSERT OR IGNORE INTO user_groups (user_id, group_id, assigned_by)
+                VALUES (?, ?, ?)
+            """, (user_id, group_id, assigned_by))
+
+            return True
+
+    def remove_user_from_group(self, user_id: str, group_name: str) -> bool:
+        """Remove a user from a group.
+
+        Args:
+            user_id: The user's ID
+            group_name: The name of the group
+
+        Returns:
+            True if successfully removed, False if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                DELETE FROM user_groups
+                WHERE user_id = ? AND group_id = (SELECT id FROM groups WHERE name = ?)
+            """, (user_id, group_name))
+            return cursor.rowcount > 0
+
+    def get_all_groups(self) -> List[Dict[str, Any]]:
+        """Get all available groups.
+
+        Returns:
+            List of group dicts with id, name, description, is_system
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT id, name, description, is_system, created_at
+                FROM groups
+                ORDER BY is_system DESC, name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_user_stats(self, user_id: str) -> Dict[str, Any]:
+        """Get statistics for a user from api_usage and games tables.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            Dict with total_cost, hands_played, games_completed, last_active
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Get total cost from api_usage
+            cursor = conn.execute("""
+                SELECT COALESCE(SUM(cost), 0) as total_cost
+                FROM api_usage
+                WHERE owner_id = ?
+            """, (user_id,))
+            total_cost = cursor.fetchone()[0] or 0
+
+            # Get hands played (count of player_decision calls)
+            cursor = conn.execute("""
+                SELECT COUNT(*) as hands_played
+                FROM api_usage
+                WHERE owner_id = ? AND call_type = 'player_decision'
+            """, (user_id,))
+            hands_played = cursor.fetchone()[0] or 0
+
+            # Get games completed (distinct game_ids)
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT game_id) as games_completed
+                FROM games
+                WHERE owner_id = ?
+            """, (user_id,))
+            games_completed = cursor.fetchone()[0] or 0
+
+            # Get last active timestamp
+            cursor = conn.execute("""
+                SELECT MAX(created_at) as last_active
+                FROM api_usage
+                WHERE owner_id = ?
+            """, (user_id,))
+            last_active_row = cursor.fetchone()
+            last_active = last_active_row[0] if last_active_row else None
+
+            return {
+                'total_cost': round(total_cost, 4),
+                'hands_played': hands_played,
+                'games_completed': games_completed,
+                'last_active': last_active
+            }
+
+    def initialize_admin_from_env(self) -> Optional[str]:
+        """Assign admin group to user with INITIAL_ADMIN_EMAIL.
+
+        Called on startup to ensure the initial admin is configured.
+
+        Returns:
+            User ID of the admin if found and assigned, None otherwise
+        """
+        import os
+        admin_email = os.environ.get('INITIAL_ADMIN_EMAIL')
+        if not admin_email:
+            return None
+
+        user = self.get_user_by_email(admin_email)
+        if not user:
+            logger.info(f"Initial admin email {admin_email} not found in users table yet")
+            return None
+
+        # Check if user already has admin group
+        groups = self.get_user_groups(user['id'])
+        if 'admin' in groups:
+            logger.debug(f"User {user['id']} already has admin group")
+            return user['id']
+
+        # Assign admin group
+        if self.assign_user_to_group(user['id'], 'admin', assigned_by='system'):
+            logger.info(f"Assigned admin group to {user['id']} ({admin_email})")
+            return user['id']
+
+        return None
 
     def get_available_providers(self) -> Set[str]:
         """Get the set of all providers in the system.

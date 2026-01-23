@@ -123,9 +123,16 @@ class AuthManager:
         
         @self.app.route('/api/auth/me', methods=['GET'])
         def get_current_user_route():
-            """Get the current authenticated user."""
+            """Get the current authenticated user with permissions."""
             user = self.get_current_user()
             if user:
+                # Enrich user with permissions from database
+                user_id = user.get('id')
+                if user_id and self.persistence:
+                    permissions = self.persistence.get_user_permissions(user_id)
+                    user['permissions'] = list(permissions)
+                else:
+                    user['permissions'] = []
                 return jsonify({'user': user})
             return jsonify({'user': None})
         
