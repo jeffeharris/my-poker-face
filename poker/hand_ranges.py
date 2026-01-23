@@ -43,6 +43,10 @@ class OpponentInfo:
     pfr: Optional[float] = None          # Pre-Flop Raise % (0-1)
     aggression: Optional[float] = None   # Aggression factor
 
+    # Current hand action context (for range narrowing)
+    preflop_action: Optional[str] = None  # 'open_raise', 'call', '3bet', '4bet+', 'limp'
+    postflop_aggression_this_hand: Optional[str] = None  # 'bet', 'raise', 'check_call', 'check'
+
 
 class Position(Enum):
     """Normalized position groups for range selection."""
@@ -432,14 +436,287 @@ def adjust_range_for_position(base_range: Set[str], position: Position) -> Set[s
     return base_range
 
 
+# ============================================================================
+# PFR-Based Range Estimation (Standard Poker Theory)
+# Sources: Harrington on Hold'em, The Grinder's Manual, Modern Poker Theory
+# ============================================================================
+
+# Ultra-premium range for very tight raisers and 4-bet+ situations
+ULTRA_PREMIUM_RANGE = (
+    _expand_pairs('A', 'J') |  # AA-JJ
+    {'AKs', 'AKo'}             # AK suited and offsuit
+)  # ~5% of hands
+
+
+def estimate_range_from_pfr(pfr: float) -> Set[str]:
+    """Estimate a raising range based on PFR (pre-flop raise percentage).
+
+    PFR represents the % of hands a player raises preflop.
+    Returns tighter ranges than VPIP since PFR <= VPIP.
+
+    Standard PFR to range mapping from poker theory:
+    - PFR ≤ 8%  → Ultra-premium only (AA-JJ, AK)
+    - PFR ≤ 12% → Early position range (~15%)
+    - PFR ≤ 18% → Middle position range (~22%)
+    - PFR ≤ 25% → Blind defense range (~28%)
+    - PFR > 25% → Late position range (~32%)
+
+    Args:
+        pfr: Pre-flop raise percentage (0.0-1.0)
+
+    Returns:
+        Set of canonical hand notations
+    """
+    if pfr <= 0.08:
+        # Ultra-tight raiser: AA-JJ, AK only
+        return ULTRA_PREMIUM_RANGE
+    elif pfr <= 0.12:
+        # Tight raiser: premium + strong broadway
+        return EARLY_POSITION_RANGE
+    elif pfr <= 0.18:
+        return MIDDLE_POSITION_RANGE
+    elif pfr <= 0.25:
+        return BLIND_DEFENSE_RANGE
+    else:
+        return LATE_POSITION_RANGE
+
+
+def estimate_3bet_range(pfr: float) -> Set[str]:
+    """Estimate 3-bet range (re-raise range).
+
+    Standard 3-bet frequency is ~8-12% of hands faced,
+    which is roughly 25-35% of a player's opening range.
+
+    For a player with 20% PFR, their 3-bet range is ~5-7%.
+
+    Source: Modern Poker Theory by Michael Acevedo
+
+    Args:
+        pfr: Player's overall PFR (0.0-1.0)
+
+    Returns:
+        Set of canonical hand notations for 3-bet range
+    """
+    # 3-bet range is approximately 30% of opening range
+    three_bet_pct = pfr * 0.30
+    return estimate_range_from_pfr(three_bet_pct)
+
+
+def estimate_calling_range(vpip: float, pfr: float) -> Set[str]:
+    """Estimate the range of hands a player calls with (but doesn't raise).
+
+    This is VPIP minus PFR - the hands they enter pots with passively.
+    Excludes hands they would have raised with.
+
+    Source: The Grinder's Manual by Peter Clarke
+
+    Args:
+        vpip: Voluntarily Put $ In Pot (0.0-1.0)
+        pfr: Pre-Flop Raise % (0.0-1.0)
+
+    Returns:
+        Set of hands in the calling range (VPIP range minus PFR range)
+    """
+    full_range = estimate_range_from_vpip(vpip)
+    raising_range = estimate_range_from_pfr(pfr)
+    return full_range - raising_range
+
+
+def _narrow_range_by_strength(hand_range: Set[str], keep_top: float) -> Set[str]:
+    """Keep only the top X% of a range by hand strength.
+
+    Uses a simple hand strength ranking:
+    - Pairs ranked by card rank (AA > KK > ... > 22)
+    - Suited hands ranked by high card, then kicker
+    - Offsuit hands ranked by high card, then kicker
+    - Pairs > Suited > Offsuit for same ranks
+
+    Args:
+        hand_range: Set of canonical hand notations
+        keep_top: Fraction to keep (0.0-1.0)
+
+    Returns:
+        Narrowed range containing strongest hands
+    """
+    def hand_strength_key(hand: str) -> tuple:
+        """Lower tuple = stronger hand."""
+        if len(hand) == 2:  # Pair
+            return (0, _rank_index(hand[0]))  # Pairs are strongest
+        elif hand.endswith('s'):  # Suited
+            return (1, _rank_index(hand[0]), _rank_index(hand[1]))
+        else:  # Offsuit
+            return (2, _rank_index(hand[0]), _rank_index(hand[1]))
+
+    sorted_hands = sorted(hand_range, key=hand_strength_key)
+    keep_count = max(1, int(len(sorted_hands) * keep_top))
+    return set(sorted_hands[:keep_count])
+
+
+def apply_aggression_adjustment(
+    base_range: Set[str],
+    aggression_factor: float,
+    is_aggressive_action: bool
+) -> Set[str]:
+    """Adjust range based on aggression factor when opponent takes aggressive action.
+
+    Passive players (low AF) have stronger ranges when they bet/raise.
+    Aggressive players (high AF) have wider ranges when they bet/raise.
+
+    Standard aggression factor interpretation:
+    - AF < 0.8:  Very passive - betting means very strong
+    - AF 0.8-2.5: Balanced - standard assumptions
+    - AF > 2.5:  Very aggressive - wider betting range
+
+    Args:
+        base_range: Starting range estimate
+        aggression_factor: (bets + raises) / calls ratio
+        is_aggressive_action: True if opponent bet/raised this hand
+
+    Returns:
+        Adjusted range
+    """
+    if not is_aggressive_action:
+        return base_range
+
+    if aggression_factor < 0.8:
+        # Passive player betting = very strong
+        # Remove bottom 30% of range
+        return _narrow_range_by_strength(base_range, keep_top=0.70)
+    elif aggression_factor > 2.5:
+        # Very aggressive player - already reflected in base range
+        # No additional narrowing needed
+        return base_range
+    else:
+        # Balanced player - standard range
+        return base_range
+
+
 def get_opponent_range(
     opponent: OpponentInfo,
     config: EquityConfig = None
 ) -> Set[str]:
-    """Get estimated hand range for an opponent using fallback hierarchy.
+    """Enhanced range estimation using all available data.
+
+    Priority hierarchy for range estimation:
+    1. Action-based narrowing (what did they do THIS hand?)
+       - open_raise → use PFR range
+       - 3bet → use 3-bet range (~30% of PFR)
+       - 4bet+ → use ultra-premium range
+       - call → use VPIP - PFR range
+    2. PFR-based estimation (when stats available but no action context)
+    3. VPIP-based estimation (fallback)
+    4. Position-based static ranges (final fallback)
+
+    Also applies aggression adjustment for postflop betting.
+
+    Args:
+        opponent: OpponentInfo with all available data
+        config: EquityConfig for calculation options
+
+    Returns:
+        Set of canonical hand notations
+    """
+    if config is None:
+        config = EquityConfig()
+
+    position = get_position_group(opponent.position)
+    base_range = None
+
+    # Check if we have enough observed data
+    has_enough_data = (
+        config.use_in_game_stats and
+        opponent.hands_observed >= config.min_hands_for_stats
+    )
+
+    # STEP 1: Action-based narrowing (most specific)
+    if opponent.preflop_action and has_enough_data:
+        if opponent.preflop_action == 'open_raise':
+            # Use PFR for open-raisers
+            if opponent.pfr is not None:
+                base_range = estimate_range_from_pfr(opponent.pfr)
+                logger.debug(
+                    f"Using PFR range for {opponent.name} (open_raise): "
+                    f"PFR={opponent.pfr:.2f}, range={len(base_range)} hands"
+                )
+        elif opponent.preflop_action == '3bet':
+            # 3-bet range is much tighter
+            if opponent.pfr is not None:
+                base_range = estimate_3bet_range(opponent.pfr)
+                logger.debug(
+                    f"Using 3-bet range for {opponent.name}: "
+                    f"range={len(base_range)} hands"
+                )
+        elif opponent.preflop_action == '4bet+':
+            # 4-bet+ is typically premium only
+            base_range = ULTRA_PREMIUM_RANGE
+            logger.debug(
+                f"Using ultra-premium range for {opponent.name} (4bet+): "
+                f"range={len(base_range)} hands"
+            )
+        elif opponent.preflop_action == 'call':
+            # Calling range = VPIP - PFR
+            if opponent.vpip is not None and opponent.pfr is not None:
+                base_range = estimate_calling_range(opponent.vpip, opponent.pfr)
+                logger.debug(
+                    f"Using calling range for {opponent.name}: "
+                    f"VPIP={opponent.vpip:.2f}, PFR={opponent.pfr:.2f}, "
+                    f"range={len(base_range)} hands"
+                )
+        elif opponent.preflop_action == 'limp':
+            # Limpers typically have weak-medium hands
+            if opponent.vpip is not None:
+                base_range = estimate_range_from_vpip(opponent.vpip)
+                logger.debug(
+                    f"Using VPIP range for {opponent.name} (limp): "
+                    f"range={len(base_range)} hands"
+                )
+
+    # STEP 2: Fallback to VPIP if no action-based narrowing
+    if base_range is None and has_enough_data and opponent.vpip is not None:
+        base_range = estimate_range_from_vpip(opponent.vpip)
+        logger.debug(
+            f"Using VPIP range for {opponent.name}: "
+            f"VPIP={opponent.vpip:.2f}, range={len(base_range)} hands"
+        )
+
+    # STEP 3: Fallback to position-based range
+    if base_range is None:
+        base_range = get_range_for_position(position)
+        logger.debug(
+            f"Using position-based range for {opponent.name}: "
+            f"position={position.value}, range={len(base_range)} hands"
+        )
+
+    # STEP 4: Apply aggression adjustment for postflop
+    if (opponent.postflop_aggression_this_hand and
+        opponent.aggression is not None and
+        has_enough_data):
+        is_aggressive = opponent.postflop_aggression_this_hand in ('bet', 'raise')
+        base_range = apply_aggression_adjustment(
+            base_range,
+            opponent.aggression,
+            is_aggressive
+        )
+        if is_aggressive:
+            logger.debug(
+                f"Applied aggression adjustment for {opponent.name}: "
+                f"AF={opponent.aggression:.2f}, range={len(base_range)} hands"
+            )
+
+    # Final position adjustment (don't let UTG player have button range)
+    return adjust_range_for_position(base_range, position)
+
+
+def get_opponent_range_og(
+    opponent: OpponentInfo,
+    config: EquityConfig = None
+) -> Set[str]:
+    """Original range estimation using VPIP only.
+
+    DEPRECATED: Use get_opponent_range() for enhanced estimation with PFR and action context.
 
     Priority:
-    1. In-game observed stats (if enough hands observed)
+    1. In-game observed stats (VPIP only)
     2. Position-based static ranges (fallback)
 
     Args:
@@ -554,6 +831,8 @@ def build_opponent_info(
     name: str,
     position: str,
     opponent_model: Optional[Dict[str, Any]] = None,
+    preflop_action: Optional[str] = None,
+    postflop_aggression: Optional[str] = None,
 ) -> OpponentInfo:
     """Build OpponentInfo from available data sources.
 
@@ -561,6 +840,8 @@ def build_opponent_info(
         name: Player name
         position: Table position name
         opponent_model: Dict with observed stats (vpip, pfr, aggression, hands_observed)
+        preflop_action: Action taken preflop this hand ('open_raise', 'call', '3bet', '4bet+', 'limp')
+        postflop_aggression: Postflop action ('bet', 'raise', 'check_call', 'check')
 
     Returns:
         OpponentInfo with all available data populated
@@ -568,6 +849,8 @@ def build_opponent_info(
     info = OpponentInfo(
         name=name,
         position=position,
+        preflop_action=preflop_action,
+        postflop_aggression_this_hand=postflop_aggression,
     )
 
     # Load observed stats from opponent model

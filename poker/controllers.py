@@ -433,6 +433,9 @@ class AIPlayerController:
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
 
+        # Store original messages for action extraction in _analyze_decision
+        self._current_game_messages = game_messages
+
         # Manage conversation memory based on prompt_config setting
         # Table chatter is preserved via game_messages -> Recent Actions
         # Mental state is preserved via PlayerPsychology (separate system)
@@ -974,9 +977,14 @@ class AIPlayerController:
                 for p in opponents_in_hand
             ]
 
-            # Build OpponentInfo objects with observed stats and personality data
+            # Build OpponentInfo objects with observed stats, personality data, and action context
             from .hand_ranges import build_opponent_info
             opponent_infos = []
+
+            # Get game messages for action extraction
+            game_messages = getattr(self, '_current_game_messages', None)
+            current_phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
+
             for opp in opponents_in_hand:
                 opp_position = position_by_name.get(opp.name, "button")
 
@@ -987,10 +995,23 @@ class AIPlayerController:
                     if opp_model and opp_model.tendencies:
                         opp_model_data = opp_model.tendencies.to_dict()
 
+                # Extract opponent's preflop and postflop actions from game messages
+                preflop_action = None
+                postflop_aggression = None
+                if game_messages:
+                    preflop_action = self._extract_opponent_preflop_action(
+                        opp.name, game_messages, game_state
+                    )
+                    postflop_aggression = self._extract_opponent_postflop_aggression(
+                        opp.name, game_messages, current_phase
+                    )
+
                 opponent_infos.append(build_opponent_info(
                     name=opp.name,
                     position=opp_position,
                     opponent_model=opp_model_data,
+                    preflop_action=preflop_action,
+                    postflop_aggression=postflop_aggression,
                 ))
 
             # Get request_id from last LLM response
@@ -1203,6 +1224,180 @@ class AIPlayerController:
             })
 
         return actions
+
+    def _extract_opponent_preflop_action(
+        self,
+        opponent_name: str,
+        game_messages,
+        game_state
+    ) -> Optional[str]:
+        """
+        Extract what preflop action an opponent took this hand.
+
+        Analyzes game messages to determine if opponent:
+        - open_raise: First to raise preflop
+        - call: Called a raise (or limped behind)
+        - 3bet: Re-raised a raise
+        - 4bet+: Re-raised a 3-bet or more
+        - limp: Just called the big blind (no raise faced)
+
+        Args:
+            opponent_name: Name of opponent to check
+            game_messages: List of game messages or string of messages
+            game_state: Current game state for position info
+
+        Returns:
+            Action string or None if not determinable
+        """
+        import re
+
+        # Parse messages into lines
+        if isinstance(game_messages, str):
+            lines = game_messages.strip().split('\n')
+        elif isinstance(game_messages, list):
+            lines = game_messages
+        else:
+            return None
+
+        # Track raise count to distinguish open-raise vs 3-bet vs 4-bet
+        raise_count = 0
+        opponent_action = None
+        big_blind = game_state.current_ante or 250
+
+        # Get BB player name to ignore forced BB
+        table_positions = game_state.table_positions
+        bb_player = table_positions.get('big_blind_player')
+
+        for line in lines:
+            if not line or not isinstance(line, str):
+                continue
+
+            line_lower = line.lower()
+
+            # Stop processing if we hit post-flop indicators
+            if any(indicator in line_lower for indicator in ['flop', 'turn', 'river', 'community']):
+                break
+
+            # Check if this line is about our opponent
+            if opponent_name.lower() not in line_lower:
+                # Track raises by others to count raise level
+                if 'raise' in line_lower or ('bet' in line_lower and 'big blind' not in line_lower):
+                    raise_count += 1
+                continue
+
+            # This line is about our opponent - determine their action
+            if 'fold' in line_lower:
+                # Folded preflop - not in hand
+                return None
+            elif 'raise' in line_lower:
+                if raise_count == 0:
+                    opponent_action = 'open_raise'
+                elif raise_count == 1:
+                    opponent_action = '3bet'
+                else:
+                    opponent_action = '4bet+'
+                raise_count += 1
+            elif 'call' in line_lower:
+                if raise_count == 0:
+                    # Called with no raise = limp (unless they're BB)
+                    if opponent_name == bb_player:
+                        opponent_action = None  # BB just checking
+                    else:
+                        opponent_action = 'limp'
+                else:
+                    opponent_action = 'call'
+            elif 'check' in line_lower:
+                # Check preflop only happens in BB with no raise
+                pass
+            elif 'all' in line_lower and 'in' in line_lower:
+                # All-in preflop - treat as raise
+                if raise_count == 0:
+                    opponent_action = 'open_raise'
+                elif raise_count == 1:
+                    opponent_action = '3bet'
+                else:
+                    opponent_action = '4bet+'
+
+        return opponent_action
+
+    def _extract_opponent_postflop_aggression(
+        self,
+        opponent_name: str,
+        game_messages,
+        current_phase: str
+    ) -> Optional[str]:
+        """
+        Extract opponent's postflop aggression in current street.
+
+        Args:
+            opponent_name: Name of opponent
+            game_messages: Game messages
+            current_phase: Current phase (FLOP, TURN, RIVER)
+
+        Returns:
+            'bet', 'raise', 'check_call', 'check', or None
+        """
+        import re
+
+        if current_phase == 'PRE_FLOP':
+            return None
+
+        # Parse messages
+        if isinstance(game_messages, str):
+            lines = game_messages.strip().split('\n')
+        elif isinstance(game_messages, list):
+            lines = game_messages
+        else:
+            return None
+
+        # Find lines from current street
+        in_current_street = False
+        street_markers = {
+            'FLOP': 'flop',
+            'TURN': 'turn',
+            'RIVER': 'river'
+        }
+        current_marker = street_markers.get(current_phase, '').lower()
+
+        opponent_aggression = None
+
+        for line in lines:
+            if not line or not isinstance(line, str):
+                continue
+
+            line_lower = line.lower()
+
+            # Check for street markers
+            if current_marker and current_marker in line_lower:
+                in_current_street = True
+                continue
+
+            # Check for next street marker (stop processing)
+            if in_current_street:
+                next_streets = ['turn', 'river', 'showdown']
+                if any(s in line_lower for s in next_streets if s != current_marker):
+                    break
+
+            if not in_current_street:
+                continue
+
+            # Check if this is opponent's action
+            if opponent_name.lower() not in line_lower:
+                continue
+
+            # Determine aggression
+            if 'raise' in line_lower or ('all' in line_lower and 'in' in line_lower):
+                opponent_aggression = 'raise'
+            elif 'bet' in line_lower:
+                opponent_aggression = 'bet'
+            elif 'call' in line_lower:
+                if opponent_aggression is None:
+                    opponent_aggression = 'check_call'
+            elif 'check' in line_lower:
+                if opponent_aggression is None:
+                    opponent_aggression = 'check'
+
+        return opponent_aggression
 
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
