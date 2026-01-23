@@ -33,6 +33,7 @@ export function ActionButtons({
 }: ActionButtonsProps) {
   const [showBetInterface, setShowBetInterface] = useState(false);
   const [selectedQuickBet, setSelectedQuickBet] = useState<string | null>(null);
+  const [isEditingAmount, setIsEditingAmount] = useState(false);
 
   // Create betting context from props if not provided
   const bettingContext = providedContext ?? createBettingContext({
@@ -102,7 +103,59 @@ export function ActionButtons({
         <div className="unified-bet-display">
           <div className="bet-preview">
             <span className="bet-label">You'll {playerOptions.includes('raise') ? 'raise to' : 'bet'}:</span>
-            <span className="bet-total">${betAmount}</span>
+            <div className="bet-amount-row">
+              {isEditingAmount ? (
+                <input
+                  type="number"
+                  className="bet-amount-input"
+                  defaultValue={betAmount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (!isNaN(val) && val > 0) {
+                      setBetAmount(val);
+                      setSelectedQuickBet(null);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (!isNaN(val)) {
+                      setBetAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, calc.roundToSnap(val))));
+                    }
+                    setIsEditingAmount(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  autoFocus
+                  onFocus={(e) => e.target.select()}
+                  min={calc.safeMinRaiseTo}
+                  max={calc.safeMaxRaiseTo}
+                />
+              ) : (
+                <span
+                  className="bet-total clickable"
+                  onClick={() => setIsEditingAmount(true)}
+                  role="button"
+                  tabIndex={0}
+                  title="Click to edit"
+                >
+                  ${betAmount}
+                </span>
+              )}
+              <button
+                className="double-btn"
+                onClick={() => {
+                  const doubled = betAmount * 2;
+                  setBetAmount(Math.min(calc.safeMaxRaiseTo, calc.roundToSnap(doubled)));
+                  setSelectedQuickBet(null);
+                }}
+                disabled={betAmount * 2 > calc.safeMaxRaiseTo}
+              >
+                2x
+              </button>
+            </div>
           </div>
           <div className="bet-breakdown">
             {calc.callAmount > 0 ? (
@@ -117,9 +170,6 @@ export function ActionButtons({
           </div>
           <div className="stack-after">
             Stack after: ${breakdown.stackAfter}
-          </div>
-          <div className="snap-info">
-            Increments: ${calc.snapIncrement}
           </div>
         </div>
 
@@ -138,15 +188,8 @@ export function ActionButtons({
             ))}
           </div>
 
-          {/* Enhanced Slider with Snap Points */}
+          {/* Slider */}
           <div className="bet-slider-container">
-            <div className="slider-snap-points">
-              <div className="snap-point" style={{ left: '0%' }} />
-              <div className="snap-point" style={{ left: '33%' }} />
-              <div className="snap-point" style={{ left: '50%' }} />
-              <div className="snap-point" style={{ left: '67%' }} />
-              <div className="snap-point" style={{ left: '100%' }} />
-            </div>
             <input
               type="range"
               className="bet-slider"
@@ -165,85 +208,7 @@ export function ActionButtons({
             />
             <div className="slider-labels">
               <span>${calc.safeMinRaiseTo}</span>
-              <span className="pot-marker" style={{ left: '33%' }}>⅓</span>
-              <span className="pot-marker" style={{ left: '50%' }}>½</span>
-              <span className="pot-marker" style={{ left: '67%' }}>⅔</span>
               <span>${calc.safeMaxRaiseTo}</span>
-            </div>
-          </div>
-
-          {/* Custom amount input */}
-          <div className="custom-bet">
-            <input
-              type="number"
-              className="custom-bet-input"
-              placeholder={`Enter amount ($${calc.safeMinRaiseTo}-$${calc.safeMaxRaiseTo})`}
-              value={betAmount}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val)) {
-                  // Don't snap while typing, just enforce min/max
-                  setBetAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val)));
-                  setSelectedQuickBet(null);
-                } else if (e.target.value === '') {
-                  setBetAmount(calc.safeMinRaiseTo);
-                }
-              }}
-              onBlur={(e) => {
-                // Snap to increment when user finishes typing
-                const val = parseInt(e.target.value);
-                if (!isNaN(val)) {
-                  setBetAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, calc.roundToSnap(val))));
-                }
-              }}
-              onFocus={(e) => e.target.select()}
-              min={calc.safeMinRaiseTo}
-              max={calc.safeMaxRaiseTo}
-            />
-            <div className="input-shortcuts">
-              <button
-                className="shortcut-btn"
-                onClick={() => {
-                  const doubled = betAmount * 2;
-                  setBetAmount(Math.min(calc.safeMaxRaiseTo, calc.roundToSnap(doubled)));
-                  setSelectedQuickBet(null);
-                }}
-                disabled={betAmount * 2 > calc.safeMaxRaiseTo}
-              >
-                2x
-              </button>
-              <button
-                className="shortcut-btn"
-                onClick={() => {
-                  const halved = betAmount / 2;
-                  setBetAmount(Math.max(calc.safeMinRaiseTo, calc.roundToSnap(halved)));
-                  setSelectedQuickBet(null);
-                }}
-              >
-                ½x
-              </button>
-              <button
-                className="shortcut-btn"
-                onClick={() => {
-                  const increased = betAmount + calc.snapIncrement;
-                  setBetAmount(Math.min(calc.safeMaxRaiseTo, increased));
-                  setSelectedQuickBet(null);
-                }}
-                disabled={betAmount + calc.snapIncrement > calc.safeMaxRaiseTo}
-              >
-                +${calc.snapIncrement}
-              </button>
-              <button
-                className="shortcut-btn"
-                onClick={() => {
-                  const decreased = betAmount - calc.snapIncrement;
-                  setBetAmount(Math.max(calc.safeMinRaiseTo, decreased));
-                  setSelectedQuickBet(null);
-                }}
-                disabled={betAmount - calc.snapIncrement < calc.safeMinRaiseTo}
-              >
-                -${calc.snapIncrement}
-              </button>
             </div>
           </div>
         </div>

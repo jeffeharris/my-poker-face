@@ -17,6 +17,8 @@
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   transition: var(--transition-all-slow);
+  width: fit-content;
+  max-width: min(95vw, 400px);
 }
 
 /* Active state - gold glow when it's your turn */
