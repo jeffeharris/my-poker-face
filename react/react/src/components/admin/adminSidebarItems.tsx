@@ -1,7 +1,13 @@
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked } from 'lucide-react';
+import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked, Shield } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
+  {
+    id: 'users',
+    label: 'Users',
+    icon: <Shield size={24} />,
+    description: 'Manage users and permissions',
+  },
   {
     id: 'personalities',
     label: 'Personalities',

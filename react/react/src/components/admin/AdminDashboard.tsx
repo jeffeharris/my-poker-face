@@ -10,6 +10,7 @@ import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
+import { UserManagement } from './UserManagement';
 import { PageLayout, PageHeader } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
@@ -80,6 +81,9 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
   // Tab content component
   const renderTabContent = () => (
     <>
+      {activeTab === 'users' && (
+        <UserManagement embedded />
+      )}
       {activeTab === 'personalities' && (
         <PersonalityManager embedded />
       )}
