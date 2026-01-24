@@ -247,6 +247,31 @@
   line-height: var(--line-height-relaxed);
 }
 
+/* Footer with legal links */
+.login-form__footer {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-default);
+  text-align: center;
+  font-size: var(--font-size-xs);
+}
+
+.login-form__footer a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.login-form__footer a:hover {
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+}
+
+.login-form__footer-divider {
+  margin: 0 var(--space-2);
+  color: var(--color-text-disabled);
+}
+
 /* Mobile responsiveness */
 @media (max-width: 480px) {
   .login-form__container {

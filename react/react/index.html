@@ -32,6 +32,22 @@
   <body>
     <div id="freeze-frame"></div>
     <div id="root"></div>
+    <!-- Static footer for Google OAuth verification (bot doesn't render React) -->
+    <footer id="static-legal" style="position: fixed; bottom: 0; left: 0; right: 0; text-align: center; padding: 8px; font-size: 12px; font-family: sans-serif; background: rgba(0,0,0,0.3); z-index: 1;">
+      <a href="/privacy.html" style="color: #d4af37; margin: 0 8px;">Privacy Policy</a>
+      <a href="/terms.html" style="color: #d4af37; margin: 0 8px;">Terms of Service</a>
+    </footer>
+    <noscript>
+      <div style="padding: 40px; text-align: center; color: #fff; font-family: sans-serif;">
+        <h1>My Poker Face</h1>
+        <p>Play poker against AI opponents with real personalities, emotions, and rivalries.</p>
+        <p>This app requires JavaScript to run.</p>
+        <p style="margin-top: 20px;">
+          <a href="/privacy.html" style="color: #d4af37;">Privacy Policy</a> |
+          <a href="/terms.html" style="color: #d4af37;">Terms of Service</a>
+        </p>
+      </div>
+    </noscript>
     <script>
       (function() {
         var freezeFrame = document.getElementById('freeze-frame');
@@ -67,5 +83,18 @@
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Hide static legal footer once React renders
+      (function() {
+        var check = setInterval(function() {
+          if (document.getElementById('root').children.length > 0) {
+            var footer = document.getElementById('static-legal');
+            if (footer) footer.style.display = 'none';
+            clearInterval(check);
+          }
+        }, 100);
+        setTimeout(function() { clearInterval(check); }, 10000);
+      })();
+    </script>
   </body>
 </html>

@@ -113,6 +113,12 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
             Guest accounts are temporary. Sign in with Google to save your progress.
           </p>
         </div>
+
+        <footer className="login-form__footer">
+          <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+          <span className="login-form__footer-divider">·</span>
+          <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+        </footer>
       </div>
     </PageLayout>
   );

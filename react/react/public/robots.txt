@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /privacy
+Allow: /terms
+Disallow: /admin
