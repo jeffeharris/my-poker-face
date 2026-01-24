@@ -5296,11 +5296,13 @@ class GamePersistence:
     def get_decision_analysis_by_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
         """Get decision analysis linked to a prompt capture.
 
-        Links via request_id: prompt_captures.original_request_id = player_decision_analysis.request_id
+        Links via capture_id (preferred) or request_id (fallback).
+        Note: request_id fallback only works when request_id is non-empty,
+        as some providers (Google/Gemini) don't return request IDs.
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            # First try direct capture_id link
+            # First try direct capture_id link (preferred, always reliable)
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE capture_id = ?",
                 (capture_id,)
@@ -5309,12 +5311,17 @@ class GamePersistence:
             if row:
                 return dict(row)
 
-            # Fall back to request_id link
+            # Fall back to request_id link, but ONLY if request_id is non-empty
+            # Empty string matches would cause incorrect results
             cursor = conn.execute("""
                 SELECT pda.*
                 FROM player_decision_analysis pda
                 JOIN prompt_captures pc ON pc.original_request_id = pda.request_id
                 WHERE pc.id = ?
+                  AND pc.original_request_id IS NOT NULL
+                  AND pc.original_request_id != ''
+                  AND pda.request_id IS NOT NULL
+                  AND pda.request_id != ''
             """, (capture_id,))
             row = cursor.fetchone()
             if not row:

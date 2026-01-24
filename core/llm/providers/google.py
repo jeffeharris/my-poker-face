@@ -238,5 +238,8 @@ class GoogleProvider(LLMProvider):
 
     def extract_request_id(self, raw_response: Any) -> str:
         """Extract request ID from Gemini response."""
-        # Gemini doesn't provide a request ID in the same way
+        # Gemini returns response_id in the response object
+        response_id = getattr(raw_response, 'response_id', None)
+        if response_id:
+            return str(response_id)
         return ""

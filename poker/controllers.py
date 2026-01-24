@@ -770,7 +770,7 @@ class AIPlayerController:
                 response_dict['raise_to'] = validated.get('raise_to', 0)
 
         # Analyze decision quality (always, for monitoring)
-        self._analyze_decision(response_dict, context)
+        self._analyze_decision(response_dict, context, captured_id[0])
 
         # Update capture with action_taken (now that we've parsed the response)
         if captured_id[0]:
@@ -787,10 +787,15 @@ class AIPlayerController:
 
         return response_dict
 
-    def _analyze_decision(self, response_dict: Dict, context: Dict) -> None:
+    def _analyze_decision(self, response_dict: Dict, context: Dict, capture_id: Optional[int] = None) -> None:
         """Analyze decision quality and save to database.
 
         This runs for EVERY AI decision to track quality metrics.
+
+        Args:
+            response_dict: AI response with action and optional raise_to
+            context: Game context dictionary
+            capture_id: Optional ID of the prompt capture for linking
         """
         if not self._persistence:
             return
@@ -879,6 +884,7 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
                 request_id=request_id,
+                capture_id=capture_id,
                 player_position=player_position,
                 opponent_positions=opponent_positions,
                 opponent_infos=opponent_infos,
