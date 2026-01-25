@@ -1173,6 +1173,30 @@ class AITournamentRunner:
             total_resets=total_resets,
         )
 
+        # Save tournament result and standings with outcome metrics
+        standings_data = [
+            {
+                'player_name': s['name'],
+                'is_human': False,
+                'finishing_position': i + 1,
+                'final_stack': s.get('final_stack', s.get('stack', 0)),
+                'hands_won': s.get('hands_won', 0),
+                'hands_played': s.get('hands_played', 0),
+            }
+            for i, s in enumerate(final_standings)
+        ]
+        tournament_result_data = {
+            'winner_name': winner,
+            'total_hands': hand_number,
+            'biggest_pot': 0,  # Could track this if needed
+            'starting_player_count': len(final_standings),
+            'human_player_name': None,
+            'human_finishing_position': None,
+            'started_at': start_time.isoformat(),
+            'standings': standings_data,  # Include standings for persistence
+        }
+        self.persistence.save_tournament_result(tournament_id, tournament_result_data)
+
         # Mark tournament as idle (completed) for heartbeat tracking
         if self.experiment_id:
             self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
