@@ -287,21 +287,15 @@ export function MobilePokerTable({
               >
                 {opponent.avatar_url ? (
                   <img
-                    src={`${config.API_URL}${opponent.avatar_url}/full`}
+                    src={`${config.API_URL}${opponent.avatar_url}`}
                     alt={`${opponent.name} - ${opponent.avatar_emotion || 'avatar'}`}
                     className={`avatar-image ${
                       opponent.avatar_emotion === 'thinking' ? 'avatar-image--thinking' : ''
                     } ${isShowdown ? 'avatar-image--showdown' : ''}`}
                     onError={(e) => {
-                      // Fallback to regular avatar if full image not available
+                      // Hide broken image if avatar fails to load
                       const img = e.currentTarget;
-                      if (img.dataset.fallbackTried === 'true') {
-                        // Both full and regular failed, hide broken image
-                        img.style.display = 'none';
-                        return;
-                      }
-                      img.dataset.fallbackTried = 'true';
-                      img.src = `${config.API_URL}${opponent.avatar_url}`;
+                      img.style.display = 'none';
                     }}
                   />
                 ) : (
@@ -360,18 +354,18 @@ export function MobilePokerTable({
 
       {/* Hero Section - Your Cards */}
       <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`}>
+        {/* Dealer chip - positioned in upper right */}
+        {gameState.players.findIndex(p => p.is_human) === gameState.current_dealer_idx && (
+          <span className="dealer-chip">D</span>
+        )}
         <div className="hero-info">
-          <div className="hero-name">
-            {humanPlayer?.name}
-            {gameState.players.findIndex(p => p.is_human) === gameState.current_dealer_idx && (
-              <span className="dealer-chip">D</span>
-            )}
-          </div>
+          <div className="hero-name">{humanPlayer?.name}</div>
           <div className="hero-stack">${humanPlayer?.stack}</div>
-          {humanPlayer?.bet && humanPlayer.bet > 0 && (
-            <div className="hero-bet">Bet: ${humanPlayer.bet}</div>
-          )}
         </div>
+        {/* Bet chip - positioned at top edge of hero section */}
+        {humanPlayer && humanPlayer.bet > 0 && (
+          <div className="hero-bet">${humanPlayer.bet}</div>
+        )}
         <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
           {humanPlayer?.hand ? (
             <>

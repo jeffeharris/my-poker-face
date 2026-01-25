@@ -1,3 +1,10 @@
+/* Register custom property for gradient animation */
+@property --gradient-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+}
+
 .mobile-poker-table {
     display: flex;
     flex-direction: column;
@@ -193,7 +200,7 @@
 }
 
 .mobile-opponent.thinking {
-    border-color: var(--color-emerald);
+    border-color: var(--color-amber);
     background: linear-gradient(
         145deg,
         rgba(20, 22, 28, 0.8) 0%,
@@ -201,49 +208,67 @@
     );
     width: 50vw;
     min-width: 50vw;
-    box-shadow: var(--glow-emerald), var(--shadow-card);
+    box-shadow: var(--glow-amber), var(--shadow-card);
 }
 
-/* Animated ring around the active player's avatar */
+/* Animated border glow around the active player's avatar */
 .mobile-opponent.thinking .opponent-avatar {
     box-shadow:
-        0 0 0 3px var(--color-emerald),
-        0 0 24px rgba(52, 211, 153, 0.5);
+        0 0 0 2px var(--color-amber),
+        0 0 20px rgba(245, 158, 11, 0.4);
 }
 
+/* Sweeping gradient border effect */
 .mobile-opponent.thinking .opponent-avatar::before {
     content: '';
     position: absolute;
-    inset: -6px;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    border-top-color: var(--color-emerald);
-    border-right-color: rgba(52, 211, 153, 0.5);
-    animation: avatarRingSpin 1.2s linear infinite;
+    inset: -4px;
+    border-radius: 18px;
+    background: conic-gradient(
+        from var(--gradient-angle, 0deg),
+        transparent 0deg,
+        rgba(245, 158, 11, 0.1) 60deg,
+        var(--color-amber) 120deg,
+        rgba(255, 220, 150, 0.9) 180deg,
+        var(--color-amber) 240deg,
+        rgba(245, 158, 11, 0.1) 300deg,
+        transparent 360deg
+    );
+    animation: sweepGradient 2s linear infinite;
+    z-index: -1;
+    /* Mask to show only the border */
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    padding: 3px;
 }
 
+/* Subtle pulsing glow behind */
 .mobile-opponent.thinking .opponent-avatar::after {
     content: '';
     position: absolute;
-    inset: -10px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(52, 211, 153, 0.15) 0%, transparent 70%);
-    animation: avatarGlowPulse 2s ease-in-out infinite;
+    inset: -8px;
+    border-radius: 22px;
+    background: radial-gradient(ellipse, rgba(245, 158, 11, 0.2) 0%, transparent 70%);
+    animation: avatarGlowPulse 2.5s ease-in-out infinite;
+    z-index: -2;
 }
 
-@keyframes avatarRingSpin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+@keyframes sweepGradient {
+    from { --gradient-angle: 0deg; }
+    to { --gradient-angle: 360deg; }
 }
 
 @keyframes avatarGlowPulse {
     0%, 100% {
-        opacity: 0.6;
+        opacity: 0.5;
         transform: scale(1);
     }
     50% {
-        opacity: 1;
-        transform: scale(1.1);
+        opacity: 0.8;
+        transform: scale(1.05);
     }
 }
 
@@ -252,8 +277,8 @@
 }
 
 .mobile-opponent.all-in {
-    border-color: var(--color-amber);
-    box-shadow: var(--glow-amber);
+    border-color: var(--color-gold);
+    box-shadow: var(--glow-gold);
 }
 
 .opponent-avatar {
@@ -422,9 +447,9 @@
 }
 
 .status-badge.all-in {
-    background: var(--gradient-amber);
+    background: var(--gradient-gold);
     color: var(--color-bg-void);
-    box-shadow: var(--glow-amber);
+    box-shadow: var(--glow-gold);
 }
 
 /* Community Cards - 30% of viewport */
@@ -507,6 +532,7 @@
     box-sizing: border-box;
     position: relative;
     z-index: 1;
+    overflow: visible; /* Allow bet chip to overflow above */
 }
 
 /* Hero active turn state - matches opponent thinking glow */
@@ -547,19 +573,23 @@
 }
 
 .dealer-chip {
-    width: 22px;
-    height: 22px;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 26px;
+    height: 26px;
     background: var(--gradient-gold-shine);
     color: var(--color-bg-void);
     border-radius: 50%;
     font-family: var(--font-display);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: var(--font-weight-bold);
     display: flex;
     align-items: center;
     justify-content: center;
     border: 2px solid var(--color-gold-bright);
-    box-shadow: 0 0 10px rgba(212, 165, 116, 0.4);
+    box-shadow: 0 0 12px rgba(212, 165, 116, 0.5);
 }
 
 .hero-stack {
@@ -571,14 +601,25 @@
 }
 
 .hero-bet {
+    /* Position at top of hero section, above the player name */
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+
     font-family: var(--font-mono);
-    font-size: clamp(11px, 1.8dvh, 15px);
-    font-weight: var(--font-weight-semibold);
+    font-size: clamp(12px, 2dvh, 16px);
+    font-weight: var(--font-weight-bold);
     color: var(--color-bg-void);
     background: var(--gradient-gold);
-    padding: clamp(2px, 0.5dvh, 4px) clamp(8px, 1.2dvh, 12px);
+    padding: clamp(4px, 0.8dvh, 8px) clamp(12px, 2dvh, 20px);
     border-radius: var(--radius-full);
-    box-shadow: 0 0 12px rgba(212, 165, 116, 0.3), var(--shadow-sm);
+    box-shadow:
+        0 0 16px rgba(212, 165, 116, 0.5),
+        0 4px 12px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    border: 2px solid var(--color-gold-bright);
 }
 
 .hero-cards {

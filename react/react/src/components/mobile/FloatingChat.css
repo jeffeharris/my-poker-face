@@ -72,13 +72,13 @@
 .floating-chat-sender {
   font-size: clamp(14px, 2.5dvh, 18px);
   font-weight: 600;
-  color: #667eea;
+  color: var(--color-gold-light);
   margin-bottom: 4px;
 }
 
 .floating-chat-message {
   font-size: 14px;
-  color: white;
+  color: var(--color-text-secondary);
   line-height: 1.4;
   word-wrap: break-word;
   max-height: 16dvh;

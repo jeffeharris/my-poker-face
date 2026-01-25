@@ -56,11 +56,12 @@
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-2xl);
   backdrop-filter: blur(8px);
+  border: 1px solid rgba(212, 165, 116, 0.2);
 }
 
 .mobile-pot__label {
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  color: var(--color-gold);
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: var(--font-weight-semibold);
@@ -69,7 +70,8 @@
 .mobile-pot__amount {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
-  color: #ffd700;
+  color: var(--color-gold-light);
+  text-shadow: 0 0 12px rgba(212, 165, 116, 0.4);
 }
 
 /* ===========================================
