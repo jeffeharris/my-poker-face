@@ -432,7 +432,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           {capture.error_type && (
             <div className="capture-error">
               <span className="error-badge">{capture.error_type.replace(/_/g, ' ')}</span>
-              {capture.correction_attempt && capture.correction_attempt > 0 && (
+              {(capture.correction_attempt ?? 0) > 0 && (
                 <span className="correction-badge">Attempt #{capture.correction_attempt}</span>
               )}
             </div>

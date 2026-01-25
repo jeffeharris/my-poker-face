@@ -41,6 +41,14 @@ class AIFallbackStrategy(Enum):
     MIMIC_PERSONALITY = "mimic_personality"  # Based on personality traits
 
 
+class DecisionErrorType(Enum):
+    """Types of AI decision response errors for recovery strategy selection."""
+    MALFORMED_JSON = "malformed_json"        # Can't parse JSON - needs full retry
+    MISSING_REQUIRED_FIELD = "missing_field" # Missing action or raise_to - needs targeted correction
+    INVALID_ACTION = "invalid_action"        # Action not in valid_actions - needs targeted correction
+    SEMANTIC_ERROR = "semantic_error"        # Raise with 0, logical mismatch - needs targeted correction
+
+
 class FallbackActionSelector:
     """
     Centralized fallback action selection logic.
@@ -274,6 +282,84 @@ def parse_json_response(response_text: str) -> Dict[str, Any]:
                 pass
         
         raise AIResponseError(f"Could not parse JSON response: {e}") from e
+
+
+def classify_response_error(
+    response_dict: Dict[str, Any],
+    valid_actions: List[str],
+) -> Optional[DecisionErrorType]:
+    """
+    Classify response errors to determine recovery strategy.
+
+    Args:
+        response_dict: Parsed response dictionary (may be partial/invalid)
+        valid_actions: Valid actions for current game state
+
+    Returns:
+        DecisionErrorType if error detected, None if response is valid
+    """
+    # Check for missing required action field
+    # Handle None, empty string, and whitespace-only values
+    action = (response_dict.get('action') or '').strip().lower()
+
+    if not action:
+        return DecisionErrorType.MISSING_REQUIRED_FIELD
+
+    # Check for invalid action choice
+    if valid_actions and action not in valid_actions:
+        return DecisionErrorType.INVALID_ACTION
+
+    # Check for semantic errors (raise with invalid amount)
+    raise_to = response_dict.get('raise_to', 0)
+    try:
+        raise_to = int(raise_to) if raise_to else 0
+    except (ValueError, TypeError):
+        raise_to = 0
+
+    # Catch both zero and negative raise amounts as semantic errors
+    if action == 'raise' and raise_to <= 0:
+        return DecisionErrorType.SEMANTIC_ERROR
+
+    # All checks passed - no error
+    return None
+
+
+def describe_response_error(
+    error_type: DecisionErrorType,
+    response_dict: Dict[str, Any],
+    valid_actions: List[str],
+) -> str:
+    """
+    Generate a human-readable description of the error for the correction prompt.
+
+    Args:
+        error_type: The classified error type
+        response_dict: The AI's response dictionary
+        valid_actions: Valid actions for current game state
+
+    Returns:
+        Error description string
+    """
+    action = response_dict.get('action', 'none')
+    raise_to = response_dict.get('raise_to', 0)
+
+    if error_type == DecisionErrorType.MISSING_REQUIRED_FIELD:
+        if not response_dict.get('action'):
+            return "Missing required 'action' field. You must specify an action."
+        return "Missing required field in response."
+
+    elif error_type == DecisionErrorType.INVALID_ACTION:
+        return f"Invalid action '{action}'. You must choose from: {', '.join(valid_actions)}"
+
+    elif error_type == DecisionErrorType.SEMANTIC_ERROR:
+        if action == 'raise' and raise_to <= 0:
+            return f"You chose 'raise' but set raise_to to {raise_to}. When raising, you must specify a positive raise_to amount."
+        return "Logical inconsistency in response."
+
+    elif error_type == DecisionErrorType.MALFORMED_JSON:
+        return "Could not parse your response as valid JSON."
+
+    return "Unknown error in response."
 
 
 def with_ai_fallback(
