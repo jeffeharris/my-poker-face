@@ -893,6 +893,9 @@ class AIPlayerController:
             llm_response = getattr(self, '_last_llm_response', None)
             request_id = llm_response.request_id if llm_response else None
 
+            # Build player bets list for stack-aware EV calculation
+            all_players_bets = [(p.bet, p.is_folded) for p in game_state.players]
+
             analyzer = get_analyzer()
             analysis = analyzer.analyze(
                 game_id=self.game_id,
@@ -912,6 +915,8 @@ class AIPlayerController:
                 player_position=player_position,
                 opponent_positions=opponent_positions,
                 opponent_infos=opponent_infos,
+                player_bet=player.bet,
+                all_players_bets=all_players_bets,
             )
 
             self._persistence.save_decision_analysis(analysis)
