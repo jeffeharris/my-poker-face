@@ -7182,6 +7182,26 @@ class GamePersistence:
             if 'short_stack_fold' not in labels and 'pot_committed_fold' not in labels:
                 labels.append('suspicious_fold')
 
+        # DRAMA: Add labels for notable drama situations
+        drama = capture_data.get('drama_context')
+        if drama:
+            level = drama.get('level')
+            tone = drama.get('tone')
+            factors = drama.get('factors', [])
+
+            # Label high-drama levels
+            if level in ('climactic', 'high_stakes'):
+                labels.append(f'drama:{level}')
+
+            # Label non-neutral tones
+            if tone and tone != 'neutral':
+                labels.append(f'tone:{tone}')
+
+            # Label specific dramatic factors
+            for factor in factors:
+                if factor in ('huge_raise', 'late_stage', 'all_in'):
+                    labels.append(f'factor:{factor}')
+
         # Store labels if any were computed
         if labels:
             self.add_capture_labels(capture_id, labels, label_type='auto')

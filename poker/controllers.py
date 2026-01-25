@@ -715,6 +715,7 @@ class AIPlayerController:
                 'player_hand': [str(c) for c in player.hand] if player.hand else [],
                 'valid_actions': context.get('valid_actions', []),
                 'prompt_config': self.prompt_config.to_dict() if self.prompt_config else None,
+                'drama_context': drama_context,  # For auto-labeling dramatic moments
                 '_on_captured': lambda cid: captured_id.__setitem__(0, cid),  # Store capture_id
             }
             capture_data.update(enrichment)
