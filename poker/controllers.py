@@ -9,6 +9,7 @@ from .poker_state_machine import PokerStateMachine
 from .poker_player import AIPokerPlayer
 from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
+from .moment_analyzer import MomentAnalyzer
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
 from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS, is_development_mode
@@ -649,6 +650,17 @@ class AIPlayerController:
                             'tier': 'moderate'
                         }
 
+        # Drama level for response intensity calibration
+        drama_context = None
+        if self.prompt_config.situational_guidance:
+            analysis = MomentAnalyzer.analyze(
+                game_state=game_state,
+                player=player,
+                cost_to_call=cost_to_call,
+                big_blind=big_blind
+            )
+            drama_context = {'level': analysis.level, 'factors': analysis.factors}
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
             message=message,
@@ -656,7 +668,8 @@ class AIPlayerController:
             include_persona_response=self.prompt_config.persona_response,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
-            made_hand_info=made_hand_info
+            made_hand_info=made_hand_info,
+            drama_context=drama_context
         )
 
         # Store capture_id via callback (keeps LLM layer decoupled from capture)

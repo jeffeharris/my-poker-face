@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, Player } from '../../types';
 import { config } from '../../config';
@@ -17,19 +17,145 @@ interface FloatingChatProps {
   players?: Player[];
 }
 
-// Calculate display duration based on message length
-// Base: 3 seconds, plus 50ms per character, capped between 3-15 seconds
+// Timing constants for dramatic effect
+const TYPING_SPEED_MS = 30; // ms per character for typing effect
+const ACTION_FADE_DURATION_MS = 400; // fade in duration for actions
+const BEAT_DELAY_MS = 300; // delay between beats
+
+// Parse a beat to determine if it's an action or speech
+interface ParsedBeat {
+  type: 'action' | 'speech';
+  text: string;
+}
+
+function parseBeats(text: string): ParsedBeat[] {
+  const lines = text.split('\n').filter(b => b.trim());
+  return lines.map(line => {
+    const actionMatch = line.match(/^\*(.+)\*$/);
+    if (actionMatch) {
+      return { type: 'action', text: actionMatch[1] };
+    }
+    return { type: 'speech', text: line };
+  });
+}
+
+// Calculate display duration based on message content and timing
 function calculateDuration(message: string, action?: string): number {
-  const baseMs = 3000;
-  const msPerChar = 50;
+  const baseMs = 2000; // Base time after all animations complete
   const minMs = 3000;
-  const maxMs = 15000;
-  // Prefer non-empty message text; if message is empty/whitespace, fall back to action text
+  const maxMs = 20000;
+
   const trimmedMessage = message.trim();
   const trimmedAction = action?.trim() ?? '';
-  const textLength = trimmedMessage.length > 0 ? trimmedMessage.length : trimmedAction.length;
-  const calculated = baseMs + (textLength * msPerChar);
+  const text = trimmedMessage.length > 0 ? trimmedMessage : trimmedAction;
+
+  if (!text) return minMs;
+
+  const beats = parseBeats(text);
+  let animationTime = 0;
+
+  beats.forEach((beat, i) => {
+    // Add beat delay (except for first beat)
+    if (i > 0) animationTime += BEAT_DELAY_MS;
+
+    if (beat.type === 'action') {
+      animationTime += ACTION_FADE_DURATION_MS;
+    } else {
+      // Typing time for speech
+      animationTime += beat.text.length * TYPING_SPEED_MS;
+    }
+  });
+
+  const calculated = animationTime + baseMs;
   return Math.min(maxMs, Math.max(minMs, calculated));
+}
+
+// Action beat component - fades in
+function ActionBeat({ text, delay }: { text: string; delay: number }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+
+  return (
+    <div className={`beat action ${visible ? 'visible' : ''}`}>
+      <em>{text}</em>
+    </div>
+  );
+}
+
+// Speech beat component - types out character by character
+function SpeechBeat({ text, delay }: { text: string; delay: number }) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [started, setStarted] = useState(false);
+
+  useEffect(() => {
+    const startTimer = setTimeout(() => setStarted(true), delay);
+    return () => clearTimeout(startTimer);
+  }, [delay]);
+
+  useEffect(() => {
+    if (!started) return;
+
+    let charIndex = 0;
+    const interval = setInterval(() => {
+      if (charIndex < text.length) {
+        setDisplayedText(text.slice(0, charIndex + 1));
+        charIndex++;
+      } else {
+        clearInterval(interval);
+      }
+    }, TYPING_SPEED_MS);
+
+    return () => clearInterval(interval);
+  }, [started, text]);
+
+  if (!started) return null;
+
+  return (
+    <div className="beat speech">
+      {displayedText}
+      {displayedText.length < text.length && <span className="typing-cursor">|</span>}
+    </div>
+  );
+}
+
+// Dramatic message component - orchestrates beat animations
+function DramaticMessage({ text }: { text: string }) {
+  const beats = parseBeats(text);
+
+  if (beats.length === 0) {
+    return <>{text}</>;
+  }
+
+  // Calculate cumulative delays for each beat
+  let cumulativeDelay = 0;
+  const beatsWithDelay = beats.map((beat, i) => {
+    const delay = cumulativeDelay;
+
+    // Calculate how long this beat takes
+    if (beat.type === 'action') {
+      cumulativeDelay += ACTION_FADE_DURATION_MS + BEAT_DELAY_MS;
+    } else {
+      cumulativeDelay += (beat.text.length * TYPING_SPEED_MS) + BEAT_DELAY_MS;
+    }
+
+    return { ...beat, delay, index: i };
+  });
+
+  return (
+    <>
+      {beatsWithDelay.map((beat) => (
+        beat.type === 'action' ? (
+          <ActionBeat key={beat.index} text={beat.text} delay={beat.delay} />
+        ) : (
+          <SpeechBeat key={beat.index} text={beat.text} delay={beat.delay} />
+        )
+      ))}
+    </>
+  );
 }
 
 // Message component - only X button dismisses
@@ -75,7 +201,9 @@ function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
           {msg.action || msg.sender}
         </div>
         {msg.message && (
-          <div className="floating-chat-message">{msg.message}</div>
+          <div className="floating-chat-message">
+            <DramaticMessage text={msg.message} />
+          </div>
         )}
       </div>
       <button

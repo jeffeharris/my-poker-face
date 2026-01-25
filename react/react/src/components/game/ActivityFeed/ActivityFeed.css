@@ -118,6 +118,16 @@
   word-break: break-word;
 }
 
+/* Dramatic sequence beats */
+.activity-item__message .beat.action {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.activity-item__message .beat.speech {
+  color: var(--color-text-secondary);
+}
+
 .activity-item.system .activity-item__message {
   color: var(--color-text-tertiary);
 }

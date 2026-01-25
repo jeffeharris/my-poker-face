@@ -30,9 +30,9 @@ class ResponseValidator:
         # Phase 3: Deliberation
         "bluff_likelihood", "bet_strategy", "decision_reasoning",
         # Phase 4: Reaction
-        "play_style", "new_confidence", "new_attitude", "persona_response", "physical",
-        # Legacy field (kept for backwards compatibility)
-        "decision"
+        "play_style", "new_confidence", "new_attitude", "dramatic_sequence",
+        # Legacy fields (kept for backwards compatibility)
+        "decision", "persona_response", "physical"
     }
     
     def __init__(self):
@@ -95,6 +95,9 @@ class ResponseValidator:
         
         # Context-based validation
         if context.get("should_speak") == False:
+            if "dramatic_sequence" in response:
+                self.warnings.append("dramatic_sequence included but player shouldn't speak (will be removed)")
+            # Legacy field checks
             if "persona_response" in response:
                 self.warnings.append("persona_response included but player shouldn't speak (will be removed)")
             if "physical" in response:
@@ -126,6 +129,8 @@ class ResponseValidator:
         
         # Remove speech-related fields if player shouldn't speak
         if context.get("should_speak") == False:
+            cleaned.pop("dramatic_sequence", None)
+            # Legacy fields
             cleaned.pop("persona_response", None)
             cleaned.pop("physical", None)
             logger.debug(f"Removed speech fields for quiet player")

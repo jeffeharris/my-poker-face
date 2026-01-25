@@ -1121,8 +1121,19 @@ def handle_ai_action(game_id: str) -> None:
         action = player_response_dict['action']
         # Ensure amount is int (defensive - controllers.py should handle this, but be safe)
         amount = int(player_response_dict.get('raise_to', 0) or 0)
-        player_message = player_response_dict.get('persona_response', '')
-        player_physical_description = player_response_dict.get('physical', '')
+
+        # Extract dramatic_sequence (new format) with fallback to legacy fields
+        dramatic_sequence = player_response_dict.get('dramatic_sequence', [])
+        if isinstance(dramatic_sequence, list) and dramatic_sequence:
+            # Join beats with newlines for display
+            full_message = '\n'.join(dramatic_sequence)
+        else:
+            # Legacy fallback: use persona_response + physical
+            player_message = player_response_dict.get('persona_response', '')
+            player_physical_description = player_response_dict.get('physical', '')
+            if isinstance(player_physical_description, list):
+                player_physical_description = ' '.join(player_physical_description)
+            full_message = f"{player_message} {player_physical_description}".strip() if player_message else (player_physical_description or '')
 
     except Exception as e:
         logger.debug(f"[AI_ACTION] Critical error getting AI decision: {e}")
@@ -1154,14 +1165,9 @@ def handle_ai_action(game_id: str) -> None:
     # Send action as Table message (consistent with human actions)
     send_message(game_id, "Table", action_text, "table")
 
-    # Only send separate AI message if player has something to say or show
-    if player_message and player_message != '...':
-        # Player has something to say - combine verbal and physical
-        full_message = f"{player_message} {player_physical_description}".strip()
+    # Send AI message if player has something to say or show
+    if full_message and full_message != '...':
         send_message(game_id, current_player.name, full_message, "ai", sleep=1)
-    elif player_physical_description and player_physical_description.strip():
-        # No speech but has physical reaction - show that
-        send_message(game_id, current_player.name, player_physical_description.strip(), "ai", sleep=1)
 
     if action == 'fold':
         detect_and_apply_pressure(game_id, 'fold', player_name=current_player.name)

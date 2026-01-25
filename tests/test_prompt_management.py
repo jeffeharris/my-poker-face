@@ -187,7 +187,7 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         # Check it includes JSON format
         self.assertIn('"play_style":', prompt)
         self.assertIn('"action":', prompt)
-        self.assertIn('"persona_response":', prompt)
+        self.assertIn('"dramatic_sequence":', prompt)
     
     @unittest.skip("TODO: Update test to match current personality modifier text")
     @patch.object(AIPokerPlayer, '_load_personality_config')
@@ -235,9 +235,9 @@ class TestResponseFormat(unittest.TestCase):
         """Test that response format has all required keys."""
         required_keys = [
             'play_style', 'action', 'raise_to',
-            'persona_response', 'new_confidence', 'new_attitude'
+            'dramatic_sequence', 'new_confidence', 'new_attitude'
         ]
-        
+
         for key in required_keys:
             self.assertIn(key, RESPONSE_FORMAT)
     

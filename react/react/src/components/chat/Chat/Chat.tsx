@@ -1,7 +1,27 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import React, { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Users, Settings, Bot, User, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../../types';
 import './Chat.css';
+
+// Parse message with dramatic sequence support
+// Splits on newlines (beats) and renders actions (*asterisks*) as italics
+function parseMessage(text: string): React.ReactNode {
+  // Split on newlines (beats) and process each
+  const beats = text.split('\n').filter(b => b.trim());
+
+  if (beats.length === 0) {
+    return text;
+  }
+
+  return beats.map((beat, i) => {
+    // Check if it's an action (*wrapped in asterisks*)
+    const actionMatch = beat.match(/^\*(.+)\*$/);
+    if (actionMatch) {
+      return <div key={i} className="beat action"><em>{actionMatch[1]}</em></div>;
+    }
+    return <div key={i} className="beat speech">{beat}</div>;
+  });
+}
 
 interface ChatProps {
   messages: ChatMessage[];
@@ -89,7 +109,7 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
                     </span>
                   </div>
                   <div className="message-content">
-                    {msg.message}
+                    {parseMessage(msg.message)}
                   </div>
                 </div>
               ))

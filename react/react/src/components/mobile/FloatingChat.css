@@ -85,6 +85,48 @@
   overflow-y: auto;
 }
 
+/* Dramatic sequence beats */
+.floating-chat-message .beat {
+  margin-bottom: 4px;
+}
+
+.floating-chat-message .beat:last-child {
+  margin-bottom: 0;
+}
+
+/* Action beats - fade in effect */
+.floating-chat-message .beat.action {
+  color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
+  font-style: italic;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+.floating-chat-message .beat.action.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Speech beats - typing effect */
+.floating-chat-message .beat.speech {
+  color: var(--color-text-secondary);
+}
+
+/* Typing cursor */
+.floating-chat-message .typing-cursor {
+  display: inline-block;
+  color: var(--color-gold-light, #f0c674);
+  animation: blink 0.8s infinite;
+  margin-left: 1px;
+  font-weight: 300;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 .floating-chat-dismiss {
   width: 24px;
   height: 24px;
