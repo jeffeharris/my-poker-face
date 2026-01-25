@@ -116,22 +116,15 @@ export function MobilePokerTable({
 
   // Track if cards are currently being dealt (for animation)
   const [isDealing, setIsDealing] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const prevCard1Id = useRef<string | null>(null);
-
-  // Reset neat state and trigger deal animation when hand changes
-  useEffect(() => {
-    if (card1Id && card1Id !== prevCard1Id.current) {
-      setCardsNeat(false);
-      setIsDealing(true);
-      // Reset dealing state after animation completes
-      const timer = setTimeout(() => setIsDealing(false), 600);
-      prevCard1Id.current = card1Id;
-      return () => clearTimeout(timer);
-    }
-    if (!card1Id) {
-      prevCard1Id.current = null;
-    }
-  }, [card1Id]);
+  // Display cards persist after fold so player can watch the action
+  const [displayCards, setDisplayCards] = useState<typeof humanPlayer.hand | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [displayTransforms, setDisplayTransforms] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const exitTransforms = useRef<any>(null);
+  const exitingCards = useRef<typeof humanPlayer.hand | null>(null);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -163,23 +156,95 @@ export function MobilePokerTable({
 
   // Random card transforms for natural "dealt" look
   // Card 1: -3° base ±7° range, Card 2: +3° base ±7° range
-  // Y offset: ±8px, Gap: 10px base ±10px range
-  const randomTransforms = useMemo(() => ({
-    card1: {
-      rotation: -3 + (Math.random() * 14 - 7),  // -10 to +4
-      offsetY: Math.random() * 16 - 8,          // -8 to +8
-    },
-    card2: {
-      rotation: 3 + (Math.random() * 14 - 7),   // -4 to +10
-      offsetY: Math.random() * 16 - 8,          // -8 to +8
-    },
-    gap: 10 + (Math.random() * 20 - 10),        // 0 to 20
+  // Y offset: ±8px, X offset: ±3px, Gap: 10px base ±10px range
+  // Start rotation: tilted into slide direction (~12-18° more negative)
+  const randomTransforms = useMemo(() => {
+    const card1Rotation = -3 + (Math.random() * 14 - 7);  // -10 to +4
+    const card2Rotation = 3 + (Math.random() * 14 - 7);   // -4 to +10
+
+    // Start rotations: tilted toward direction of travel (from left)
+    // Cards sliding right naturally tilt counterclockwise (-) during motion
+    const card1StartRotation = card1Rotation - 12 - (Math.random() * 6);  // ~12-18° more tilted
+    const card2StartRotation = card2Rotation - 12 - (Math.random() * 6);
+
+    return {
+      card1: {
+        rotation: card1Rotation,
+        startRotation: card1StartRotation,
+        offsetY: Math.random() * 16 - 8,          // -8 to +8
+        offsetX: Math.random() * 6 - 3,           // -3 to +3
+      },
+      card2: {
+        rotation: card2Rotation,
+        startRotation: card2StartRotation,
+        offsetY: Math.random() * 16 - 8,          // -8 to +8
+        offsetX: Math.random() * 6 - 3,           // -3 to +3
+      },
+      gap: 10 + (Math.random() * 20 - 10),        // 0 to 20
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [card1Id, card2Id]);
+  }, [card1Id, card2Id]);
 
   // Use neat or random transforms based on state
-  const neatTransforms = { card1: { rotation: 0, offsetY: 0 }, card2: { rotation: 0, offsetY: 0 }, gap: 12 };
-  const cardTransforms = cardsNeat ? neatTransforms : randomTransforms;
+  // displayTransforms persists after fold so cards stay in position
+  const neatTransforms = { card1: { rotation: 0, offsetY: 0, offsetX: 0, startRotation: 0 }, card2: { rotation: 0, offsetY: 0, offsetX: 0, startRotation: 0 }, gap: 12 };
+  const activeTransforms = displayTransforms || randomTransforms;
+  const cardTransforms = cardsNeat ? neatTransforms : activeTransforms;
+
+  // Handle card transitions: dealing in, exiting out, and persisting after fold
+  useEffect(() => {
+    // New cards arriving (different from what we had before)
+    if (card1Id && card1Id !== prevCard1Id.current) {
+      // If we had previous cards, trigger exit animation first
+      if (prevCard1Id.current && displayCards && displayTransforms) {
+        exitingCards.current = displayCards;
+        exitTransforms.current = { ...displayTransforms };
+        setIsExiting(true);
+
+        // After exit animation, deal new cards
+        const exitTimer = setTimeout(() => {
+          setIsExiting(false);
+          exitingCards.current = null;
+          exitTransforms.current = null;
+
+          // Now deal in the new cards
+          setDisplayCards(humanPlayer?.hand || null);
+          setDisplayTransforms(randomTransforms);
+          setCardsNeat(false);
+          setIsDealing(true);
+
+          const dealTimer = setTimeout(() => setIsDealing(false), 700);
+          return () => clearTimeout(dealTimer);
+        }, 500);
+
+        prevCard1Id.current = card1Id;
+        return () => clearTimeout(exitTimer);
+      } else {
+        // No previous cards, just deal in
+        // Add slight delay on initial load so page fade-in completes first
+        const isInitialDeal = !prevCard1Id.current;
+        const dealDelay = isInitialDeal ? 300 : 0;
+
+        const startDeal = setTimeout(() => {
+          setDisplayCards(humanPlayer?.hand || null);
+          setDisplayTransforms(randomTransforms);
+          setCardsNeat(false);
+          setIsDealing(true);
+          setTimeout(() => setIsDealing(false), 700);
+        }, dealDelay);
+
+        prevCard1Id.current = card1Id;
+        return () => clearTimeout(startDeal);
+      }
+    }
+
+    // Cards became null (fold or hand end) - keep displaying them, don't exit
+    // They'll exit when new cards arrive
+    if (!card1Id && prevCard1Id.current) {
+      prevCard1Id.current = null;
+      // Don't clear displayCards - keep showing them after fold
+    }
+  }, [card1Id, humanPlayer?.hand, randomTransforms, displayCards, displayTransforms]);
 
   // Sort opponents by their position relative to the human player in turn order
   const opponents = (() => {
@@ -367,37 +432,69 @@ export function MobilePokerTable({
           <div className="hero-bet">${humanPlayer.bet}</div>
         )}
         <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
-          {humanPlayer?.hand ? (
+          {isExiting && exitingCards.current?.[0] && exitingCards.current?.[1] && exitTransforms.current ? (
+            /* Exit animation - cards sweeping off to the right */
+            <>
+              <div
+                style={{
+                  animation: `dealCardOut1 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
+                  '--exit-start-x': `${exitTransforms.current.card1.offsetX}px`,
+                  '--exit-start-y': `${exitTransforms.current.card1.offsetY}px`,
+                  '--exit-start-rotation': `${exitTransforms.current.card1.rotation}deg`,
+                  '--exit-converge-x': `${exitTransforms.current.card2.offsetX + exitTransforms.current.gap}px`,
+                } as React.CSSProperties}
+              >
+                <Card card={exitingCards.current[0]} faceDown={false} size="large" className="hero-card" />
+              </div>
+              <div
+                style={{
+                  animation: `dealCardOut2 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
+                  '--exit-start-x': `${exitTransforms.current.card2.offsetX}px`,
+                  '--exit-start-y': `${exitTransforms.current.card2.offsetY}px`,
+                  '--exit-start-rotation': `${exitTransforms.current.card2.rotation}deg`,
+                } as React.CSSProperties}
+              >
+                <Card card={exitingCards.current[1]} faceDown={false} size="large" className="hero-card" />
+              </div>
+            </>
+          ) : displayCards?.[0] && displayCards?.[1] ? (
+            /* Display cards - persists after fold so player can watch action */
             <>
               <div
                 onClick={() => setCardsNeat(n => !n)}
                 style={{
-                  transform: `rotate(${cardTransforms.card1.rotation}deg) translateY(${cardTransforms.card1.offsetY}px)`,
+                  transform: `rotate(${cardTransforms.card1.rotation}deg) translateX(${cardTransforms.card1.offsetX}px) translateY(${cardTransforms.card1.offsetY}px)`,
                   transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                   cursor: 'pointer',
-                  animation: isDealing ? `dealCardIn 0.3s ease-out forwards` : 'none',
+                  animation: isDealing ? `dealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both` : 'none',
+                  opacity: humanPlayer?.is_folded ? 0.5 : 1,
                   '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
-                  '--deal-offset': `${cardTransforms.card1.offsetY}px`,
+                  '--deal-start-rotation': `${cardTransforms.card1.startRotation}deg`,
+                  '--deal-offset-x': `${cardTransforms.card1.offsetX}px`,
+                  '--deal-offset-y': `${cardTransforms.card1.offsetY}px`,
                 } as React.CSSProperties}
               >
-                <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
               </div>
               <div
                 onClick={() => setCardsNeat(n => !n)}
                 style={{
-                  transform: `rotate(${cardTransforms.card2.rotation}deg) translateY(${cardTransforms.card2.offsetY}px)`,
+                  transform: `rotate(${cardTransforms.card2.rotation}deg) translateX(${cardTransforms.card2.offsetX}px) translateY(${cardTransforms.card2.offsetY}px)`,
                   transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
                   cursor: 'pointer',
-                  animation: isDealing ? `dealCardIn 0.3s ease-out 0.15s forwards` : 'none',
-                  opacity: isDealing ? 0 : 1,
+                  animation: isDealing ? `dealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both` : 'none',
+                  opacity: humanPlayer?.is_folded ? 0.5 : 1,
                   '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
-                  '--deal-offset': `${cardTransforms.card2.offsetY}px`,
+                  '--deal-start-rotation': `${cardTransforms.card2.startRotation}deg`,
+                  '--deal-offset-x': `${cardTransforms.card2.offsetX}px`,
+                  '--deal-offset-y': `${cardTransforms.card2.offsetY}px`,
                 } as React.CSSProperties}
               >
-                <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
               </div>
             </>
           ) : (
+            /* No cards - show placeholders */
             <>
               <div className="card-placeholder" />
               <div className="card-placeholder" />

@@ -931,19 +931,76 @@
   to { transform: translateY(0); }
 }
 
-/* Card deal animation - uses CSS variables set inline */
+/* Card deal animation - simulates cards sliding across felt table
+   Uses CSS variables set inline per card:
+   --deal-start-rotation: Initial rotation (tilted into slide direction)
+   --deal-rotation: Final resting rotation
+   --deal-offset-x: Final X offset
+   --deal-offset-y: Final Y offset
+*/
 @keyframes dealCardIn {
   0% {
     opacity: 0;
-    transform: translateY(-30px) rotate(0deg) scale(0.8);
+    transform: translateX(-100px) translateY(var(--deal-offset-y)) rotate(var(--deal-start-rotation)) scale(0.98);
+    filter: blur(0.5px);
   }
-  60% {
+  20% {
     opacity: 1;
-    transform: translateY(5px) rotate(calc(var(--deal-rotation) * 0.5)) scale(1.02);
+    filter: blur(0);
+  }
+  75% {
+    /* Slight overshoot past landing position */
+    transform: translateX(calc(var(--deal-offset-x) + 6px)) translateY(var(--deal-offset-y))
+               rotate(calc(var(--deal-rotation) + 1deg)) scale(1);
   }
   100% {
+    /* Final settled position */
+    transform: translateX(var(--deal-offset-x)) translateY(var(--deal-offset-y))
+               rotate(var(--deal-rotation)) scale(1);
+  }
+}
+
+/* Card exit animation - left card joins right card, both sweep off right
+   Uses CSS variables set inline per card:
+   --exit-start-x: Starting X position
+   --exit-start-y: Starting Y position
+   --exit-start-rotation: Starting rotation
+   --exit-converge-x: X position to converge to (for card 1)
+*/
+@keyframes dealCardOut1 {
+  0% {
     opacity: 1;
-    transform: rotate(var(--deal-rotation)) translateY(var(--deal-offset)) scale(1);
+    transform: translateX(var(--exit-start-x)) translateY(var(--exit-start-y))
+               rotate(var(--exit-start-rotation)) scale(1);
+  }
+  40% {
+    /* Card 1 converges toward card 2 position */
+    opacity: 1;
+    transform: translateX(var(--exit-converge-x)) translateY(var(--exit-start-y))
+               rotate(calc(var(--exit-start-rotation) + 5deg)) scale(1);
+  }
+  100% {
+    /* Sweep off right side */
+    opacity: 0;
+    transform: translateX(150px) translateY(var(--exit-start-y))
+               rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
+    filter: blur(0.5px);
+  }
+}
+
+@keyframes dealCardOut2 {
+  0%, 40% {
+    /* Wait for card 1 to arrive */
+    opacity: 1;
+    transform: translateX(var(--exit-start-x)) translateY(var(--exit-start-y))
+               rotate(var(--exit-start-rotation)) scale(1);
+  }
+  100% {
+    /* Sweep off right side together */
+    opacity: 0;
+    transform: translateX(150px) translateY(var(--exit-start-y))
+               rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
+    filter: blur(0.5px);
   }
 }
 
