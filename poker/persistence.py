@@ -578,6 +578,7 @@ class GamePersistence:
                     already_bet_bb REAL,
                     parent_id INTEGER,
                     error_type TEXT,
+                    error_description TEXT,
                     correction_attempt INTEGER DEFAULT 0,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL,
                     FOREIGN KEY (parent_id) REFERENCES prompt_captures(id) ON DELETE SET NULL
@@ -2560,6 +2561,10 @@ class GamePersistence:
         if 'error_type' not in columns:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_type TEXT")
             logger.info("Added error_type column to prompt_captures")
+
+        if 'error_description' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_description TEXT")
+            logger.info("Added error_description column to prompt_captures")
 
         if 'correction_attempt' not in columns:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN correction_attempt INTEGER DEFAULT 0")
@@ -4972,7 +4977,7 @@ class GamePersistence:
                 SELECT id, created_at, game_id, player_name, hand_number, phase,
                        action_taken, pot_total, cost_to_call, pot_odds, player_stack,
                        community_cards, player_hand, model, provider, latency_ms, tags, notes,
-                       error_type, parent_id, correction_attempt
+                       error_type, error_description, parent_id, correction_attempt
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC

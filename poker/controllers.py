@@ -649,9 +649,19 @@ class AIPlayerController:
         if error_type is not None:
             logger.warning(f"[RESILIENCE] {self.player_name}: Error detected ({error_type.value}), attempting recovery")
 
+            # Generate error description for logging and correction prompt
+            if error_type == DecisionErrorType.MALFORMED_JSON:
+                error_description = "Could not parse JSON response. Please respond with valid JSON."
+            else:
+                error_description = describe_response_error(error_type, response_dict, valid_actions)
+
             # Mark original capture with error
             if parent_capture_id[0]:
-                update_prompt_capture(parent_capture_id[0], error_type=error_type.value)
+                update_prompt_capture(
+                    parent_capture_id[0],
+                    error_type=error_type.value,
+                    error_description=error_description
+                )
 
             try:
                 # Determine recovery prompt
@@ -661,7 +671,6 @@ class AIPlayerController:
                     logger.info(f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON")
                 else:
                     # Targeted correction prompt
-                    error_description = describe_response_error(error_type, response_dict, valid_actions)
                     recovery_prompt = self.prompt_manager.render_correction_prompt(
                         original_response=original_response_json or str(response_dict),
                         error_description=error_description,

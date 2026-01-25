@@ -38,6 +38,7 @@ export interface PromptCapture {
   labels?: Array<{ label: string; label_type: string; created_at: string }>;
   // Error/correction resilience fields
   error_type?: string | null;
+  error_description?: string | null;
   parent_id?: number | null;
   correction_attempt?: number | null;
 }

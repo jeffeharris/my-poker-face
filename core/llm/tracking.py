@@ -487,8 +487,8 @@ def capture_prompt(
                     pot_total, cost_to_call, pot_odds, player_stack,
                     community_cards, player_hand, valid_actions,
                     action_taken, raise_amount,
-                    parent_id, error_type, correction_attempt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    parent_id, error_type, error_description, correction_attempt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 capture_data.get('game_id'),
                 capture_data.get('player_name'),
@@ -520,6 +520,7 @@ def capture_prompt(
                 # Resilience fields (for error recovery tracking)
                 capture_data.get('parent_id'),
                 capture_data.get('error_type'),
+                capture_data.get('error_description'),
                 capture_data.get('correction_attempt', 0),
             ))
 
@@ -558,7 +559,7 @@ def update_prompt_capture(capture_id: int, **fields) -> bool:
         db_path = get_capture_db_path()
 
         # Build UPDATE statement for provided fields
-        allowed_fields = {'action_taken', 'raise_amount', 'parent_id', 'error_type', 'correction_attempt'}
+        allowed_fields = {'action_taken', 'raise_amount', 'parent_id', 'error_type', 'error_description', 'correction_attempt'}
         update_fields = {k: v for k, v in fields.items() if k in allowed_fields}
 
         if not update_fields:

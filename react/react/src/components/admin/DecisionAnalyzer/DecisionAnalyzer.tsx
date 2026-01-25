@@ -430,10 +430,13 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           )}
           {/* Display error info */}
           {capture.error_type && (
-            <div className="capture-error">
+            <div className="capture-error" title={capture.error_description || undefined}>
               <span className="error-badge">{capture.error_type.replace(/_/g, ' ')}</span>
               {(capture.correction_attempt ?? 0) > 0 && (
                 <span className="correction-badge">Attempt #{capture.correction_attempt}</span>
+              )}
+              {capture.error_description && (
+                <span className="error-description">{capture.error_description}</span>
               )}
             </div>
           )}
@@ -761,6 +764,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                       <div className="error-info-item">
                         <label>Error Type:</label>
                         <span className="error-type-value">{selectedCapture.error_type.replace(/_/g, ' ')}</span>
+                      </div>
+                    )}
+                    {selectedCapture.error_description && (
+                      <div className="error-info-item error-info-item--full">
+                        <label>Error:</label>
+                        <span>{selectedCapture.error_description}</span>
                       </div>
                     )}
                     {selectedCapture.parent_id && (
@@ -1199,6 +1208,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     <div className="error-info-item">
                       <label>Error Type:</label>
                       <span className="error-type-value">{selectedCapture.error_type.replace(/_/g, ' ')}</span>
+                    </div>
+                  )}
+                  {selectedCapture.error_description && (
+                    <div className="error-info-item error-info-item--full">
+                      <label>Error:</label>
+                      <span>{selectedCapture.error_description}</span>
                     </div>
                   )}
                   {selectedCapture.parent_id && (
