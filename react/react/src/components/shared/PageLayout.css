@@ -55,12 +55,6 @@
   padding-top: calc(56px + max(var(--space-4), env(safe-area-inset-top)));
 }
 
-@media (max-width: 640px) {
-  .page-layout--has-menu-bar {
-    padding-top: calc(56px + max(var(--space-2), env(safe-area-inset-top)));
-  }
-}
-
 /* ===========================================
    CONTENT CONTAINER
    =========================================== */
@@ -197,6 +191,11 @@
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
     padding-left: max(var(--space-4), env(safe-area-inset-left));
     padding-right: max(var(--space-4), env(safe-area-inset-right));
+  }
+
+  /* Must come after base padding to override */
+  .page-layout--has-menu-bar {
+    padding-top: calc(56px + max(var(--space-2), env(safe-area-inset-top)));
   }
 
   .page-layout--top .page-layout__content {

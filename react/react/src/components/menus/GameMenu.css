@@ -6,8 +6,12 @@
    ============================================ */
 
 .game-menu__banner {
-  width: 100%;
+  /* Break out of content container to full width */
+  width: 100vw;
+  margin-left: calc(-50vw + 50%);
+  padding: 0 var(--space-4);
   margin-bottom: var(--space-4);
+  box-sizing: border-box;
 }
 
 .game-menu__banner-placeholder {
@@ -25,6 +29,7 @@
 
 @media (max-width: 640px) {
   .game-menu__banner {
+    padding: 0 var(--space-2);
     margin-bottom: var(--space-3);
   }
 
