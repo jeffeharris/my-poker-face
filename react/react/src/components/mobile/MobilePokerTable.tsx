@@ -220,21 +220,14 @@ export function MobilePokerTable({
         prevCard1Id.current = card1Id;
         return () => clearTimeout(exitTimer);
       } else {
-        // No previous cards, just deal in
-        // Add slight delay on initial load so page fade-in completes first
-        const isInitialDeal = !prevCard1Id.current;
-        const dealDelay = isInitialDeal ? 300 : 0;
-
-        const startDeal = setTimeout(() => {
-          setDisplayCards(humanPlayer?.hand || null);
-          setDisplayTransforms(randomTransforms);
-          setCardsNeat(false);
-          setIsDealing(true);
-          setTimeout(() => setIsDealing(false), 700);
-        }, dealDelay);
-
+        // No previous cards, just deal in immediately
+        setDisplayCards(humanPlayer?.hand || null);
+        setDisplayTransforms(randomTransforms);
+        setCardsNeat(false);
+        setIsDealing(true);
+        const timer = setTimeout(() => setIsDealing(false), 700);
         prevCard1Id.current = card1Id;
-        return () => clearTimeout(startDeal);
+        return () => clearTimeout(timer);
       }
     }
 
