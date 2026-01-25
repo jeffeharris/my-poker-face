@@ -603,6 +603,24 @@ GROUP BY eg.variant, au.provider, au.model;
 
 ---
 
+## Experiment Statuses
+
+| Status | Description | Can Resume? |
+|--------|-------------|-------------|
+| `pending` | Created but not started | No |
+| `running` | Currently executing tournaments | No (pause first) |
+| `paused` | Manually paused by user | Yes |
+| `interrupted` | Server restarted while running | Yes |
+| `failed` | All tournaments failed (e.g., API errors, migration issues) | Yes |
+| `completed` | Finished successfully (at least one tournament completed) | No |
+
+**When does an experiment become `failed`?**
+- When ALL tournaments fail (none complete successfully)
+- Error message shows the first 3 failure reasons
+- Common causes: missing DB migrations, invalid API keys, rate limits on all providers
+
+---
+
 ## Troubleshooting
 
 ### Experiment Won't Start

@@ -20,6 +20,18 @@ docker compose exec backend python -m experiments.run_from_config \
     experiments/configs/my_config.json
 ```
 
+### Experiment Statuses
+
+| Status | Description | Can Resume? |
+|--------|-------------|-------------|
+| `running` | Currently executing | No (pause first) |
+| `paused` | Manually paused | Yes |
+| `interrupted` | Server restarted while running | Yes |
+| `failed` | All tournaments failed | Yes |
+| `completed` | Finished successfully | No |
+
+**Note**: Experiment is marked `failed` only when ALL tournaments fail. If at least one succeeds, it's `completed`.
+
 ### Managing Stalled Variants
 
 Experiments track heartbeats per variant. If a variant stops updating (API timeout, crash, etc.), it's detected as "stalled" after 5 minutes.
