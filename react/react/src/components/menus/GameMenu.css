@@ -6,7 +6,6 @@
    ============================================ */
 
 .game-menu__banner {
-  width: 100%;
   padding: 0;
   margin-bottom: var(--space-2);
   display: flex;
@@ -16,10 +15,8 @@
 
 .game-menu__banner-image {
   width: 100%;
-  max-width: 800px;
+  max-width: 380px;
   height: auto;
-  transform: scale(1.3);
-  margin: -5% 0;
 }
 
 @media (max-width: 640px) {
@@ -28,26 +25,14 @@
   }
 
   .game-menu__banner-image {
-    max-width: 100%;
-    transform: scale(1.4);
-    margin: -8% 0;
+    max-width: 85%;
   }
 }
 
-/* ============================================
-   Page Header Override for Menu
-   ============================================ */
-
+/* Page header spacing in menu context */
 .game-menu__banner + .page-header {
   padding-top: 0;
-  margin-bottom: var(--space-6);
-}
-
-@media (max-width: 640px) {
-  .game-menu__banner + .page-header {
-    padding-top: 0;
-    margin-bottom: var(--space-4);
-  }
+  margin-bottom: var(--space-4);
 }
 
 /* ============================================
@@ -60,16 +45,30 @@
   gap: var(--space-4);
 }
 
-/* Split layout for desktop */
+/* Desktop layout - centered, no sidebar */
 .game-menu__layout--split {
-  flex-direction: row;
-  gap: var(--space-8);
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  width: 70vw;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .game-menu__layout--split .game-menu__options {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+/* Quick play section spans full width in grid */
+.game-menu__layout--split .quick-play-section {
+  grid-column: 1 / -1;
+}
+
+/* Hide sidebar on desktop - use mobile stats button instead */
+.game-menu__layout--split .game-menu__sidebar {
+  display: none;
 }
 
 /* ============================================

@@ -193,7 +193,7 @@ export function GameMenu({
   return (
     <>
       <MenuBar showUserInfo />
-      <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'} hasMenuBar>
+      <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? undefined : 'md'} hasMenuBar>
         {/* Banner */}
         <div className="game-menu__banner">
           <img src={menuBanner} alt="My Poker Face" className="game-menu__banner-image" />
@@ -286,8 +286,8 @@ export function GameMenu({
             {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
-          {/* My Stats - only show on mobile, desktop has sidebar */}
-          {!isDesktop && onViewStats && (
+          {/* My Stats */}
+          {onViewStats && (
             <button
               className="menu-option view-stats"
               onClick={onViewStats}
