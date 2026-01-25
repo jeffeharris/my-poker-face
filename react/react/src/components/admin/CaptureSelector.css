@@ -930,3 +930,32 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Error/Correction Display */
+.cs-capture__error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.cs-error-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+  text-transform: capitalize;
+}
+
+.cs-correction-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 159, 28, 0.2);
+  color: #ff9f1c;
+}
