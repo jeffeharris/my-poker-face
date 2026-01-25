@@ -619,6 +619,8 @@ class AITournamentRunner:
             owner_id=self._owner_id,
             commentary_enabled=commentary_enabled
         )
+        # Set persistence so hand history is saved to database
+        memory_manager.set_persistence(self.persistence)
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:
@@ -948,6 +950,15 @@ class AITournamentRunner:
             winner_names = [w.get('name') for w in winners if w.get('name')]
             logger.debug(f"Hand {hand_number}: Winners = {winners}")
 
+            # Record hand history to database (always, for outcome metrics)
+            # This persists to hand_history table via memory_manager's persistence layer
+            memory_manager.on_hand_complete(
+                winner_info=winner_info,
+                game_state=game_state,
+                ai_players={},  # No AI player context needed for hand recording
+                skip_commentary=True  # Commentary handled separately below if enabled
+            )
+
             # Post-hand psychological processing (if enabled)
             enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
             enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
@@ -1105,10 +1116,23 @@ class AITournamentRunner:
         if paused:
             raise TournamentPausedException(tournament_id, hand_number)
 
-        # Determine final standings
+        # Determine final standings with outcome metrics
         end_time = datetime.now()
+
+        # Get per-player outcome data from hand_history
+        player_outcomes = self._get_player_outcomes(tournament_id)
+
         final_standings = sorted(
-            [{"name": p.name, "stack": p.stack} for p in state_machine.game_state.players],
+            [
+                {
+                    "name": p.name,
+                    "stack": p.stack,
+                    "final_stack": p.stack,  # Alias for persistence compatibility
+                    "hands_won": player_outcomes.get(p.name, {}).get('hands_won', 0),
+                    "hands_played": player_outcomes.get(p.name, {}).get('hands_played', 0),
+                }
+                for p in state_machine.game_state.players
+            ],
             key=lambda x: x["stack"],
             reverse=True
         )
@@ -1191,6 +1215,69 @@ class AITournamentRunner:
             logger.warning(f"Could not get decision stats: {e}")
 
         return {}
+
+    def _get_player_outcomes(self, game_id: str) -> Dict[str, Dict[str, int]]:
+        """Get per-player outcome metrics from hand_history table.
+
+        Args:
+            game_id: The tournament/game ID to query
+
+        Returns:
+            Dict mapping player name to {hands_played, hands_won}
+        """
+        try:
+            import sqlite3
+            import json
+
+            with sqlite3.connect(self.persistence.db_path) as conn:
+                cursor = conn.cursor()
+
+                cursor.execute('''
+                    SELECT players_json, winners_json
+                    FROM hand_history
+                    WHERE game_id = ?
+                ''', (game_id,))
+
+                rows = cursor.fetchall()
+
+                # Aggregate per-player stats
+                player_stats: Dict[str, Dict[str, int]] = {}
+
+                for players_json, winners_json in rows:
+                    # Parse players
+                    try:
+                        players = json.loads(players_json) if players_json else []
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Parse winners
+                    try:
+                        winners = json.loads(winners_json) if winners_json else []
+                    except json.JSONDecodeError:
+                        winners = []
+
+                    # Track hands played
+                    for player in players:
+                        name = player.get('name') if isinstance(player, dict) else str(player)
+                        if name not in player_stats:
+                            player_stats[name] = {'hands_played': 0, 'hands_won': 0}
+                        player_stats[name]['hands_played'] += 1
+
+                    # Track hands won
+                    winner_names = set()
+                    for winner in winners:
+                        name = winner.get('name') if isinstance(winner, dict) else str(winner)
+                        winner_names.add(name)
+
+                    for name in winner_names:
+                        if name in player_stats:
+                            player_stats[name]['hands_won'] += 1
+
+                return player_stats
+
+        except Exception as e:
+            logger.warning(f"Could not get player outcomes: {e}")
+            return {}
 
     def run_experiment(self) -> List[TournamentResult]:
         """Run the full experiment (multiple tournaments).
@@ -1595,6 +1682,12 @@ class AITournamentRunner:
                 len(results) * 100 / (len(results) + len(failed)), 1
             ) if (results or failed) else 0
 
+        # Compute outcome-based metrics from hand_history (unbiased metrics)
+        if self.experiment_id:
+            outcome_metrics = self._compute_outcome_metrics(self.experiment_id)
+            if outcome_metrics:
+                summary['outcome_metrics'] = outcome_metrics
+
         return summary
 
     def _compute_variant_summaries(self, results: List[TournamentResult]) -> Dict[str, Dict]:
@@ -1764,6 +1857,134 @@ class AITournamentRunner:
             logger.warning(f"Could not get error stats: {e}")
 
         return None
+
+    def _compute_outcome_metrics(self, experiment_id: str) -> Optional[Dict]:
+        """Compute outcome-based metrics from hand_history table.
+
+        Queries the hand_history table joined with experiment_games to compute
+        unbiased outcome metrics: hands won, chips won, and win rates per player
+        per variant.
+
+        Args:
+            experiment_id: The experiment ID to compute metrics for
+
+        Returns:
+            Dictionary with per-variant outcome metrics, or None if no data
+        """
+        try:
+            import sqlite3
+            import json
+
+            with sqlite3.connect(self.persistence.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+
+                # Get all hands for this experiment with variant info
+                cursor = conn.execute("""
+                    SELECT
+                        hh.game_id,
+                        hh.hand_number,
+                        hh.players_json,
+                        hh.winners_json,
+                        hh.pot_size,
+                        hh.showdown,
+                        eg.variant
+                    FROM hand_history hh
+                    JOIN experiment_games eg ON hh.game_id = eg.game_id
+                    WHERE eg.experiment_id = ?
+                """, (experiment_id,))
+
+                rows = cursor.fetchall()
+
+                if not rows:
+                    logger.debug(f"No hand_history records found for experiment {experiment_id}")
+                    return None
+
+                # Aggregate per-variant per-player stats
+                # Structure: {variant: {player: {hands: int, wins: int, chips_won: int}}}
+                variant_player_stats: Dict[str, Dict[str, Dict[str, int]]] = {}
+
+                for row in rows:
+                    variant = row['variant'] or 'default'
+                    players_json = row['players_json']
+                    winners_json = row['winners_json']
+                    pot_size = row['pot_size'] or 0
+
+                    # Parse player names from players_json
+                    try:
+                        players = json.loads(players_json) if players_json else []
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Parse winners from winners_json
+                    try:
+                        winners = json.loads(winners_json) if winners_json else []
+                    except json.JSONDecodeError:
+                        winners = []
+
+                    # Initialize variant dict if needed
+                    if variant not in variant_player_stats:
+                        variant_player_stats[variant] = {}
+
+                    # Track hands played for each player
+                    for player in players:
+                        player_name = player.get('name') if isinstance(player, dict) else str(player)
+                        if player_name not in variant_player_stats[variant]:
+                            variant_player_stats[variant][player_name] = {
+                                'hands_played': 0,
+                                'hands_won': 0,
+                                'chips_won': 0,
+                                'showdowns': 0,
+                            }
+                        variant_player_stats[variant][player_name]['hands_played'] += 1
+
+                    # Track wins for each winner
+                    for winner in winners:
+                        winner_name = winner.get('name') if isinstance(winner, dict) else str(winner)
+                        amount_won = winner.get('amount_won', pot_size // max(1, len(winners))) if isinstance(winner, dict) else 0
+
+                        if winner_name in variant_player_stats[variant]:
+                            variant_player_stats[variant][winner_name]['hands_won'] += 1
+                            variant_player_stats[variant][winner_name]['chips_won'] += amount_won
+                            if row['showdown']:
+                                variant_player_stats[variant][winner_name]['showdowns'] += 1
+
+                # Convert to summary format with computed metrics
+                result = {}
+                for variant, player_stats in variant_player_stats.items():
+                    variant_summary = {
+                        'total_hands': sum(p['hands_played'] for p in player_stats.values()) // max(1, len(player_stats)),
+                        'total_players': len(player_stats),
+                        'player_stats': {},
+                    }
+
+                    # Per-player metrics
+                    for player_name, stats in player_stats.items():
+                        hands = stats['hands_played']
+                        wins = stats['hands_won']
+                        variant_summary['player_stats'][player_name] = {
+                            'hands_played': hands,
+                            'hands_won': wins,
+                            'win_rate': round(wins * 100 / hands, 2) if hands > 0 else 0,
+                            'chips_won': stats['chips_won'],
+                            'chips_per_hand': round(stats['chips_won'] / hands, 2) if hands > 0 else 0,
+                            'showdowns_won': stats['showdowns'],
+                        }
+
+                    # Aggregate variant-level metrics
+                    all_win_rates = [p['win_rate'] for p in variant_summary['player_stats'].values()]
+                    all_chips_per_hand = [p['chips_per_hand'] for p in variant_summary['player_stats'].values()]
+
+                    variant_summary['avg_win_rate'] = round(sum(all_win_rates) / len(all_win_rates), 2) if all_win_rates else 0
+                    variant_summary['avg_chips_per_hand'] = round(sum(all_chips_per_hand) / len(all_chips_per_hand), 2) if all_chips_per_hand else 0
+
+                    result[variant] = variant_summary
+
+                logger.info(f"Computed outcome metrics for {len(rows)} hands across {len(result)} variants")
+                return result
+
+        except Exception as e:
+            logger.warning(f"Could not compute outcome metrics: {e}", exc_info=True)
+            return None
 
     def _generate_ai_interpretation(
         self,

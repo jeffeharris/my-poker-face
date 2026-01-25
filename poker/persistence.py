@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 # v50: Add prompt_config_json to prompt_captures for analysis
 # v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
-SCHEMA_VERSION = 53
+# v53: Add heartbeat tracking columns to experiment_games
+# v54: Add outcome columns to tournament_standings for unbiased metrics
+SCHEMA_VERSION = 54
 
 
 @dataclass
@@ -945,6 +947,7 @@ class GamePersistence:
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
             53: (self._migrate_v53_add_heartbeat_columns, "Add heartbeat tracking columns to experiment_games"),
+            54: (self._migrate_v54_add_outcome_columns, "Add outcome columns to tournament_standings for unbiased metrics"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2571,6 +2574,32 @@ class GamePersistence:
         """)
 
         logger.info("Migration v53 complete: Heartbeat tracking columns added to experiment_games")
+
+    def _migrate_v54_add_outcome_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v54: Add outcome tracking columns to tournament_standings.
+
+        Adds columns for tracking unbiased outcome metrics:
+        - final_stack: Player's ending chip count
+        - hands_won: Number of hands won by this player
+        - hands_played: Total hands this player participated in
+        """
+        columns_to_add = [
+            ("final_stack", "INTEGER"),
+            ("hands_won", "INTEGER"),
+            ("hands_played", "INTEGER"),
+        ]
+
+        for col_name, col_def in columns_to_add:
+            try:
+                conn.execute(f"ALTER TABLE tournament_standings ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to tournament_standings")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in tournament_standings")
+                else:
+                    raise
+
+        logger.info("Migration v54 complete: Outcome columns added to tournament_standings")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4240,15 +4269,18 @@ class GamePersistence:
                 conn.execute("""
                     INSERT OR REPLACE INTO tournament_standings
                     (game_id, player_name, is_human, finishing_position,
-                     eliminated_by, eliminated_at_hand)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                     eliminated_by, eliminated_at_hand, final_stack, hands_won, hands_played)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     game_id,
                     standing.get('player_name'),
                     standing.get('is_human', False),
                     standing.get('finishing_position'),
                     standing.get('eliminated_by'),
-                    standing.get('eliminated_at_hand')
+                    standing.get('eliminated_at_hand'),
+                    standing.get('final_stack'),
+                    standing.get('hands_won'),
+                    standing.get('hands_played')
                 ))
 
     def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
