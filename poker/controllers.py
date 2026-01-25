@@ -34,6 +34,7 @@ from .hand_ranges import (
     build_opponent_info,
     calculate_equity_vs_ranges,
     format_opponent_stats,
+    EquityConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -748,9 +749,13 @@ class AIPlayerController:
                                 opponent_model=opp_model_data,
                             ))
 
-                        # Calculate equity vs ranges
+                        # Calculate equity vs ranges (use config setting for range mode)
+                        equity_config = EquityConfig(
+                            use_enhanced_ranges=self.prompt_config.use_enhanced_ranges
+                        )
                         equity_vs_ranges = calculate_equity_vs_ranges(
-                            hole_cards, community_cards, opponent_infos, iterations=300
+                            hole_cards, community_cards, opponent_infos,
+                            iterations=300, config=equity_config
                         )
                         if equity_vs_ranges is not None:
                             equity_ranges_pct = round(equity_vs_ranges * 100)

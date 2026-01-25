@@ -29,6 +29,7 @@ class EquityConfig:
     """Configuration for equity calculation behavior."""
     use_in_game_stats: bool = True       # Use observed stats from current game
     min_hands_for_stats: int = 5         # Minimum hands before using observed stats
+    use_enhanced_ranges: bool = True     # Use new range function with PFR/action context
 
 
 @dataclass
@@ -775,7 +776,11 @@ def sample_hand_for_opponent(
     if rng is None:
         rng = random.Random()
 
-    hand_range = get_opponent_range(opponent, config)
+    # Choose range function based on config
+    if config and not config.use_enhanced_ranges:
+        hand_range = get_opponent_range_og(opponent, config)
+    else:
+        hand_range = get_opponent_range(opponent, config)
 
     # Build list of valid combos
     valid_combos = []
@@ -868,22 +873,31 @@ def calculate_equity_vs_ranges(
     community_cards: List[str],
     opponent_infos: List[OpponentInfo],
     iterations: int = 500,
+    config: EquityConfig = None,
 ) -> Optional[float]:
     """Calculate equity vs opponent hand ranges using fallback hierarchy.
 
-    Uses the following priority for range estimation:
-    1. In-game observed stats (VPIP-based, if enough hands observed)
-    2. Position-based static ranges (fallback)
+    Uses the following priority for range estimation (when use_enhanced_ranges=True):
+    1. Action-based narrowing (open_raise, 3bet, etc.)
+    2. PFR-based estimation
+    3. VPIP-based estimation
+    4. Position-based static ranges (fallback)
+
+    When use_enhanced_ranges=False, uses VPIP-only estimation.
 
     Args:
         player_hand: Hero's hole cards as strings ['Ah', 'Kd']
         community_cards: Board cards as strings
         opponent_infos: List of OpponentInfo objects with position/stats
         iterations: Monte Carlo iterations (default 500 for speed)
+        config: EquityConfig controlling range estimation behavior
 
     Returns:
         Win probability (0.0-1.0) or None if calculation fails
     """
+    if config is None:
+        config = EquityConfig()
+
     try:
         import eval7
 
@@ -910,7 +924,6 @@ def calculate_equity_vs_ranges(
         wins = 0
         valid_iterations = 0
         rng = random.Random()
-        config = EquityConfig()
 
         for _ in range(iterations):
             # Sample opponent hands from ranges

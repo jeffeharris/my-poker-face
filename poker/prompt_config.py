@@ -62,6 +62,7 @@ class PromptConfig:
     # GTO Foundation components (math-first decision support)
     show_equity_always: bool = False  # Always show equity verdict for all decisions
     show_equity_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
+    use_enhanced_ranges: bool = True   # Use PFR/action-based range estimation (vs VPIP-only)
 
     # Minimal prompt mode - strips everything to bare game state
     # When True, uses minimal_prompt.py instead of full prompt system

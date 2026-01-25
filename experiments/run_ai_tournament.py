@@ -1256,10 +1256,22 @@ class AITournamentRunner:
         # Complete experiment with summary (include failure info)
         if self.experiment_id:
             try:
-                summary = self._compute_experiment_summary(results, failed)
-                # Generate AI interpretation of results (best-effort, won't block completion)
-                summary = self._generate_ai_interpretation(summary, failed)
-                self.persistence.complete_experiment(self.experiment_id, summary)
+                # If ALL tournaments failed, mark experiment as failed
+                if not results and failed:
+                    error_msgs = [f.error for f in failed if f.error]
+                    error_summary = "; ".join(error_msgs[:3])  # First 3 errors
+                    if len(error_msgs) > 3:
+                        error_summary += f" (and {len(error_msgs) - 3} more)"
+                    logger.error(f"All {len(failed)} tournaments failed, marking experiment as failed")
+                    self.persistence.update_experiment_status(
+                        self.experiment_id, 'failed',
+                        f"All {len(failed)} tournaments failed: {error_summary}"
+                    )
+                else:
+                    summary = self._compute_experiment_summary(results, failed)
+                    # Generate AI interpretation of results (best-effort, won't block completion)
+                    summary = self._generate_ai_interpretation(summary, failed)
+                    self.persistence.complete_experiment(self.experiment_id, summary)
             except Exception as e:
                 logger.warning(f"Could not complete experiment: {e}")
 
