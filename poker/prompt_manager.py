@@ -32,6 +32,14 @@ DRAMA_CONTEXTS = {
     'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
 }
 
+# Tone modifiers that append to drama context based on hand strength
+TONE_MODIFIERS = {
+    'neutral': "",
+    'confident': " Channel quiet confidence - you know you have the goods.",
+    'desperate': " Show the pressure - this is do-or-die, make it feel that way.",
+    'triumphant': " Savor the moment - you've got them right where you want them."
+}
+
 
 def _validate_format_placeholders(text: str) -> Set[str]:
     """Extract and validate format placeholders from a string.
@@ -494,9 +502,11 @@ class PromptManager:
         # Append drama context at END (critical - avoids biasing decision)
         if drama_context:
             level = drama_context.get('level', 'routine')
+            tone = drama_context.get('tone', 'neutral')
             drama_text = DRAMA_CONTEXTS.get(level, '')
+            tone_modifier = TONE_MODIFIERS.get(tone, '')
             if drama_text:
-                rendered = f"{rendered}\n\n{drama_text}"
+                rendered = f"{rendered}\n\n{drama_text}{tone_modifier}"
 
         return rendered
 

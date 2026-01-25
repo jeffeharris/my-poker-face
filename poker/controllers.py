@@ -600,6 +600,8 @@ class AIPlayerController:
             # Made hand guidance: help prevent folding strong hands
             # Calculate equity and provide guidance based on thresholds
             # Tone varies based on emotional state (tilted = softer guidance)
+            # Also used for drama tone detection
+            hand_equity = 0.0  # Default for preflop or calculation failure
             if game_state.community_cards:  # Post-flop only
                 # Convert cards to string format for equity calculation
                 def card_to_str(c):
@@ -623,6 +625,7 @@ class AIPlayerController:
 
                 equity = calculate_quick_equity(hole_cards, community_cards)
                 if equity is not None:
+                    hand_equity = equity  # Store for drama tone detection
                     # Get emotional state - negative valence = tilted
                     is_tilted = False
                     if self.psychology and self.psychology.emotional:
@@ -653,13 +656,20 @@ class AIPlayerController:
         # Drama level for response intensity calibration
         drama_context = None
         if self.prompt_config.situational_guidance:
+            # Use cost_to_call as proxy for last raise amount (represents bet size to match)
             analysis = MomentAnalyzer.analyze(
                 game_state=game_state,
                 player=player,
                 cost_to_call=cost_to_call,
-                big_blind=big_blind
+                big_blind=big_blind,
+                last_raise_amount=cost_to_call,
+                hand_equity=hand_equity
             )
-            drama_context = {'level': analysis.level, 'factors': analysis.factors}
+            drama_context = {
+                'level': analysis.level,
+                'factors': analysis.factors,
+                'tone': analysis.tone
+            }
 
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         decision_prompt = self.prompt_manager.render_decision_prompt(
