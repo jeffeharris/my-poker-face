@@ -83,6 +83,16 @@ interface ExperimentGame {
   created_at: string;
 }
 
+interface StalledVariant {
+  id: number;
+  game_id: string;
+  variant: string;
+  state: 'calling_api' | 'processing';
+  last_heartbeat_at: string;
+  last_api_call_started_at: string | null;
+  process_id: number | null;
+}
+
 interface DecisionStats {
   total: number;
   correct: number;
@@ -120,6 +130,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const [pauseRequested, setPauseRequested] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [failureDetailsExpanded, setFailureDetailsExpanded] = useState(true);
+  const [stalledVariants, setStalledVariants] = useState<StalledVariant[]>([]);
+  const [resumingVariants, setResumingVariants] = useState<Set<number>>(new Set());
 
 
   const fetchExperiment = useCallback(async () => {
@@ -153,6 +165,50 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     }
   }, [experimentId]);
 
+  // Fetch stalled variants for running experiments
+  const fetchStalledVariants = useCallback(async () => {
+    if (!experimentId) return;
+    try {
+      const response = await fetch(
+        `${config.API_URL}/api/experiments/${experimentId}/stalled?threshold_minutes=5`
+      );
+      const data = await response.json();
+      if (data.success) {
+        setStalledVariants(data.stalled_variants || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stalled variants:', err);
+    }
+  }, [experimentId]);
+
+  // Resume a stalled variant
+  const handleResumeVariant = async (variantId: number) => {
+    setResumingVariants((prev) => new Set(prev).add(variantId));
+    try {
+      const response = await fetch(
+        `${config.API_URL}/api/experiments/${experimentId}/variants/${variantId}/resume`,
+        { method: 'POST' }
+      );
+      const data = await response.json();
+      if (data.success) {
+        // Refresh stalled variants list
+        fetchStalledVariants();
+        fetchExperiment();
+      } else {
+        setError(data.error || 'Failed to resume variant');
+      }
+    } catch (err) {
+      console.error('Failed to resume variant:', err);
+      setError('Failed to resume variant');
+    } finally {
+      setResumingVariants((prev) => {
+        const next = new Set(prev);
+        next.delete(variantId);
+        return next;
+      });
+    }
+  };
+
   // Initial load
   useEffect(() => {
     fetchExperiment();
@@ -165,6 +221,22 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     if (experiment?.status !== 'running') return;
 
     const interval = setInterval(fetchExperiment, 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experiment?.status, experimentId]);
+
+  // Check for stalled variants periodically while running
+  useEffect(() => {
+    if (experiment?.status !== 'running') {
+      setStalledVariants([]);
+      return;
+    }
+
+    // Initial fetch
+    fetchStalledVariants();
+
+    // Check every 30 seconds
+    const interval = setInterval(fetchStalledVariants, 30000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experiment?.status, experimentId]);
@@ -646,15 +718,37 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             {Object.entries(liveStats.by_variant).map(([label, variantLive]) => {
               // Get model info from summary if available
               const variantSummary = summary?.variants?.[label];
+              // Check if this variant is stalled
+              const stalledVariant = stalledVariants.find((sv) => sv.variant === label);
+              const isStalled = !!stalledVariant;
+              const isResuming = stalledVariant ? resumingVariants.has(stalledVariant.id) : false;
               return (
-                <div key={label} className="experiment-detail__variant-card">
+                <div key={label} className={`experiment-detail__variant-card${isStalled ? ' experiment-detail__variant-card--stalled' : ''}`}>
                   <div className="experiment-detail__variant-header">
                     <h4 className="experiment-detail__variant-label">{label}</h4>
-                    {variantSummary?.model_config && (
-                      <span className="experiment-detail__variant-model">
-                        {variantSummary.model_config.provider}/{variantSummary.model_config.model}
-                      </span>
-                    )}
+                    <div className="experiment-detail__variant-header-right">
+                      {isStalled && (
+                        <>
+                          <span className="experiment-detail__stalled-badge" title={`State: ${stalledVariant.state}, Last activity: ${stalledVariant.last_heartbeat_at}`}>
+                            <AlertTriangle size={12} /> Stalled
+                          </span>
+                          <button
+                            className="experiment-detail__resume-variant-btn"
+                            onClick={() => handleResumeVariant(stalledVariant.id)}
+                            disabled={isResuming}
+                            title="Resume this stalled variant"
+                          >
+                            {isResuming ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                            Resume
+                          </button>
+                        </>
+                      )}
+                      {variantSummary?.model_config && (
+                        <span className="experiment-detail__variant-model">
+                          {variantSummary.model_config.provider}/{variantSummary.model_config.model}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Progress Section */}

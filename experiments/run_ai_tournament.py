@@ -79,6 +79,18 @@ class TournamentPausedException(Exception):
         super().__init__(f"{message} at hand {hand_number}")
 
 
+class TournamentSupersededException(Exception):
+    """Raised when a tournament is superseded by a resume operation.
+
+    This happens when another process has acquired the resume lock,
+    indicating this process should exit gracefully.
+    """
+
+    def __init__(self, tournament_id: str, message: str = "Tournament superseded by resume"):
+        self.tournament_id = tournament_id
+        super().__init__(f"{message}: {tournament_id}")
+
+
 # Configure logging (only if not already configured, e.g., when imported)
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -388,6 +400,10 @@ class TournamentWorker:
                         variant_config=task.variant_config,
                         tournament_number=task.tournament_number,
                     )
+                    # Record process_id and initial heartbeat for resume tracking
+                    runner.persistence.update_experiment_game_heartbeat(
+                        task.tournament_id, 'processing', process_id=os.getpid()
+                    )
                 except Exception as e:
                     logger.warning(f"Could not link game to experiment: {e}")
 
@@ -425,6 +441,19 @@ class TournamentWorker:
                 task=task,
                 error=str(e),
                 error_type='TournamentPausedException',
+                duration_seconds=duration,
+            )
+
+        except TournamentSupersededException as e:
+            # Tournament was superseded by a resume - not an error, graceful exit
+            duration = time.time() - start_time
+            logger.info(
+                f"Tournament {task.tournament_id} superseded by resume after {duration:.1f}s"
+            )
+            return TournamentOutcome(
+                task=task,
+                error=str(e),
+                error_type='TournamentSupersededException',
                 duration_seconds=duration,
             )
 
@@ -843,10 +872,23 @@ class AITournamentRunner:
 
                 if controller:
                     try:
+                        # Update heartbeat before API call
+                        if tournament_id and self.experiment_id:
+                            self.persistence.update_experiment_game_heartbeat(
+                                tournament_id, 'calling_api', api_call_started=True,
+                                process_id=os.getpid()
+                            )
+
                         # Get AI decision
                         start_time = time.time()
                         response = controller.decide_action([])
                         latency = (time.time() - start_time) * 1000
+
+                        # Update heartbeat after API call
+                        if tournament_id and self.experiment_id:
+                            self.persistence.update_experiment_game_heartbeat(
+                                tournament_id, 'processing', process_id=os.getpid()
+                            )
 
                         self.api_calls += 1
                         self.total_latency += latency
@@ -1003,6 +1045,17 @@ class AITournamentRunner:
             # Save game state for live monitoring (every hand)
             self.persistence.save_game(tournament_id, state_machine, self._owner_id)
 
+            # Check if we've been superseded by a resume operation
+            if self.experiment_id and self.persistence.check_resume_lock_superseded(tournament_id):
+                logger.info(f"Tournament {tournament_id} superseded by resume operation, exiting gracefully")
+                raise TournamentSupersededException(tournament_id)
+
+            # Periodic heartbeat every 5 hands
+            if self.experiment_id and hand_number % 5 == 0:
+                self.persistence.update_experiment_game_heartbeat(
+                    tournament_id, 'processing', process_id=os.getpid()
+                )
+
             # Track eliminations
             current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
             eliminated = prev_active - current_active
@@ -1095,6 +1148,11 @@ class AITournamentRunner:
             round_winners=round_winners,
             total_resets=total_resets,
         )
+
+        # Mark tournament as idle (completed) for heartbeat tracking
+        if self.experiment_id:
+            self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
+            self.persistence.release_resume_lock(tournament_id)
 
         variant_info = f" [{variant_label}]" if variant_label else ""
         resets_info = f", Resets = {total_resets}" if total_resets > 0 else ""

@@ -646,6 +646,44 @@ conn.commit()
 # Then resume via API
 ```
 
+### Resuming Stalled Variants
+
+Experiments track heartbeats per variant. If a variant stops updating (API timeout, crash, etc.), it's detected as "stalled" after 5 minutes.
+
+**Via Web UI**:
+- Running experiments show a "Stalled" badge on affected variant cards
+- Click "Resume" button on the stalled variant card
+
+**Via CLI**:
+```bash
+# List stalled variants for an experiment
+python -m experiments.resume_stalled -e 42 --list
+
+# Resume all stalled variants
+python -m experiments.resume_stalled -e 42 --resume-all
+
+# Resume a specific variant by game_id
+python -m experiments.resume_stalled -e 42 -g <game_id>
+
+# Custom stall threshold (default: 5 minutes)
+python -m experiments.resume_stalled -e 42 --list --threshold 10
+```
+
+**Via API**:
+```bash
+# Get stalled variants
+curl http://localhost:5005/api/experiments/42/stalled?threshold_minutes=5
+
+# Resume a specific variant (game_id from stalled list)
+curl -X POST http://localhost:5005/api/experiments/42/variants/<variant_id>/resume
+```
+
+**How it works**:
+- Each variant updates a heartbeat before/after API calls
+- The system detects variants stuck in `calling_api` or `processing` state beyond the threshold
+- Resume uses pessimistic locking to prevent race conditions with the original process
+- If the original process is still alive, it exits gracefully when it detects it's been superseded
+
 ---
 
 ## Architecture
@@ -675,6 +713,7 @@ conn.commit()
 
 - `experiments/run_ai_tournament.py` - Main runner and config
 - `experiments/pause_coordinator.py` - Pause/resume coordination
+- `experiments/resume_stalled.py` - CLI for stalled variant detection and resume
 - `flask_app/routes/experiment_routes.py` - API endpoints
 - `poker/controllers.py` - AIPlayerController
 - `poker/player_psychology.py` - Tilt and emotional state

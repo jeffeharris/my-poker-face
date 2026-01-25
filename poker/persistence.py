@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # v50: Add prompt_config_json to prompt_captures for analysis
 # v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
-SCHEMA_VERSION = 52
+SCHEMA_VERSION = 53
 
 
 @dataclass
@@ -944,6 +944,7 @@ class GamePersistence:
             50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
+            53: (self._migrate_v53_add_heartbeat_columns, "Add heartbeat tracking columns to experiment_games"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2534,6 +2535,42 @@ class GamePersistence:
         """)
 
         logger.info("Migration v52 complete: RBAC tables added with initial data")
+
+    def _migrate_v53_add_heartbeat_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v53: Add heartbeat tracking columns to experiment_games.
+
+        Adds columns for tracking experiment variant state and detecting stalled variants:
+        - state: Current state ('idle', 'calling_api', 'processing')
+        - last_heartbeat_at: Last activity timestamp
+        - last_api_call_started_at: When the current API call started
+        - process_id: PID of the process running this variant
+        - resume_lock_acquired_at: Timestamp of resume lock acquisition for race prevention
+        """
+        columns_to_add = [
+            ("state", "TEXT DEFAULT 'idle'"),
+            ("last_heartbeat_at", "TIMESTAMP"),
+            ("last_api_call_started_at", "TIMESTAMP"),
+            ("process_id", "INTEGER"),
+            ("resume_lock_acquired_at", "TIMESTAMP"),
+        ]
+
+        for col_name, col_def in columns_to_add:
+            try:
+                conn.execute(f"ALTER TABLE experiment_games ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to experiment_games")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in experiment_games")
+                else:
+                    raise
+
+        # Add index for finding stalled variants quickly
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_experiment_games_state_heartbeat
+            ON experiment_games(state, last_heartbeat_at)
+        """)
+
+        logger.info("Migration v53 complete: Heartbeat tracking columns added to experiment_games")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -5617,6 +5654,175 @@ class GamePersistence:
                 }
                 for row in cursor.fetchall()
             ]
+
+    def update_experiment_game_heartbeat(
+        self,
+        game_id: str,
+        state: str,
+        api_call_started: bool = False,
+        process_id: Optional[int] = None
+    ) -> None:
+        """Update heartbeat for an experiment game.
+
+        Args:
+            game_id: The game ID (tournament_id)
+            state: Current state ('idle', 'calling_api', 'processing')
+            api_call_started: If True, also update last_api_call_started_at
+            process_id: Optional process ID to record
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            if api_call_started:
+                conn.execute("""
+                    UPDATE experiment_games
+                    SET state = ?,
+                        last_heartbeat_at = CURRENT_TIMESTAMP,
+                        last_api_call_started_at = CURRENT_TIMESTAMP,
+                        process_id = COALESCE(?, process_id)
+                    WHERE game_id = ?
+                """, (state, process_id, game_id))
+            else:
+                conn.execute("""
+                    UPDATE experiment_games
+                    SET state = ?,
+                        last_heartbeat_at = CURRENT_TIMESTAMP,
+                        process_id = COALESCE(?, process_id)
+                    WHERE game_id = ?
+                """, (state, process_id, game_id))
+
+    def get_stalled_variants(
+        self,
+        experiment_id: int,
+        threshold_minutes: int = 5
+    ) -> List[Dict]:
+        """Get variants that appear to be stalled.
+
+        A variant is considered stalled if:
+        - state='calling_api' AND last_api_call_started_at < (NOW - threshold)
+        - state='processing' AND last_heartbeat_at < (NOW - threshold)
+        - NOT in tournament_results (not completed)
+
+        Args:
+            experiment_id: The experiment ID
+            threshold_minutes: Minutes of inactivity before considered stalled
+
+        Returns:
+            List of stalled variant records
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
+                       eg.tournament_number, eg.state, eg.last_heartbeat_at,
+                       eg.last_api_call_started_at, eg.process_id, eg.resume_lock_acquired_at
+                FROM experiment_games eg
+                WHERE eg.experiment_id = ?
+                  AND eg.state IN ('calling_api', 'processing')
+                  AND (
+                      (eg.state = 'calling_api'
+                       AND eg.last_api_call_started_at < datetime('now', ? || ' minutes'))
+                      OR
+                      (eg.state = 'processing'
+                       AND eg.last_heartbeat_at < datetime('now', ? || ' minutes'))
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tournament_results tr
+                      WHERE tr.game_id = eg.game_id
+                  )
+                ORDER BY eg.last_heartbeat_at
+            """, (experiment_id, -threshold_minutes, -threshold_minutes))
+
+            return [
+                {
+                    'id': row[0],
+                    'game_id': row[1],
+                    'variant': row[2],
+                    'variant_config': json.loads(row[3]) if row[3] else None,
+                    'tournament_number': row[4],
+                    'state': row[5],
+                    'last_heartbeat_at': row[6],
+                    'last_api_call_started_at': row[7],
+                    'process_id': row[8],
+                    'resume_lock_acquired_at': row[9],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def acquire_resume_lock(self, experiment_game_id: int) -> bool:
+        """Attempt to acquire a resume lock on an experiment game.
+
+        Uses pessimistic locking to prevent race conditions when resuming.
+
+        Args:
+            experiment_game_id: The experiment_games.id
+
+        Returns:
+            True if lock was acquired, False if already locked
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE experiment_games
+                SET resume_lock_acquired_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                  AND (resume_lock_acquired_at IS NULL
+                       OR resume_lock_acquired_at < datetime('now', '-5 minutes'))
+            """, (experiment_game_id,))
+            return cursor.rowcount == 1
+
+    def release_resume_lock(self, game_id: str) -> None:
+        """Release the resume lock for a game.
+
+        Args:
+            game_id: The game_id to release lock for
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE experiment_games
+                SET resume_lock_acquired_at = NULL
+                WHERE game_id = ?
+            """, (game_id,))
+
+    def release_resume_lock_by_id(self, experiment_game_id: int) -> None:
+        """Release the resume lock by experiment_games.id.
+
+        Args:
+            experiment_game_id: The experiment_games.id to release lock for
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE experiment_games
+                SET resume_lock_acquired_at = NULL
+                WHERE id = ?
+            """, (experiment_game_id,))
+
+    def check_resume_lock_superseded(self, game_id: str) -> bool:
+        """Check if this process has been superseded by a resume.
+
+        A process is superseded if resume_lock_acquired_at > last_heartbeat_at,
+        meaning another process has claimed the resume lock after our last heartbeat.
+
+        Args:
+            game_id: The game_id to check
+
+        Returns:
+            True if superseded (should exit), False otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT resume_lock_acquired_at, last_heartbeat_at
+                FROM experiment_games
+                WHERE game_id = ?
+            """, (game_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            resume_lock, last_heartbeat = row
+            if not resume_lock:
+                return False
+            if not last_heartbeat:
+                return True  # No heartbeat but lock exists = superseded
+
+            # Compare timestamps
+            return resume_lock > last_heartbeat
 
     def get_experiment_decision_stats(
         self,
