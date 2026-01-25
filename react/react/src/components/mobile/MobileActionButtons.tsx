@@ -147,8 +147,12 @@ export function MobileActionButtons({
             )}
             <button
               className="double-btn"
-              onClick={() => setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount * 2))}
-              disabled={raiseAmount * 2 > calc.safeMaxRaiseTo}
+              onClick={() => {
+                // Double the "adding to pot" amount (totalToAdd)
+                // newRaise = currentBet + (totalToAdd * 2) = raiseAmount + totalToAdd
+                setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.totalToAdd));
+              }}
+              disabled={raiseAmount + breakdown.totalToAdd > calc.safeMaxRaiseTo}
             >
               2x
             </button>
