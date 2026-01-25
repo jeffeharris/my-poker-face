@@ -2,6 +2,38 @@
 /* Container and ambient styles now handled by PageLayout */
 
 /* ============================================
+   Banner
+   ============================================ */
+
+.game-menu__banner {
+  width: 100%;
+  margin-bottom: var(--space-4);
+}
+
+.game-menu__banner-placeholder {
+  width: 100%;
+  height: 120px;
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.1), rgba(212, 165, 116, 0.05));
+  border: 2px dashed rgba(212, 165, 116, 0.3);
+  border-radius: var(--radius-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 640px) {
+  .game-menu__banner {
+    margin-bottom: var(--space-3);
+  }
+
+  .game-menu__banner-placeholder {
+    height: 100px;
+  }
+}
+
+/* ============================================
    Layout Structure
    ============================================ */
 

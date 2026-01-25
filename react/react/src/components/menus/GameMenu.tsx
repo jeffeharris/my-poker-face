@@ -183,10 +183,22 @@ export function GameMenu({
   const { user } = useAuth();
   const canAccessAdmin = hasPermission(user, 'can_access_admin_tools');
 
+  // Only use hover handlers on desktop
+  const getHoverHandlers = (option: string) => isDesktop ? {
+    onMouseEnter: () => setHoveredOption(option),
+    onMouseLeave: () => setHoveredOption(null)
+  } : {};
+
   return (
     <>
       <MenuBar showUserInfo />
-      <PageLayout variant="fixed" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'} hasMenuBar>
+      <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'} hasMenuBar>
+        {/* Banner placeholder */}
+        <div className="game-menu__banner">
+          <div className="game-menu__banner-placeholder">
+            Banner Image
+          </div>
+        </div>
         <PageHeader
           title={`Welcome, ${playerName}!`}
           subtitle="Choose how you'd like to play"
@@ -203,8 +215,7 @@ export function GameMenu({
               <button
                 className="quick-play-btn quick-play-btn--lightning"
                 onClick={() => onQuickPlay({ mode: 'lightning', opponents: 5, startingBB: 10 })}
-                onMouseEnter={() => setHoveredOption('lightning')}
-                onMouseLeave={() => setHoveredOption(null)}
+                {...getHoverHandlers('lightning')}
               >
                 <Zap className="quick-play-btn__icon" size={22} />
                 <span className="quick-play-btn__label">Lightning</span>
@@ -214,8 +225,7 @@ export function GameMenu({
               <button
                 className="quick-play-btn quick-play-btn--1v1"
                 onClick={() => onQuickPlay({ mode: '1v1', opponents: 1, startingBB: 20 })}
-                onMouseEnter={() => setHoveredOption('1v1')}
-                onMouseLeave={() => setHoveredOption(null)}
+                {...getHoverHandlers('1v1')}
               >
                 <Users className="quick-play-btn__icon" size={22} />
                 <span className="quick-play-btn__label">1v1</span>
@@ -225,8 +235,7 @@ export function GameMenu({
               <button
                 className="quick-play-btn quick-play-btn--random"
                 onClick={() => onQuickPlay({ mode: 'random', opponents: 4, startingBB: 20 })}
-                onMouseEnter={() => setHoveredOption('random')}
-                onMouseLeave={() => setHoveredOption(null)}
+                {...getHoverHandlers('random')}
               >
                 <Shuffle className="quick-play-btn__icon" size={22} />
                 <span className="quick-play-btn__label">Classic</span>
@@ -238,8 +247,7 @@ export function GameMenu({
           <button
             className="menu-option custom-game"
             onClick={onCustomGame}
-            onMouseEnter={() => setHoveredOption('custom')}
-            onMouseLeave={() => setHoveredOption(null)}
+            {...getHoverHandlers('custom')}
           >
             <Settings className="option-icon" size={24} />
             <div className="option-content">
@@ -252,8 +260,7 @@ export function GameMenu({
           <button
             className="menu-option themed-game"
             onClick={onThemedGame}
-            onMouseEnter={() => setHoveredOption('themed')}
-            onMouseLeave={() => setHoveredOption(null)}
+            {...getHoverHandlers('themed')}
           >
             <Sparkles className="option-icon" size={24} />
             <div className="option-content">
@@ -266,8 +273,7 @@ export function GameMenu({
           <button
             className="menu-option continue-game"
             onClick={onContinueGame}
-            onMouseEnter={() => setHoveredOption('continue')}
-            onMouseLeave={() => setHoveredOption(null)}
+            {...getHoverHandlers('continue')}
             disabled={savedGamesCount === 0}
           >
             <FolderOpen className="option-icon" size={24} />
@@ -286,8 +292,7 @@ export function GameMenu({
             <button
               className="menu-option view-stats"
               onClick={onViewStats}
-              onMouseEnter={() => setHoveredOption('stats')}
-              onMouseLeave={() => setHoveredOption(null)}
+              {...getHoverHandlers('stats')}
             >
               <BarChart3 className="option-icon" size={24} />
               <div className="option-content">
@@ -302,8 +307,7 @@ export function GameMenu({
             <button
               className="menu-option admin-dashboard"
               onClick={onAdminDashboard}
-              onMouseEnter={() => setHoveredOption('admin')}
-              onMouseLeave={() => setHoveredOption(null)}
+              {...getHoverHandlers('admin')}
             >
               <LayoutDashboard className="option-icon" size={24} />
               <div className="option-content">
@@ -322,19 +326,22 @@ export function GameMenu({
         )}
       </div>
 
-        <div className="game-menu__footer">
-          <p className="tip">
-            {hoveredOption === 'lightning' && "Fast and furious! Short stacks mean quick decisions and big swings."}
-            {hoveredOption === '1v1' && "Test your skills head-to-head against a single AI opponent."}
-            {hoveredOption === 'random' && "The classic experience with a comfortable stack and 4 opponents."}
-            {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
-            {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
-            {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-            {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
-            {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
-            {!hoveredOption && "Ready to test your poker face?"}
-          </p>
-        </div>
+        {/* Footer tips - desktop only */}
+        {isDesktop && (
+          <div className="game-menu__footer">
+            <p className="tip">
+              {hoveredOption === 'lightning' && "Fast and furious! Short stacks mean quick decisions and big swings."}
+              {hoveredOption === '1v1' && "Test your skills head-to-head against a single AI opponent."}
+              {hoveredOption === 'random' && "The classic experience with a comfortable stack and 4 opponents."}
+              {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
+              {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
+              {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
+              {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
+              {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
+              {!hoveredOption && "Ready to test your poker face?"}
+            </p>
+          </div>
+        )}
       </PageLayout>
     </>
   );
