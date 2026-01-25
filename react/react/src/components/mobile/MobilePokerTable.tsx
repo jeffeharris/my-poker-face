@@ -113,18 +113,20 @@ export function MobilePokerTable({
   // Create stable card identifiers (only changes when actual cards change)
   const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
   const card2Id = humanPlayer?.hand?.[1] ? `${humanPlayer.hand[1].rank}-${humanPlayer.hand[1].suit}` : null;
+  // Combined ID to detect change in EITHER card
+  const handId = card1Id && card2Id ? `${card1Id}|${card2Id}` : null;
 
   // Track if cards are currently being dealt (for animation)
   const [isDealing, setIsDealing] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
-  const prevCard1Id = useRef<string | null>(null);
+  const prevHandId = useRef<string | null>(null);
   // Display cards persist after fold so player can watch the action
   const [displayCards, setDisplayCards] = useState<typeof humanPlayer.hand | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [displayTransforms, setDisplayTransforms] = useState<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const exitTransforms = useRef<any>(null);
-  const exitingCards = useRef<typeof humanPlayer.hand | null>(null);
+  // Store pending cards during exit animation
+  const pendingCards = useRef<typeof humanPlayer.hand | null>(null);
+  const pendingTransforms = useRef<any>(null);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -191,53 +193,44 @@ export function MobilePokerTable({
   const activeTransforms = displayTransforms || randomTransforms;
   const cardTransforms = cardsNeat ? neatTransforms : activeTransforms;
 
-  // Handle card transitions: dealing in, exiting out, and persisting after fold
+  // Handle card transitions
   useEffect(() => {
-    // New cards arriving (different from what we had before)
-    if (card1Id && card1Id !== prevCard1Id.current) {
-      // If we had previous cards, trigger exit animation first
-      if (prevCard1Id.current && displayCards && displayTransforms) {
-        exitingCards.current = displayCards;
-        exitTransforms.current = { ...displayTransforms };
+    // New cards arriving
+    if (handId && handId !== prevHandId.current) {
+      // If we have cards showing, trigger exit animation first
+      if (prevHandId.current && displayCards) {
+        pendingCards.current = humanPlayer?.hand || null;
+        pendingTransforms.current = randomTransforms;
         setIsExiting(true);
-
-        // After exit animation, deal new cards
-        const exitTimer = setTimeout(() => {
-          setIsExiting(false);
-          exitingCards.current = null;
-          exitTransforms.current = null;
-
-          // Now deal in the new cards
-          setDisplayCards(humanPlayer?.hand || null);
-          setDisplayTransforms(randomTransforms);
-          setCardsNeat(false);
-          setIsDealing(true);
-
-          const dealTimer = setTimeout(() => setIsDealing(false), 700);
-          return () => clearTimeout(dealTimer);
-        }, 500);
-
-        prevCard1Id.current = card1Id;
-        return () => clearTimeout(exitTimer);
       } else {
-        // No previous cards, just deal in immediately
+        // No previous cards, deal immediately
         setDisplayCards(humanPlayer?.hand || null);
         setDisplayTransforms(randomTransforms);
         setCardsNeat(false);
         setIsDealing(true);
         const timer = setTimeout(() => setIsDealing(false), 700);
-        prevCard1Id.current = card1Id;
+        prevHandId.current = handId;
         return () => clearTimeout(timer);
       }
+      prevHandId.current = handId;
     }
 
-    // Cards became null (fold or hand end) - keep displaying them, don't exit
-    // They'll exit when new cards arrive
-    if (!card1Id && prevCard1Id.current) {
-      prevCard1Id.current = null;
-      // Don't clear displayCards - keep showing them after fold
+    // Cards became null (fold or hand end) - keep displaying them
+    if (!handId && prevHandId.current) {
+      prevHandId.current = null;
     }
-  }, [card1Id, humanPlayer?.hand, randomTransforms, displayCards, displayTransforms]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handId]);
+
+  // Called when exit animation completes
+  const handleExitAnimationEnd = () => {
+    setIsExiting(false);
+    setDisplayCards(pendingCards.current);
+    setDisplayTransforms(pendingTransforms.current);
+    setCardsNeat(false);
+    setIsDealing(true);
+    setTimeout(() => setIsDealing(false), 700);
+  };
 
   // Sort opponents by their position relative to the human player in turn order
   const opponents = (() => {
@@ -425,33 +418,33 @@ export function MobilePokerTable({
           <div className="hero-bet">${humanPlayer.bet}</div>
         )}
         <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
-          {isExiting && exitingCards.current?.[0] && exitingCards.current?.[1] && exitTransforms.current ? (
-            /* Exit animation - cards sweeping off to the right */
+          {isExiting && displayCards?.[0] && displayCards?.[1] ? (
+            /* Exit animation - cards sweep off, then onAnimationEnd triggers new cards */
             <>
               <div
                 style={{
                   animation: `dealCardOut1 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
-                  '--exit-start-x': `${exitTransforms.current.card1.offsetX}px`,
-                  '--exit-start-y': `${exitTransforms.current.card1.offsetY}px`,
-                  '--exit-start-rotation': `${exitTransforms.current.card1.rotation}deg`,
-                  '--exit-converge-x': `${exitTransforms.current.card2.offsetX + exitTransforms.current.gap}px`,
+                  '--exit-start-x': `${cardTransforms.card1.offsetX}px`,
+                  '--exit-start-y': `${cardTransforms.card1.offsetY}px`,
+                  '--exit-start-rotation': `${cardTransforms.card1.rotation}deg`,
+                  '--exit-converge-x': `${cardTransforms.card2.offsetX + cardTransforms.gap}px`,
                 } as React.CSSProperties}
               >
-                <Card card={exitingCards.current[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
               </div>
               <div
+                onAnimationEnd={handleExitAnimationEnd}
                 style={{
                   animation: `dealCardOut2 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
-                  '--exit-start-x': `${exitTransforms.current.card2.offsetX}px`,
-                  '--exit-start-y': `${exitTransforms.current.card2.offsetY}px`,
-                  '--exit-start-rotation': `${exitTransforms.current.card2.rotation}deg`,
+                  '--exit-start-x': `${cardTransforms.card2.offsetX}px`,
+                  '--exit-start-y': `${cardTransforms.card2.offsetY}px`,
+                  '--exit-start-rotation': `${cardTransforms.card2.rotation}deg`,
                 } as React.CSSProperties}
               >
-                <Card card={exitingCards.current[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
               </div>
             </>
           ) : displayCards?.[0] && displayCards?.[1] ? (
-            /* Display cards - persists after fold so player can watch action */
             <>
               <div
                 onClick={() => setCardsNeat(n => !n)}
@@ -487,7 +480,6 @@ export function MobilePokerTable({
               </div>
             </>
           ) : (
-            /* No cards - show placeholders */
             <>
               <div className="card-placeholder" />
               <div className="card-placeholder" />
