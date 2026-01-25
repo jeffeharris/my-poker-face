@@ -24,6 +24,7 @@ from .ai_resilience import (
 )
 from .player_psychology import PlayerPsychology
 from .memory.commentary_generator import DecisionPlan
+from .decision_analyzer import calculate_max_winnable
 
 logger = logging.getLogger(__name__)
 
@@ -577,7 +578,19 @@ class AIPlayerController:
             # Pot-committed: invested more BB than remaining stack AND facing a bet
             # Also trigger for extreme pot odds (>20:1) with small calls (<5 BB)
             if cost_to_call > 0:
-                pot_odds = pot_total / cost_to_call
+                # Calculate max winnable for short-stack awareness
+                all_players_bets = [(p.bet, p.is_folded) for p in game_state.players]
+                max_winnable = calculate_max_winnable(
+                    player_bet=already_bet,
+                    player_stack=player_stack,
+                    cost_to_call=cost_to_call,
+                    all_players_bets=all_players_bets,
+                )
+                # Use effective pot (what player can actually win) for pot odds
+                effective_pot = min(max_winnable, pot_total)
+                effective_call = min(cost_to_call, player_stack)
+
+                pot_odds = effective_pot / effective_call if effective_call > 0 else 0
                 required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
 
                 # Trigger if: invested more than remaining OR extreme pot odds with small call
@@ -703,11 +716,28 @@ class AIPlayerController:
             stack_bb = player_stack / big_blind if big_blind > 0 else None
             already_bet_bb = already_bet / big_blind if big_blind > 0 else None
 
+            # Calculate effective pot odds (for short-stack awareness)
+            effective_pot_odds = None
+            max_winnable = None
+            if cost_to_call > 0:
+                all_players_bets = [(p.bet, p.is_folded) for p in game_state.players]
+                max_winnable = calculate_max_winnable(
+                    player_bet=already_bet,
+                    player_stack=player_stack,
+                    cost_to_call=cost_to_call,
+                    all_players_bets=all_players_bets,
+                )
+                effective_pot = min(max_winnable, pot_total)
+                effective_call = min(cost_to_call, player_stack)
+                effective_pot_odds = effective_pot / effective_call if effective_call > 0 else None
+
             enrichment = {
                 'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
                 'pot_total': pot_total,
                 'cost_to_call': cost_to_call,
                 'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
+                'effective_pot_odds': effective_pot_odds,
+                'max_winnable': max_winnable,
                 'player_stack': player_stack,
                 'stack_bb': round(stack_bb, 2) if stack_bb is not None else None,
                 'already_bet_bb': round(already_bet_bb, 2) if already_bet_bb is not None else None,
@@ -1168,10 +1198,31 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
     pot_odds_guidance = ""
     if include_pot_odds:
         if cost_to_call > 0:
-            pot_odds = current_pot / cost_to_call
+            # Calculate max winnable for short-stack awareness
+            all_players_bets = [(p.bet, p.is_folded) for p in game_state.players]
+            max_winnable = calculate_max_winnable(
+                player_bet=current_bet,
+                player_stack=player_money,
+                cost_to_call=raw_cost_to_call,  # Use raw cost for calculation
+                all_players_bets=all_players_bets,
+            )
+            # Use the smaller of max_winnable and current_pot for pot odds
+            effective_pot = min(max_winnable, current_pot)
+
+            pot_odds = effective_pot / cost_to_call
             equity_needed = 100 / (pot_odds + 1)
+
+            # Add short-stack warning if player can't win full pot
+            short_stack_warning = ""
+            if max_winnable < current_pot:
+                short_stack_warning = (
+                    f"SHORT STACK NOTE: You can only win ${max_winnable} of the ${current_pot} pot "
+                    f"(the rest goes to a side pot). "
+                )
+
             pot_odds_guidance = (
-                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
+                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${effective_pot} winnable / ${cost_to_call} to call). "
+                f"{short_stack_warning}"
                 f"You only need {equity_needed:.0f}% equity to break even on a call. "
             )
             if pot_odds >= 10:
