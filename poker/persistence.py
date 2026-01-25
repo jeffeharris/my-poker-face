@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add heartbeat tracking columns to experiment_games
 # v54: Add outcome columns to tournament_standings for unbiased metrics
-SCHEMA_VERSION = 54
+SCHEMA_VERSION = 56
 
 
 @dataclass
@@ -948,6 +948,8 @@ class GamePersistence:
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
             53: (self._migrate_v53_add_heartbeat_columns, "Add heartbeat tracking columns to experiment_games"),
             54: (self._migrate_v54_add_outcome_columns, "Add outcome columns to tournament_standings for unbiased metrics"),
+            55: (self._migrate_v55_add_times_eliminated, "Add times_eliminated column to tournament_standings"),
+            56: (self._migrate_v56_add_all_in_columns, "Add all-in tracking columns to tournament_standings"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2600,6 +2602,47 @@ class GamePersistence:
                     raise
 
         logger.info("Migration v54 complete: Outcome columns added to tournament_standings")
+
+    def _migrate_v55_add_times_eliminated(self, conn: sqlite3.Connection) -> None:
+        """Migration v55: Add times_eliminated column to tournament_standings.
+
+        Tracks how many times a player was eliminated (went to 0 chips) across
+        all rounds in a tournament with reset_on_elimination enabled.
+        """
+        try:
+            conn.execute("ALTER TABLE tournament_standings ADD COLUMN times_eliminated INTEGER")
+            logger.info("Added times_eliminated column to tournament_standings")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                logger.debug("Column times_eliminated already exists in tournament_standings")
+            else:
+                raise
+
+        logger.info("Migration v55 complete: times_eliminated column added")
+
+    def _migrate_v56_add_all_in_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v56: Add all-in tracking columns to tournament_standings.
+
+        Tracks how many times a player went all-in and won vs lost:
+        - all_in_wins: Times player went all-in and survived (won/tied)
+        - all_in_losses: Times player went all-in and was eliminated
+        """
+        columns_to_add = [
+            ("all_in_wins", "INTEGER"),
+            ("all_in_losses", "INTEGER"),
+        ]
+
+        for col_name, col_def in columns_to_add:
+            try:
+                conn.execute(f"ALTER TABLE tournament_standings ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to tournament_standings")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in tournament_standings")
+                else:
+                    raise
+
+        logger.info("Migration v56 complete: all-in tracking columns added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4269,8 +4312,9 @@ class GamePersistence:
                 conn.execute("""
                     INSERT OR REPLACE INTO tournament_standings
                     (game_id, player_name, is_human, finishing_position,
-                     eliminated_by, eliminated_at_hand, final_stack, hands_won, hands_played)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     eliminated_by, eliminated_at_hand, final_stack, hands_won, hands_played,
+                     times_eliminated, all_in_wins, all_in_losses)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     game_id,
                     standing.get('player_name'),
@@ -4280,7 +4324,10 @@ class GamePersistence:
                     standing.get('eliminated_at_hand'),
                     standing.get('final_stack'),
                     standing.get('hands_won'),
-                    standing.get('hands_played')
+                    standing.get('hands_played'),
+                    standing.get('times_eliminated', 0),
+                    standing.get('all_in_wins', 0),
+                    standing.get('all_in_losses', 0),
                 ))
 
     def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
@@ -6556,11 +6603,117 @@ class GamePersistence:
                     'total_hands': total_hands_for_cost,
                 }
 
+                # 5. Quality indicators from player_decision_analysis + prompt_captures
+                # Detect degenerate play patterns with improved all-in detection
+                cursor = conn.execute(f"""
+                    SELECT
+                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                        COUNT(*) as total_decisions
+                    FROM player_decision_analysis pda
+                    JOIN experiment_games eg ON pda.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                qi_row = cursor.fetchone()
+
+                # Query all-ins with AI response data for smarter categorization
+                # Join prompt_captures to get bluff_likelihood, hand_strength, stack_bb
+                cursor = conn.execute(f"""
+                    SELECT
+                        pc.stack_bb,
+                        pc.ai_response,
+                        pda.equity
+                    FROM prompt_captures pc
+                    JOIN experiment_games eg ON pc.game_id = eg.game_id
+                    LEFT JOIN player_decision_analysis pda
+                        ON pc.game_id = pda.game_id
+                        AND pc.hand_number = pda.hand_number
+                        AND pc.player_name = pda.player_name
+                        AND pc.phase = pda.phase
+                    WHERE eg.experiment_id = ? {variant_clause}
+                      AND pc.action_taken = 'all_in'
+                """, [experiment_id] + variant_params)
+
+                suspicious_allins = 0
+                marginal_allins = 0
+                for row in cursor.fetchall():
+                    stack_bb, ai_response, equity = row
+                    try:
+                        resp = json.loads(ai_response) if ai_response else {}
+                    except (json.JSONDecodeError, TypeError):
+                        resp = {}
+
+                    try:
+                        bluff = int(resp.get('bluff_likelihood', 50))
+                    except (ValueError, TypeError):
+                        bluff = 50  # Default to skip if not parseable
+                    hand_str = str(resp.get('hand_strength', '')).lower()
+
+                    # Skip intentional bluffs (bluff_likelihood >= 50)
+                    if bluff >= 50:
+                        continue
+
+                    # Check if trash hand: "high card" in hand_strength OR equity < 0.25
+                    is_trash = 'high card' in hand_str or (equity is not None and equity < 0.25)
+                    if not is_trash:
+                        continue
+
+                    # Categorize by stack depth
+                    if stack_bb is not None and stack_bb <= 10:
+                        pass  # Short stack - defensible, skip
+                    elif stack_bb is not None and stack_bb <= 15:
+                        marginal_allins += 1
+                    else:
+                        suspicious_allins += 1
+
+                # 6. Survival metrics from tournament_standings
+                cursor = conn.execute(f"""
+                    SELECT
+                        SUM(COALESCE(ts.times_eliminated, 0)) as total_eliminations,
+                        SUM(COALESCE(ts.all_in_wins, 0)) as total_all_in_wins,
+                        SUM(COALESCE(ts.all_in_losses, 0)) as total_all_in_losses,
+                        COUNT(*) as total_standings
+                    FROM tournament_standings ts
+                    JOIN experiment_games eg ON ts.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                survival_row = cursor.fetchone()
+
+                quality_indicators = None
+                if qi_row and qi_row[3] > 0:  # total_decisions > 0 (now at index 3)
+                    fold_mistakes = qi_row[0] or 0
+                    total_all_ins = qi_row[1] or 0
+                    total_folds = qi_row[2] or 0
+                    total_decisions = qi_row[3]
+
+                    # Survival metrics
+                    total_eliminations = survival_row[0] or 0 if survival_row else 0
+                    total_all_in_wins = survival_row[1] or 0 if survival_row else 0
+                    total_all_in_losses = survival_row[2] or 0 if survival_row else 0
+                    total_all_in_showdowns = total_all_in_wins + total_all_in_losses
+
+                    quality_indicators = {
+                        'suspicious_allins': suspicious_allins,
+                        'marginal_allins': marginal_allins,
+                        'fold_mistakes': fold_mistakes,
+                        'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+                        'total_all_ins': total_all_ins,
+                        'total_folds': total_folds,
+                        'total_decisions': total_decisions,
+                        # Survival metrics
+                        'total_eliminations': total_eliminations,
+                        'all_in_wins': total_all_in_wins,
+                        'all_in_losses': total_all_in_losses,
+                        'all_in_survival_rate': round(total_all_in_wins * 100 / total_all_in_showdowns, 1) if total_all_in_showdowns > 0 else None,
+                    }
+
                 result['by_variant'][variant_key] = {
                     'latency_metrics': latency_metrics,
                     'decision_quality': decision_quality,
                     'progress': progress,
                     'cost_metrics': cost_metrics,
+                    'quality_indicators': quality_indicators,
                 }
 
             # Compute overall stats
@@ -6644,11 +6797,88 @@ class GamePersistence:
                 'total_hands': overall_total_hands,
             }
 
+            # Overall quality indicators from player_decision_analysis + prompt_captures
+            cursor = conn.execute("""
+                SELECT
+                    SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                    SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                    SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                    COUNT(*) as total_decisions
+                FROM player_decision_analysis pda
+                JOIN experiment_games eg ON pda.game_id = eg.game_id
+                WHERE eg.experiment_id = ?
+            """, (experiment_id,))
+            overall_qi_row = cursor.fetchone()
+
+            # Query all-ins for smarter categorization (overall)
+            cursor = conn.execute("""
+                SELECT
+                    pc.stack_bb,
+                    pc.ai_response,
+                    pda.equity
+                FROM prompt_captures pc
+                JOIN experiment_games eg ON pc.game_id = eg.game_id
+                LEFT JOIN player_decision_analysis pda
+                    ON pc.game_id = pda.game_id
+                    AND pc.hand_number = pda.hand_number
+                    AND pc.player_name = pda.player_name
+                    AND pc.phase = pda.phase
+                WHERE eg.experiment_id = ?
+                  AND pc.action_taken = 'all_in'
+            """, (experiment_id,))
+
+            overall_suspicious_allins = 0
+            overall_marginal_allins = 0
+            for row in cursor.fetchall():
+                stack_bb, ai_response, equity = row
+                try:
+                    resp = json.loads(ai_response) if ai_response else {}
+                except (json.JSONDecodeError, TypeError):
+                    resp = {}
+
+                bluff = resp.get('bluff_likelihood', 50)
+                hand_str = str(resp.get('hand_strength', '')).lower()
+
+                # Skip intentional bluffs (bluff_likelihood >= 50)
+                if bluff >= 50:
+                    continue
+
+                # Check if trash hand: "high card" in hand_strength OR equity < 0.25
+                is_trash = 'high card' in hand_str or (equity is not None and equity < 0.25)
+                if not is_trash:
+                    continue
+
+                # Categorize by stack depth
+                if stack_bb is not None and stack_bb <= 10:
+                    pass  # Short stack - defensible, skip
+                elif stack_bb is not None and stack_bb <= 15:
+                    overall_marginal_allins += 1
+                else:
+                    overall_suspicious_allins += 1
+
+            overall_quality_indicators = None
+            if overall_qi_row and overall_qi_row[3] > 0:  # total_decisions at index 3
+                fold_mistakes = overall_qi_row[0] or 0
+                total_all_ins = overall_qi_row[1] or 0
+                total_folds = overall_qi_row[2] or 0
+                total_decisions = overall_qi_row[3]
+
+                overall_quality_indicators = {
+                    'suspicious_allins': overall_suspicious_allins,
+                    'marginal_allins': overall_marginal_allins,
+                    'fold_mistakes': fold_mistakes,
+                    'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+                    'total_all_ins': total_all_ins,
+                    'total_folds': total_folds,
+                    'total_decisions': total_decisions,
+                }
+
             result['overall'] = {
                 'latency_metrics': overall_latency,
                 'decision_quality': overall_decision_quality,
                 'progress': overall_progress_result,
                 'cost_metrics': overall_cost_metrics,
+                'quality_indicators': overall_quality_indicators,
             }
 
             return result

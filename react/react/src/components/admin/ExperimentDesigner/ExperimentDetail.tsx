@@ -786,6 +786,38 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
                     </div>
                   )}
 
+                  {/* Quality Indicators Section */}
+                  {variantLive.quality_indicators && (
+                    <div className="experiment-detail__variant-section">
+                      <span className="experiment-detail__variant-section-label">Quality Indicators</span>
+                      <div className="experiment-detail__decision-row">
+                        <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.suspicious_allins > 0 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                          {variantLive.quality_indicators.suspicious_allins} Suspicious All-ins
+                        </span>
+                        <span className="experiment-detail__decision-metric">
+                          {variantLive.quality_indicators.marginal_allins} Marginal
+                        </span>
+                        <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.fold_mistake_rate > 50 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                          {variantLive.quality_indicators.fold_mistakes} Fold Mistakes
+                        </span>
+                      </div>
+                      {/* Survival Metrics */}
+                      {(variantLive.quality_indicators.total_eliminations > 0 ||
+                        variantLive.quality_indicators.all_in_wins > 0 ||
+                        variantLive.quality_indicators.all_in_losses > 0) && (
+                        <div className="experiment-detail__decision-row" style={{ marginTop: '4px' }}>
+                          <span className="experiment-detail__decision-metric">
+                            {variantLive.quality_indicators.total_eliminations} Eliminations
+                          </span>
+                          <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.all_in_survival_rate !== null && variantLive.quality_indicators.all_in_survival_rate < 40 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                            All-in: {variantLive.quality_indicators.all_in_wins}W/{variantLive.quality_indicators.all_in_losses}L
+                            {variantLive.quality_indicators.all_in_survival_rate !== null && ` (${variantLive.quality_indicators.all_in_survival_rate}%)`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* API Latency Section */}
                   {variantLive.latency_metrics && (
                     <div className="experiment-detail__variant-section">

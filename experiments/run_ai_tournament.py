@@ -111,7 +111,7 @@ class TournamentResult:
     hands_played: int
     winner: str
     final_standings: List[Dict]
-    elimination_order: List[str]
+    elimination_order: List[str]  # Legacy: names only (for backwards compatibility)
     model_config: Dict
     total_api_calls: int
     total_cost: float
@@ -120,6 +120,8 @@ class TournamentResult:
     variant: Optional[str] = None  # Variant label for A/B testing
     round_winners: List[str] = field(default_factory=list)  # Winners of each "round" before reset
     total_resets: int = 0  # How many times stacks were reset
+    # Detailed elimination tracking (new)
+    eliminations: List[Dict] = field(default_factory=list)  # [{player_name, hand_number, round_number}]
 
 
 @dataclass
@@ -807,7 +809,7 @@ class AITournamentRunner:
         active_players = [p for p in game_state.players if p.stack > 0]
         if len(active_players) <= 1:
             logger.info(f"Tournament ending: {len(active_players)} player(s) with chips remaining")
-            return False
+            return {"status": "end", "all_in_winners": []}
 
         # Set deterministic deck seed for this hand (for A/B experiments)
         # Formula: base_seed + (tournament_number * 1000) + hand_number
@@ -924,7 +926,7 @@ class AITournamentRunner:
 
                         # Check for pause request
                         if self._check_pause_requested():
-                            return False  # Signal tournament should stop
+                            return {"status": "paused", "all_in_winners": []}
 
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
@@ -937,7 +939,7 @@ class AITournamentRunner:
 
                         # Check for pause request
                         if self._check_pause_requested():
-                            return False
+                            return {"status": "paused", "all_in_winners": []}
 
                 action_count += 1
 
@@ -983,6 +985,12 @@ class AITournamentRunner:
                 # Generate commentary (uses memory_manager's instance-level commentary_enabled)
                 memory_manager.generate_commentary_for_hand(ai_players_context)
 
+        # Capture all-in outcomes BEFORE reset clears the flags
+        all_in_winners = []
+        for player in game_state.players:
+            if player.is_all_in and player.stack > 0:
+                all_in_winners.append(player.name)
+
         # Reset for next hand
         # Calculate seed for NEXT hand (hand_number + 1) if deterministic seeding is enabled
         # Formula: base_seed + (tournament_number * 1000) + hand_number
@@ -997,8 +1005,8 @@ class AITournamentRunner:
         # Check if tournament should continue
         active_players = [p for p in game_state.players if p.stack > 0]
         if len(active_players) <= 1:
-            return "reset_needed"
-        return True
+            return {"status": "reset_needed", "all_in_winners": all_in_winners}
+        return {"status": "continue", "all_in_winners": all_in_winners}
 
     def run_tournament(
         self,
@@ -1027,8 +1035,14 @@ class AITournamentRunner:
         # Save initial game state for live monitoring
         self.persistence.save_game(tournament_id, state_machine, self._owner_id)
 
-        elimination_order = []
+        elimination_order = []  # Legacy: names only for backwards compatibility
+        all_eliminations: List[Dict] = []  # New: detailed elimination tracking
         prev_active = set(p.name for p in state_machine.game_state.players)
+
+        # Track all-in outcomes per player: {player_name: {'wins': N, 'losses': N}}
+        all_in_outcomes: Dict[str, Dict[str, int]] = {
+            p.name: {'wins': 0, 'losses': 0} for p in state_machine.game_state.players
+        }
 
         # Determine hand limit and reset behavior
         # reset_on_elimination determines if hand count is maximum or exact:
@@ -1040,6 +1054,7 @@ class AITournamentRunner:
         # Track round winners (for reset scenarios)
         round_winners: List[str] = []
         total_resets = 0
+        current_round = 1  # Track which round we're in (for elimination data)
 
         hand_number = 0
         paused = False
@@ -1067,16 +1082,31 @@ class AITournamentRunner:
                     tournament_id, 'processing', process_id=os.getpid()
                 )
 
-            # Track eliminations
+            # Track eliminations and all-in outcomes
             current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
             eliminated = prev_active - current_active
+
+            # Track all-in outcomes: players who were eliminated lost their all-in
             for name in eliminated:
-                elimination_order.append(name)
-                logger.info(f"  Eliminated: {name}")
+                elimination_order.append(name)  # Legacy tracking
+                all_eliminations.append({
+                    'player_name': name,
+                    'hand_number': hand_number,
+                    'round_number': current_round,
+                })
+                # Getting eliminated means losing an all-in (or final chips)
+                all_in_outcomes[name]['losses'] += 1
+                logger.info(f"  Eliminated: {name} (hand {hand_number}, round {current_round})")
+
+            # Track all-in wins from hand result (captured before reset cleared flags)
+            for name in hand_result.get('all_in_winners', []):
+                all_in_outcomes[name]['wins'] += 1
+                logger.debug(f"  All-in survived: {name} (hand {hand_number})")
             prev_active = current_active
 
             # Handle different return values from run_hand
-            if hand_result == "reset_needed":
+            hand_status = hand_result.get('status', 'continue')
+            if hand_status == "reset_needed":
                 if should_reset:
                     # Record round winner (player with most chips) and reset
                     game_state = state_machine.game_state
@@ -1095,14 +1125,15 @@ class AITournamentRunner:
 
                     # Reset elimination tracking for next round (all players back)
                     prev_active = set(p.name for p in original_players)
-                    elimination_order = []  # Clear elimination order for new round
+                    elimination_order = []  # Clear legacy order for new round
+                    current_round += 1  # Increment round counter (all_eliminations persists)
                     continue
                 else:
                     # No reset - tournament ends when one player wins
                     break
-            elif not hand_result:
-                # False means paused
-                if self._check_pause_requested():
+            elif hand_status in ("paused", "end"):
+                # Paused or tournament ending
+                if hand_status == "paused":
                     paused = True
                 break
 
@@ -1122,6 +1153,12 @@ class AITournamentRunner:
         # Get per-player outcome data from hand_history
         player_outcomes = self._get_player_outcomes(tournament_id)
 
+        # Count eliminations per player from all_eliminations
+        elimination_counts = {}
+        for elim in all_eliminations:
+            name = elim['player_name']
+            elimination_counts[name] = elimination_counts.get(name, 0) + 1
+
         final_standings = sorted(
             [
                 {
@@ -1130,6 +1167,9 @@ class AITournamentRunner:
                     "final_stack": p.stack,  # Alias for persistence compatibility
                     "hands_won": player_outcomes.get(p.name, {}).get('hands_won', 0),
                     "hands_played": player_outcomes.get(p.name, {}).get('hands_played', 0),
+                    "times_eliminated": elimination_counts.get(p.name, 0),
+                    "all_in_wins": all_in_outcomes.get(p.name, {}).get('wins', 0),
+                    "all_in_losses": all_in_outcomes.get(p.name, {}).get('losses', 0),
                 }
                 for p in state_machine.game_state.players
             ],
@@ -1171,6 +1211,7 @@ class AITournamentRunner:
             variant=variant_label,
             round_winners=round_winners,
             total_resets=total_resets,
+            eliminations=all_eliminations,
         )
 
         # Save tournament result and standings with outcome metrics
@@ -1182,6 +1223,9 @@ class AITournamentRunner:
                 'final_stack': s.get('final_stack', s.get('stack', 0)),
                 'hands_won': s.get('hands_won', 0),
                 'hands_played': s.get('hands_played', 0),
+                'times_eliminated': s.get('times_eliminated', 0),
+                'all_in_wins': s.get('all_in_wins', 0),
+                'all_in_losses': s.get('all_in_losses', 0),
             }
             for i, s in enumerate(final_standings)
         ]
@@ -1706,11 +1750,11 @@ class AITournamentRunner:
                 len(results) * 100 / (len(results) + len(failed)), 1
             ) if (results or failed) else 0
 
-        # Compute outcome-based metrics from hand_history (unbiased metrics)
+        # Compute quality indicators (degenerate play detection)
         if self.experiment_id:
-            outcome_metrics = self._compute_outcome_metrics(self.experiment_id)
-            if outcome_metrics:
-                summary['outcome_metrics'] = outcome_metrics
+            quality_indicators = self._compute_quality_indicators(self.experiment_id)
+            if quality_indicators:
+                summary['quality_indicators'] = quality_indicators
 
         return summary
 
@@ -1882,132 +1926,116 @@ class AITournamentRunner:
 
         return None
 
-    def _compute_outcome_metrics(self, experiment_id: str) -> Optional[Dict]:
-        """Compute outcome-based metrics from hand_history table.
+    def _compute_quality_indicators(self, experiment_id: str) -> Optional[Dict]:
+        """Compute quality indicators from player_decision_analysis + prompt_captures.
 
-        Queries the hand_history table joined with experiment_games to compute
-        unbiased outcome metrics: hands won, chips won, and win rates per player
-        per variant.
+        Uses improved 3-tier stack depth detection for suspicious all-ins:
+        - Short (≤10BB): Filtered out as defensible
+        - Marginal (11-15BB): Tracked as marginal_allins
+        - Deep (>15BB): Tracked as suspicious_allins
+
+        A "suspicious all-in" requires:
+        - bluff_likelihood < 50 (AI thinks it has a real hand)
+        - Trash hand: hand_strength contains "high card" OR equity < 0.25
 
         Args:
             experiment_id: The experiment ID to compute metrics for
 
         Returns:
-            Dictionary with per-variant outcome metrics, or None if no data
+            Dictionary with quality indicators, or None if no data
         """
         try:
             import sqlite3
             import json
 
             with sqlite3.connect(self.persistence.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-
-                # Get all hands for this experiment with variant info
+                # Get basic quality metrics
                 cursor = conn.execute("""
                     SELECT
-                        hh.game_id,
-                        hh.hand_number,
-                        hh.players_json,
-                        hh.winners_json,
-                        hh.pot_size,
-                        hh.showdown,
-                        eg.variant
-                    FROM hand_history hh
-                    JOIN experiment_games eg ON hh.game_id = eg.game_id
+                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                        COUNT(*) as total_decisions
+                    FROM player_decision_analysis pda
+                    JOIN experiment_games eg ON pda.game_id = eg.game_id
                     WHERE eg.experiment_id = ?
                 """, (experiment_id,))
 
-                rows = cursor.fetchall()
+                row = cursor.fetchone()
 
-                if not rows:
-                    logger.debug(f"No hand_history records found for experiment {experiment_id}")
+                if not row or row[3] == 0:  # total_decisions == 0 (now at index 3)
+                    logger.debug(f"No decision analysis records found for experiment {experiment_id}")
                     return None
 
-                # Aggregate per-variant per-player stats
-                # Structure: {variant: {player: {hands: int, wins: int, chips_won: int}}}
-                variant_player_stats: Dict[str, Dict[str, Dict[str, int]]] = {}
+                fold_mistakes = row[0] or 0
+                total_all_ins = row[1] or 0
+                total_folds = row[2] or 0
+                total_decisions = row[3]
 
-                for row in rows:
-                    variant = row['variant'] or 'default'
-                    players_json = row['players_json']
-                    winners_json = row['winners_json']
-                    pot_size = row['pot_size'] or 0
+                # Query all-ins with AI response data for smarter categorization
+                cursor = conn.execute("""
+                    SELECT
+                        pc.stack_bb,
+                        pc.ai_response,
+                        pda.equity
+                    FROM prompt_captures pc
+                    JOIN experiment_games eg ON pc.game_id = eg.game_id
+                    LEFT JOIN player_decision_analysis pda
+                        ON pc.game_id = pda.game_id
+                        AND pc.hand_number = pda.hand_number
+                        AND pc.player_name = pda.player_name
+                        AND pc.phase = pda.phase
+                    WHERE eg.experiment_id = ?
+                      AND pc.action_taken = 'all_in'
+                """, (experiment_id,))
 
-                    # Parse player names from players_json
+                suspicious_allins = 0
+                marginal_allins = 0
+                for allin_row in cursor.fetchall():
+                    stack_bb, ai_response, equity = allin_row
                     try:
-                        players = json.loads(players_json) if players_json else []
-                    except json.JSONDecodeError:
+                        resp = json.loads(ai_response) if ai_response else {}
+                    except (json.JSONDecodeError, TypeError):
+                        resp = {}
+
+                    try:
+                        bluff = int(resp.get('bluff_likelihood', 50))
+                    except (ValueError, TypeError):
+                        bluff = 50  # Default to skip if not parseable
+                    hand_str = str(resp.get('hand_strength', '')).lower()
+
+                    # Skip intentional bluffs (bluff_likelihood >= 50)
+                    if bluff >= 50:
                         continue
 
-                    # Parse winners from winners_json
-                    try:
-                        winners = json.loads(winners_json) if winners_json else []
-                    except json.JSONDecodeError:
-                        winners = []
+                    # Check if trash hand: "high card" in hand_strength OR equity < 0.25
+                    is_trash = 'high card' in hand_str or (equity is not None and equity < 0.25)
+                    if not is_trash:
+                        continue
 
-                    # Initialize variant dict if needed
-                    if variant not in variant_player_stats:
-                        variant_player_stats[variant] = {}
+                    # Categorize by stack depth
+                    if stack_bb is not None and stack_bb <= 10:
+                        pass  # Short stack - defensible, skip
+                    elif stack_bb is not None and stack_bb <= 15:
+                        marginal_allins += 1
+                    else:
+                        suspicious_allins += 1
 
-                    # Track hands played for each player
-                    for player in players:
-                        player_name = player.get('name') if isinstance(player, dict) else str(player)
-                        if player_name not in variant_player_stats[variant]:
-                            variant_player_stats[variant][player_name] = {
-                                'hands_played': 0,
-                                'hands_won': 0,
-                                'chips_won': 0,
-                                'showdowns': 0,
-                            }
-                        variant_player_stats[variant][player_name]['hands_played'] += 1
+                result = {
+                    'suspicious_allins': suspicious_allins,
+                    'marginal_allins': marginal_allins,
+                    'fold_mistakes': fold_mistakes,
+                    'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+                    'total_all_ins': total_all_ins,
+                    'total_folds': total_folds,
+                    'total_decisions': total_decisions,
+                }
 
-                    # Track wins for each winner
-                    for winner in winners:
-                        winner_name = winner.get('name') if isinstance(winner, dict) else str(winner)
-                        amount_won = winner.get('amount_won', pot_size // max(1, len(winners))) if isinstance(winner, dict) else 0
-
-                        if winner_name in variant_player_stats[variant]:
-                            variant_player_stats[variant][winner_name]['hands_won'] += 1
-                            variant_player_stats[variant][winner_name]['chips_won'] += amount_won
-                            if row['showdown']:
-                                variant_player_stats[variant][winner_name]['showdowns'] += 1
-
-                # Convert to summary format with computed metrics
-                result = {}
-                for variant, player_stats in variant_player_stats.items():
-                    variant_summary = {
-                        'total_hands': sum(p['hands_played'] for p in player_stats.values()) // max(1, len(player_stats)),
-                        'total_players': len(player_stats),
-                        'player_stats': {},
-                    }
-
-                    # Per-player metrics
-                    for player_name, stats in player_stats.items():
-                        hands = stats['hands_played']
-                        wins = stats['hands_won']
-                        variant_summary['player_stats'][player_name] = {
-                            'hands_played': hands,
-                            'hands_won': wins,
-                            'win_rate': round(wins * 100 / hands, 2) if hands > 0 else 0,
-                            'chips_won': stats['chips_won'],
-                            'chips_per_hand': round(stats['chips_won'] / hands, 2) if hands > 0 else 0,
-                            'showdowns_won': stats['showdowns'],
-                        }
-
-                    # Aggregate variant-level metrics
-                    all_win_rates = [p['win_rate'] for p in variant_summary['player_stats'].values()]
-                    all_chips_per_hand = [p['chips_per_hand'] for p in variant_summary['player_stats'].values()]
-
-                    variant_summary['avg_win_rate'] = round(sum(all_win_rates) / len(all_win_rates), 2) if all_win_rates else 0
-                    variant_summary['avg_chips_per_hand'] = round(sum(all_chips_per_hand) / len(all_chips_per_hand), 2) if all_chips_per_hand else 0
-
-                    result[variant] = variant_summary
-
-                logger.info(f"Computed outcome metrics for {len(rows)} hands across {len(result)} variants")
+                logger.info(f"Computed quality indicators: {suspicious_allins} suspicious all-ins, {marginal_allins} marginal all-ins, {fold_mistakes} fold mistakes")
                 return result
 
         except Exception as e:
-            logger.warning(f"Could not compute outcome metrics: {e}", exc_info=True)
+            logger.warning(f"Could not compute quality indicators: {e}", exc_info=True)
             return None
 
     def _generate_ai_interpretation(
