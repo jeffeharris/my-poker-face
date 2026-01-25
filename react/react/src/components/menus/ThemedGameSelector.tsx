@@ -97,7 +97,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
         <PageHeader
           title="Choose Your Theme"
           subtitle="Each theme brings together unique personalities for an unforgettable game!"
-          titleVariant="themed"
+          titleVariant="primary"
         />
 
         {error && (
@@ -127,7 +127,11 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
         {generating && (
           <div className="generating-overlay">
             <div className="generating-content">
-              <div className="generating-spinner">🎰</div>
+              <div className="generating-cards">
+                {['♠', '♥', '♦', '♣'].map((suit, i) => (
+                  <div key={i} className={`generating-card suit-${i}`}>{suit}</div>
+                ))}
+              </div>
               <h3>Assembling your table...</h3>
               <p>Finding the perfect personalities for your theme</p>
             </div>
