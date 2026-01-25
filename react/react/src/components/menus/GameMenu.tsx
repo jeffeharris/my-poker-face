@@ -4,6 +4,7 @@ import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
+import menuBanner from '../../assets/menu-banner.png';
 import './GameMenu.css';
 
 // ============================================
@@ -193,11 +194,9 @@ export function GameMenu({
     <>
       <MenuBar showUserInfo />
       <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'} hasMenuBar>
-        {/* Banner placeholder */}
+        {/* Banner */}
         <div className="game-menu__banner">
-          <div className="game-menu__banner-placeholder">
-            Banner Image
-          </div>
+          <img src={menuBanner} alt="My Poker Face" className="game-menu__banner-image" />
         </div>
         <PageHeader
           title={`Welcome, ${playerName}!`}
