@@ -153,6 +153,15 @@ Control which information is included in AI decision prompts:
 | `situational_guidance` | true | Coaching prompts (pot-committed, short-stack, made hand) |
 | `memory_keep_exchanges` | 0 | Conversation exchanges to retain |
 
+**GTO Foundation Options** (math-based decision support):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `show_equity_always` | false | Show equity comparison (vs random + vs opponent ranges) for all decisions |
+| `show_equity_verdict` | false | Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct") |
+| `use_enhanced_ranges` | true | Use PFR/action-based range estimation (vs simpler VPIP-only) |
+| `use_minimal_prompt` | false | Strip to bare game state only (no personality, psychology, or guidance) |
+
 ---
 
 ## A/B Testing
@@ -274,6 +283,38 @@ Test the impact of coaching prompts (pot-committed, short-stack, made hand warni
     {
       "label": "No Coaching",
       "prompt_config": {"situational_guidance": false}
+    }
+  ]
+}
+```
+
+### Example: GTO Guidance Impact
+
+Test if showing equity calculations and verdicts reduces fold mistakes:
+
+```json
+{
+  "name": "gto_guidance_impact",
+  "description": "Test if GTO foundation reduces EV-losing decisions",
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "No GTO Guidance",
+    "prompt_config": {
+      "show_equity_always": false,
+      "show_equity_verdict": false
+    }
+  },
+  "variants": [
+    {
+      "label": "With GTO Guidance",
+      "prompt_config": {
+        "show_equity_always": true,
+        "show_equity_verdict": true
+      }
     }
   ]
 }

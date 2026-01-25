@@ -251,6 +251,10 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
         if summary.get('variants'):
             results_context['results']['per_variant_stats'] = summary['variants']
 
+        # Add quality indicators if available (degenerate play detection)
+        if summary.get('quality_indicators'):
+            results_context['results']['quality_indicators'] = summary['quality_indicators']
+
         # Build messages array
         messages = [
             {"role": "system", "content": system_prompt},
@@ -789,6 +793,71 @@ Test specific prompt component impact:
   ]
 }
 
+### Example 7: GTO Foundation Impact Test
+Test if showing equity calculations and verdicts improves decision quality:
+{
+  "name": "gto_guidance_impact",
+  "description": "Test if GTO foundation (equity verdict) reduces fold mistakes and bad calls",
+  "hypothesis": "Showing equity vs required equity will reduce EV-losing decisions",
+  "tags": ["gto", "equity", "decision_quality"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "parallel_tournaments": 2,
+  "control": {
+    "label": "No GTO Guidance",
+    "prompt_config": {
+      "show_equity_always": false,
+      "show_equity_verdict": false,
+      "situational_guidance": true
+    }
+  },
+  "variants": [
+    {
+      "label": "With GTO Guidance",
+      "prompt_config": {
+        "show_equity_always": true,
+        "show_equity_verdict": true,
+        "situational_guidance": true
+      }
+    }
+  ]
+}
+
+### Example 8: Minimal vs Full Prompt Comparison
+Compare stripped-down prompts to full prompts with all features:
+{
+  "name": "minimal_vs_full_prompt",
+  "description": "Test if minimal prompts produce comparable decisions to full prompts",
+  "hypothesis": "Minimal prompts may reduce token costs while maintaining decision quality",
+  "tags": ["minimal", "baseline", "cost_optimization"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 40,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "Full Prompts",
+    "prompt_config": {
+      "use_minimal_prompt": false,
+      "show_equity_always": true,
+      "show_equity_verdict": true
+    }
+  },
+  "variants": [
+    {
+      "label": "Minimal Prompts",
+      "prompt_config": {
+        "use_minimal_prompt": true
+      }
+    }
+  ]
+}
+
 ## Available prompt_config Options
 
 All boolean options (default true unless specified):
@@ -802,7 +871,14 @@ All boolean options (default true unless specified):
 - tilt_effects: Include tilt-based modifications
 - mind_games: Include mind games instruction
 - persona_response: Include persona response instruction
+- situational_guidance: Coaching prompts for pot-committed, short-stack, made hand situations
 - memory_keep_exchanges: Number of conversation exchanges to retain (integer, default 0)
+
+**GTO Foundation Options** (math-based decision support, default false):
+- show_equity_always: Show equity comparison (vs random + vs opponent ranges) for all decisions
+- show_equity_verdict: Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct")
+- use_enhanced_ranges: Use PFR/action-based range estimation vs VPIP-only (default true)
+- use_minimal_prompt: Strip to bare game state only - no personality, psychology, or guidance (default false)
 
 ## Guidelines
 
@@ -842,6 +918,8 @@ Common experiment scenarios:
 7. Commentary impact: Test if enable_commentary affects player behavior
 8. Fixed hand count experiments: Use reset_on_elimination: true for equal hand counts across variants (fair A/B comparisons)
 9. Natural tournaments: Use reset_on_elimination: false (default) for tournaments that end when one player wins all chips
+10. GTO guidance impact: Test if show_equity_always/show_equity_verdict reduces fold mistakes and bad calls
+11. Range estimation comparison: Test use_enhanced_ranges (PFR/action-based) vs VPIP-only ranges
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
