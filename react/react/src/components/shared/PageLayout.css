@@ -40,6 +40,27 @@
   align-items: flex-start;
 }
 
+/* Fixed: Content fills viewport without scrolling (menus with MenuBar) */
+.page-layout--fixed {
+  align-items: center;
+  overflow: hidden;
+}
+
+/* ===========================================
+   MENU BAR SUPPORT
+   =========================================== */
+
+/* Add padding when MenuBar is present */
+.page-layout--has-menu-bar {
+  padding-top: calc(56px + max(var(--space-4), env(safe-area-inset-top)));
+}
+
+@media (max-width: 640px) {
+  .page-layout--has-menu-bar {
+    padding-top: calc(56px + max(var(--space-2), env(safe-area-inset-top)));
+  }
+}
+
 /* ===========================================
    CONTENT CONTAINER
    =========================================== */

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PageLayout } from '../../shared/PageLayout';
 import { PageHeader } from '../../shared/PageHeader';
+import { MenuBar } from '../../shared/MenuBar';
 import { useCareerStats } from '../../../hooks/useCareerStats';
 import { getOrdinal } from '../../../types/tournament';
 import type { EliminatedPersonality } from '../../../types/tournament';
@@ -16,53 +17,61 @@ export function CareerStats({ onBack }: CareerStatsProps) {
 
   if (loading) {
     return (
-      <PageLayout variant="centered" glowColor="sapphire">
-        <PageHeader title="My Stats" onBack={onBack} />
-        <div className="career-stats-loading">
-          <div className="loading-spinner" />
-          <p>Loading your stats...</p>
-        </div>
-      </PageLayout>
+      <>
+        <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+        <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
+          <div className="career-stats-loading">
+            <div className="loading-spinner" />
+            <p>Loading your stats...</p>
+          </div>
+        </PageLayout>
+      </>
     );
   }
 
   if (error) {
     return (
-      <PageLayout variant="centered" glowColor="sapphire">
-        <PageHeader title="My Stats" onBack={onBack} />
-        <div className="career-stats-error">
-          <span className="error-icon">!</span>
-          <p>{error}</p>
-          <button className="retry-button" onClick={refresh}>
-            Try Again
-          </button>
-        </div>
-      </PageLayout>
+      <>
+        <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+        <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
+          <div className="career-stats-error">
+            <span className="error-icon">!</span>
+            <p>{error}</p>
+            <button className="retry-button" onClick={refresh}>
+              Try Again
+            </button>
+          </div>
+        </PageLayout>
+      </>
     );
   }
 
   // Empty state - no games played yet
   if (!stats || stats.games_played === 0) {
     return (
-      <PageLayout variant="centered" glowColor="sapphire">
-        <PageHeader title="My Stats" onBack={onBack} />
-        <div className="career-stats-empty">
-          <div className="empty-icon">&#x1F3B0;</div>
-          <h2>No Stats Yet</h2>
-          <p>Play your first tournament to start tracking your poker career!</p>
-          <button className="start-playing-button" onClick={onBack}>
-            Start Playing
-          </button>
-        </div>
-      </PageLayout>
+      <>
+        <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+        <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
+          <div className="career-stats-empty">
+            <div className="empty-icon">&#x1F3B0;</div>
+            <h2>No Stats Yet</h2>
+            <p>Play your first tournament to start tracking your poker career!</p>
+            <button className="start-playing-button" onClick={onBack}>
+              Start Playing
+            </button>
+          </div>
+        </PageLayout>
+      </>
     );
   }
 
   const winRate = Math.round((stats.win_rate || 0) * 100);
 
   return (
-    <PageLayout variant="top" glowColor="sapphire">
-      <PageHeader title="My Stats" onBack={onBack} />
+    <>
+      <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+      <PageLayout variant="top" glowColor="sapphire" hasMenuBar>
+        <PageHeader title="My Stats" />
 
       <div className="career-stats">
         {/* Hero Stats */}
@@ -191,6 +200,7 @@ export function CareerStats({ onBack }: CareerStatsProps) {
           )}
         </div>
       </div>
-    </PageLayout>
+      </PageLayout>
+    </>
   );
 }

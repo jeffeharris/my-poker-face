@@ -1,0 +1,196 @@
+/**
+ * MenuBar - Premium Poker Aesthetic
+ *
+ * Unified top bar for all menu screens
+ */
+
+/* ===========================================
+   BASE LAYOUT
+   =========================================== */
+.menu-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  padding-top: env(safe-area-inset-top);
+  background: rgba(15, 15, 20, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-default);
+  z-index: var(--z-nav);
+  box-sizing: border-box;
+}
+
+/* Account for safe area in total height */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .menu-bar {
+    height: calc(56px + env(safe-area-inset-top));
+  }
+}
+
+/* ===========================================
+   LEFT SECTION (Back button or spacer)
+   =========================================== */
+.menu-bar__left {
+  flex: 0 0 auto;
+  min-width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.menu-bar__back {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 42px;
+  padding: 0 14px 0 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.15) 0%,
+    rgba(212, 165, 116, 0.08) 100%
+  );
+  border: 1px solid rgba(212, 165, 116, 0.35);
+  border-radius: 21px;
+  color: var(--color-gold, #d4a574);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-display, system-ui);
+  font-weight: 600;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.menu-bar__back-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -2px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu-bar__back-label {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.menu-bar__back:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.25) 0%,
+    rgba(212, 165, 116, 0.15) 100%
+  );
+  border-color: rgba(212, 165, 116, 0.5);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.25),
+    0 0 20px rgba(212, 165, 116, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateX(-2px);
+}
+
+.menu-bar__back:hover .menu-bar__back-icon {
+  transform: translateX(-3px);
+}
+
+.menu-bar__back:active {
+  transform: scale(0.96) translateX(-1px);
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.3),
+    inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.menu-bar__spacer {
+  width: 48px;
+}
+
+/* ===========================================
+   CENTER SECTION (Brand or title)
+   =========================================== */
+.menu-bar__center {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.menu-bar__brand {
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+  letter-spacing: var(--letter-spacing-tight);
+  text-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
+  white-space: nowrap;
+}
+
+/* Title is hidden - we use the back button + context instead */
+.menu-bar__title {
+  display: none;
+}
+
+/* ===========================================
+   RIGHT SECTION (User info)
+   =========================================== */
+.menu-bar__right {
+  flex: 0 0 auto;
+  min-width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* User info styles moved to UserDropdown.css */
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+@media (max-width: 640px) {
+  .menu-bar {
+    padding: 0 var(--space-2);
+  }
+
+  .menu-bar__brand {
+    font-size: var(--font-size-base);
+  }
+
+  .menu-bar__title {
+    font-size: var(--font-size-sm);
+  }
+
+  /* Back button stays prominent on mobile */
+  .menu-bar__back {
+    height: 40px;
+    padding: 0 12px 0 6px;
+    border-radius: 20px;
+  }
+
+  .menu-bar__back-icon svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .menu-bar__back-label {
+    font-size: 14px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 380px) {
+  /* Keep back button compact but visible */
+  .menu-bar__back {
+    height: 38px;
+    padding: 0 10px 0 4px;
+  }
+
+  .menu-bar__back-label {
+    font-size: 13px;
+  }
+}

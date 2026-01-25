@@ -1,0 +1,254 @@
+/**
+ * UserDropdown - Premium Poker Aesthetic
+ *
+ * Dropdown menu for user actions with avatar
+ */
+
+/* ===========================================
+   CONTAINER
+   =========================================== */
+.user-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* ===========================================
+   TRIGGER BUTTON
+   =========================================== */
+.user-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 4px 10px 4px 4px;
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.12) 0%,
+    rgba(212, 165, 116, 0.06) 100%
+  );
+  border: 1px solid rgba(212, 165, 116, 0.25);
+  border-radius: 21px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-display, system-ui);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.user-dropdown__trigger:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.2) 0%,
+    rgba(212, 165, 116, 0.1) 100%
+  );
+  border-color: rgba(212, 165, 116, 0.4);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    0 0 16px rgba(212, 165, 116, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.user-dropdown__trigger:active {
+  transform: scale(0.98);
+}
+
+/* ===========================================
+   AVATAR
+   =========================================== */
+.user-dropdown__avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    135deg,
+    rgba(212, 165, 116, 0.35) 0%,
+    rgba(212, 165, 116, 0.2) 100%
+  );
+  border: 1px solid rgba(212, 165, 116, 0.4);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-dropdown__avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.user-dropdown__avatar-initial {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-gold, #d4a574);
+  text-transform: uppercase;
+}
+
+/* ===========================================
+   USERNAME
+   =========================================== */
+.user-dropdown__name {
+  font-size: 14px;
+  font-weight: 500;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-dropdown__guest-tag {
+  margin-left: 4px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+/* ===========================================
+   CHEVRON
+   =========================================== */
+.user-dropdown__chevron {
+  color: rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.user-dropdown__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ===========================================
+   DROPDOWN MENU
+   =========================================== */
+.user-dropdown__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  background: rgba(20, 20, 28, 0.98);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 24px rgba(212, 165, 116, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: calc(var(--z-nav, 1000) + 10);
+  animation: dropdown-fade-in 0.15s ease-out;
+}
+
+@keyframes dropdown-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===========================================
+   MENU ITEMS
+   =========================================== */
+.user-dropdown__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-display, system-ui);
+  text-align: left;
+}
+
+.user-dropdown__menu-item:hover {
+  background: rgba(212, 165, 116, 0.15);
+  color: var(--color-gold, #d4a574);
+}
+
+.user-dropdown__menu-item:active {
+  background: rgba(212, 165, 116, 0.2);
+  transform: scale(0.98);
+}
+
+/* Logout specific styling */
+.user-dropdown__menu-item--logout:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.user-dropdown__menu-item--logout:active {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+@media (max-width: 640px) {
+  .user-dropdown__trigger {
+    height: 40px;
+    padding: 4px 8px 4px 4px;
+    gap: 6px;
+  }
+
+  .user-dropdown__avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .user-dropdown__avatar-initial {
+    font-size: 13px;
+  }
+
+  .user-dropdown__name {
+    font-size: 13px;
+    max-width: 80px;
+  }
+
+  .user-dropdown__guest-tag {
+    display: none;
+  }
+
+  .user-dropdown__menu {
+    min-width: 140px;
+  }
+
+  .user-dropdown__menu-item {
+    padding: 10px 12px;
+    font-size: 13px;
+    /* Ensure 44px min touch target */
+    min-height: 44px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 380px) {
+  .user-dropdown__name {
+    display: none;
+  }
+
+  .user-dropdown__trigger {
+    padding: 4px 8px 4px 4px;
+    gap: 4px;
+  }
+
+  .user-dropdown__avatar {
+    width: 34px;
+    height: 34px;
+  }
+}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
@@ -184,12 +184,14 @@ export function GameMenu({
   const canAccessAdmin = hasPermission(user, 'can_access_admin_tools');
 
   return (
-    <PageLayout variant="centered" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'}>
-      <PageHeader
-        title={`Welcome, ${playerName}!`}
-        subtitle="Choose how you'd like to play"
-        titleVariant="primary"
-      />
+    <>
+      <MenuBar showUserInfo />
+      <PageLayout variant="fixed" glowColor="gold" maxWidth={isDesktop ? 'xl' : 'md'} hasMenuBar>
+        <PageHeader
+          title={`Welcome, ${playerName}!`}
+          subtitle="Choose how you'd like to play"
+          titleVariant="primary"
+        />
 
       <div className={`game-menu__layout ${isDesktop ? 'game-menu__layout--split' : ''}`}>
         {/* Main Menu Options */}
@@ -320,19 +322,20 @@ export function GameMenu({
         )}
       </div>
 
-      <div className="game-menu__footer">
-        <p className="tip">
-          {hoveredOption === 'lightning' && "Fast and furious! Short stacks mean quick decisions and big swings."}
-          {hoveredOption === '1v1' && "Test your skills head-to-head against a single AI opponent."}
-          {hoveredOption === 'random' && "The classic experience with a comfortable stack and 4 opponents."}
-          {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
-          {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
-          {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-          {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
-          {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
-          {!hoveredOption && "Ready to test your poker face?"}
-        </p>
-      </div>
-    </PageLayout>
+        <div className="game-menu__footer">
+          <p className="tip">
+            {hoveredOption === 'lightning' && "Fast and furious! Short stacks mean quick decisions and big swings."}
+            {hoveredOption === '1v1' && "Test your skills head-to-head against a single AI opponent."}
+            {hoveredOption === 'random' && "The classic experience with a comfortable stack and 4 opponents."}
+            {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
+            {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
+            {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
+            {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
+            {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
+            {!hoveredOption && "Ready to test your poker face?"}
+          </p>
+        </div>
+      </PageLayout>
+    </>
   );
 }

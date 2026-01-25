@@ -4,7 +4,7 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import { config } from '../../config';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import './ThemedGameSelector.css';
 
 interface Theme {
@@ -91,13 +91,14 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
   };
 
   return (
-    <PageLayout variant="top" glowColor="amber" maxWidth="lg">
-      <PageHeader
-        title="Choose Your Theme"
-        subtitle="Each theme brings together unique personalities for an unforgettable game!"
-        onBack={onBack}
-        titleVariant="themed"
-      />
+    <>
+      <MenuBar onBack={onBack} title="Themed Game" showUserInfo />
+      <PageLayout variant="top" glowColor="amber" maxWidth="lg" hasMenuBar>
+        <PageHeader
+          title="Choose Your Theme"
+          subtitle="Each theme brings together unique personalities for an unforgettable game!"
+          titleVariant="themed"
+        />
 
         {error && (
           <div className="error-message">
@@ -138,6 +139,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
           Personalities won't be revealed until the game starts - it's part of the surprise!
         </p>
       </div>
-    </PageLayout>
+      </PageLayout>
+    </>
   );
 }

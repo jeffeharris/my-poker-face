@@ -20,8 +20,14 @@ export type { UserBadgeProps } from './UserBadge';
 export { PageLayout } from './PageLayout';
 export type { PageLayoutProps } from './PageLayout';
 
+export { MenuBar } from './MenuBar';
+export type { MenuBarProps } from './MenuBar';
+
 export { ResponsiveGameLayout } from './ResponsiveGameLayout';
 export type { ResponsiveGameLayoutProps } from './ResponsiveGameLayout';
 
 export { ThemedSelect } from './ThemedSelect';
 export type { ThemedSelectProps } from './ThemedSelect';
+
+export { UserDropdown } from './UserDropdown';
+export type { UserDropdownProps } from './UserDropdown';

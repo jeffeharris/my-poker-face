@@ -11,7 +11,6 @@ import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
-import { UserBadge } from './components/shared'
 import { GamePage } from './components/game/GamePage'
 import { AdminRoutes } from './components/admin/AdminRoutes'
 import { PrivacyPolicy, TermsOfService } from './components/legal'
@@ -263,16 +262,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   return (
     <>
-      {/* User info - only show on game menu screen */}
-      {isAuthenticated && user && location.pathname === '/menu' && (
-        <UserBadge
-          name={user.name}
-          isGuest={user.is_guest}
-          onLogout={handleLogout}
-          className="user-badge--fixed"
-        />
-      )}
-
       {/* Routes */}
       <Routes>
         {/* Public routes */}
