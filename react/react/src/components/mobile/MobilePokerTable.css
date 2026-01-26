@@ -154,6 +154,13 @@
 
 /* Header styles now in shared/MobileHeader.css */
 
+/* Spacer for fixed MenuBar (56px + safe area) */
+.menu-bar-spacer {
+    flex-shrink: 0;
+    height: calc(56px + env(safe-area-inset-top, 0px));
+    min-height: calc(56px + env(safe-area-inset-top, 0px));
+}
+
 /* Opponents Strip - 33% of viewport */
 .mobile-opponents {
     display: flex;
@@ -168,6 +175,7 @@
     min-height: 33dvh;
     max-height: 33dvh;
     align-items: center;
+    justify-content: center; /* Center opponents when they fit */
     box-sizing: border-box;
 }
 
@@ -188,8 +196,8 @@
         rgba(10, 12, 16, 0.8) 100%
     );
     border-radius: var(--radius-xl);
-    width: 28vw;
-    min-width: 28vw;
+    width: 30vw;
+    min-width: 30vw;
     height: calc(33dvh - 24px); /* Fill available height minus padding */
     position: relative;
     border: 1px solid var(--color-border-default);
@@ -470,11 +478,12 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 5dvh;
-  min-height: 5dvh;
-  max-height: 5dvh;
+  height: 4dvh;
+  min-height: 4dvh;
+  max-height: 4dvh;
   z-index: 2;
   position: relative;
+  margin-top: 1.5dvh;
 }
 
 /* Override pot styles for floating context - more compact */
@@ -493,16 +502,16 @@
   font-size: var(--font-size-lg);
 }
 
-/* Community Cards - 25% of viewport (reduced from 30% to accommodate floating pot) */
+/* Community Cards - 23% of viewport (compact layout) */
 .mobile-community {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 8px 16px;
-    height: 25dvh;
-    min-height: 25dvh;
-    max-height: 25dvh;
+    padding: 0 16px;
+    height: 23dvh;
+    min-height: 23dvh;
+    max-height: 23dvh;
     box-sizing: border-box;
 }
 
@@ -520,7 +529,7 @@
 .community-cards-row .playing-card.card-back {
     width: 100% !important;
     height: auto !important;
-    max-height: calc(20dvh - 50px);
+    max-height: 26dvh;
     aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
 }
 
@@ -533,7 +542,7 @@
 /* Community card placeholder - fills grid cell */
 .community-card-placeholder {
     width: 100%;
-    max-height: calc(20dvh - 50px);
+    max-height: 26dvh;
     aspect-ratio: 500 / 726;
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed rgba(255, 255, 255, 0.2);
@@ -543,7 +552,7 @@
 
 /* Hero Section - 29% of viewport (action bar overlays bottom 12%) */
 .mobile-hero {
-    padding: 12px 16px 0 16px;
+    padding: 4px 16px 0 16px;
     background: linear-gradient(
         to top,
         rgba(10, 11, 16, 0.6) 0%,
@@ -592,6 +601,7 @@
     height: 5.75dvh; /* 25% of usable hero space (23dvh) */
     min-height: 5.75dvh;
     flex-shrink: 0;
+    margin-top: 8px;
 }
 
 .hero-name {
