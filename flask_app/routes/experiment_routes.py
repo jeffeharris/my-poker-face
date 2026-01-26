@@ -2317,7 +2317,8 @@ def get_experiment(experiment_id: int):
         })
 
     except Exception as e:
-        logger.error(f"Error getting experiment: {e}")
+        import traceback
+        logger.error(f"Error getting experiment {experiment_id}: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 

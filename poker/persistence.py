@@ -6836,7 +6836,10 @@ class GamePersistence:
                 except (json.JSONDecodeError, TypeError):
                     resp = {}
 
-                bluff = resp.get('bluff_likelihood', 50)
+                try:
+                    bluff = int(resp.get('bluff_likelihood', 50))
+                except (ValueError, TypeError):
+                    bluff = 50  # Default to skip if not parseable
                 hand_str = str(resp.get('hand_strength', '')).lower()
 
                 # Skip intentional bluffs (bluff_likelihood >= 50)
