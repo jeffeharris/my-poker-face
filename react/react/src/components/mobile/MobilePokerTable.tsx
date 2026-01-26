@@ -569,12 +569,15 @@ export function MobilePokerTable({
         onSendMessage={handleSendMessage}
       />
 
-      {/* Tournament Complete - only show when no final hand winner announcement is active */}
-      {/* This prevents the tournament screen from covering the hand results */}
-      {!(winnerInfo?.is_final_hand) && (
+      {/* Tournament Complete - only show when winner announcement is dismissed */}
+      {/* This ensures winner announcement is ALWAYS shown first, then tournament complete after */}
+      {!winnerInfo && (
         <TournamentComplete
           result={tournamentResult}
           onComplete={handleTournamentComplete}
+          gameId={gameId || undefined}
+          playerName={playerName}
+          onSendMessage={handleSendMessage}
         />
       )}
 
