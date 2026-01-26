@@ -15,8 +15,6 @@ import logging
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
-from core.card import Card
-
 logger = logging.getLogger(__name__)
 
 

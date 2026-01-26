@@ -993,7 +993,8 @@ def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
     lines = []
     for opp in opponent_infos:
         # Get position abbreviation
-        pos_abbrev = opp.position.upper()[:3] if opp.position else "???"
+        from .minimal_prompt import get_position_abbrev
+        pos_abbrev = get_position_abbrev(opp.position) if opp.position else "???"
 
         # Determine tightness label
         if opp.vpip is not None:
@@ -1013,7 +1014,6 @@ def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
             lines.append(f"  {pos_abbrev}: {tightness} ({', '.join(stats_parts)})")
         else:
             # No observed stats - use position-based defaults
-            from .hand_ranges import get_position_group, get_range_percentage
             pos_group = get_position_group(opp.position)
             # get_range_percentage already returns a percentage (e.g., 28.4), not a fraction
             range_pct = int(get_range_percentage(pos_group))

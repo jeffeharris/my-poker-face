@@ -802,16 +802,16 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
                         </span>
                       </div>
                       {/* Survival Metrics */}
-                      {(variantLive.quality_indicators.total_eliminations > 0 ||
-                        variantLive.quality_indicators.all_in_wins > 0 ||
-                        variantLive.quality_indicators.all_in_losses > 0) && (
+                      {((variantLive.quality_indicators.total_eliminations ?? 0) > 0 ||
+                        (variantLive.quality_indicators.all_in_wins ?? 0) > 0 ||
+                        (variantLive.quality_indicators.all_in_losses ?? 0) > 0) && (
                         <div className="experiment-detail__decision-row" style={{ marginTop: '4px' }}>
                           <span className="experiment-detail__decision-metric">
-                            {variantLive.quality_indicators.total_eliminations} Eliminations
+                            {variantLive.quality_indicators.total_eliminations ?? 0} Eliminations
                           </span>
-                          <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.all_in_survival_rate !== null && variantLive.quality_indicators.all_in_survival_rate < 40 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
-                            All-in: {variantLive.quality_indicators.all_in_wins}W/{variantLive.quality_indicators.all_in_losses}L
-                            {variantLive.quality_indicators.all_in_survival_rate !== null && ` (${variantLive.quality_indicators.all_in_survival_rate}%)`}
+                          <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.all_in_survival_rate != null && variantLive.quality_indicators.all_in_survival_rate < 40 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                            All-in: {variantLive.quality_indicators.all_in_wins ?? 0}W/{variantLive.quality_indicators.all_in_losses ?? 0}L
+                            {variantLive.quality_indicators.all_in_survival_rate != null && ` (${variantLive.quality_indicators.all_in_survival_rate}%)`}
                           </span>
                         </div>
                       )}

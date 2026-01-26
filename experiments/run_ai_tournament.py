@@ -1629,7 +1629,6 @@ class AITournamentRunner:
         """
         try:
             import sqlite3
-            import json
 
             with sqlite3.connect(self.persistence.db_path) as conn:
                 cursor = conn.cursor()

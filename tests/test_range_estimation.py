@@ -16,8 +16,6 @@ Sources for mathematical benchmarks:
 import unittest
 from poker.hand_ranges import (
     OpponentInfo,
-    EquityConfig,
-    Position,
     EARLY_POSITION_RANGE,
     MIDDLE_POSITION_RANGE,
     LATE_POSITION_RANGE,

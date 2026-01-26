@@ -543,7 +543,7 @@ class AIPlayerController:
         if self.prompt_config.guidance_injection:
             message = message + "\n\n" + "ADDITIONAL GUIDANCE:\n" + self.prompt_config.guidance_injection
 
-        print(message)
+        logger.debug(f"[AI_DECISION] Prompt:\n{message}")
 
         # Context for fallback
         player_stack = game_state.current_player.stack
@@ -594,7 +594,7 @@ class AIPlayerController:
             )
             self._current_hand_plans.append(plan)
 
-        print(json.dumps(cleaned_response, indent=4))
+        logger.debug(f"[AI_DECISION] Response:\n{json.dumps(cleaned_response, indent=4)}")
         return cleaned_response
     
     def _get_ai_decision(self, message: str, **context) -> Dict:

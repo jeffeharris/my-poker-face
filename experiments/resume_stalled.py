@@ -21,9 +21,8 @@ import json
 import logging
 import os
 import sys
-import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
