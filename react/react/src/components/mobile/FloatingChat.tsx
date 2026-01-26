@@ -19,8 +19,10 @@ interface FloatingChatProps {
 
 // Timing constants for dramatic effect
 const TYPING_SPEED_MS = 30; // ms per character for typing effect
+const READING_BUFFER_MS = 10; // extra ms per character for reading time (added to duration only)
 const ACTION_FADE_DURATION_MS = 400; // fade in duration for actions
 const BEAT_DELAY_MS = 300; // delay between beats
+const QUEUED_MESSAGE_BONUS_MS = 1000; // extra time for messages that were waiting in queue
 
 // Parse a beat to determine if it's an action or speech
 interface ParsedBeat {
@@ -61,8 +63,8 @@ function calculateDuration(message: string, action?: string): number {
     if (beat.type === 'action') {
       animationTime += ACTION_FADE_DURATION_MS;
     } else {
-      // Typing time for speech
-      animationTime += beat.text.length * TYPING_SPEED_MS;
+      // Typing time for speech + reading buffer
+      animationTime += beat.text.length * (TYPING_SPEED_MS + READING_BUFFER_MS);
     }
   });
 
@@ -264,7 +266,12 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
         // If message is now in active zone but timer hasn't started, start it
         if (index < ACTIVE_MESSAGE_LIMIT && msg.timerStartedAt === null) {
           changed = true;
-          return { ...msg, timerStartedAt: Date.now() };
+          // Add bonus time for messages that were waiting in queue
+          return {
+            ...msg,
+            timerStartedAt: Date.now(),
+            displayDuration: msg.displayDuration + QUEUED_MESSAGE_BONUS_MS
+          };
         }
         return msg;
       });
