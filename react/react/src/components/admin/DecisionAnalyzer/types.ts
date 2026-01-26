@@ -36,6 +36,11 @@ export interface PromptCapture {
   notes: string | null;
   raw_api_response: string | null;
   labels?: Array<{ label: string; label_type: string; created_at: string }>;
+  // Error/correction resilience fields
+  error_type?: string | null;
+  error_description?: string | null;
+  parent_id?: number | null;
+  correction_attempt?: number | null;
 }
 
 export interface CaptureStats {
@@ -83,6 +88,10 @@ export interface CaptureFilters {
   tags?: string[];
   labels?: string[];
   labelMatchAll?: boolean;
+  // Error/correction resilience filters
+  error_type?: string;
+  has_error?: boolean;
+  is_correction?: boolean;
   limit?: number;
   offset?: number;
 }

@@ -128,6 +128,9 @@ def search_captures():
         phase: Optional filter by phase (PRE_FLOP, FLOP, TURN, RIVER)
         min_pot_odds: Optional minimum pot odds
         max_pot_odds: Optional maximum pot odds
+        error_type: Optional filter by specific error type
+        has_error: Optional filter for captures with errors ('true') or without ('false')
+        is_correction: Optional filter for correction attempts ('true') or originals only ('false')
         limit: Max results (default 50)
         offset: Pagination offset (default 0)
 
@@ -153,6 +156,22 @@ def search_captures():
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)
 
+        # Parse error/correction filters
+        error_type = request.args.get('error_type')
+        has_error_str = request.args.get('has_error')
+        has_error = None
+        if has_error_str == 'true':
+            has_error = True
+        elif has_error_str == 'false':
+            has_error = False
+
+        is_correction_str = request.args.get('is_correction')
+        is_correction = None
+        if is_correction_str == 'true':
+            is_correction = True
+        elif is_correction_str == 'false':
+            is_correction = False
+
         if labels:
             result = persistence.search_captures_with_labels(
                 labels=labels,
@@ -163,6 +182,9 @@ def search_captures():
                 phase=phase,
                 min_pot_odds=min_pot_odds,
                 max_pot_odds=max_pot_odds,
+                error_type=error_type,
+                has_error=has_error,
+                is_correction=is_correction,
                 limit=limit,
                 offset=offset
             )
@@ -175,6 +197,9 @@ def search_captures():
                 phase=phase,
                 min_pot_odds=min_pot_odds,
                 max_pot_odds=max_pot_odds,
+                error_type=error_type,
+                has_error=has_error,
+                is_correction=is_correction,
                 limit=limit,
                 offset=offset
             )

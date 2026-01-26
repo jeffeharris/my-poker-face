@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 # v50: Add prompt_config_json to prompt_captures for analysis
 # v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
-SCHEMA_VERSION = 52
+# v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
+SCHEMA_VERSION = 53
 
 
 @dataclass
@@ -575,7 +576,12 @@ class GamePersistence:
                     prompt_config_json TEXT,
                     stack_bb REAL,
                     already_bet_bb REAL,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
+                    parent_id INTEGER,
+                    error_type TEXT,
+                    error_description TEXT,
+                    correction_attempt INTEGER DEFAULT 0,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL,
+                    FOREIGN KEY (parent_id) REFERENCES prompt_captures(id) ON DELETE SET NULL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
@@ -590,6 +596,7 @@ class GamePersistence:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
 
@@ -944,6 +951,7 @@ class GamePersistence:
             50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
+            53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2534,6 +2542,39 @@ class GamePersistence:
         """)
 
         logger.info("Migration v52 complete: RBAC tables added with initial data")
+
+    def _migrate_v53_add_resilience_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v53: Add AI decision resilience columns to prompt_captures.
+
+        These columns enable tracking of error recovery attempts:
+        - parent_id: Links correction attempts to the original failed capture
+        - error_type: Type of error detected (malformed_json, missing_field, invalid_action, semantic_error)
+        - correction_attempt: 0 for original, 1+ for correction attempts
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'parent_id' not in columns:
+            # Note: SQLite doesn't enforce FK constraints added via ALTER TABLE, but we include
+            # the REFERENCES clause for documentation. The actual constraint is enforced by
+            # application logic. ON DELETE SET NULL matches the schema in _init_db().
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN parent_id INTEGER REFERENCES prompt_captures(id) ON DELETE SET NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
+            logger.info("Added parent_id column to prompt_captures")
+
+        if 'error_type' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_type TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_error_type ON prompt_captures(error_type)")
+            logger.info("Added error_type column to prompt_captures")
+
+        if 'error_description' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_description TEXT")
+            logger.info("Added error_description column to prompt_captures")
+
+        if 'correction_attempt' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN correction_attempt INTEGER DEFAULT 0")
+            logger.info("Added correction_attempt column to prompt_captures")
+
+        logger.info("Migration v53 complete: AI decision resilience columns added to prompt_captures")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4864,10 +4905,18 @@ class GamePersistence:
         max_pot_odds: Optional[float] = None,
         tags: Optional[List[str]] = None,
         call_type: Optional[str] = None,
+        error_type: Optional[str] = None,
+        has_error: Optional[bool] = None,
+        is_correction: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
         """List prompt captures with optional filtering.
+
+        Args:
+            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
+            has_error: Filter to captures with errors (True) or without errors (False)
+            is_correction: Filter to correction attempts only (True) or original only (False)
 
         Returns:
             Dict with 'captures' list and 'total' count.
@@ -4896,6 +4945,17 @@ class GamePersistence:
         if call_type:
             conditions.append("call_type = ?")
             params.append(call_type)
+        if error_type:
+            conditions.append("error_type = ?")
+            params.append(error_type)
+        if has_error is True:
+            conditions.append("error_type IS NOT NULL")
+        elif has_error is False:
+            conditions.append("error_type IS NULL")
+        if is_correction is True:
+            conditions.append("parent_id IS NOT NULL")
+        elif is_correction is False:
+            conditions.append("parent_id IS NULL")
         if tags:
             # Match any of the provided tags
             tag_conditions = []
@@ -4920,7 +4980,8 @@ class GamePersistence:
             query = f"""
                 SELECT id, created_at, game_id, player_name, hand_number, phase,
                        action_taken, pot_total, cost_to_call, pot_odds, player_stack,
-                       community_cards, player_hand, model, provider, latency_ms, tags, notes
+                       community_cards, player_hand, model, provider, latency_ms, tags, notes,
+                       error_type, error_description, parent_id, correction_attempt
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC
@@ -7324,6 +7385,9 @@ class GamePersistence:
         max_pot_size: Optional[float] = None,
         min_big_blind: Optional[float] = None,
         max_big_blind: Optional[float] = None,
+        error_type: Optional[str] = None,
+        has_error: Optional[bool] = None,
+        is_correction: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -7343,6 +7407,9 @@ class GamePersistence:
             max_pot_size: Optional maximum pot total filter
             min_big_blind: Optional minimum big blind filter (computed from stack_bb)
             max_big_blind: Optional maximum big blind filter (computed from stack_bb)
+            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
+            has_error: Filter to captures with errors (True) or without errors (False)
+            is_correction: Filter to correction attempts only (True) or original only (False)
             limit: Maximum results to return
             offset: Pagination offset
 
@@ -7361,6 +7428,9 @@ class GamePersistence:
                 min_pot_odds=min_pot_odds,
                 max_pot_odds=max_pot_odds,
                 call_type=call_type,
+                error_type=error_type,
+                has_error=has_error,
+                is_correction=is_correction,
                 limit=limit,
                 offset=offset
             )
@@ -7403,6 +7473,18 @@ class GamePersistence:
         if max_big_blind is not None:
             conditions.append("pc.stack_bb > 0 AND (pc.player_stack / pc.stack_bb) <= ?")
             params.append(max_big_blind)
+        # Error/correction resilience filters
+        if error_type:
+            conditions.append("pc.error_type = ?")
+            params.append(error_type)
+        if has_error is True:
+            conditions.append("pc.error_type IS NOT NULL")
+        elif has_error is False:
+            conditions.append("pc.error_type IS NULL")
+        if is_correction is True:
+            conditions.append("pc.parent_id IS NOT NULL")
+        elif is_correction is False:
+            conditions.append("pc.parent_id IS NULL")
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

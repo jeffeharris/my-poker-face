@@ -22,9 +22,11 @@ interface AdminDashboardProps {
   onBack: () => void;
   initialTab?: AdminTab;
   onTabChange?: (tab: AdminTab) => void;
+  /** Called when a capture is selected in the analyzer (for URL navigation) */
+  onCaptureSelect?: (captureId: number | null) => void;
 }
 
-export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboardProps) {
+export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelect }: AdminDashboardProps) {
   const { isMobile } = useViewport();
   const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -91,6 +93,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
         <DecisionAnalyzer
           embedded
           onDetailModeChange={handleAnalyzerDetailModeChange}
+          onCaptureSelect={onCaptureSelect}
         />
       )}
       {activeTab === 'playground' && (
