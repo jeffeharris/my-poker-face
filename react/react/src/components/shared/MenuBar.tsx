@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { UserDropdown } from './UserDropdown';
@@ -8,6 +9,8 @@ export interface MenuBarProps {
   onBack?: () => void;
   /** Optional center title (for sub-screens) */
   title?: string;
+  /** Custom center content (takes precedence over title/brand) */
+  centerContent?: ReactNode;
   /** Show "My Poker Face" branding (default: false) */
   showBrand?: boolean;
   /** Show user badge + logout (default: true) */
@@ -33,6 +36,7 @@ export interface MenuBarProps {
 export function MenuBar({
   onBack,
   title,
+  centerContent,
   showBrand = false,
   showUserInfo = true,
   onMainMenu,
@@ -68,9 +72,11 @@ export function MenuBar({
         )}
       </div>
 
-      {/* Center section: Brand or title */}
+      {/* Center section: Custom content, brand, or title */}
       <div className="menu-bar__center">
-        {showBrand ? (
+        {centerContent ? (
+          centerContent
+        ) : showBrand ? (
           <span className="menu-bar__brand">My Poker Face</span>
         ) : title ? (
           <span className="menu-bar__title">{title}</span>

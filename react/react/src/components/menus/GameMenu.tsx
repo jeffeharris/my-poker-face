@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, LayoutDashboard, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
+import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useViewport } from '../../hooks/useViewport';
-import { useAuth, hasPermission } from '../../hooks/useAuth';
 import menuBanner from '../../assets/menu-banner.png';
 import './GameMenu.css';
 
@@ -181,8 +180,6 @@ export function GameMenu({
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const { isDesktop } = useViewport();
-  const { user } = useAuth();
-  const canAccessAdmin = hasPermission(user, 'can_access_admin_tools');
 
   // Only use hover handlers on desktop
   const getHoverHandlers = (option: string) => isDesktop ? {
@@ -302,21 +299,6 @@ export function GameMenu({
             </button>
           )}
 
-          {canAccessAdmin && onAdminDashboard && (
-            <button
-              className="menu-option admin-dashboard"
-              onClick={onAdminDashboard}
-              {...getHoverHandlers('admin')}
-            >
-              <LayoutDashboard className="option-icon" size={24} />
-              <div className="option-content">
-                <h3>Admin Tools</h3>
-                <p>Personalities, experiments, and prompt tools</p>
-              </div>
-              <ChevronRight className="option-arrow" size={20} />
-            </button>
-          )}
-
         </div>
 
         {/* Stats Sidebar - Desktop only */}
@@ -335,7 +317,6 @@ export function GameMenu({
               {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
               {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
               {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-              {hoveredOption === 'admin' && "All admin tools in one place: personalities, experiments, and prompts."}
               {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
               {!hoveredOption && "Ready to test your poker face?"}
             </p>

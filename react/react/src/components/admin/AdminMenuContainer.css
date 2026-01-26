@@ -13,7 +13,39 @@
   overflow: hidden;
 }
 
-/* Mobile Header */
+/* Spacer for fixed MenuBar */
+.admin-menu-container .menu-bar-spacer {
+  flex-shrink: 0;
+  height: calc(56px + env(safe-area-inset-top, 0px));
+  min-height: calc(56px + env(safe-area-inset-top, 0px));
+}
+
+/* Header info in MenuBar center */
+.admin-menu-container__header-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-menu-container__header-title {
+  font-family: var(--font-display, system-ui);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+}
+
+/* Menu row below MenuBar for nav switching */
+.admin-menu-container__menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(212, 165, 116, 0.1);
+}
+
+/* Legacy Mobile Header - keeping for backwards compat */
 .admin-menu-container__header {
   display: flex;
   align-items: center;
@@ -150,14 +182,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  padding: 0;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  color: rgba(248, 250, 252, 0.85);
+  gap: 0.5rem;
+  height: 36px;
+  padding: 0 0.875rem;
+  background: rgba(212, 165, 116, 0.12);
+  border: 1px solid rgba(212, 165, 116, 0.25);
+  border-radius: 18px;
+  color: #d4a574;
+  font-family: var(--font-display, system-ui);
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   -webkit-tap-highlight-color: transparent;
@@ -165,7 +199,7 @@
 
 .admin-menu-container__menu-btn:active {
   transform: scale(0.95);
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(212, 165, 116, 0.2);
 }
 
 /* Navigation List in Sheet */

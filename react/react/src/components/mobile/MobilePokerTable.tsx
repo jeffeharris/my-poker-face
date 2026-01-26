@@ -10,7 +10,7 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
-import { MobileHeader, PotDisplay, ChatToggle, GameInfoDisplay } from '../shared';
+import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
 import './MobilePokerTable.css';
@@ -30,7 +30,6 @@ export function MobilePokerTable({
 }: MobilePokerTableProps) {
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
-  const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
@@ -297,8 +296,8 @@ export function MobilePokerTable({
         </div>
       )}
 
-      {/* Header with back button and game info */}
-      <MobileHeader
+      {/* Header with MenuBar - matches menu screens */}
+      <MenuBar
         onBack={onBack}
         centerContent={
           <GameInfoDisplay
@@ -307,13 +306,11 @@ export function MobilePokerTable({
             bigBlind={gameState.big_blind}
           />
         }
-        rightContent={
-          <ChatToggle
-            onClick={() => setShowChatSheet(true)}
-            badgeCount={messages.length}
-          />
-        }
+        showUserInfo
+        onAdminTools={() => { window.location.href = '/admin'; }}
       />
+      {/* Spacer for fixed MenuBar */}
+      <div className="menu-bar-spacer" />
 
       {/* Opponents Strip */}
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
@@ -510,7 +507,7 @@ export function MobilePokerTable({
             bigBlind={gameState.big_blind}
             potSize={gameState.pot.total}
             onAction={handlePlayerAction}
-            onQuickChat={() => setShowQuickChat(true)}
+            onQuickChat={() => setShowChatSheet(true)}
             bettingContext={gameState.betting_context}
           />
         ) : (
@@ -535,7 +532,7 @@ export function MobilePokerTable({
             </span>
             <button
               className="action-btn chat-btn"
-              onClick={() => setShowQuickChat(true)}
+              onClick={() => setShowChatSheet(true)}
             >
               <MessageCircle className="btn-icon" size={18} />
               <span className="btn-label">Chat</span>
@@ -543,31 +540,6 @@ export function MobilePokerTable({
           </div>
         )}
       </div>
-
-      {/* Quick Chat Overlay */}
-      {showQuickChat && providedGameId && gameState?.players && (
-        <div className="quick-chat-overlay" onClick={() => setShowQuickChat(false)}>
-          <div className="quick-chat-modal" onClick={e => e.stopPropagation()}>
-            <div className="quick-chat-modal-header">
-              <button onClick={() => setShowQuickChat(false)}>Cancel</button>
-              <span className="header-title">Quick Chat</span>
-              <div aria-hidden="true" style={{ visibility: 'hidden' }}>Cancel</div>
-            </div>
-            <QuickChatSuggestions
-              gameId={providedGameId}
-              playerName={playerName || 'Player'}
-              players={gameState.players}
-              defaultExpanded={true}
-              hideHeader={true}
-              onSelectSuggestion={(text) => {
-                handleSendMessage(text);
-                setShowQuickChat(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
 
       {/* Winner Announcement */}
       <MobileWinnerAnnouncement
@@ -590,7 +562,7 @@ export function MobilePokerTable({
         />
       )}
 
-      {/* Chat Sheet (bottom drawer) */}
+      {/* Chat Sheet (bottom drawer) - Quick Chat prioritized at top */}
       {showChatSheet && (
         <div className="chat-sheet-overlay" onClick={() => setShowChatSheet(false)}>
           <div className="chat-sheet" onClick={e => e.stopPropagation()}>
@@ -598,6 +570,19 @@ export function MobilePokerTable({
               <h3>Table Chat</h3>
               <button onClick={() => setShowChatSheet(false)}><X size={20} /></button>
             </div>
+            {/* Quick Chat at top - expanded by default */}
+            {providedGameId && gameState?.players && (
+              <QuickChatSuggestions
+                gameId={providedGameId}
+                playerName={playerName || 'Player'}
+                players={gameState.players}
+                defaultExpanded={true}
+                onSelectSuggestion={(text) => {
+                  handleSendMessage(text);
+                }}
+              />
+            )}
+            {/* Message history below */}
             <div className="chat-sheet-messages" ref={chatMessagesRef}>
               {messages.slice(-50).map((msg, i) => (
                 <div key={msg.id || i} className={`chat-msg ${msg.type}`}>
@@ -606,16 +591,6 @@ export function MobilePokerTable({
                 </div>
               ))}
             </div>
-            {providedGameId && gameState?.players && (
-              <QuickChatSuggestions
-                gameId={providedGameId}
-                playerName={playerName || 'Player'}
-                players={gameState.players}
-                onSelectSuggestion={(text) => {
-                  handleSendMessage(text);
-                }}
-              />
-            )}
             <form
               className="chat-sheet-input"
               onSubmit={(e) => {

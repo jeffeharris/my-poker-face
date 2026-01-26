@@ -530,11 +530,11 @@ function AdminTabWrapper() {
   const validTab = VALID_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'personalities';
 
   const handleBack = () => {
-    // On mobile, go back to admin menu; on desktop, go to main menu
+    // On mobile, go back to admin menu; on desktop, go back to where they came from
     if (isMobile) {
       navigate('/admin');
     } else {
-      navigate('/menu');
+      navigate(-1);
     }
   };
 
@@ -565,7 +565,8 @@ function AdminIndex() {
   }
 
   const handleBack = () => {
-    navigate('/menu');
+    // Go back to where the user came from (game or menu)
+    navigate(-1);
   };
 
   const handleTabChange = (newTab: AdminTab) => {

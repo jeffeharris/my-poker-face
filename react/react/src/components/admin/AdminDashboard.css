@@ -1,5 +1,13 @@
 /* Admin Dashboard - Sidebar Layout */
 
+/* Admin header title in MenuBar center */
+.admin-header-title {
+  font-family: var(--font-display, system-ui);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+}
+
 .admin-dashboard-layout {
   display: flex;
   width: 100vw;
