@@ -605,7 +605,7 @@ class AIPlayerController:
                 pot_total = game_state.pot.get('total', 0)
                 player_stack = player.stack
                 already_bet = player.bet
-                big_blind = game_state.current_ante or 250
+                big_blind = game_state.current_ante or 100
 
                 stack_bb = player_stack / big_blind if big_blind > 0 else None
                 already_bet_bb = already_bet / big_blind if big_blind > 0 else None
@@ -797,7 +797,7 @@ class AIPlayerController:
             pot_total = game_state.pot.get('total', 0)
             already_bet = player.bet
             player_stack = player.stack
-            big_blind = game_state.current_ante or 250
+            big_blind = game_state.current_ante or 100
 
             already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
             stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
@@ -908,7 +908,7 @@ class AIPlayerController:
         import re
         valid_actions = context.get('valid_actions', [])
         bb_normalized = self.prompt_config.bb_normalized
-        big_blind = game_state.current_ante or 1
+        big_blind = game_state.current_ante or 100
 
         # Convert BB raise_to to dollars if bb_normalized mode is active
         if bb_normalized and response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) > 0:
