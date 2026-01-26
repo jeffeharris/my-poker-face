@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { BackButton } from './BackButton';
+import { formatCompactCurrency } from '../../utils/formatters';
 import './MobileHeader.css';
 
 export interface MobileHeaderProps {
@@ -93,7 +94,7 @@ export function GameInfoDisplay({ phase, smallBlind, bigBlind }: GameInfoDisplay
   return (
     <div className="mobile-game-info">
       <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
-      <span className="mobile-game-info__blinds">${displaySmallBlind}/${bigBlind}</span>
+      <span className="mobile-game-info__blinds">{formatCompactCurrency(displaySmallBlind)}/{formatCompactCurrency(bigBlind, false)}</span>
     </div>
   );
 }
