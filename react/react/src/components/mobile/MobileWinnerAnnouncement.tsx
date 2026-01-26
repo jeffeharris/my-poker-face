@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { PartyPopper, Smile, Angry, Handshake, Trophy, ArrowLeft, Check, type LucideIcon } from "lucide-react";
+import { PartyPopper, Smile, Angry, Handshake, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
 import { getOrdinal } from "../../types/tournament";
@@ -231,8 +231,6 @@ export function MobileWinnerAnnouncement({
     return (
         <div className="mobile-winner-overlay">
             <div className="mobile-winner-content">
-                <div className="winner-trophy"><Trophy size={48} /></div>
-
                 {/* Tournament Outcome Banner - only shown on final hand */}
                 {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
                     <div className={`mobile-tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}>
