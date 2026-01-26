@@ -1370,13 +1370,25 @@ class AIPlayerController:
 
         # Analyze decision for quality metrics
         phase = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)
+
+        # Calculate call amount for decision analysis
+        raw_cost_to_call = game_state.highest_bet - player.bet
+        cost_to_call = min(raw_cost_to_call, player.stack)
+
         context = {
             'game_state': game_state,
             'phase': phase,
             'player': player,
             'prompt': prompt,
+            'call_amount': cost_to_call,
         }
-        self._analyze_decision(game_action, context)
+        self._analyze_decision(
+            game_action,
+            context,
+            capture_id=captured_id,
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
 
         return game_action
 
