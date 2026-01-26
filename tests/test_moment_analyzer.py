@@ -360,15 +360,29 @@ class TestDetermineTone:
         )
         assert tone == 'confident'  # Falls through to confident
 
-    def test_desperate_short_stack(self):
-        """Desperate tone when short-stacked."""
+    def test_desperate_short_stack_weak_hand(self):
+        """Desperate tone when short-stacked with weak hand (equity < 50%)."""
+        tone = MomentAnalyzer._determine_tone(
+            level='notable',
+            factors=['big_bet'],
+            hand_equity=0.35,
+            is_short_stack=True
+        )
+        assert tone == 'desperate'
+
+    def test_confident_short_stack_strong_hand(self):
+        """Confident tone when short-stacked but has a strong hand (equity >= 50%).
+
+        Fix for bug where AA (85% equity) short-stacked was getting 'desperate'
+        instead of showing confidence.
+        """
         tone = MomentAnalyzer._determine_tone(
             level='notable',
             factors=['big_bet'],
             hand_equity=0.60,
             is_short_stack=True
         )
-        assert tone == 'desperate'
+        assert tone == 'confident'
 
     def test_desperate_weak_hand_high_stakes(self):
         """Desperate tone with weak hand in high-stakes moment."""

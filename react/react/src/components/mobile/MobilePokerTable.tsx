@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Check, X, MessageCircle } from 'lucide-react';
-import type { ChatMessage, CardDealTransforms } from '../../types';
+import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -12,6 +12,7 @@ import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
+import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { config } from '../../config';
 import './MobilePokerTable.css';
 import './MobileActionButtons.css';
@@ -35,9 +36,6 @@ export function MobilePokerTable({
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-
-  // Track if cards are in "neat" (straightened) position
-  const [cardsNeat, setCardsNeat] = useState(false);
 
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
@@ -110,22 +108,19 @@ export function MobilePokerTable({
   const humanPlayer = gameState?.players.find(p => p.is_human);
   const isShowdown = gameState?.phase?.toLowerCase() === 'showdown';
 
-  // Create stable card identifiers (only changes when actual cards change)
-  const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
-  const card2Id = humanPlayer?.hand?.[1] ? `${humanPlayer.hand[1].rank}-${humanPlayer.hand[1].suit}` : null;
-  // Combined ID to detect change in EITHER card
-  const handId = card1Id && card2Id ? `${card1Id}|${card2Id}` : null;
-
-  // Track if cards are currently being dealt (for animation)
-  const [isDealing, setIsDealing] = useState(false);
-  const [isExiting, setIsExiting] = useState(false);
-  const prevHandId = useRef<string | null>(null);
-  // Display cards persist after fold so player can watch the action
-  const [displayCards, setDisplayCards] = useState<Player['hand'] | null>(null);
-  const [displayTransforms, setDisplayTransforms] = useState<CardDealTransforms | null>(null);
-  // Store pending cards during exit animation
-  const pendingCards = useRef<Player['hand'] | null>(null);
-  const pendingTransforms = useRef<CardDealTransforms | null>(null);
+  // Card animation hook - handles dealing, exit animations, transforms
+  const {
+    displayCards,
+    cardTransforms,
+    isDealing,
+    isExiting,
+    cardsNeat,
+    toggleCardsNeat,
+    handleExitAnimationEnd,
+  } = useCardAnimation({
+    hand: humanPlayer?.hand,
+    isFolded: humanPlayer?.is_folded ?? false,
+  });
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -154,82 +149,6 @@ export function MobilePokerTable({
     // Only re-run when current player changes, not on every gameState update
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState?.current_player_idx, currentPlayer?.name]);
-
-  // Random card transforms for natural "dealt" look
-  // Card 1: -3° base ±7° range, Card 2: +3° base ±7° range
-  // Y offset: ±8px, X offset: ±3px, Gap: 10px base ±10px range
-  // Start rotation: tilted into slide direction (~12-18° more negative)
-  const randomTransforms = useMemo(() => {
-    const card1Rotation = -3 + (Math.random() * 14 - 7);  // -10 to +4
-    const card2Rotation = 3 + (Math.random() * 14 - 7);   // -4 to +10
-
-    // Start rotations: tilted toward direction of travel (from left)
-    // Cards sliding right naturally tilt counterclockwise (-) during motion
-    const card1StartRotation = card1Rotation - 12 - (Math.random() * 6);  // ~12-18° more tilted
-    const card2StartRotation = card2Rotation - 12 - (Math.random() * 6);
-
-    return {
-      card1: {
-        rotation: card1Rotation,
-        startRotation: card1StartRotation,
-        offsetY: Math.random() * 16 - 8,          // -8 to +8
-        offsetX: Math.random() * 6 - 3,           // -3 to +3
-      },
-      card2: {
-        rotation: card2Rotation,
-        startRotation: card2StartRotation,
-        offsetY: Math.random() * 16 - 8,          // -8 to +8
-        offsetX: Math.random() * 6 - 3,           // -3 to +3
-      },
-      gap: 10 + (Math.random() * 20 - 10),        // 0 to 20
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card1Id, card2Id]);
-
-  // Use neat or random transforms based on state
-  // displayTransforms persists after fold so cards stay in position
-  const neatTransforms = { card1: { rotation: 0, offsetY: 0, offsetX: 0, startRotation: 0 }, card2: { rotation: 0, offsetY: 0, offsetX: 0, startRotation: 0 }, gap: 12 };
-  const activeTransforms = displayTransforms || randomTransforms;
-  const cardTransforms = cardsNeat ? neatTransforms : activeTransforms;
-
-  // Handle card transitions
-  useEffect(() => {
-    // New cards arriving
-    if (handId && handId !== prevHandId.current) {
-      // If we have cards showing, trigger exit animation first
-      if (prevHandId.current && displayCards) {
-        pendingCards.current = humanPlayer?.hand || null;
-        pendingTransforms.current = randomTransforms;
-        setIsExiting(true);
-      } else {
-        // No previous cards, deal immediately
-        setDisplayCards(humanPlayer?.hand || null);
-        setDisplayTransforms(randomTransforms);
-        setCardsNeat(false);
-        setIsDealing(true);
-        const timer = setTimeout(() => setIsDealing(false), 700);
-        prevHandId.current = handId;
-        return () => clearTimeout(timer);
-      }
-      prevHandId.current = handId;
-    }
-
-    // Cards became null (fold or hand end) - keep displaying them
-    if (!handId && prevHandId.current) {
-      prevHandId.current = null;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handId]);
-
-  // Called when exit animation completes
-  const handleExitAnimationEnd = () => {
-    setIsExiting(false);
-    setDisplayCards(pendingCards.current);
-    setDisplayTransforms(pendingTransforms.current);
-    setCardsNeat(false);
-    setIsDealing(true);
-    setTimeout(() => setIsDealing(false), 700);
-  };
 
   // Sort opponents by their position relative to the human player in turn order
   const opponents = (() => {
@@ -454,7 +373,7 @@ export function MobilePokerTable({
           ) : displayCards?.[0] && displayCards?.[1] ? (
             <>
               <div
-                onClick={() => setCardsNeat(n => !n)}
+                onClick={toggleCardsNeat}
                 style={{
                   transform: `rotate(${cardTransforms.card1.rotation}deg) translateX(${cardTransforms.card1.offsetX}px) translateY(${cardTransforms.card1.offsetY}px)`,
                   transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
@@ -470,7 +389,7 @@ export function MobilePokerTable({
                 <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
               </div>
               <div
-                onClick={() => setCardsNeat(n => !n)}
+                onClick={toggleCardsNeat}
                 style={{
                   transform: `rotate(${cardTransforms.card2.rotation}deg) translateX(${cardTransforms.card2.offsetX}px) translateY(${cardTransforms.card2.offsetY}px)`,
                   transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',

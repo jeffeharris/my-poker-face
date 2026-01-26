@@ -162,7 +162,7 @@ class MomentAnalyzer:
             return 'triumphant'
 
         # Desperate: Short stack or weak hand in high-stakes moment
-        if is_short_stack or (level in ('high_stakes', 'climactic') and hand_equity < 0.3):
+        if (is_short_stack and hand_equity < 0.5) or (level in ('high_stakes', 'climactic') and hand_equity < 0.3):
             return 'desperate'
 
         # Confident: Good hand in notable+ moment

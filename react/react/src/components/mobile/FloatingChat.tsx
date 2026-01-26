@@ -13,7 +13,6 @@ interface MessageWithMeta extends ChatMessage {
 interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
-  duration?: number;
   players?: Player[];
 }
 
@@ -227,11 +226,12 @@ function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;
 
-export function FloatingChat({ message, onDismiss, duration = 8000, players = [] }: FloatingChatProps) {
+export function FloatingChat({ message, onDismiss, players = [] }: Omit<FloatingChatProps, 'duration'>) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
-
-  void duration; // Using per-message duration instead
+  // Keep a ref to current messages for timer callbacks (avoids stale closures)
+  const messagesRef = useRef<MessageWithMeta[]>([]);
+  messagesRef.current = messages;
 
   const getPlayerAvatar = (senderName: string): string | null => {
     const player = players.find(p => p.name === senderName);
@@ -302,11 +302,11 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
       });
     };
 
-    // Calculate delay to next expiration (only for active timers)
+    // Calculate delay to next expiration using ref (avoids stale closure)
     const now = Date.now();
     let nextDelay = 15000;
 
-    for (const msg of messages) {
+    for (const msg of messagesRef.current) {
       if (msg.timerStartedAt === null) continue; // Skip paused messages
       const remaining = msg.displayDuration - (now - msg.timerStartedAt);
       if (remaining > 0 && remaining < nextDelay) {
@@ -319,7 +319,6 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
 
     const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, onDismiss]);
 
   const handleDismiss = (id: string) => {

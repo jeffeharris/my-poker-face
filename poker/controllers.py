@@ -887,7 +887,7 @@ class AIPlayerController:
                 player=player,
                 cost_to_call=cost_to_call,
                 big_blind=big_blind,
-                last_raise_amount=cost_to_call,
+                last_raise_amount=game_state.last_raise_amount,
                 hand_equity=hand_equity
             )
             drama_context = {
