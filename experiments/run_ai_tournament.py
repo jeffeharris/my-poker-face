@@ -567,17 +567,45 @@ class AITournamentRunner:
             except Exception as e:
                 logger.warning(f"Checkpoint save failed: {e}")
 
-    def select_personalities(self) -> List[str]:
-        """Select personalities for the tournament."""
-        if self.config.personalities:
-            return self.config.personalities[:self.config.num_players]
+    def select_personalities(self) -> Tuple[List[str], Dict[str, Dict]]:
+        """Select personalities for the tournament.
 
-        # Random selection from available personalities
-        # get_celebrities() returns a list of names
-        available = self.all_personalities if isinstance(self.all_personalities, list) else list(self.all_personalities.keys())
-        if self.config.random_seed:
-            random.seed(self.config.random_seed)
-        return random.sample(available, min(self.config.num_players, len(available)))
+        Supports both simple string names and objects with per-player config:
+        ["Batman", {"name": "Sherlock", "game_mode": "pro", "llm_config": {...}}]
+
+        Returns:
+            Tuple of (player_names, player_configs) where player_configs maps
+            player name to their individual settings (game_mode, llm_config, prompt_config)
+        """
+        player_names = []
+        player_configs = {}  # {player_name: {game_mode: ..., llm_config: ..., prompt_config: ...}}
+
+        if self.config.personalities:
+            for p in self.config.personalities[:self.config.num_players]:
+                if isinstance(p, str):
+                    player_names.append(p)
+                elif isinstance(p, dict):
+                    name = p.get('name')
+                    if name:
+                        player_names.append(name)
+                        # Extract per-player config
+                        config = {}
+                        if 'game_mode' in p:
+                            config['game_mode'] = p['game_mode']
+                        if 'llm_config' in p:
+                            config['llm_config'] = p['llm_config']
+                        if 'prompt_config' in p:
+                            config['prompt_config'] = p['prompt_config']
+                        if config:
+                            player_configs[name] = config
+        else:
+            # Random selection from available personalities
+            available = self.all_personalities if isinstance(self.all_personalities, list) else list(self.all_personalities.keys())
+            if self.config.random_seed:
+                random.seed(self.config.random_seed)
+            player_names = random.sample(available, min(self.config.num_players, len(available)))
+
+        return player_names, player_configs
 
     def create_game(
         self,
@@ -595,8 +623,10 @@ class AITournamentRunner:
         Returns:
             Tuple of (state_machine, controllers, memory_manager)
         """
-        player_names = self.select_personalities()
+        player_names, per_player_configs = self.select_personalities()
         logger.info(f"Tournament {tournament_id}: Players = {player_names}")
+        if per_player_configs:
+            logger.info(f"Tournament {tournament_id}: Per-player configs = {list(per_player_configs.keys())}")
 
         # Create all-AI game state directly (bypassing initialize_game_state which adds a human)
         from poker.poker_game import Player, PokerGameState
@@ -692,14 +722,46 @@ class AITournamentRunner:
 
         controllers = {}
         for player in game_state.players:
+            # Check for per-player config override
+            player_cfg = per_player_configs.get(player.name, {})
+
+            # Resolve per-player LLM config (merge with variant default)
+            if player_cfg.get('llm_config'):
+                player_llm_config = {**llm_config, **player_cfg['llm_config']}
+            else:
+                player_llm_config = llm_config
+
+            # Resolve per-player prompt config (per-player game_mode/prompt_config overrides variant)
+            if player_cfg.get('game_mode') or player_cfg.get('prompt_config'):
+                # Start with per-player game_mode or fall back to variant game_mode
+                player_game_mode = player_cfg.get('game_mode') or game_mode
+                if player_game_mode:
+                    player_base_config = PromptConfig.from_mode_name(player_game_mode)
+                else:
+                    player_base_config = PromptConfig()
+
+                # Apply per-player prompt_config overrides
+                if player_cfg.get('prompt_config'):
+                    player_prompt_config = player_base_config.copy(**player_cfg['prompt_config'])
+                else:
+                    player_prompt_config = player_base_config
+
+                # Apply guidance injection if set at variant level
+                if guidance_injection:
+                    player_prompt_config = player_prompt_config.copy(guidance_injection=guidance_injection)
+
+                logger.debug(f"Player {player.name} using custom config: game_mode={player_cfg.get('game_mode')}")
+            else:
+                player_prompt_config = prompt_config
+
             controller = AIPlayerController(
                 player_name=player.name,
                 state_machine=state_machine,
-                llm_config=llm_config,
+                llm_config=player_llm_config,
                 game_id=tournament_id,
                 owner_id=self._owner_id,
                 debug_capture=self.config.capture_prompts,
-                prompt_config=prompt_config,
+                prompt_config=player_prompt_config,
                 persistence=self.persistence,
             )
             controllers[player.name] = controller
