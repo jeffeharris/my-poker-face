@@ -1024,3 +1024,50 @@
   min-width: 55vw;
 }
 
+/* =================================
+   REVEALED CARDS DURING RUN-IT-OUT
+   Cards slide out below opponent
+   ================================= */
+
+.opponent-revealed-cards {
+  position: absolute;
+  bottom: -2.5dvh; /* Position below the opponent card */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  z-index: 20;
+  animation: revealCardsSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Stack cards with slight overlap */
+.opponent-revealed-cards .playing-card {
+  margin-left: -12px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(212, 165, 116, 0.3);
+  border: 1px solid rgba(212, 165, 116, 0.4);
+}
+
+.opponent-revealed-cards .playing-card:first-child {
+  margin-left: 0;
+}
+
+/* Ensure small cards are appropriately sized */
+.opponent-revealed-cards .playing-card.image-card,
+.opponent-revealed-cards .playing-card.card-back {
+  width: 40px !important;
+  height: 58px !important;
+}
+
+@keyframes revealCardsSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+

@@ -276,6 +276,34 @@ def update_and_emit_game_state(game_id: str) -> None:
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
+def emit_hole_cards_reveal(game_id: str, game_state) -> None:
+    """Emit hole cards for all active players during run-it-out showdown.
+
+    This is called once when run-it-out is first detected, before dealing
+    remaining community cards. Players get to see everyone's cards before
+    the dramatic run-out.
+    """
+    active_players = [p for p in game_state.players if not p.is_folded]
+    players_cards = {}
+
+    for player in active_players:
+        if player.hand:
+            players_cards[player.name] = [
+                card.to_dict() if hasattr(card, 'to_dict') else card
+                for card in player.hand
+            ]
+
+    reveal_data = {
+        'players_cards': players_cards,
+        'community_cards': [
+            card.to_dict() if hasattr(card, 'to_dict') else card
+            for card in game_state.community_cards
+        ]
+    }
+
+    socketio.emit('reveal_hole_cards', reveal_data, to=game_id)
+
+
 def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data: dict = None) -> None:
     """Send message about newly dealt community cards and record to hand history.
 
@@ -931,6 +959,8 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Reset card announcement tracking for new hand
     game_data['last_announced_phase'] = None
+    # Reset hole cards reveal flag for new hand
+    game_data['has_revealed_cards'] = False
 
     # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
@@ -1018,8 +1048,20 @@ def progress_game(game_id: str) -> None:
                 game_state_service.set_game(game_id, current_game_data)
 
             # Handle "run it out" scenario - auto-advance with delays
+            # Debug: Log run_it_out state
+            num_not_folded = len([p for p in game_state.players if not p.is_folded])
+            num_can_act = len([p for p in game_state.players if not p.is_folded and not p.is_all_in])
+            logger.info(f"[DEBUG] Phase: {current_phase}, run_it_out: {game_state.run_it_out}, num_not_folded: {num_not_folded}, num_can_act: {num_can_act}")
             if game_state.run_it_out:
-                # Delay 2 seconds to let player see the cards
+                # Reveal hole cards once before first run-out (dramatic showdown reveal)
+                if not current_game_data.get('has_revealed_cards', False):
+                    emit_hole_cards_reveal(game_id, game_state)
+                    current_game_data['has_revealed_cards'] = True
+                    game_state_service.set_game(game_id, current_game_data)
+                    # Extra pause (3 seconds) for players to see the cards
+                    socketio.sleep(3)
+
+                # Delay 2 seconds to let player see the community cards being dealt
                 socketio.sleep(2)
                 # Check if game was deleted during sleep
                 if not game_state_service.get_game(game_id):

@@ -57,6 +57,7 @@ export function MobilePokerTable({
     messages,
     aiThinking,
     winnerInfo,
+    revealedCards,
     tournamentResult,
     isConnected,
     queuedAction,
@@ -285,6 +286,14 @@ export function MobilePokerTable({
               </div>
               {opponent.bet > 0 && (
                 <div className="opponent-bet">${opponent.bet}</div>
+              )}
+              {/* Revealed hole cards during run-it-out showdown */}
+              {revealedCards?.players_cards[opponent.name] && (
+                <div className="opponent-revealed-cards">
+                  {revealedCards.players_cards[opponent.name].map((card, i) => (
+                    <Card key={i} card={card} faceDown={false} size="small" />
+                  ))}
+                </div>
               )}
               {opponent.is_folded && <div className="status-badge folded">FOLD</div>}
               {opponent.is_all_in && <div className="status-badge all-in">ALL-IN</div>}
