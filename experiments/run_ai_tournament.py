@@ -567,6 +567,26 @@ class AITournamentRunner:
             except Exception as e:
                 logger.warning(f"Checkpoint save failed: {e}")
 
+    def _load_game_mode_preset(self, game_mode: str) -> PromptConfig:
+        """Load a game mode as a preset from the database.
+
+        Game modes (casual, standard, pro) are stored as system presets in the
+        prompt_presets table, unifying them with user-defined presets.
+
+        Args:
+            game_mode: The game mode name ('casual', 'standard', 'pro')
+
+        Returns:
+            PromptConfig with the preset's settings applied
+        """
+        preset = self.persistence.get_prompt_preset_by_name(game_mode)
+        if preset and preset.get('prompt_config'):
+            return PromptConfig.from_dict(preset['prompt_config'])
+        else:
+            # Fallback to hardcoded mode if preset not found (e.g., migration not run)
+            logger.warning(f"Preset '{game_mode}' not found in database, using fallback")
+            return PromptConfig.from_mode_name(game_mode)
+
     def select_personalities(self) -> Tuple[List[str], Dict[str, Dict]]:
         """Select personalities for the tournament.
 
@@ -692,8 +712,9 @@ class AITournamentRunner:
         game_mode = variant_config.get('game_mode') if variant_config else None
 
         # Build base config from game_mode (if set), else defaults
+        # game_mode is now resolved via database presets (unified with prompt_preset system)
         if game_mode:
-            base_config = PromptConfig.from_mode_name(game_mode)
+            base_config = self._load_game_mode_preset(game_mode)
         else:
             base_config = PromptConfig()
 
@@ -736,7 +757,7 @@ class AITournamentRunner:
                 # Start with per-player game_mode or fall back to variant game_mode
                 player_game_mode = player_cfg.get('game_mode') or game_mode
                 if player_game_mode:
-                    player_base_config = PromptConfig.from_mode_name(player_game_mode)
+                    player_base_config = self._load_game_mode_preset(player_game_mode)
                 else:
                     player_base_config = PromptConfig()
 

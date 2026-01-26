@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add heartbeat tracking columns to experiment_games
 # v54: Add outcome columns to tournament_standings for unbiased metrics
-SCHEMA_VERSION = 56
+SCHEMA_VERSION = 57
 
 
 @dataclass
@@ -748,7 +748,8 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)")
 
-            # 28. Prompt presets (v47) - Saved, reusable prompt configurations
+            # 28. Prompt presets (v47, v57) - Saved, reusable prompt configurations
+            # v57 adds is_system column for built-in game mode presets
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_presets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -757,6 +758,7 @@ class GamePersistence:
                     prompt_config TEXT,
                     guidance_injection TEXT,
                     owner_id TEXT,
+                    is_system BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -950,6 +952,7 @@ class GamePersistence:
             54: (self._migrate_v54_add_outcome_columns, "Add outcome columns to tournament_standings for unbiased metrics"),
             55: (self._migrate_v55_add_times_eliminated, "Add times_eliminated column to tournament_standings"),
             56: (self._migrate_v56_add_all_in_columns, "Add all-in tracking columns to tournament_standings"),
+            57: (self._migrate_v57_add_system_presets, "Add is_system column and seed game mode presets (casual, standard, pro)"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2643,6 +2646,78 @@ class GamePersistence:
                     raise
 
         logger.info("Migration v56 complete: all-in tracking columns added")
+
+    def _migrate_v57_add_system_presets(self, conn: sqlite3.Connection) -> None:
+        """Migration v57: Add is_system column and seed built-in game mode presets.
+
+        System presets provide the built-in game modes (casual, standard, pro)
+        as database-stored presets. This unifies game_mode and prompt_preset
+        into a single concept.
+        """
+        # Add is_system column if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE prompt_presets ADD COLUMN is_system BOOLEAN DEFAULT FALSE")
+            logger.info("Added is_system column to prompt_presets")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                logger.debug("Column is_system already exists in prompt_presets")
+            else:
+                raise
+
+        # Define system presets (game modes)
+        system_presets = [
+            {
+                'name': 'casual',
+                'description': 'Casual mode - personality-driven fun poker with full expressiveness',
+                'prompt_config': {
+                    # All defaults (True) - this is the base PromptConfig()
+                },
+            },
+            {
+                'name': 'standard',
+                'description': 'Standard mode - balanced personality with GTO awareness (shows equity comparisons)',
+                'prompt_config': {
+                    'show_equity_always': True,
+                },
+            },
+            {
+                'name': 'pro',
+                'description': 'Pro mode - GTO-focused analytical poker with explicit equity verdicts',
+                'prompt_config': {
+                    'show_equity_always': True,
+                    'show_equity_verdict': True,
+                    'chattiness': False,
+                    'persona_response': False,
+                },
+            },
+        ]
+
+        # Insert system presets (skip if already exist)
+        for preset in system_presets:
+            try:
+                conn.execute("""
+                    INSERT INTO prompt_presets (name, description, prompt_config, is_system, owner_id)
+                    VALUES (?, ?, ?, TRUE, 'system')
+                """, (
+                    preset['name'],
+                    preset['description'],
+                    json.dumps(preset['prompt_config']),
+                ))
+                logger.info(f"Created system preset '{preset['name']}'")
+            except sqlite3.IntegrityError:
+                # Preset already exists - update it to ensure it's marked as system
+                conn.execute("""
+                    UPDATE prompt_presets
+                    SET description = ?, prompt_config = ?, is_system = TRUE, owner_id = 'system'
+                    WHERE name = ?
+                """, (
+                    preset['description'],
+                    json.dumps(preset['prompt_config']),
+                    preset['name'],
+                ))
+                logger.info(f"Updated existing preset '{preset['name']}' as system preset")
+
+        logger.info("Migration v57 complete: system presets added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -7389,7 +7464,7 @@ class GamePersistence:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
-                       owner_id, created_at, updated_at
+                       owner_id, is_system, created_at, updated_at
                 FROM prompt_presets
                 WHERE id = ?
             """, (preset_id,))
@@ -7402,6 +7477,7 @@ class GamePersistence:
                     'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
                     'guidance_injection': row['guidance_injection'],
                     'owner_id': row['owner_id'],
+                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                 }
@@ -7420,7 +7496,7 @@ class GamePersistence:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
-                       owner_id, created_at, updated_at
+                       owner_id, is_system, created_at, updated_at
                 FROM prompt_presets
                 WHERE name = ?
             """, (name,))
@@ -7433,6 +7509,7 @@ class GamePersistence:
                     'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
                     'guidance_injection': row['guidance_injection'],
                     'owner_id': row['owner_id'],
+                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                 }
@@ -7455,20 +7532,21 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             if owner_id:
+                # Include system presets for all users, plus user's own presets
                 cursor = conn.execute("""
                     SELECT id, name, description, prompt_config, guidance_injection,
-                           owner_id, created_at, updated_at
+                           owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
-                    WHERE owner_id = ? OR owner_id IS NULL
-                    ORDER BY updated_at DESC
+                    WHERE owner_id = ? OR owner_id IS NULL OR is_system = TRUE
+                    ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
                 """, (owner_id, limit))
             else:
                 cursor = conn.execute("""
                     SELECT id, name, description, prompt_config, guidance_injection,
-                           owner_id, created_at, updated_at
+                           owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
-                    ORDER BY updated_at DESC
+                    ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
                 """, (limit,))
 
@@ -7480,6 +7558,7 @@ class GamePersistence:
                     'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
                     'guidance_injection': row['guidance_injection'],
                     'owner_id': row['owner_id'],
+                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                 }
