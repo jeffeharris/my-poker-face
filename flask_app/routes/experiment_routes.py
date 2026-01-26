@@ -584,7 +584,7 @@ For comparing models, prompts, or other configurations, use the control/variants
 
 - control: The baseline configuration (required for A/B tests)
   - label: Name shown in results (e.g., "GPT-4o Baseline")
-  - game_mode: Preset mode ("casual", "standard", "pro") - see Game Modes section
+  - game_mode: Preset mode ("casual", "standard", "pro", "competitive") - see Game Modes section
   - prompt_config: Prompt settings for control (optional, overrides game_mode)
   - enable_psychology: Enable tilt/emotional state generation (default false, ~4 LLM calls/hand)
   - enable_commentary: Enable commentary generation (default false, ~4 LLM calls/hand)
@@ -868,6 +868,7 @@ Instead of manually specifying prompt_config fields, you can use the `game_mode`
 | `casual` | Default PromptConfig (personality-driven fun poker) |
 | `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
 | `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `competitive` | `show_equity_always=true, show_equity_verdict=true` (full GTO guidance with personality and trash talk) |
 
 **Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
 
@@ -946,7 +947,7 @@ Common experiment scenarios:
 9. Natural tournaments: Use reset_on_elimination: false (default) for tournaments that end when one player wins all chips
 10. GTO guidance impact: Test if show_equity_always/show_equity_verdict reduces fold mistakes and bad calls
 11. Range estimation comparison: Test use_enhanced_ranges (PFR/action-based) vs VPIP-only ranges
-12. Game mode comparison: Test casual vs standard vs pro modes using game_mode preset
+12. Game mode comparison: Test casual vs standard vs pro vs competitive modes using game_mode preset
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 

@@ -30,7 +30,7 @@ class VariantConfig:
         model: LLM model to use (inherits from experiment if not set)
         provider: LLM provider to use (inherits from experiment if not set)
         personality: Personality name to use (for per-variant personality)
-        game_mode: Game mode preset ('casual', 'standard', 'pro')
+        game_mode: Game mode preset ('casual', 'standard', 'pro', 'competitive')
         prompt_preset_id: ID of saved prompt preset to use
         prompt_config: Inline prompt config dict (overrides preset and game_mode)
         guidance_injection: Extra text to append to decision prompts
@@ -42,7 +42,7 @@ class VariantConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     personality: Optional[str] = None
-    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro', 'competitive'
     prompt_preset_id: Optional[int] = None
     prompt_config: Optional[Dict[str, Any]] = None
     guidance_injection: Optional[str] = None
@@ -148,7 +148,7 @@ class ControlConfig:
         label: Human-readable name for control group (required)
         model: LLM model (uses experiment default if not set)
         provider: LLM provider (uses experiment default if not set)
-        game_mode: Game mode preset ('casual', 'standard', 'pro')
+        game_mode: Game mode preset ('casual', 'standard', 'pro', 'competitive')
         prompt_config: Baseline prompt config dict (overrides game_mode)
         guidance_injection: Extra text to append to prompts
         reasoning_effort: LLM reasoning effort level
@@ -158,7 +158,7 @@ class ControlConfig:
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
-    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro', 'competitive'
     prompt_config: Optional[Dict[str, Any]] = None
     guidance_injection: Optional[str] = None
     reasoning_effort: Optional[str] = None

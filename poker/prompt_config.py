@@ -166,6 +166,14 @@ class PromptConfig:
         )
 
     @classmethod
+    def competitive(cls) -> 'PromptConfig':
+        """Competitive mode - full GTO guidance with personality and trash talk."""
+        return cls(
+            show_equity_always=True,
+            show_equity_verdict=True,
+        )
+
+    @classmethod
     def from_mode_name(cls, mode: str) -> 'PromptConfig':
         """Resolve a game mode by name string."""
         mode = mode.lower()
@@ -173,6 +181,7 @@ class PromptConfig:
             'casual': cls.casual,
             'standard': cls.standard,
             'pro': cls.pro,
+            'competitive': cls.competitive,
         }
         if mode not in modes:
             raise ValueError(f"Invalid game mode: {mode}. Valid: {list(modes.keys())}")

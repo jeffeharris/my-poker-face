@@ -130,7 +130,7 @@ class ControlConfig:
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
-    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro', 'competitive'
     prompt_config: Optional[Dict] = None
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
@@ -146,7 +146,7 @@ class VariantConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     personality: Optional[str] = None  # Per-variant personality assignment
-    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro', 'competitive'
     prompt_config: Optional[Dict] = None
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
@@ -184,7 +184,7 @@ class ExperimentConfig:
 
     def __post_init__(self):
         """Validate control/variants structure."""
-        VALID_GAME_MODES = {'casual', 'standard', 'pro', None}
+        VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive', None}
 
         if self.control is not None:
             if not isinstance(self.control, dict):
@@ -194,7 +194,7 @@ class ExperimentConfig:
             # Validate game_mode in control
             control_game_mode = self.control.get('game_mode')
             if control_game_mode and control_game_mode not in VALID_GAME_MODES:
-                raise ValueError(f"Invalid control game_mode: {control_game_mode}. Valid: casual, standard, pro")
+                raise ValueError(f"Invalid control game_mode: {control_game_mode}. Valid: casual, standard, pro, competitive")
 
         if self.variants is not None:
             if not isinstance(self.variants, list):
@@ -207,7 +207,7 @@ class ExperimentConfig:
                 # Validate game_mode in variant
                 variant_game_mode = v.get('game_mode')
                 if variant_game_mode and variant_game_mode not in VALID_GAME_MODES:
-                    raise ValueError(f"Invalid variants[{i}] game_mode: {variant_game_mode}. Valid: casual, standard, pro")
+                    raise ValueError(f"Invalid variants[{i}] game_mode: {variant_game_mode}. Valid: casual, standard, pro, competitive")
 
     def get_variant_configs(self) -> List[Tuple[str, Dict]]:
         """
@@ -570,11 +570,11 @@ class AITournamentRunner:
     def _load_game_mode_preset(self, game_mode: str) -> PromptConfig:
         """Load a game mode as a preset from the database.
 
-        Game modes (casual, standard, pro) are stored as system presets in the
-        prompt_presets table, unifying them with user-defined presets.
+        Game modes (casual, standard, pro, competitive) are stored as system presets
+        in the prompt_presets table, unifying them with user-defined presets.
 
         Args:
-            game_mode: The game mode name ('casual', 'standard', 'pro')
+            game_mode: The game mode name ('casual', 'standard', 'pro', 'competitive')
 
         Returns:
             PromptConfig with the preset's settings applied

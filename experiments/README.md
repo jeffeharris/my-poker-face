@@ -198,7 +198,7 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
 | Field | Required | Description |
 |-------|----------|-------------|
 | `label` | Yes | Display name in results |
-| `game_mode` | No | Preset mode: `casual`, `standard`, or `pro` |
+| `game_mode` | No | Preset mode: `casual`, `standard`, `pro`, or `competitive` |
 | `prompt_config` | No | Override prompt settings (overrides game_mode) |
 | `enable_psychology` | No | Enable tilt/emotional state |
 | `enable_commentary` | No | Enable commentary generation |
@@ -212,7 +212,7 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
 | `label` | Yes | Display name in results |
 | `model` | No | Override model (inherits from experiment) |
 | `provider` | No | Override provider (inherits from experiment) |
-| `game_mode` | No | Preset mode: `casual`, `standard`, or `pro` (inherits from control) |
+| `game_mode` | No | Preset mode: `casual`, `standard`, `pro`, or `competitive` (inherits from control) |
 | `prompt_config` | No | Override prompt settings (overrides game_mode) |
 | `reasoning_effort` | No | Override reasoning level |
 | `enable_psychology` | No | Enable tilt/emotional state (inherits from control) |
@@ -331,6 +331,7 @@ Instead of manually specifying `prompt_config` fields, you can use the `game_mod
 | `casual` | Default PromptConfig (personality-driven fun poker) |
 | `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
 | `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `competitive` | `show_equity_always=true, show_equity_verdict=true` (full GTO guidance with personality and trash talk) |
 
 **Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
 

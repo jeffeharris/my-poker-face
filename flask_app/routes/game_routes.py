@@ -46,6 +46,32 @@ logger = logging.getLogger(__name__)
 game_bp = Blueprint('game', __name__)
 
 
+def load_game_mode_preset(game_mode: str) -> PromptConfig:
+    """Load a game mode as a preset from the database.
+
+    Game modes (casual, standard, pro, competitive) are stored as system presets
+    in the prompt_presets table, unifying them with user-defined presets.
+
+    Args:
+        game_mode: The game mode name ('casual', 'standard', 'pro', 'competitive')
+
+    Returns:
+        PromptConfig with the preset's settings applied
+    """
+    preset = persistence.get_prompt_preset_by_name(game_mode)
+    if preset:
+        prompt_config = preset.get('prompt_config')
+        if prompt_config:
+            return PromptConfig.from_dict(prompt_config)
+        else:
+            # Preset exists but has empty/null config - use defaults
+            return PromptConfig()
+    else:
+        # Fallback to hardcoded mode if preset not found (e.g., migration not run)
+        logger.warning(f"Preset '{game_mode}' not found in database, using fallback")
+        return PromptConfig.from_mode_name(game_mode)
+
+
 def analyze_player_decision(
     game_id: str,
     player_name: str,
@@ -776,7 +802,7 @@ def api_new_game():
 
     # Validate game mode (if provided)
     game_mode = data.get('game_mode', 'casual').lower()
-    VALID_GAME_MODES = {'casual', 'standard', 'pro'}
+    VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
     if game_mode not in VALID_GAME_MODES:
         return jsonify({
             'error': f'Invalid game_mode: {game_mode}',
@@ -831,7 +857,7 @@ def api_new_game():
                                 'error': f'Invalid game_mode for {name}: {p_mode}',
                                 'valid_modes': list(VALID_GAME_MODES)
                             }), 400
-                        player_prompt_configs[name] = PromptConfig.from_mode_name(p_mode)
+                        player_prompt_configs[name] = load_game_mode_preset(p_mode)
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
@@ -854,8 +880,8 @@ def api_new_game():
     # Generate game_id first so it can be passed to controllers for tracking
     game_id = generate_game_id()
 
-    # Create default game-level prompt config from game_mode
-    default_prompt_config = PromptConfig.from_mode_name(game_mode)
+    # Create default game-level prompt config from game_mode (loaded from DB preset)
+    default_prompt_config = load_game_mode_preset(game_mode)
 
     ai_controllers = {}
     elasticity_manager = ElasticityManager()

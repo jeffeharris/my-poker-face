@@ -349,7 +349,7 @@ class TestGameModeInVariants(unittest.TestCase):
         self.assertIn('Invalid variants[0] game_mode', str(context.exception))
 
     def test_valid_game_modes_accepted(self):
-        """Valid game modes (casual, standard, pro) should be accepted."""
+        """Valid game modes (casual, standard, pro, competitive) should be accepted."""
         # Should not raise
         config = ExperimentConfig(
             name='test_valid',
@@ -357,11 +357,12 @@ class TestGameModeInVariants(unittest.TestCase):
             variants=[
                 {'label': 'Standard', 'game_mode': 'standard'},
                 {'label': 'Pro', 'game_mode': 'pro'},
+                {'label': 'Competitive', 'game_mode': 'competitive'},
             ],
         )
 
         variants = config.get_variant_configs()
-        self.assertEqual(len(variants), 3)
+        self.assertEqual(len(variants), 4)  # control + 3 variants
 
 
 class TestTournamentResultVariant(unittest.TestCase):

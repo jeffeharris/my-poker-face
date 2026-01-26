@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add heartbeat tracking columns to experiment_games
 # v54: Add outcome columns to tournament_standings for unbiased metrics
-SCHEMA_VERSION = 57
+SCHEMA_VERSION = 58
 
 
 @dataclass
@@ -953,6 +953,7 @@ class GamePersistence:
             55: (self._migrate_v55_add_times_eliminated, "Add times_eliminated column to tournament_standings"),
             56: (self._migrate_v56_add_all_in_columns, "Add all-in tracking columns to tournament_standings"),
             57: (self._migrate_v57_add_system_presets, "Add is_system column and seed game mode presets (casual, standard, pro)"),
+            58: (self._migrate_v58_add_competitive_preset, "Add competitive game mode preset (GTO + personality)"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2718,6 +2719,47 @@ class GamePersistence:
                 logger.info(f"Updated existing preset '{preset['name']}' as system preset")
 
         logger.info("Migration v57 complete: system presets added")
+
+    def _migrate_v58_add_competitive_preset(self, conn: sqlite3.Connection) -> None:
+        """Migration v58: Add competitive game mode preset.
+
+        Competitive mode combines full GTO guidance (equity comparisons + verdicts)
+        with personality and trash talk. Best of both worlds: strategic precision
+        with entertaining banter.
+        """
+        preset = {
+            'name': 'competitive',
+            'description': 'Competitive mode - full GTO guidance with personality and trash talk',
+            'prompt_config': {
+                'show_equity_always': True,
+                'show_equity_verdict': True,
+            },
+        }
+
+        try:
+            conn.execute("""
+                INSERT INTO prompt_presets (name, description, prompt_config, is_system, owner_id)
+                VALUES (?, ?, ?, TRUE, 'system')
+            """, (
+                preset['name'],
+                preset['description'],
+                json.dumps(preset['prompt_config']),
+            ))
+            logger.info(f"Created system preset '{preset['name']}'")
+        except sqlite3.IntegrityError:
+            # Preset already exists - update it
+            conn.execute("""
+                UPDATE prompt_presets
+                SET description = ?, prompt_config = ?, is_system = TRUE, owner_id = 'system'
+                WHERE name = ?
+            """, (
+                preset['description'],
+                json.dumps(preset['prompt_config']),
+                preset['name'],
+            ))
+            logger.info(f"Updated existing preset '{preset['name']}' as system preset")
+
+        logger.info("Migration v58 complete: competitive preset added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
