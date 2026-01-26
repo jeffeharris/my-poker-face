@@ -9,10 +9,11 @@ class TestPromptConfig(unittest.TestCase):
     """Tests for PromptConfig dataclass."""
 
     def test_default_all_enabled(self):
-        """All components should be enabled by default."""
+        """All components should be enabled by default (except bb_normalized)."""
         config = PromptConfig()
         self.assertTrue(config.pot_odds)
         self.assertTrue(config.hand_strength)
+        self.assertFalse(config.bb_normalized)  # Defaults to False (opt-in feature)
         self.assertTrue(config.session_memory)
         self.assertTrue(config.opponent_intel)
         self.assertTrue(config.strategic_reflection)
@@ -29,7 +30,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 12)  # 11 bool + 1 int
+        self.assertEqual(len(d), 14)  # 12 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
@@ -162,8 +163,9 @@ class TestPromptConfig(unittest.TestCase):
         self.assertTrue(config.mind_games)
 
     def test_repr_all_enabled(self):
-        """repr should show 'all enabled' when all are True."""
-        config = PromptConfig()
+        """repr should show 'all enabled' when all booleans are True."""
+        # Default PromptConfig has bb_normalized=False, so use enable_all()
+        config = PromptConfig().enable_all()
         self.assertIn('all enabled', repr(config))
 
     def test_repr_some_disabled(self):

@@ -46,6 +46,27 @@ def _convert_card_for_eval(card_str: str) -> str:
     return card_str
 
 
+def _format_money(amount: int, big_blind: int, as_bb: bool) -> str:
+    """Format money as dollars or BB based on mode.
+
+    Args:
+        amount: Dollar amount
+        big_blind: Big blind size in dollars
+        as_bb: If True, format as BB; if False, format as dollars
+
+    Returns:
+        Formatted string like "$500" or "10.00 BB"
+    """
+    if not as_bb:
+        return f"${amount}"
+
+    if big_blind == 0:
+        return f"${amount}"  # Fallback if BB not set
+
+    bb_value = amount / big_blind
+    return f"{bb_value:.2f} BB"
+
+
 def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
     """
     Evaluate hand strength and return a human-readable description.
@@ -463,7 +484,8 @@ class AIPlayerController:
             self.state_machine.phase,
             game_messages,
             include_pot_odds=self.prompt_config.pot_odds,
-            include_hand_strength=self.prompt_config.hand_strength)
+            include_hand_strength=self.prompt_config.hand_strength,
+            bb_normalized=self.prompt_config.bb_normalized)
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
@@ -869,9 +891,23 @@ class AIPlayerController:
         return response_dict
 
     def _apply_final_fixes(self, response_dict: Dict, context: Dict, game_state) -> Dict:
-        """Apply final fixes like extracting raise amount from persona_response."""
+        """Apply final fixes like extracting raise amount from persona_response.
+
+        If bb_normalized mode is enabled, converts raise_to from BB to dollars.
+        """
         import re
         valid_actions = context.get('valid_actions', [])
+        bb_normalized = self.prompt_config.bb_normalized
+        big_blind = game_state.current_ante or 1
+
+        # Convert BB raise_to to dollars if bb_normalized mode is active
+        if bb_normalized and response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) > 0:
+            bb_value = response_dict['raise_to']
+            # AI responded in BB, convert to dollars (round to nearest integer)
+            dollar_value = round(bb_value * big_blind)
+            response_dict['_raise_to_bb'] = bb_value  # Store original BB for tracking
+            response_dict['raise_to'] = dollar_value
+            logger.debug(f"[BB_CONVERSION] {self.player_name} raise_to: {bb_value} BB → ${dollar_value}")
 
         # Fix raise with 0 amount by extracting from persona_response
         if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) == 0:
@@ -879,17 +915,34 @@ class AIPlayerController:
             highest_bet = game_state.highest_bet
             min_raise = context.get('min_raise', MIN_RAISE)
 
-            raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
-            if raise_match:
-                mentioned_amount = int(raise_match.group(1))
-                response_dict['raise_to'] = mentioned_amount
-                response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}'")
+            if bb_normalized:
+                # Match "raise to 8 BB" or "raise to 8.5 BB" or just "8 BB"
+                raise_match = re.search(r'(\d+(?:\.\d+)?)\s*BB', persona_response, re.IGNORECASE)
+                if raise_match:
+                    bb_amount = float(raise_match.group(1))
+                    dollar_amount = round(bb_amount * big_blind)  # Round to nearest dollar
+                    response_dict['_raise_to_bb'] = bb_amount
+                    response_dict['raise_to'] = dollar_amount
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to {bb_amount} BB' (${dollar_amount})")
+                else:
+                    min_raise_to = highest_bet + min_raise
+                    response_dict['raise_to'] = min_raise_to
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
             else:
-                min_raise_to = highest_bet + min_raise
-                response_dict['raise_to'] = min_raise_to
-                response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
+                # Original dollar-based extraction
+                raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
+                if raise_match:
+                    mentioned_amount = int(raise_match.group(1))
+                    response_dict['raise_to'] = mentioned_amount
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}'")
+                else:
+                    min_raise_to = highest_bet + min_raise
+                    response_dict['raise_to'] = min_raise_to
+                    response_dict['raise_amount_corrected'] = True
+                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
 
         # Validate action is in valid_actions
         if valid_actions and response_dict.get('action') not in valid_actions:
@@ -997,6 +1050,7 @@ class AIPlayerController:
                 num_opponents=num_opponents,
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
+                raise_amount_bb=response_dict.get('_raise_to_bb'),  # BB amount if bb_normalized
                 request_id=request_id,
                 capture_id=capture_id,
                 player_position=player_position,
@@ -1168,7 +1222,8 @@ def _ensure_card(c):
 
 def convert_game_to_hand_state(game_state, player: Player, phase, messages,
                                include_pot_odds: bool = True,
-                               include_hand_strength: bool = True):
+                               include_hand_strength: bool = True,
+                               bb_normalized: bool = False):
     """
     Convert game state to a human-readable prompt message.
 
@@ -1179,13 +1234,13 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
         messages: Recent actions/chat
         include_pot_odds: Whether to include pot odds guidance
         include_hand_strength: Whether to include hand strength evaluation
+        bb_normalized: If True, show amounts in BB instead of dollars
     """
     # Currently used values
     persona = player.name
     # attitude = player.attitude
     # confidence = player.confidence
     table_positions = game_state.table_positions
-    opponent_status = game_state.opponent_status
     current_round = phase
     community_cards = [str(_ensure_card(c)) for c in game_state.community_cards]
     # opponents = [p.name for p in game_state.players if p.name != player.name]
@@ -1218,14 +1273,25 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
             hand_strength = classify_preflop_hand(hole_cards)
         hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
+    # Get big_blind early for BB formatting
+    big_blind = game_state.current_ante
+
     persona_state = (
         f"Persona: {persona}\n"
         # f"Attitude: {attitude}\n"
         # f"Confidence: {confidence}\n"
         f"Your Cards: {hole_cards}\n"
         f"{hand_strength_line}"
-        f"Your Money: {player_money}\n"
+        f"Your Stack: {_format_money(player_money, big_blind, bb_normalized)}\n"
     )
+
+    # Format opponent status with BB or dollars
+    opponent_status = [
+        f'{p.name} has {_format_money(p.stack, big_blind, bb_normalized)}'
+        + (' and they have folded' if p.is_folded else '')
+        + '.\n'
+        for p in game_state.players
+    ]
 
     hand_state = (
         # f"{current_situation}\n"
@@ -1237,17 +1303,24 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
     )
 
     # Blind levels
-    big_blind = game_state.current_ante
     small_blind = big_blind // 2
     blinds_remaining = player_money / big_blind if big_blind > 0 else float('inf')
 
-    pot_state = (
-        f"Pot Total: ${current_pot}\n"
-        f"How much you've bet: ${current_bet}\n"
-        f"Your cost to call: ${cost_to_call}\n"
-        f"Blinds: ${small_blind}/${big_blind}\n"
-        f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
-    )
+    if bb_normalized:
+        pot_state = (
+            f"Pot Total: {_format_money(current_pot, big_blind, True)}\n"
+            f"How much you've bet: {_format_money(current_bet, big_blind, True)}\n"
+            f"Your cost to call: {_format_money(cost_to_call, big_blind, True)}\n"
+            f"Blinds: 0.50 BB / 1.00 BB\n"
+        )
+    else:
+        pot_state = (
+            f"Pot Total: ${current_pot}\n"
+            f"How much you've bet: ${current_bet}\n"
+            f"Your cost to call: ${cost_to_call}\n"
+            f"Blinds: ${small_blind}/${big_blind}\n"
+            f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
+        )
 
     # Calculate pot odds for clearer decision making (if enabled)
     pot_odds_guidance = ""
@@ -1255,8 +1328,10 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
         if cost_to_call > 0:
             pot_odds = current_pot / cost_to_call
             equity_needed = 100 / (pot_odds + 1)
+            pot_fmt = _format_money(current_pot, big_blind, bb_normalized)
+            call_fmt = _format_money(cost_to_call, big_blind, bb_normalized)
             pot_odds_guidance = (
-                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
+                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds ({pot_fmt} pot / {call_fmt} to call). "
                 f"You only need {equity_needed:.0f}% equity to break even on a call. "
             )
             if pot_odds >= 10:
@@ -1266,8 +1341,15 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
         else:
             pot_odds_guidance = "You can check for free - no cost to see more cards."
 
+    # Build final message with BB guidance if needed
+    stack_limit = _format_money(player_money, big_blind, bb_normalized)
+    bb_note = ""
+    if bb_normalized:
+        bb_note = "NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
+
     hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
-        f"You cannot bet more than you have, ${player_money}.\n"
+        f"{bb_note}"
+        f"You cannot bet more than you have, {stack_limit}.\n"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"
         f"What is your move, {persona}?\n\n"

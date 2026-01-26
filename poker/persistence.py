@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
-SCHEMA_VERSION = 53
+SCHEMA_VERSION = 54
 
 
 @dataclass
@@ -637,6 +637,7 @@ class GamePersistence:
                     community_cards TEXT,
                     action_taken TEXT,
                     raise_amount INTEGER,
+                    raise_amount_bb REAL,
                     equity REAL,
                     required_equity REAL,
                     ev_call REAL,
@@ -952,6 +953,7 @@ class GamePersistence:
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
             53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
+            54: (self._migrate_v54_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2575,6 +2577,20 @@ class GamePersistence:
             logger.info("Added correction_attempt column to prompt_captures")
 
         logger.info("Migration v53 complete: AI decision resilience columns added to prompt_captures")
+
+    def _migrate_v54_add_raise_amount_bb(self, conn: sqlite3.Connection) -> None:
+        """Migration v54: Add raise_amount_bb to player_decision_analysis.
+
+        This column stores the BB-normalized raise amount when bb_normalized mode
+        is enabled, allowing analysis of AI betting patterns in BB terms.
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()]
+
+        if 'raise_amount_bb' not in columns:
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN raise_amount_bb REAL")
+            logger.info("Added raise_amount_bb column to player_decision_analysis")
+
+        logger.info("Migration v54 complete: raise_amount_bb added to player_decision_analysis")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -5289,13 +5305,13 @@ class GamePersistence:
                     game_id, player_name, hand_number, phase, player_position,
                     pot_total, cost_to_call, player_stack, num_opponents,
                     player_hand, community_cards,
-                    action_taken, raise_amount,
+                    action_taken, raise_amount, raise_amount_bb,
                     equity, required_equity, ev_call,
                     optimal_action, decision_quality, ev_lost,
                     hand_rank, relative_strength,
                     equity_vs_ranges, opponent_positions,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -5312,6 +5328,7 @@ class GamePersistence:
                 data.get('community_cards'),
                 data.get('action_taken'),
                 data.get('raise_amount'),
+                data.get('raise_amount_bb'),
                 data.get('equity'),
                 data.get('required_equity'),
                 data.get('ev_call'),

@@ -22,6 +22,7 @@ class PromptConfig:
     Components:
         pot_odds: Pot odds guidance and equity calculations
         hand_strength: Hand strength evaluation (preflop ranking, postflop eval)
+        bb_normalized: Show all monetary amounts in Big Blinds (BB) instead of dollars
         session_memory: Session stats (win rate, streaks, observations)
         opponent_intel: Opponent tendencies and playing style summaries
         strategic_reflection: Include past strategic reflections in prompts
@@ -38,6 +39,7 @@ class PromptConfig:
     # Game state components
     pot_odds: bool = True
     hand_strength: bool = True
+    bb_normalized: bool = False  # Show amounts in BB instead of dollars for AI
 
     # Memory components
     session_memory: bool = True
