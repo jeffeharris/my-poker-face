@@ -221,7 +221,7 @@ export function MobileActionButtons({
           className="action-btn fold-btn"
           onClick={() => onAction('fold')}
         >
-          <span className="btn-icon">✕</span>
+          <span className="action-icon">✕</span>
           <span className="btn-label">Fold</span>
         </button>
       )}
@@ -231,7 +231,7 @@ export function MobileActionButtons({
           className="action-btn check-btn"
           onClick={() => onAction('check')}
         >
-          <Check className="btn-icon" size={18} />
+          <Check className="action-icon" />
           <span className="btn-label">Check</span>
         </button>
       )}
@@ -241,7 +241,7 @@ export function MobileActionButtons({
           className="action-btn call-btn"
           onClick={() => onAction('call')}
         >
-          <span className="btn-icon">→</span>
+          <span className="action-icon">→</span>
           <span className="btn-label">Call ${calc.callAmount}</span>
         </button>
       )}
@@ -251,7 +251,7 @@ export function MobileActionButtons({
           className="action-btn raise-btn"
           onClick={handleRaise}
         >
-          <span className="btn-icon">↑</span>
+          <span className="action-icon">↑</span>
           <span className="btn-label">
             {playerOptions.includes('raise') ? 'Raise' : 'Bet'}
           </span>
@@ -263,7 +263,7 @@ export function MobileActionButtons({
           className="action-btn allin-btn"
           onClick={() => onAction('all_in')}
         >
-          <span className="btn-icon">★</span>
+          <span className="action-icon">★</span>
           <span className="btn-label">All-In ${calc.safeStack}</span>
         </button>
       )}
@@ -273,7 +273,7 @@ export function MobileActionButtons({
           className="action-btn chat-btn"
           onClick={onQuickChat}
         >
-          <MessageCircle className="btn-icon" size={18} />
+          <MessageCircle className="action-icon" />
           <span className="btn-label">Chat</span>
         </button>
       )}

@@ -53,12 +53,16 @@
   transform: scale(0.95);
 }
 
-.action-btn .btn-icon {
+.action-btn .action-icon {
   font-size: 28px;
   line-height: 1;
-  background: transparent;
-  border: none;
-  padding: 0;
+}
+
+/* SVG icons (Lucide) - match text icon size */
+.action-btn svg.action-icon,
+.action-btn .action-icon svg {
+  width: 28px;
+  height: 28px;
 }
 
 .btn-label {

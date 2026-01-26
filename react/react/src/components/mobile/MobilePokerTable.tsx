@@ -14,6 +14,7 @@ import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
 import './MobilePokerTable.css';
+import './MobileActionButtons.css';
 
 interface MobilePokerTableProps {
   gameId?: string | null;
@@ -523,7 +524,7 @@ export function MobilePokerTable({
                 className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
                 onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
               >
-                <span className="btn-icon">{queuedAction === 'check_fold' ? <Check size={16} /> : <><Check size={14} /><X size={14} /></>}</span>
+                <span className="action-icon">{queuedAction === 'check_fold' ? <Check /> : <><Check /><X /></>}</span>
                 <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}</span>
               </button>
             )}
@@ -534,7 +535,7 @@ export function MobilePokerTable({
               className="action-btn chat-btn"
               onClick={() => setShowChatSheet(true)}
             >
-              <MessageCircle className="btn-icon" size={18} />
+              <MessageCircle className="action-icon" />
               <span className="btn-label">Chat</span>
             </button>
           </div>
