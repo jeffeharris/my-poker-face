@@ -45,30 +45,23 @@
   gap: var(--space-4);
 }
 
-/* Desktop layout - centered, no sidebar */
+/* Desktop layout - side by side with stats sidebar */
 .game-menu__layout--split {
-  flex-direction: column;
-  align-items: center;
-  width: 70vw;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-6);
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
 }
 
 .game-menu__layout--split .game-menu__options {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  flex: 1;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
-}
-
-/* Quick play section spans full width in grid */
-.game-menu__layout--split .quick-play-section {
-  grid-column: 1 / -1;
-}
-
-/* Hide sidebar on desktop - use mobile stats button instead */
-.game-menu__layout--split .game-menu__sidebar {
-  display: none;
 }
 
 /* ============================================
