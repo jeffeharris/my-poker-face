@@ -768,7 +768,15 @@ class AIPlayerController:
         response_dict = self._apply_final_fixes(response_dict, context, game_state)
 
         # Analyze decision quality (only for the final decision)
-        self._analyze_decision(response_dict, context, final_capture_id[0])
+        # Pass player bet info for max_winnable calculation in analyzer
+        player = game_state.current_player
+        self._analyze_decision(
+            response_dict,
+            context,
+            final_capture_id[0],
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
 
         # Update capture with final action
         if final_capture_id[0]:
@@ -948,7 +956,14 @@ class AIPlayerController:
 
         return response_dict
 
-    def _analyze_decision(self, response_dict: Dict, context: Dict, capture_id: Optional[int] = None) -> None:
+    def _analyze_decision(
+        self,
+        response_dict: Dict,
+        context: Dict,
+        capture_id: Optional[int] = None,
+        player_bet: int = 0,
+        all_players_bets: Optional[List[tuple]] = None,
+    ) -> None:
         """Analyze decision quality and save to database.
 
         This runs for EVERY AI decision to track quality metrics.
@@ -957,6 +972,8 @@ class AIPlayerController:
             response_dict: AI response with action and optional raise_to
             context: Game context dictionary
             capture_id: Optional ID of the prompt capture for linking
+            player_bet: Player's current round bet (for max_winnable calculation)
+            all_players_bets: List of (bet, is_folded) tuples for ALL players
         """
         if not self._persistence:
             return
@@ -1049,6 +1066,8 @@ class AIPlayerController:
                 player_position=player_position,
                 opponent_positions=opponent_positions,
                 opponent_infos=opponent_infos,
+                player_bet=player_bet,
+                all_players_bets=all_players_bets,
             )
 
             self._persistence.save_decision_analysis(analysis)

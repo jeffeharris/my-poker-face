@@ -1,26 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { ChatMessage } from '../../../types';
+import { parseMessageInline } from '../../../utils/messages';
 import './ActivityFeed.css';
-
-// Parse message with dramatic sequence support
-// Splits on newlines (beats) and renders actions (*asterisks*) as italics
-function parseMessage(text: string): React.ReactNode {
-  // Split on newlines (beats) and process each
-  const beats = text.split('\n').filter(b => b.trim());
-
-  if (beats.length === 0) {
-    return text;
-  }
-
-  return beats.map((beat, i) => {
-    // Check if it's an action (*wrapped in asterisks*)
-    const actionMatch = beat.match(/^\*(.+)\*$/);
-    if (actionMatch) {
-      return <span key={i} className="beat action"><em>{actionMatch[1]}</em> </span>;
-    }
-    return <span key={i} className="beat speech">{beat} </span>;
-  });
-}
 
 interface ActivityFeedProps {
   messages: ChatMessage[];
@@ -138,7 +119,7 @@ export function ActivityFeed({
               return (
                 <div key={item.id || idx} className="activity-item chat ai-chat">
                   <span className="activity-item__sender">{item.sender}:</span>
-                  <span className="activity-item__message">{parseMessage(item.message)}</span>
+                  <span className="activity-item__message">{parseMessageInline(item.message)}</span>
                 </div>
               );
             }

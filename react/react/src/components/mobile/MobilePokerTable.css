@@ -272,6 +272,19 @@
     }
 }
 
+/* Fallback for browsers without @property support (e.g., Safari < 15.4) */
+@supports not (background: conic-gradient(from var(--test, 0deg), red, blue)) {
+    .mobile-opponent.thinking .opponent-avatar::before {
+        background: var(--color-amber);
+        animation: avatarBorderPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes avatarBorderPulse {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
+    }
+}
+
 .mobile-opponent.folded {
     opacity: 0.5;
 }

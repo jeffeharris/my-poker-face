@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Check, X, MessageCircle } from 'lucide-react';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, CardDealTransforms } from '../../types';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
 import { MobileActionButtons } from './MobileActionButtons';
@@ -122,11 +122,10 @@ export function MobilePokerTable({
   const prevHandId = useRef<string | null>(null);
   // Display cards persist after fold so player can watch the action
   const [displayCards, setDisplayCards] = useState<typeof humanPlayer.hand | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [displayTransforms, setDisplayTransforms] = useState<any>(null);
+  const [displayTransforms, setDisplayTransforms] = useState<CardDealTransforms | null>(null);
   // Store pending cards during exit animation
   const pendingCards = useRef<typeof humanPlayer.hand | null>(null);
-  const pendingTransforms = useRef<any>(null);
+  const pendingTransforms = useRef<CardDealTransforms | null>(null);
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {

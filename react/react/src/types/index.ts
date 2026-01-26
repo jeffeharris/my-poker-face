@@ -3,3 +3,4 @@ export * from './chat';
 export * from './game';
 export * from './stats';
 export * from './llm';
+export * from './animation';
