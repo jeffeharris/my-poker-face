@@ -5942,10 +5942,14 @@ class GamePersistence:
                 for row in cursor.fetchall()
             ]
 
+    # Resume lock timeout in minutes - lock expires after this period
+    RESUME_LOCK_TIMEOUT_MINUTES = 5
+
     def acquire_resume_lock(self, experiment_game_id: int) -> bool:
         """Attempt to acquire a resume lock on an experiment game.
 
         Uses pessimistic locking to prevent race conditions when resuming.
+        Lock expires after RESUME_LOCK_TIMEOUT_MINUTES.
 
         Args:
             experiment_game_id: The experiment_games.id
@@ -5954,12 +5958,12 @@ class GamePersistence:
             True if lock was acquired, False if already locked
         """
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(f"""
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                   AND (resume_lock_acquired_at IS NULL
-                       OR resume_lock_acquired_at < datetime('now', '-5 minutes'))
+                       OR resume_lock_acquired_at < datetime('now', '-{self.RESUME_LOCK_TIMEOUT_MINUTES} minutes'))
             """, (experiment_game_id,))
             return cursor.rowcount == 1
 
@@ -6752,37 +6756,9 @@ class GamePersistence:
                       AND pc.action_taken = 'all_in'
                 """, [experiment_id] + variant_params)
 
-                suspicious_allins = 0
-                marginal_allins = 0
-                for row in cursor.fetchall():
-                    stack_bb, ai_response, equity = row
-                    try:
-                        resp = json.loads(ai_response) if ai_response else {}
-                    except (json.JSONDecodeError, TypeError):
-                        resp = {}
-
-                    try:
-                        bluff = int(resp.get('bluff_likelihood', 50))
-                    except (ValueError, TypeError):
-                        bluff = 50  # Default to skip if not parseable
-                    hand_str = str(resp.get('hand_strength', '')).lower()
-
-                    # Skip intentional bluffs (bluff_likelihood >= 50)
-                    if bluff >= 50:
-                        continue
-
-                    # Check if trash hand: "high card" in hand_strength OR equity < 0.25
-                    is_trash = 'high card' in hand_str or (equity is not None and equity < 0.25)
-                    if not is_trash:
-                        continue
-
-                    # Categorize by stack depth
-                    if stack_bb is not None and stack_bb <= 10:
-                        pass  # Short stack - defensible, skip
-                    elif stack_bb is not None and stack_bb <= 15:
-                        marginal_allins += 1
-                    else:
-                        suspicious_allins += 1
+                # Use shared categorization logic
+                from poker.quality_metrics import compute_allin_categorizations
+                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
 
                 # 6. Survival metrics from tournament_standings
                 cursor = conn.execute(f"""
@@ -6944,37 +6920,9 @@ class GamePersistence:
                   AND pc.action_taken = 'all_in'
             """, (experiment_id,))
 
-            overall_suspicious_allins = 0
-            overall_marginal_allins = 0
-            for row in cursor.fetchall():
-                stack_bb, ai_response, equity = row
-                try:
-                    resp = json.loads(ai_response) if ai_response else {}
-                except (json.JSONDecodeError, TypeError):
-                    resp = {}
-
-                try:
-                    bluff = int(resp.get('bluff_likelihood', 50))
-                except (ValueError, TypeError):
-                    bluff = 50  # Default to skip if not parseable
-                hand_str = str(resp.get('hand_strength', '')).lower()
-
-                # Skip intentional bluffs (bluff_likelihood >= 50)
-                if bluff >= 50:
-                    continue
-
-                # Check if trash hand: "high card" in hand_strength OR equity < 0.25
-                is_trash = 'high card' in hand_str or (equity is not None and equity < 0.25)
-                if not is_trash:
-                    continue
-
-                # Categorize by stack depth
-                if stack_bb is not None and stack_bb <= 10:
-                    pass  # Short stack - defensible, skip
-                elif stack_bb is not None and stack_bb <= 15:
-                    overall_marginal_allins += 1
-                else:
-                    overall_suspicious_allins += 1
+            # Use shared categorization logic
+            from poker.quality_metrics import compute_allin_categorizations
+            overall_suspicious_allins, overall_marginal_allins = compute_allin_categorizations(cursor.fetchall())
 
             overall_quality_indicators = None
             if overall_qi_row and overall_qi_row[3] > 0:  # total_decisions at index 3

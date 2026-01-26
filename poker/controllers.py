@@ -1118,7 +1118,7 @@ class AIPlayerController:
             action_history
         )
 
-        print(f"[MINIMAL PROMPT]\n{prompt}\n")
+        logger.debug(f"[MINIMAL PROMPT]\n{prompt}\n")
 
         # Call LLM with minimal system prompt
         minimal_system = "You are a poker player. Analyze the situation and respond with your action in JSON format."
@@ -1147,7 +1147,7 @@ class AIPlayerController:
 
         # Extract content from response object
         response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
-        print(f"[MINIMAL RAW RESPONSE] {response_text}")
+        logger.debug(f"[MINIMAL RAW RESPONSE] {response_text}")
 
         # Parse the minimal response
         parsed = parse_minimal_response(response_text)
@@ -1178,7 +1178,7 @@ class AIPlayerController:
         game_action.setdefault('persona_response', '')
         game_action.setdefault('physical', [])
 
-        print(f"[MINIMAL RESPONSE] {game_action}")
+        logger.debug(f"[MINIMAL RESPONSE] {game_action}")
 
         # Analyze decision for quality metrics
         phase = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)

@@ -2971,112 +2971,33 @@ def resume_variant(experiment_id: int, game_id: int):
 
 def resume_single_variant_background(experiment_id: int, tournament_info: Dict, config_dict: Dict[str, Any]):
     """Resume a single variant in background thread."""
-    from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException, TournamentSupersededException
-    from poker.poker_state_machine import PokerStateMachine
-    from poker.controllers import AIPlayerController
-    from poker.memory.memory_manager import AIMemoryManager
-    from poker.prompt_config import PromptConfig
+    from experiments.run_ai_tournament import TournamentPausedException, TournamentSupersededException
+    from experiments.resume_helpers import resume_variant_impl
 
     game_id = tournament_info['game_id']
+    variant = tournament_info.get('variant')
+    variant_config = tournament_info.get('variant_config')
+
+    logger.info(f"Resuming stalled variant {game_id}")
 
     try:
-        # Build ExperimentConfig
-        known_fields = {
-            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'hands_per_tournament', 'num_players',
-            'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'reset_on_elimination'
-        }
-        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
-        exp_config = ExperimentConfig(**filtered_config)
-
-        variant = tournament_info.get('variant')
-        variant_config = tournament_info.get('variant_config')
-
-        logger.info(f"Resuming stalled variant {game_id}")
-
-        # Load saved game state
-        state_machine = persistence.load_game(game_id)
-        if not state_machine:
-            logger.warning(f"Could not load game state for {game_id}")
-            persistence.release_resume_lock(game_id)
-            return
-
-        # Load AI player states (conversation history)
-        ai_states = persistence.load_ai_player_states(game_id)
-
-        # Determine LLM config
-        if variant_config:
-            llm_config = {
-                'provider': variant_config.get('provider') or exp_config.provider,
-                'model': variant_config.get('model') or exp_config.model,
-            }
-        else:
-            llm_config = {
-                'provider': exp_config.provider,
-                'model': exp_config.model,
-            }
-
-        # Extract prompt_config from variant
-        prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
-        prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict else None
-
-        # Recreate controllers for all players
-        controllers = {}
-        for player in state_machine.game_state.players:
-            controller = AIPlayerController(
-                player_name=player.name,
-                state_machine=state_machine,
-                llm_config=llm_config,
-                game_id=game_id,
-                owner_id=f"experiment_{exp_config.name}",
-                persistence=persistence,
-                debug_capture=exp_config.capture_prompts,
-                prompt_config=prompt_config,
-            )
-
-            # Restore conversation history if available
-            if player.name in ai_states:
-                saved_messages = ai_states[player.name].get('messages', [])
-                if saved_messages and hasattr(controller, 'assistant') and controller.assistant:
-                    controller.assistant.memory.set_history(saved_messages)
-                    logger.debug(f"Restored {len(saved_messages)} messages for {player.name}")
-
-            controllers[player.name] = controller
-
-        # Create memory manager
-        memory_manager = AIMemoryManager(
+        result = resume_variant_impl(
+            persistence=persistence,
+            experiment_id=experiment_id,
             game_id=game_id,
-            db_path=persistence.db_path,
-        )
-
-        # Create runner with paused game context
-        runner = AITournamentRunner(
-            exp_config,
-            db_path=persistence.db_path,
-        )
-        runner.experiment_id = experiment_id
-
-        # Get current hand number from game state
-        hand_number = getattr(state_machine.game_state, 'hand_number', 1)
-
-        # Update heartbeat to show we're actively resuming
-        persistence.update_experiment_game_heartbeat(game_id, 'processing', process_id=os.getpid())
-
-        # Continue the tournament
-        result = runner._continue_tournament(
-            game_id,
-            state_machine,
-            controllers,
-            memory_manager,
-            variant_label=variant,
+            variant=variant,
             variant_config=variant_config,
-            starting_hand=hand_number,
+            config_dict=config_dict,
         )
 
         if result:
+            # Save the result
+            from experiments.run_ai_tournament import AITournamentRunner
+            from experiments.resume_helpers import build_experiment_config
+
+            exp_config = build_experiment_config(config_dict)
+            runner = AITournamentRunner(exp_config, db_path=persistence.db_path)
+            runner.experiment_id = experiment_id
             runner._save_result(result)
             logger.info(f"Variant {game_id} completed successfully")
 

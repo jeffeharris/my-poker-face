@@ -553,6 +553,12 @@ def _narrow_range_by_strength(hand_range: Set[str], keep_top: float) -> Set[str]
     return set(sorted_hands[:keep_count])
 
 
+# Aggression factor thresholds for range adjustment
+AGGRESSION_PASSIVE_THRESHOLD = 0.8      # AF below this = very passive player
+AGGRESSION_AGGRESSIVE_THRESHOLD = 2.5   # AF above this = very aggressive player
+PASSIVE_PLAYER_RANGE_KEEP_TOP = 0.70    # Keep top 70% when passive player bets
+
+
 def apply_aggression_adjustment(
     base_range: Set[str],
     aggression_factor: float,
@@ -579,11 +585,11 @@ def apply_aggression_adjustment(
     if not is_aggressive_action:
         return base_range
 
-    if aggression_factor < 0.8:
+    if aggression_factor < AGGRESSION_PASSIVE_THRESHOLD:
         # Passive player betting = very strong
         # Remove bottom 30% of range
-        return _narrow_range_by_strength(base_range, keep_top=0.70)
-    elif aggression_factor > 2.5:
+        return _narrow_range_by_strength(base_range, keep_top=PASSIVE_PLAYER_RANGE_KEEP_TOP)
+    elif aggression_factor > AGGRESSION_AGGRESSIVE_THRESHOLD:
         # Very aggressive player - already reflected in base range
         # No additional narrowing needed
         return base_range

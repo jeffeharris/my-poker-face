@@ -91,6 +91,42 @@ class TournamentSupersededException(Exception):
         super().__init__(f"{message}: {tournament_id}")
 
 
+@dataclass
+class HandResult:
+    """Result from running a single hand.
+
+    Replaces the untyped Dict return with a typed dataclass.
+
+    Status values:
+    - 'continue': Game should continue normally
+    - 'paused': Tournament was paused (user request)
+    - 'end': Tournament should end (only 1 player with chips before hand started)
+    - 'reset_needed': Only 1 player with chips after hand (may need stack reset)
+    """
+    status: str
+    all_in_winners: List[str] = field(default_factory=list)
+
+    @property
+    def should_continue(self) -> bool:
+        """True if game should continue to next hand."""
+        return self.status == 'continue'
+
+    @property
+    def is_paused(self) -> bool:
+        """True if tournament was paused."""
+        return self.status == 'paused'
+
+    @property
+    def needs_reset(self) -> bool:
+        """True if tournament ended and may need stack reset."""
+        return self.status == 'reset_needed'
+
+    @property
+    def is_end(self) -> bool:
+        """True if tournament should end (only 1 player before hand started)."""
+        return self.status == 'end'
+
+
 # Configure logging (only if not already configured, e.g., when imported)
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -889,7 +925,7 @@ class AITournamentRunner:
                  hand_number: int,
                  tournament_id: Optional[str] = None,
                  variant_config: Optional[Dict] = None,
-                 tournament_number: int = 1):
+                 tournament_number: int = 1) -> HandResult:
         """
         Run a single hand to completion.
 
@@ -903,8 +939,8 @@ class AITournamentRunner:
             tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
 
         Returns:
-            True if game should continue, False if tournament is paused,
-            or "reset_needed" if only one player remains with chips.
+            HandResult with status ('continue', 'paused', 'end', 'reset_needed')
+            and list of all-in winners from the hand.
         """
         # Let the state machine handle setup_hand via its INITIALIZING_HAND transition
         # Do NOT call setup_hand() directly - that would deal cards twice!
@@ -914,7 +950,7 @@ class AITournamentRunner:
         active_players = [p for p in game_state.players if p.stack > 0]
         if len(active_players) <= 1:
             logger.info(f"Tournament ending: {len(active_players)} player(s) with chips remaining")
-            return {"status": "end", "all_in_winners": []}
+            return HandResult(status="end", all_in_winners=[])
 
         # Set deterministic deck seed for this hand (for A/B experiments)
         # Formula: base_seed + (tournament_number * 1000) + hand_number
@@ -1031,7 +1067,7 @@ class AITournamentRunner:
 
                         # Check for pause request
                         if self._check_pause_requested():
-                            return {"status": "paused", "all_in_winners": []}
+                            return HandResult(status="paused", all_in_winners=[])
 
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
@@ -1044,7 +1080,7 @@ class AITournamentRunner:
 
                         # Check for pause request
                         if self._check_pause_requested():
-                            return {"status": "paused", "all_in_winners": []}
+                            return HandResult(status="paused", all_in_winners=[])
 
                 action_count += 1
 
@@ -1110,8 +1146,8 @@ class AITournamentRunner:
         # Check if tournament should continue
         active_players = [p for p in game_state.players if p.stack > 0]
         if len(active_players) <= 1:
-            return {"status": "reset_needed", "all_in_winners": all_in_winners}
-        return {"status": "continue", "all_in_winners": all_in_winners}
+            return HandResult(status="reset_needed", all_in_winners=all_in_winners)
+        return HandResult(status="continue", all_in_winners=all_in_winners)
 
     def run_tournament(
         self,
@@ -1204,14 +1240,13 @@ class AITournamentRunner:
                 logger.info(f"  Eliminated: {name} (hand {hand_number}, round {current_round})")
 
             # Track all-in wins from hand result (captured before reset cleared flags)
-            for name in hand_result.get('all_in_winners', []):
+            for name in hand_result.all_in_winners:
                 all_in_outcomes[name]['wins'] += 1
                 logger.debug(f"  All-in survived: {name} (hand {hand_number})")
             prev_active = current_active
 
             # Handle different return values from run_hand
-            hand_status = hand_result.get('status', 'continue')
-            if hand_status == "reset_needed":
+            if hand_result.needs_reset:
                 if should_reset:
                     # Record round winner (player with most chips) and reset
                     game_state = state_machine.game_state
@@ -1236,9 +1271,9 @@ class AITournamentRunner:
                 else:
                     # No reset - tournament ends when one player wins
                     break
-            elif hand_status in ("paused", "end"):
+            elif hand_result.is_paused or hand_result.is_end:
                 # Paused or tournament ending
-                if hand_status == "paused":
+                if hand_result.is_paused:
                     paused = True
                 break
 
@@ -1354,6 +1389,200 @@ class AITournamentRunner:
         variant_info = f" [{variant_label}]" if variant_label else ""
         resets_info = f", Resets = {total_resets}" if total_resets > 0 else ""
         logger.info(f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}{resets_info}")
+        return result
+
+    def _continue_tournament(
+        self,
+        tournament_id: str,
+        state_machine: PokerStateMachine,
+        controllers: Dict[str, AIPlayerController],
+        memory_manager: AIMemoryManager,
+        variant_label: Optional[str] = None,
+        variant_config: Optional[Dict] = None,
+        starting_hand: int = 1,
+    ) -> Optional[TournamentResult]:
+        """Continue a tournament from saved state (for resume after pause/crash).
+
+        This is similar to run_tournament but uses existing state_machine, controllers,
+        and memory_manager instead of creating new ones.
+
+        Args:
+            tournament_id: Unique identifier for this tournament
+            state_machine: Existing PokerStateMachine with saved state
+            controllers: Existing AI controllers (with restored conversation history)
+            memory_manager: Existing memory manager
+            variant_label: Optional variant label for A/B testing
+            variant_config: Optional variant-specific config
+            starting_hand: Hand number to resume from
+
+        Returns:
+            TournamentResult if tournament completes, None if it gets paused again
+        """
+        start_time = datetime.now()
+        variant_info = f" [{variant_label}]" if variant_label else ""
+        logger.info(f"Continuing tournament {tournament_id}{variant_info} from hand {starting_hand}")
+
+        # Store original players for reset scenarios
+        original_players = state_machine.game_state.players
+
+        elimination_order = []
+        all_eliminations: List[Dict] = []
+        prev_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
+
+        all_in_outcomes: Dict[str, Dict[str, int]] = {
+            p.name: {'wins': 0, 'losses': 0} for p in state_machine.game_state.players
+        }
+
+        max_hands = self.config.hands_per_tournament
+        should_reset = self.config.reset_on_elimination
+
+        round_winners: List[str] = []
+        total_resets = 0
+        current_round = 1
+
+        hand_number = starting_hand - 1  # Will be incremented at start of loop
+        paused = False
+
+        while hand_number < max_hands:
+            hand_number += 1
+
+            hand_result = self.run_hand(
+                state_machine, controllers, memory_manager, hand_number,
+                tournament_id=tournament_id,
+                variant_config=variant_config,
+                tournament_number=1  # Resume doesn't track tournament_number
+            )
+
+            # Save game state for live monitoring
+            self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+
+            # Check for superseded
+            if self.experiment_id and self.persistence.check_resume_lock_superseded(tournament_id):
+                logger.info(f"Tournament {tournament_id} superseded by resume operation")
+                raise TournamentSupersededException(tournament_id)
+
+            # Periodic heartbeat
+            if self.experiment_id and hand_number % 5 == 0:
+                self.persistence.update_experiment_game_heartbeat(
+                    tournament_id, 'processing', process_id=os.getpid()
+                )
+
+            # Track eliminations and all-in outcomes
+            current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
+            eliminated = prev_active - current_active
+
+            for name in eliminated:
+                elimination_order.append(name)
+                all_eliminations.append({
+                    'player_name': name,
+                    'hand_number': hand_number,
+                    'round_number': current_round,
+                })
+                all_in_outcomes[name]['losses'] += 1
+                logger.info(f"  Eliminated: {name} (hand {hand_number})")
+
+            for name in hand_result.all_in_winners:
+                all_in_outcomes[name]['wins'] += 1
+            prev_active = current_active
+
+            # Handle different hand results
+            if hand_result.needs_reset:
+                if should_reset:
+                    game_state = state_machine.game_state
+                    winner = max(game_state.players, key=lambda p: p.stack)
+                    round_winners.append(winner.name)
+                    total_resets += 1
+                    logger.info(f"Round {total_resets}: {winner.name} wins. Resetting stacks.")
+
+                    reset_players = tuple(
+                        player.update(stack=self.config.starting_stack, is_folded=False, is_all_in=False)
+                        for player in original_players
+                    )
+                    game_state = game_state.update(players=reset_players)
+                    state_machine.game_state = game_state
+
+                    prev_active = set(p.name for p in original_players)
+                    elimination_order = []
+                    current_round += 1
+                    continue
+                else:
+                    break
+            elif hand_result.is_paused or hand_result.is_end:
+                if hand_result.is_paused:
+                    paused = True
+                break
+
+        if paused:
+            logger.info(f"Tournament {tournament_id} paused at hand {hand_number}")
+            raise TournamentPausedException(tournament_id, hand_number)
+
+        # Build final result (same as run_tournament)
+        end_time = datetime.now()
+        game_state = state_machine.game_state
+
+        # Count eliminations per player
+        elimination_counts = {}
+        for elim in all_eliminations:
+            name = elim['player_name']
+            elimination_counts[name] = elimination_counts.get(name, 0) + 1
+
+        final_standings = sorted(
+            [
+                {
+                    "name": p.name,
+                    "stack": p.stack,
+                    "final_stack": p.stack,
+                    "times_eliminated": elimination_counts.get(p.name, 0),
+                    "all_in_wins": all_in_outcomes.get(p.name, {}).get('wins', 0),
+                    "all_in_losses": all_in_outcomes.get(p.name, {}).get('losses', 0),
+                }
+                for p in game_state.players
+            ],
+            key=lambda x: x["stack"],
+            reverse=True
+        )
+        winner = final_standings[0]["name"] if final_standings else "Unknown"
+
+        avg_latency = self.total_latency / max(self.api_calls, 1)
+
+        if variant_config:
+            model_config = {
+                "provider": variant_config.get('provider') or self.config.provider,
+                "model": variant_config.get('model') or self.config.model,
+            }
+        else:
+            model_config = {
+                "provider": self.config.provider,
+                "model": self.config.model,
+            }
+
+        result = TournamentResult(
+            experiment_name=self.config.name,
+            tournament_id=tournament_id,
+            start_time=start_time.isoformat(),
+            end_time=end_time.isoformat(),
+            duration_seconds=(end_time - start_time).total_seconds(),
+            hands_played=hand_number,
+            winner=winner,
+            final_standings=final_standings,
+            elimination_order=elimination_order,
+            model_config=model_config,
+            total_api_calls=self.api_calls,
+            total_cost=self.total_cost,
+            avg_latency_ms=avg_latency,
+            decision_stats=self._get_decision_stats(tournament_id),
+            variant=variant_label,
+            round_winners=round_winners,
+            total_resets=total_resets,
+            eliminations=all_eliminations,
+        )
+
+        # Mark tournament as idle
+        if self.experiment_id:
+            self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
+            self.persistence.release_resume_lock(tournament_id)
+
+        logger.info(f"Tournament {tournament_id} complete: Winner = {winner}, Hands = {hand_number}")
         return result
 
     def _get_decision_stats(self, game_id: str) -> Dict:
@@ -2035,7 +2264,7 @@ class AITournamentRunner:
         """Compute quality indicators from player_decision_analysis + prompt_captures.
 
         Uses improved 3-tier stack depth detection for suspicious all-ins:
-        - Short (≤10BB): Filtered out as defensible
+        - Short (<=10BB): Filtered out as defensible
         - Marginal (11-15BB): Tracked as marginal_allins
         - Deep (>15BB): Tracked as suspicious_allins
 
@@ -2051,7 +2280,7 @@ class AITournamentRunner:
         """
         try:
             import sqlite3
-            import json
+            from poker.quality_metrics import compute_allin_categorizations, build_quality_indicators
 
             with sqlite3.connect(self.persistence.db_path) as conn:
                 # Get basic quality metrics
@@ -2094,47 +2323,17 @@ class AITournamentRunner:
                       AND pc.action_taken = 'all_in'
                 """, (experiment_id,))
 
-                suspicious_allins = 0
-                marginal_allins = 0
-                for allin_row in cursor.fetchall():
-                    stack_bb, ai_response, equity = allin_row
-                    try:
-                        resp = json.loads(ai_response) if ai_response else {}
-                    except (json.JSONDecodeError, TypeError):
-                        resp = {}
+                # Use shared categorization logic
+                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
 
-                    try:
-                        bluff = int(resp.get('bluff_likelihood', 50))
-                    except (ValueError, TypeError):
-                        bluff = 50  # Default to skip if not parseable
-                    hand_str = str(resp.get('hand_strength', '')).lower()
-
-                    # Skip intentional bluffs (bluff_likelihood >= 50)
-                    if bluff >= 50:
-                        continue
-
-                    # Check if trash hand: "high card" in hand_strength OR equity < 0.25
-                    is_trash = 'high card' in hand_str or (equity is not None and equity < 0.25)
-                    if not is_trash:
-                        continue
-
-                    # Categorize by stack depth
-                    if stack_bb is not None and stack_bb <= 10:
-                        pass  # Short stack - defensible, skip
-                    elif stack_bb is not None and stack_bb <= 15:
-                        marginal_allins += 1
-                    else:
-                        suspicious_allins += 1
-
-                result = {
-                    'suspicious_allins': suspicious_allins,
-                    'marginal_allins': marginal_allins,
-                    'fold_mistakes': fold_mistakes,
-                    'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
-                    'total_all_ins': total_all_ins,
-                    'total_folds': total_folds,
-                    'total_decisions': total_decisions,
-                }
+                result = build_quality_indicators(
+                    fold_mistakes=fold_mistakes,
+                    total_all_ins=total_all_ins,
+                    total_folds=total_folds,
+                    total_decisions=total_decisions,
+                    suspicious_allins=suspicious_allins,
+                    marginal_allins=marginal_allins,
+                )
 
                 logger.info(f"Computed quality indicators: {suspicious_allins} suspicious all-ins, {marginal_allins} marginal all-ins, {fold_mistakes} fold mistakes")
                 return result
