@@ -4,7 +4,6 @@ import type { CardDealTransforms } from '../types';
 
 interface UseCardAnimationProps {
   hand: Player['hand'] | undefined;
-  isFolded: boolean;
 }
 
 interface UseCardAnimationReturn {
@@ -34,7 +33,7 @@ const neatTransforms: CardDealTransforms = {
  * - Neat/messy toggle state
  * - Timer cleanup on unmount
  */
-export function useCardAnimation({ hand, isFolded }: UseCardAnimationProps): UseCardAnimationReturn {
+export function useCardAnimation({ hand }: UseCardAnimationProps): UseCardAnimationReturn {
   // Track if cards are currently being dealt (for animation)
   const [isDealing, setIsDealing] = useState(false);
   const [isExiting, setIsExiting] = useState(false);

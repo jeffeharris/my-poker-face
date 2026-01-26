@@ -1156,6 +1156,7 @@ def handle_ai_action(game_id: str) -> None:
         amount = fallback_result['raise_to']
         player_message = get_fallback_chat_response(current_player.name)
         player_physical_description = "*pauses momentarily*"
+        full_message = f"{player_message} {player_physical_description}".strip()
 
         send_message(game_id, "Table", f"[{current_player.name} takes a moment to consider]", "table")
 

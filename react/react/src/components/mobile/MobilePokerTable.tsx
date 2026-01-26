@@ -119,7 +119,6 @@ export function MobilePokerTable({
     handleExitAnimationEnd,
   } = useCardAnimation({
     hand: humanPlayer?.hand,
-    isFolded: humanPlayer?.is_folded ?? false,
   });
 
   // Auto-scroll to center the active opponent when turn changes

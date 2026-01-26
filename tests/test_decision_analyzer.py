@@ -1,6 +1,5 @@
 """Tests for decision analyzer, focusing on stack-aware EV calculations."""
 
-import pytest
 from poker.decision_analyzer import (
     DecisionAnalyzer,
     DecisionAnalysis,

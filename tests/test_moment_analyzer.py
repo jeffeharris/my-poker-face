@@ -1,6 +1,5 @@
 """Tests for MomentAnalyzer drama detection system."""
 
-import pytest
 from poker.moment_analyzer import MomentAnalyzer, MomentAnalysis
 from poker.poker_game import Player, PokerGameState
 

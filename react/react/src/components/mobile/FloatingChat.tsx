@@ -2,6 +2,16 @@ import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, Player } from '../../types';
 import { config } from '../../config';
+import {
+  TYPING_SPEED_MS,
+  READING_BUFFER_MS,
+  ACTION_FADE_DURATION_MS,
+  BEAT_DELAY_MS,
+  QUEUED_MESSAGE_BONUS_MS,
+  MESSAGE_BASE_DURATION_MS,
+  MESSAGE_MIN_DURATION_MS,
+  MESSAGE_MAX_DURATION_MS,
+} from '../../config/timing';
 import './FloatingChat.css';
 
 interface MessageWithMeta extends ChatMessage {
@@ -15,13 +25,6 @@ interface FloatingChatProps {
   onDismiss: () => void;
   players?: Player[];
 }
-
-// Timing constants for dramatic effect
-const TYPING_SPEED_MS = 30; // ms per character for typing effect
-const READING_BUFFER_MS = 10; // extra ms per character for reading time (added to duration only)
-const ACTION_FADE_DURATION_MS = 400; // fade in duration for actions
-const BEAT_DELAY_MS = 300; // delay between beats
-const QUEUED_MESSAGE_BONUS_MS = 1000; // extra time for messages that were waiting in queue
 
 // Parse a beat to determine if it's an action or speech
 interface ParsedBeat {
@@ -42,15 +45,11 @@ function parseBeats(text: string): ParsedBeat[] {
 
 // Calculate display duration based on message content and timing
 function calculateDuration(message: string, action?: string): number {
-  const baseMs = 2000; // Base time after all animations complete
-  const minMs = 3000;
-  const maxMs = 20000;
-
   const trimmedMessage = message.trim();
   const trimmedAction = action?.trim() ?? '';
   const text = trimmedMessage.length > 0 ? trimmedMessage : trimmedAction;
 
-  if (!text) return minMs;
+  if (!text) return MESSAGE_MIN_DURATION_MS;
 
   const beats = parseBeats(text);
   let animationTime = 0;
@@ -67,8 +66,8 @@ function calculateDuration(message: string, action?: string): number {
     }
   });
 
-  const calculated = animationTime + baseMs;
-  return Math.min(maxMs, Math.max(minMs, calculated));
+  const calculated = animationTime + MESSAGE_BASE_DURATION_MS;
+  return Math.min(MESSAGE_MAX_DURATION_MS, Math.max(MESSAGE_MIN_DURATION_MS, calculated));
 }
 
 // Action beat component - fades in
