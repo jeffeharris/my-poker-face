@@ -74,15 +74,17 @@
   font-weight: 600;
   color: var(--color-gold-light);
   margin-bottom: 4px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 .floating-chat-message {
   font-size: 14px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   line-height: 1.4;
   word-wrap: break-word;
   max-height: 16dvh;
   overflow-y: auto;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 /* Dramatic sequence beats */
@@ -96,7 +98,7 @@
 
 /* Action beats - fade in effect */
 .floating-chat-message .beat.action {
-  color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
+  color: #c8beb4;
   font-style: italic;
   opacity: 0;
   transform: translateY(-4px);
@@ -110,7 +112,7 @@
 
 /* Speech beats - typing effect */
 .floating-chat-message .beat.speech {
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 
 /* Typing cursor */
