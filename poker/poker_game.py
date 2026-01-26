@@ -809,8 +809,10 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         # Add evaluated hands to the tracking list
         evaluated_hands.extend(hands)
         # Sort hands to find the best one(s) for the current tier
-        hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
-        hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
+        # Note: kicker_values and hand_values are already sorted descending by HandEvaluator
+        # Using sorted() here would re-sort them ascending, breaking element-by-element comparison
+        hands.sort(key=lambda x: x[1]["kicker_values"], reverse=True)
+        hands.sort(key=lambda x: x[1]["hand_values"], reverse=True)
         hands.sort(key=lambda x: x[1]["hand_rank"])
         # Determine winners for this tier
         best_hand = hands[0][1]
