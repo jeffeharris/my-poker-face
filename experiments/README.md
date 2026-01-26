@@ -198,7 +198,8 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
 | Field | Required | Description |
 |-------|----------|-------------|
 | `label` | Yes | Display name in results |
-| `prompt_config` | No | Override prompt settings |
+| `game_mode` | No | Preset mode: `casual`, `standard`, or `pro` |
+| `prompt_config` | No | Override prompt settings (overrides game_mode) |
 | `enable_psychology` | No | Enable tilt/emotional state |
 | `enable_commentary` | No | Enable commentary generation |
 
@@ -211,7 +212,8 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
 | `label` | Yes | Display name in results |
 | `model` | No | Override model (inherits from experiment) |
 | `provider` | No | Override provider (inherits from experiment) |
-| `prompt_config` | No | Override prompt settings |
+| `game_mode` | No | Preset mode: `casual`, `standard`, or `pro` (inherits from control) |
+| `prompt_config` | No | Override prompt settings (overrides game_mode) |
 | `reasoning_effort` | No | Override reasoning level |
 | `enable_psychology` | No | Enable tilt/emotional state (inherits from control) |
 | `enable_commentary` | No | Enable commentary generation (inherits from control) |
@@ -315,6 +317,69 @@ Test if showing equity calculations and verdicts reduces fold mistakes:
         "show_equity_always": true,
         "show_equity_verdict": true
       }
+    }
+  ]
+}
+```
+
+### Game Modes
+
+Instead of manually specifying `prompt_config` fields, you can use the `game_mode` preset:
+
+| Mode | Effect |
+|------|--------|
+| `casual` | Default PromptConfig (personality-driven fun poker) |
+| `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
+| `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+
+**Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
+
+**Priority**: Explicit `prompt_config` fields override `game_mode` settings
+
+### Example: Game Mode Comparison
+
+```json
+{
+  "name": "casual_vs_pro",
+  "description": "Compare personality-driven vs GTO-focused play",
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "Casual Mode",
+    "game_mode": "casual"
+  },
+  "variants": [
+    {
+      "label": "Pro Mode",
+      "game_mode": "pro"
+    },
+    {
+      "label": "Standard Mode",
+      "game_mode": "standard"
+    }
+  ]
+}
+```
+
+### Example: Game Mode with Custom Overrides
+
+You can combine `game_mode` with `prompt_config` to start from a preset and customize:
+
+```json
+{
+  "name": "pro_with_tilt",
+  "control": {
+    "label": "Pure Pro",
+    "game_mode": "pro"
+  },
+  "variants": [
+    {
+      "label": "Pro + Tilt Effects",
+      "game_mode": "pro",
+      "prompt_config": {"tilt_effects": true}
     }
   ]
 }

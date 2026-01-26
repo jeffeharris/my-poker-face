@@ -584,15 +584,16 @@ For comparing models, prompts, or other configurations, use the control/variants
 
 - control: The baseline configuration (required for A/B tests)
   - label: Name shown in results (e.g., "GPT-4o Baseline")
-  - prompt_config: Prompt settings for control (optional)
+  - game_mode: Preset mode ("casual", "standard", "pro") - see Game Modes section
+  - prompt_config: Prompt settings for control (optional, overrides game_mode)
   - enable_psychology: Enable tilt/emotional state generation (default false, ~4 LLM calls/hand)
   - enable_commentary: Enable commentary generation (default false, ~4 LLM calls/hand)
   - NOTE: Control always uses the experiment-level model/provider settings
 
 - variants: List of variations to compare against control
   - Each variant can override model/provider to test different LLMs
-  - Variants inherit psychology/commentary settings from control if not specified
-  - Fields: label (required), model, provider, prompt_config, enable_psychology, enable_commentary
+  - Variants inherit game_mode/psychology/commentary settings from control if not specified
+  - Fields: label (required), model, provider, game_mode, prompt_config, enable_psychology, enable_commentary
 
 ## Real Examples from Successful Experiments
 
@@ -858,6 +859,31 @@ Compare stripped-down prompts to full prompts with all features:
   ]
 }
 
+## Game Modes
+
+Instead of manually specifying prompt_config fields, you can use the `game_mode` preset in control or variants:
+
+| Mode | Effect |
+|------|--------|
+| `casual` | Default PromptConfig (personality-driven fun poker) |
+| `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
+| `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+
+**Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
+
+**Priority**: Explicit `prompt_config` fields override `game_mode` settings
+
+Example:
+```json
+{
+  "control": {"label": "Casual", "game_mode": "casual"},
+  "variants": [
+    {"label": "Pro Mode", "game_mode": "pro"},
+    {"label": "Pro + Tilt", "game_mode": "pro", "prompt_config": {"tilt_effects": true}}
+  ]
+}
+```
+
 ## Available prompt_config Options
 
 All boolean options (default true unless specified):
@@ -920,6 +946,7 @@ Common experiment scenarios:
 9. Natural tournaments: Use reset_on_elimination: false (default) for tournaments that end when one player wins all chips
 10. GTO guidance impact: Test if show_equity_always/show_equity_verdict reduces fold mistakes and bad calls
 11. Range estimation comparison: Test use_enhanced_ranges (PFR/action-based) vs VPIP-only ranges
+12. Game mode comparison: Test casual vs standard vs pro modes using game_mode preset
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
