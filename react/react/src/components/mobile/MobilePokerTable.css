@@ -712,53 +712,6 @@
     box-sizing: border-box;
 }
 
-/* Waiting text - Shows when it's not player's turn */
-.mobile-action-buttons .waiting-text {
-    flex: 6;
-    font-family: var(--font-display);
-    font-size: 16px;
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text-tertiary);
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    letter-spacing: var(--letter-spacing-wide);
-    animation: waitingPulse 2.5s ease-in-out infinite;
-}
-
-@keyframes waitingPulse {
-    0%, 100% {
-        opacity: 0.5;
-        color: var(--color-text-tertiary);
-    }
-    50% {
-        opacity: 1;
-        color: var(--color-text-secondary);
-    }
-}
-
-/* Preemptive Check/Fold Button - only define what's different from .action-btn */
-.preemptive-btn {
-    background: linear-gradient(135deg, rgba(38, 166, 154, 0.9) 0%, rgba(0, 137, 123, 0.9) 100%);
-    color: var(--color-text-primary);
-    box-shadow: 0 0 16px rgba(38, 166, 154, 0.3), var(--shadow-md);
-    flex: 2;
-    border: 1px solid rgba(38, 166, 154, 0.4);
-}
-
-/* Balance chat button with preemptive button in waiting mode */
-.mobile-action-buttons:has(.waiting-text) .chat-btn {
-    flex: 2;
-    width: auto;
-}
-
-.preemptive-btn.queued {
-    background: var(--gradient-emerald);
-    box-shadow: var(--glow-emerald), var(--shadow-md);
-    border-color: var(--color-emerald);
-}
-
 /* Chat Sheet */
 .chat-sheet-overlay {
     position: fixed;

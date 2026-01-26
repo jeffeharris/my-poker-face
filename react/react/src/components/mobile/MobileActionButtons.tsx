@@ -231,7 +231,7 @@ export function MobileActionButtons({
           className="action-btn check-btn"
           onClick={() => onAction('check')}
         >
-          <Check className="action-icon" />
+          <span className="action-icon"><Check /></span>
           <span className="btn-label">Check</span>
         </button>
       )}
@@ -273,7 +273,7 @@ export function MobileActionButtons({
           className="action-btn chat-btn"
           onClick={onQuickChat}
         >
-          <MessageCircle className="action-icon" />
+          <span className="action-icon"><MessageCircle /></span>
           <span className="btn-label">Chat</span>
         </button>
       )}
