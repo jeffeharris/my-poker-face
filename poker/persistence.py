@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 # v50: Add prompt_config_json to prompt_captures for analysis
 # v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
-# v53: Add heartbeat tracking columns to experiment_games
-# v54: Add outcome columns to tournament_standings for unbiased metrics
-SCHEMA_VERSION = 58
+# v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
+# v54: Squashed features - heartbeat tracking, outcome columns, system presets
+SCHEMA_VERSION = 54
 
 
 @dataclass
@@ -577,7 +577,12 @@ class GamePersistence:
                     prompt_config_json TEXT,
                     stack_bb REAL,
                     already_bet_bb REAL,
-                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL
+                    parent_id INTEGER,
+                    error_type TEXT,
+                    error_description TEXT,
+                    correction_attempt INTEGER DEFAULT 0,
+                    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE SET NULL,
+                    FOREIGN KEY (parent_id) REFERENCES prompt_captures(id) ON DELETE SET NULL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
@@ -592,6 +597,7 @@ class GamePersistence:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
 
@@ -948,12 +954,8 @@ class GamePersistence:
             50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
-            53: (self._migrate_v53_add_heartbeat_columns, "Add heartbeat tracking columns to experiment_games"),
-            54: (self._migrate_v54_add_outcome_columns, "Add outcome columns to tournament_standings for unbiased metrics"),
-            55: (self._migrate_v55_add_times_eliminated, "Add times_eliminated column to tournament_standings"),
-            56: (self._migrate_v56_add_all_in_columns, "Add all-in tracking columns to tournament_standings"),
-            57: (self._migrate_v57_add_system_presets, "Add is_system column and seed game mode presets (casual, standard, pro)"),
-            58: (self._migrate_v58_add_competitive_preset, "Add competitive game mode preset (GTO + personality)"),
+            53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
+            54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2545,17 +2547,49 @@ class GamePersistence:
 
         logger.info("Migration v52 complete: RBAC tables added with initial data")
 
-    def _migrate_v53_add_heartbeat_columns(self, conn: sqlite3.Connection) -> None:
-        """Migration v53: Add heartbeat tracking columns to experiment_games.
+    def _migrate_v53_add_resilience_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v53: Add AI decision resilience columns to prompt_captures.
 
-        Adds columns for tracking experiment variant state and detecting stalled variants:
-        - state: Current state ('idle', 'calling_api', 'processing')
-        - last_heartbeat_at: Last activity timestamp
-        - last_api_call_started_at: When the current API call started
-        - process_id: PID of the process running this variant
-        - resume_lock_acquired_at: Timestamp of resume lock acquisition for race prevention
+        These columns enable tracking of error recovery attempts:
+        - parent_id: Links correction attempts to the original failed capture
+        - error_type: Type of error detected (malformed_json, missing_field, invalid_action, semantic_error)
+        - correction_attempt: 0 for original, 1+ for correction attempts
         """
-        columns_to_add = [
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+
+        if 'parent_id' not in columns:
+            # Note: SQLite doesn't enforce FK constraints added via ALTER TABLE, but we include
+            # the REFERENCES clause for documentation. The actual constraint is enforced by
+            # application logic. ON DELETE SET NULL matches the schema in _init_db().
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN parent_id INTEGER REFERENCES prompt_captures(id) ON DELETE SET NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
+            logger.info("Added parent_id column to prompt_captures")
+
+        if 'error_type' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_type TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_error_type ON prompt_captures(error_type)")
+            logger.info("Added error_type column to prompt_captures")
+
+        if 'error_description' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_description TEXT")
+            logger.info("Added error_description column to prompt_captures")
+
+        if 'correction_attempt' not in columns:
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN correction_attempt INTEGER DEFAULT 0")
+            logger.info("Added correction_attempt column to prompt_captures")
+
+        logger.info("Migration v53 complete: AI decision resilience columns added to prompt_captures")
+
+    def _migrate_v54_squashed_features(self, conn: sqlite3.Connection) -> None:
+        """Migration v54: Squashed features from baseline-prompt branch.
+
+        Combines multiple migrations into one:
+        - experiment_games: heartbeat tracking columns
+        - tournament_standings: outcome columns, times_eliminated, all_in tracking
+        - prompt_presets: is_system column and system presets (casual, standard, pro, competitive)
+        """
+        # === Heartbeat tracking columns (experiment_games) ===
+        experiment_games_cols = [
             ("state", "TEXT DEFAULT 'idle'"),
             ("last_heartbeat_at", "TIMESTAMP"),
             ("last_api_call_started_at", "TIMESTAMP"),
@@ -2563,7 +2597,7 @@ class GamePersistence:
             ("resume_lock_acquired_at", "TIMESTAMP"),
         ]
 
-        for col_name, col_def in columns_to_add:
+        for col_name, col_def in experiment_games_cols:
             try:
                 conn.execute(f"ALTER TABLE experiment_games ADD COLUMN {col_name} {col_def}")
                 logger.info(f"Added {col_name} column to experiment_games")
@@ -2573,70 +2607,22 @@ class GamePersistence:
                 else:
                     raise
 
-        # Add index for finding stalled variants quickly
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_experiment_games_state_heartbeat
             ON experiment_games(state, last_heartbeat_at)
         """)
 
-        logger.info("Migration v53 complete: Heartbeat tracking columns added to experiment_games")
-
-    def _migrate_v54_add_outcome_columns(self, conn: sqlite3.Connection) -> None:
-        """Migration v54: Add outcome tracking columns to tournament_standings.
-
-        Adds columns for tracking unbiased outcome metrics:
-        - final_stack: Player's ending chip count
-        - hands_won: Number of hands won by this player
-        - hands_played: Total hands this player participated in
-        """
-        columns_to_add = [
+        # === Outcome and tracking columns (tournament_standings) ===
+        tournament_standings_cols = [
             ("final_stack", "INTEGER"),
             ("hands_won", "INTEGER"),
             ("hands_played", "INTEGER"),
-        ]
-
-        for col_name, col_def in columns_to_add:
-            try:
-                conn.execute(f"ALTER TABLE tournament_standings ADD COLUMN {col_name} {col_def}")
-                logger.info(f"Added {col_name} column to tournament_standings")
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" in str(e).lower():
-                    logger.debug(f"Column {col_name} already exists in tournament_standings")
-                else:
-                    raise
-
-        logger.info("Migration v54 complete: Outcome columns added to tournament_standings")
-
-    def _migrate_v55_add_times_eliminated(self, conn: sqlite3.Connection) -> None:
-        """Migration v55: Add times_eliminated column to tournament_standings.
-
-        Tracks how many times a player was eliminated (went to 0 chips) across
-        all rounds in a tournament with reset_on_elimination enabled.
-        """
-        try:
-            conn.execute("ALTER TABLE tournament_standings ADD COLUMN times_eliminated INTEGER")
-            logger.info("Added times_eliminated column to tournament_standings")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e).lower():
-                logger.debug("Column times_eliminated already exists in tournament_standings")
-            else:
-                raise
-
-        logger.info("Migration v55 complete: times_eliminated column added")
-
-    def _migrate_v56_add_all_in_columns(self, conn: sqlite3.Connection) -> None:
-        """Migration v56: Add all-in tracking columns to tournament_standings.
-
-        Tracks how many times a player went all-in and won vs lost:
-        - all_in_wins: Times player went all-in and survived (won/tied)
-        - all_in_losses: Times player went all-in and was eliminated
-        """
-        columns_to_add = [
+            ("times_eliminated", "INTEGER"),
             ("all_in_wins", "INTEGER"),
             ("all_in_losses", "INTEGER"),
         ]
 
-        for col_name, col_def in columns_to_add:
+        for col_name, col_def in tournament_standings_cols:
             try:
                 conn.execute(f"ALTER TABLE tournament_standings ADD COLUMN {col_name} {col_def}")
                 logger.info(f"Added {col_name} column to tournament_standings")
@@ -2646,16 +2632,7 @@ class GamePersistence:
                 else:
                     raise
 
-        logger.info("Migration v56 complete: all-in tracking columns added")
-
-    def _migrate_v57_add_system_presets(self, conn: sqlite3.Connection) -> None:
-        """Migration v57: Add is_system column and seed built-in game mode presets.
-
-        System presets provide the built-in game modes (casual, standard, pro)
-        as database-stored presets. This unifies game_mode and prompt_preset
-        into a single concept.
-        """
-        # Add is_system column if it doesn't exist
+        # === System presets (prompt_presets) ===
         try:
             conn.execute("ALTER TABLE prompt_presets ADD COLUMN is_system BOOLEAN DEFAULT FALSE")
             logger.info("Added is_system column to prompt_presets")
@@ -2665,21 +2642,16 @@ class GamePersistence:
             else:
                 raise
 
-        # Define system presets (game modes)
         system_presets = [
             {
                 'name': 'casual',
                 'description': 'Casual mode - personality-driven fun poker with full expressiveness',
-                'prompt_config': {
-                    # All defaults (True) - this is the base PromptConfig()
-                },
+                'prompt_config': {},
             },
             {
                 'name': 'standard',
                 'description': 'Standard mode - balanced personality with GTO awareness (shows equity comparisons)',
-                'prompt_config': {
-                    'show_equity_always': True,
-                },
+                'prompt_config': {'show_equity_always': True},
             },
             {
                 'name': 'pro',
@@ -2691,9 +2663,16 @@ class GamePersistence:
                     'persona_response': False,
                 },
             },
+            {
+                'name': 'competitive',
+                'description': 'Competitive mode - full GTO guidance with personality and trash talk',
+                'prompt_config': {
+                    'show_equity_always': True,
+                    'show_equity_verdict': True,
+                },
+            },
         ]
 
-        # Insert system presets (skip if already exist)
         for preset in system_presets:
             try:
                 conn.execute("""
@@ -2706,7 +2685,6 @@ class GamePersistence:
                 ))
                 logger.info(f"Created system preset '{preset['name']}'")
             except sqlite3.IntegrityError:
-                # Preset already exists - update it to ensure it's marked as system
                 conn.execute("""
                     UPDATE prompt_presets
                     SET description = ?, prompt_config = ?, is_system = TRUE, owner_id = 'system'
@@ -2718,48 +2696,7 @@ class GamePersistence:
                 ))
                 logger.info(f"Updated existing preset '{preset['name']}' as system preset")
 
-        logger.info("Migration v57 complete: system presets added")
-
-    def _migrate_v58_add_competitive_preset(self, conn: sqlite3.Connection) -> None:
-        """Migration v58: Add competitive game mode preset.
-
-        Competitive mode combines full GTO guidance (equity comparisons + verdicts)
-        with personality and trash talk. Best of both worlds: strategic precision
-        with entertaining banter.
-        """
-        preset = {
-            'name': 'competitive',
-            'description': 'Competitive mode - full GTO guidance with personality and trash talk',
-            'prompt_config': {
-                'show_equity_always': True,
-                'show_equity_verdict': True,
-            },
-        }
-
-        try:
-            conn.execute("""
-                INSERT INTO prompt_presets (name, description, prompt_config, is_system, owner_id)
-                VALUES (?, ?, ?, TRUE, 'system')
-            """, (
-                preset['name'],
-                preset['description'],
-                json.dumps(preset['prompt_config']),
-            ))
-            logger.info(f"Created system preset '{preset['name']}'")
-        except sqlite3.IntegrityError:
-            # Preset already exists - update it
-            conn.execute("""
-                UPDATE prompt_presets
-                SET description = ?, prompt_config = ?, is_system = TRUE, owner_id = 'system'
-                WHERE name = ?
-            """, (
-                preset['description'],
-                json.dumps(preset['prompt_config']),
-                preset['name'],
-            ))
-            logger.info(f"Updated existing preset '{preset['name']}' as system preset")
-
-        logger.info("Migration v58 complete: competitive preset added")
+        logger.info("Migration v54 complete: squashed features added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -5097,10 +5034,18 @@ class GamePersistence:
         max_pot_odds: Optional[float] = None,
         tags: Optional[List[str]] = None,
         call_type: Optional[str] = None,
+        error_type: Optional[str] = None,
+        has_error: Optional[bool] = None,
+        is_correction: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
         """List prompt captures with optional filtering.
+
+        Args:
+            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
+            has_error: Filter to captures with errors (True) or without errors (False)
+            is_correction: Filter to correction attempts only (True) or original only (False)
 
         Returns:
             Dict with 'captures' list and 'total' count.
@@ -5129,6 +5074,17 @@ class GamePersistence:
         if call_type:
             conditions.append("call_type = ?")
             params.append(call_type)
+        if error_type:
+            conditions.append("error_type = ?")
+            params.append(error_type)
+        if has_error is True:
+            conditions.append("error_type IS NOT NULL")
+        elif has_error is False:
+            conditions.append("error_type IS NULL")
+        if is_correction is True:
+            conditions.append("parent_id IS NOT NULL")
+        elif is_correction is False:
+            conditions.append("parent_id IS NULL")
         if tags:
             # Match any of the provided tags
             tag_conditions = []
@@ -5153,7 +5109,8 @@ class GamePersistence:
             query = f"""
                 SELECT id, created_at, game_id, player_name, hand_number, phase,
                        action_taken, pot_total, cost_to_call, pot_odds, player_stack,
-                       community_cards, player_hand, model, provider, latency_ms, tags, notes
+                       community_cards, player_hand, model, provider, latency_ms, tags, notes,
+                       error_type, error_description, parent_id, correction_attempt
                 FROM prompt_captures
                 {where_clause}
                 ORDER BY created_at DESC
@@ -5529,11 +5486,13 @@ class GamePersistence:
     def get_decision_analysis_by_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
         """Get decision analysis linked to a prompt capture.
 
-        Links via request_id: prompt_captures.original_request_id = player_decision_analysis.request_id
+        Links via capture_id (preferred) or request_id (fallback).
+        Note: request_id fallback only works when request_id is non-empty,
+        as some providers (Google/Gemini) don't return request IDs.
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            # First try direct capture_id link
+            # First try direct capture_id link (preferred, always reliable)
             cursor = conn.execute(
                 "SELECT * FROM player_decision_analysis WHERE capture_id = ?",
                 (capture_id,)
@@ -5542,12 +5501,17 @@ class GamePersistence:
             if row:
                 return dict(row)
 
-            # Fall back to request_id link
+            # Fall back to request_id link, but ONLY if request_id is non-empty
+            # Empty string matches would cause incorrect results
             cursor = conn.execute("""
                 SELECT pda.*
                 FROM player_decision_analysis pda
                 JOIN prompt_captures pc ON pc.original_request_id = pda.request_id
                 WHERE pc.id = ?
+                  AND pc.original_request_id IS NOT NULL
+                  AND pc.original_request_id != ''
+                  AND pda.request_id IS NOT NULL
+                  AND pda.request_id != ''
             """, (capture_id,))
             row = cursor.fetchone()
             if not row:
@@ -7715,6 +7679,26 @@ class GamePersistence:
             if 'short_stack_fold' not in labels and 'pot_committed_fold' not in labels:
                 labels.append('suspicious_fold')
 
+        # DRAMA: Add labels for notable drama situations
+        drama = capture_data.get('drama_context')
+        if drama:
+            level = drama.get('level')
+            tone = drama.get('tone')
+            factors = drama.get('factors', [])
+
+            # Label high-drama levels
+            if level in ('climactic', 'high_stakes'):
+                labels.append(f'drama:{level}')
+
+            # Label non-neutral tones
+            if tone and tone != 'neutral':
+                labels.append(f'tone:{tone}')
+
+            # Label specific dramatic factors
+            for factor in factors:
+                if factor in ('huge_raise', 'late_stage', 'all_in'):
+                    labels.append(f'factor:{factor}')
+
         # Store labels if any were computed
         if labels:
             self.add_capture_labels(capture_id, labels, label_type='auto')
@@ -7857,6 +7841,9 @@ class GamePersistence:
         max_pot_size: Optional[float] = None,
         min_big_blind: Optional[float] = None,
         max_big_blind: Optional[float] = None,
+        error_type: Optional[str] = None,
+        has_error: Optional[bool] = None,
+        is_correction: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0
     ) -> Dict[str, Any]:
@@ -7876,6 +7863,9 @@ class GamePersistence:
             max_pot_size: Optional maximum pot total filter
             min_big_blind: Optional minimum big blind filter (computed from stack_bb)
             max_big_blind: Optional maximum big blind filter (computed from stack_bb)
+            error_type: Filter by specific error type (e.g., 'malformed_json', 'missing_field')
+            has_error: Filter to captures with errors (True) or without errors (False)
+            is_correction: Filter to correction attempts only (True) or original only (False)
             limit: Maximum results to return
             offset: Pagination offset
 
@@ -7894,6 +7884,9 @@ class GamePersistence:
                 min_pot_odds=min_pot_odds,
                 max_pot_odds=max_pot_odds,
                 call_type=call_type,
+                error_type=error_type,
+                has_error=has_error,
+                is_correction=is_correction,
                 limit=limit,
                 offset=offset
             )
@@ -7936,6 +7929,18 @@ class GamePersistence:
         if max_big_blind is not None:
             conditions.append("pc.stack_bb > 0 AND (pc.player_stack / pc.stack_bb) <= ?")
             params.append(max_big_blind)
+        # Error/correction resilience filters
+        if error_type:
+            conditions.append("pc.error_type = ?")
+            params.append(error_type)
+        if has_error is True:
+            conditions.append("pc.error_type IS NOT NULL")
+        elif has_error is False:
+            conditions.append("pc.error_type IS NULL")
+        if is_correction is True:
+            conditions.append("pc.parent_id IS NOT NULL")
+        elif is_correction is False:
+            conditions.append("pc.parent_id IS NULL")
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

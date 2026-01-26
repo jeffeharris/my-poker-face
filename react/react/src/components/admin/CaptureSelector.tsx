@@ -34,6 +34,10 @@ interface Capture {
   tags: string[] | null;
   notes: string | null;
   labels?: CaptureLabel[];
+  // Error/correction resilience fields
+  error_type?: string | null;
+  parent_id?: number | null;
+  correction_attempt?: number | null;
 }
 
 interface LabelInfo {
@@ -85,6 +89,10 @@ export function CaptureSelector({
   const [minPotOdds, setMinPotOdds] = useState<string>('');
   const [maxPotOdds, setMaxPotOdds] = useState<string>('');
   const [matchAllLabels, setMatchAllLabels] = useState(false);
+  // Error/correction resilience filters
+  const [errorTypeFilter, setErrorTypeFilter] = useState<string>('');
+  const [hasErrorFilter, setHasErrorFilter] = useState<string>('');  // '', 'true', 'false'
+  const [isCorrectionFilter, setIsCorrectionFilter] = useState<string>('');  // '', 'true', 'false'
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -118,6 +126,9 @@ export function CaptureSelector({
       if (actionFilter) params.append('action', actionFilter);
       if (minPotOdds) params.append('min_pot_odds', minPotOdds);
       if (maxPotOdds) params.append('max_pot_odds', maxPotOdds);
+      if (errorTypeFilter) params.append('error_type', errorTypeFilter);
+      if (hasErrorFilter) params.append('has_error', hasErrorFilter);
+      if (isCorrectionFilter) params.append('is_correction', isCorrectionFilter);
       params.append('limit', String(pageSize));
       params.append('offset', String(page * pageSize));
 
@@ -135,7 +146,7 @@ export function CaptureSelector({
     } finally {
       setLoading(false);
     }
-  }, [selectedLabels, phaseFilter, actionFilter, minPotOdds, maxPotOdds, matchAllLabels, page, pageSize]);
+  }, [selectedLabels, phaseFilter, actionFilter, minPotOdds, maxPotOdds, matchAllLabels, errorTypeFilter, hasErrorFilter, isCorrectionFilter, page, pageSize]);
 
   // Fetch all labels for dropdown
   const fetchLabels = useCallback(async () => {
@@ -169,7 +180,7 @@ export function CaptureSelector({
   // Reset page when filters change
   useEffect(() => {
     setPage(0);
-  }, [selectedLabels, phaseFilter, actionFilter, minPotOdds, maxPotOdds, matchAllLabels]);
+  }, [selectedLabels, phaseFilter, actionFilter, minPotOdds, maxPotOdds, matchAllLabels, errorTypeFilter, hasErrorFilter, isCorrectionFilter]);
 
   // Toggle label selection
   const toggleLabel = (label: string) => {
@@ -188,6 +199,9 @@ export function CaptureSelector({
     setMinPotOdds('');
     setMaxPotOdds('');
     setMatchAllLabels(false);
+    setErrorTypeFilter('');
+    setHasErrorFilter('');
+    setIsCorrectionFilter('');
   };
 
   // Toggle capture selection
@@ -304,7 +318,7 @@ export function CaptureSelector({
   };
 
   const totalPages = Math.ceil(totalCaptures / pageSize);
-  const hasActiveFilters = selectedLabels.length > 0 || phaseFilter || actionFilter || minPotOdds || maxPotOdds;
+  const hasActiveFilters = selectedLabels.length > 0 || phaseFilter || actionFilter || minPotOdds || maxPotOdds || errorTypeFilter || hasErrorFilter || isCorrectionFilter;
 
   if (loading && captures.length === 0) {
     return (
@@ -455,6 +469,50 @@ export function CaptureSelector({
                 min="0"
               />
             </div>
+          </div>
+
+          {/* Error Type Filter */}
+          <div className="cs-filter-group">
+            <label className="cs-filter-label">Error Type</label>
+            <select
+              className="cs-select"
+              value={errorTypeFilter}
+              onChange={(e) => setErrorTypeFilter(e.target.value)}
+            >
+              <option value="">All error types</option>
+              <option value="malformed_json">Malformed JSON</option>
+              <option value="missing_field">Missing Field</option>
+              <option value="invalid_action">Invalid Action</option>
+              <option value="semantic_error">Semantic Error</option>
+            </select>
+          </div>
+
+          {/* Has Error Filter */}
+          <div className="cs-filter-group">
+            <label className="cs-filter-label">Error Status</label>
+            <select
+              className="cs-select"
+              value={hasErrorFilter}
+              onChange={(e) => setHasErrorFilter(e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="true">Has Error</option>
+              <option value="false">No Error</option>
+            </select>
+          </div>
+
+          {/* Is Correction Filter */}
+          <div className="cs-filter-group">
+            <label className="cs-filter-label">Correction</label>
+            <select
+              className="cs-select"
+              value={isCorrectionFilter}
+              onChange={(e) => setIsCorrectionFilter(e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="false">Original Only</option>
+              <option value="true">Corrections Only</option>
+            </select>
           </div>
 
           {/* Clear Filters */}
@@ -610,6 +668,16 @@ export function CaptureSelector({
                       </button>
                     </span>
                   ))}
+                </div>
+              )}
+
+              {/* Error/Correction Info */}
+              {capture.error_type && (
+                <div className="cs-capture__error">
+                  <span className="cs-error-badge">{capture.error_type.replace(/_/g, ' ')}</span>
+                  {capture.correction_attempt != null && capture.correction_attempt > 0 && (
+                    <span className="cs-correction-badge">Attempt #{capture.correction_attempt}</span>
+                  )}
                 </div>
               )}
 

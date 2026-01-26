@@ -7,16 +7,14 @@ import { PersonalityManager } from './components/admin/PersonalityManager'
 import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
 import { ThemedGameSelector } from './components/menus/ThemedGameSelector'
 import { CustomGameConfig } from './components/menus/CustomGameConfig'
-import { ElasticityDemo } from './components/debug/ElasticityDemo'
-import { PromptDebugger } from './components/debug/PromptDebugger'
-import { PromptPlayground } from './components/debug/PromptPlayground'
 import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
-import { UserBadge } from './components/shared'
 import { GamePage } from './components/game/GamePage'
 import { AdminRoutes } from './components/admin/AdminRoutes'
+import { PrivacyPolicy, TermsOfService } from './components/legal'
+import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
 import { config } from './config'
 import './App.css'
@@ -45,13 +43,13 @@ const ROUTE_TITLES: Record<string, string> = {
   '/personalities': 'Manage Personalities - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
-  '/elasticity-demo': 'Elasticity Demo - My Poker Face',
-  '/prompt-debugger': 'Prompt Debugger - My Poker Face',
-  '/prompt-playground': 'Prompt Playground - My Poker Face'
+  '/privacy': 'Privacy Policy - My Poker Face',
+  '/terms': 'Terms of Service - My Poker Face',
+  '/': 'My Poker Face - Play Poker Against AI'
 };
 
 function App() {
-  const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -248,11 +246,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     fetchSavedGamesCount();
   };
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
-
   // Show loading state while checking auth
   if (authLoading) {
     return (
@@ -264,16 +257,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   return (
     <>
-      {/* User info - only show on game menu screen */}
-      {isAuthenticated && user && location.pathname === '/menu' && (
-        <UserBadge
-          name={user.name}
-          isGuest={user.is_guest}
-          onLogout={handleLogout}
-          className="user-badge--fixed"
-        />
-      )}
-
       {/* Routes */}
       <Routes>
         {/* Public routes */}
@@ -283,6 +266,8 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <Route path="/name-entry" element={
           <PlayerNameEntry onSubmit={handleNameSubmit} />
         } />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsOfService />} />
 
         {/* Protected routes */}
         <Route path="/menu" element={
@@ -352,22 +337,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           </ProtectedRoute>
         } />
 
-        {/* Debug routes */}
-        <Route path="/elasticity-demo" element={<ElasticityDemo />} />
-        <Route path="/prompt-debugger" element={
-          <ProtectedRoute>
-            <PromptDebugger onBack={() => navigate('/menu')} />
-          </ProtectedRoute>
-        } />
-        <Route path="/prompt-playground" element={
-          <ProtectedRoute>
-            <PromptPlayground onBack={() => navigate('/menu')} />
-          </ProtectedRoute>
-        } />
-
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />} />
-        <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />} />
+        {/* Landing page and fallback */}
+        <Route path="/" element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />} />
+        <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
       </Routes>
 
       {/* Max Games Error Modal */}

@@ -8,14 +8,22 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="/poker-favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
-    <meta name="theme-color" content="#0d2818" />
+    <meta name="theme-color" content="#0a0b10" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Play poker against AI personalities with unique playing styles and chat interactions" />
-    <title>My Poker Face - AI Poker Game</title>
+    <link rel="canonical" href="https://mypokerfacegame.com/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="My Poker Face" />
+    <meta property="og:description" content="Play poker against AI personalities with unique playing styles and chat interactions" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mypokerfacegame.com/" />
+    <meta property="og:image" content="https://mypokerfacegame.com/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>My Poker Face</title>
     <style>
       html, body {
-        background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
-        background-color: #0d2818;
+        background: #0a0b10;
+        background-color: #0a0b10;
         min-height: 100%;
       }
       #freeze-frame {
@@ -32,6 +40,22 @@
   <body>
     <div id="freeze-frame"></div>
     <div id="root"></div>
+    <!-- Static footer for Google OAuth verification (bot doesn't render React) -->
+    <footer id="static-legal" style="position: fixed; bottom: 0; left: 0; right: 0; text-align: center; padding: 8px; font-size: 12px; font-family: sans-serif; background: rgba(0,0,0,0.3); z-index: 1;">
+      <a href="/privacy.html" style="color: #d4af37; margin: 0 8px;">Privacy Policy</a>
+      <a href="/terms.html" style="color: #d4af37; margin: 0 8px;">Terms of Service</a>
+    </footer>
+    <noscript>
+      <div style="padding: 40px; text-align: center; color: #fff; font-family: sans-serif;">
+        <h1>My Poker Face</h1>
+        <p>Play poker against AI opponents with real personalities, emotions, and rivalries.</p>
+        <p>This app requires JavaScript to run.</p>
+        <p style="margin-top: 20px;">
+          <a href="/privacy.html" style="color: #d4af37;">Privacy Policy</a> |
+          <a href="/terms.html" style="color: #d4af37;">Terms of Service</a>
+        </p>
+      </div>
+    </noscript>
     <script>
       (function() {
         var freezeFrame = document.getElementById('freeze-frame');
@@ -67,5 +91,18 @@
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Hide static legal footer once React renders
+      (function() {
+        var check = setInterval(function() {
+          if (document.getElementById('root').children.length > 0) {
+            var footer = document.getElementById('static-legal');
+            if (footer) footer.style.display = 'none';
+            clearInterval(check);
+          }
+        }, 100);
+        setTimeout(function() { clearInterval(check); }, 10000);
+      })();
+    </script>
   </body>
 </html>

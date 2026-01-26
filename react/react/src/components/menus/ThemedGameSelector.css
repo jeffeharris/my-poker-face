@@ -99,17 +99,10 @@
 
 /* Theme content */
 .theme-icon {
-  font-size: var(--font-size-6xl);
   margin-bottom: var(--space-4);
   display: block;
+  color: var(--color-text-secondary);
   filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
-  animation: iconFloat 4s ease-in-out infinite;
-  animation-delay: calc(var(--animation-delay, 0) * 0.15s);
-}
-
-@keyframes iconFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
 }
 
 .theme-card h3 {
@@ -223,17 +216,35 @@
   50% { transform: scale(1.02); }
 }
 
-.generating-spinner {
-  font-size: 80px;
-  animation: slotSpin 0.4s ease-in-out infinite;
+/* Loading cards animation */
+.generating-cards {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
   margin-bottom: var(--space-8);
-  filter: drop-shadow(0 0 30px rgba(212, 165, 116, 0.4));
 }
 
-@keyframes slotSpin {
-  0% { transform: translateY(-20px); opacity: 0; }
-  50% { transform: translateY(0); opacity: 1; }
-  100% { transform: translateY(20px); opacity: 0; }
+.generating-card {
+  width: 48px;
+  height: 68px;
+  background: white;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: cardFloat 1.5s ease-in-out infinite;
+}
+
+.generating-card.suit-0 { color: #1a1a2e; animation-delay: 0s; }
+.generating-card.suit-1 { color: #e53935; animation-delay: 0.15s; }
+.generating-card.suit-2 { color: #e53935; animation-delay: 0.3s; }
+.generating-card.suit-3 { color: #1a1a2e; animation-delay: 0.45s; }
+
+@keyframes cardFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
 }
 
 .generating-content h3 {
@@ -275,10 +286,6 @@
 
   .theme-card {
     padding: var(--space-6) var(--space-4);
-  }
-
-  .theme-icon {
-    font-size: var(--font-size-5xl);
   }
 
   .theme-card h3 {

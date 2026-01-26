@@ -533,7 +533,10 @@
   .personality-grid {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: var(--space-3);
-    max-height: 400px;
+    max-height: min(400px, 50vh);
+    /* Improve touch scrolling on mobile */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .personality-card {
@@ -547,5 +550,13 @@
   .start-button {
     min-width: 200px;
     font-size: var(--font-size-md);
+  }
+}
+
+/* Extra small mobile screens */
+@media (max-width: 480px) {
+  .personality-grid {
+    max-height: min(300px, 45vh);
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
 }

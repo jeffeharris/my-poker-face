@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Check, X, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
@@ -10,10 +10,12 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
-import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
+import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
+import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { config } from '../../config';
 import './MobilePokerTable.css';
+import './MobileActionButtons.css';
 
 interface MobilePokerTableProps {
   gameId?: string | null;
@@ -30,14 +32,10 @@ export function MobilePokerTable({
 }: MobilePokerTableProps) {
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
-  const [showQuickChat, setShowQuickChat] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-
-  // Track if cards are in "neat" (straightened) position
-  const [cardsNeat, setCardsNeat] = useState(false);
 
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
@@ -110,28 +108,18 @@ export function MobilePokerTable({
   const humanPlayer = gameState?.players.find(p => p.is_human);
   const isShowdown = gameState?.phase?.toLowerCase() === 'showdown';
 
-  // Create stable card identifiers (only changes when actual cards change)
-  const card1Id = humanPlayer?.hand?.[0] ? `${humanPlayer.hand[0].rank}-${humanPlayer.hand[0].suit}` : null;
-  const card2Id = humanPlayer?.hand?.[1] ? `${humanPlayer.hand[1].rank}-${humanPlayer.hand[1].suit}` : null;
-
-  // Track if cards are currently being dealt (for animation)
-  const [isDealing, setIsDealing] = useState(false);
-  const prevCard1Id = useRef<string | null>(null);
-
-  // Reset neat state and trigger deal animation when hand changes
-  useEffect(() => {
-    if (card1Id && card1Id !== prevCard1Id.current) {
-      setCardsNeat(false);
-      setIsDealing(true);
-      // Reset dealing state after animation completes
-      const timer = setTimeout(() => setIsDealing(false), 600);
-      prevCard1Id.current = card1Id;
-      return () => clearTimeout(timer);
-    }
-    if (!card1Id) {
-      prevCard1Id.current = null;
-    }
-  }, [card1Id]);
+  // Card animation hook - handles dealing, exit animations, transforms
+  const {
+    displayCards,
+    cardTransforms,
+    isDealing,
+    isExiting,
+    cardsNeat,
+    toggleCardsNeat,
+    handleExitAnimationEnd,
+  } = useCardAnimation({
+    hand: humanPlayer?.hand,
+  });
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -160,26 +148,6 @@ export function MobilePokerTable({
     // Only re-run when current player changes, not on every gameState update
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState?.current_player_idx, currentPlayer?.name]);
-
-  // Random card transforms for natural "dealt" look
-  // Card 1: -3° base ±7° range, Card 2: +3° base ±7° range
-  // Y offset: ±8px, Gap: 10px base ±10px range
-  const randomTransforms = useMemo(() => ({
-    card1: {
-      rotation: -3 + (Math.random() * 14 - 7),  // -10 to +4
-      offsetY: Math.random() * 16 - 8,          // -8 to +8
-    },
-    card2: {
-      rotation: 3 + (Math.random() * 14 - 7),   // -4 to +10
-      offsetY: Math.random() * 16 - 8,          // -8 to +8
-    },
-    gap: 10 + (Math.random() * 20 - 10),        // 0 to 20
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [card1Id, card2Id]);
-
-  // Use neat or random transforms based on state
-  const neatTransforms = { card1: { rotation: 0, offsetY: 0 }, card2: { rotation: 0, offsetY: 0 }, gap: 12 };
-  const cardTransforms = cardsNeat ? neatTransforms : randomTransforms;
 
   // Sort opponents by their position relative to the human player in turn order
   const opponents = (() => {
@@ -247,17 +215,21 @@ export function MobilePokerTable({
         </div>
       )}
 
-      {/* Header with back button and pot */}
-      <MobileHeader
+      {/* Header with MenuBar - matches menu screens */}
+      <MenuBar
         onBack={onBack}
-        centerContent={<PotDisplay total={gameState.pot.total} />}
-        rightContent={
-          <ChatToggle
-            onClick={() => setShowChatSheet(true)}
-            badgeCount={messages.length}
+        centerContent={
+          <GameInfoDisplay
+            phase={gameState.phase}
+            smallBlind={gameState.small_blind}
+            bigBlind={gameState.big_blind}
           />
         }
+        showUserInfo
+        onAdminTools={() => { window.location.href = '/admin'; }}
       />
+      {/* Spacer for fixed MenuBar */}
+      <div className="menu-bar-spacer" />
 
       {/* Opponents Strip */}
       <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
@@ -287,21 +259,15 @@ export function MobilePokerTable({
               >
                 {opponent.avatar_url ? (
                   <img
-                    src={`${config.API_URL}${opponent.avatar_url}/full`}
+                    src={`${config.API_URL}${opponent.avatar_url}`}
                     alt={`${opponent.name} - ${opponent.avatar_emotion || 'avatar'}`}
                     className={`avatar-image ${
                       opponent.avatar_emotion === 'thinking' ? 'avatar-image--thinking' : ''
                     } ${isShowdown ? 'avatar-image--showdown' : ''}`}
                     onError={(e) => {
-                      // Fallback to regular avatar if full image not available
+                      // Hide broken image if avatar fails to load
                       const img = e.currentTarget;
-                      if (img.dataset.fallbackTried === 'true') {
-                        // Both full and regular failed, hide broken image
-                        img.style.display = 'none';
-                        return;
-                      }
-                      img.dataset.fallbackTried = 'true';
-                      img.src = `${config.API_URL}${opponent.avatar_url}`;
+                      img.style.display = 'none';
                     }}
                   />
                 ) : (
@@ -336,6 +302,11 @@ export function MobilePokerTable({
         )}
       </div>
 
+      {/* Floating Pot Display - between opponents and community cards */}
+      <div className="mobile-floating-pot">
+        <PotDisplay total={gameState.pot.total} />
+      </div>
+
       {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
@@ -348,7 +319,6 @@ export function MobilePokerTable({
             <div key={`placeholder-${i}`} className="community-card-placeholder" />
           ))}
         </div>
-        <div className="phase-indicator">{gameState.phase.replace('_', ' ')}</div>
       </div>
 
       {/* Floating AI Message */}
@@ -360,47 +330,78 @@ export function MobilePokerTable({
 
       {/* Hero Section - Your Cards */}
       <div className={`mobile-hero ${currentPlayer?.is_human ? 'active-turn' : ''} ${humanPlayer?.is_folded ? 'folded' : ''}`}>
+        {/* Dealer chip - positioned in upper right */}
+        {gameState.players.findIndex(p => p.is_human) === gameState.current_dealer_idx && (
+          <span className="dealer-chip">D</span>
+        )}
         <div className="hero-info">
-          <div className="hero-name">
-            {humanPlayer?.name}
-            {gameState.players.findIndex(p => p.is_human) === gameState.current_dealer_idx && (
-              <span className="dealer-chip">D</span>
-            )}
-          </div>
+          <div className="hero-name">{humanPlayer?.name}</div>
           <div className="hero-stack">${humanPlayer?.stack}</div>
-          {humanPlayer?.bet && humanPlayer.bet > 0 && (
-            <div className="hero-bet">Bet: ${humanPlayer.bet}</div>
-          )}
         </div>
+        {/* Bet chip - positioned at top edge of hero section */}
+        {humanPlayer && humanPlayer.bet > 0 && (
+          <div className="hero-bet">${humanPlayer.bet}</div>
+        )}
         <div className="hero-cards" style={{ gap: `${cardTransforms.gap}px`, transition: cardsNeat ? 'gap 0.2s ease-out' : 'none' }}>
-          {humanPlayer?.hand ? (
+          {isExiting && displayCards?.[0] && displayCards?.[1] ? (
+            /* Exit animation - cards sweep off, then onAnimationEnd triggers new cards */
             <>
               <div
-                onClick={() => setCardsNeat(n => !n)}
                 style={{
-                  transform: `rotate(${cardTransforms.card1.rotation}deg) translateY(${cardTransforms.card1.offsetY}px)`,
-                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
-                  cursor: 'pointer',
-                  animation: isDealing ? `dealCardIn 0.3s ease-out forwards` : 'none',
-                  '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
-                  '--deal-offset': `${cardTransforms.card1.offsetY}px`,
+                  animation: `dealCardOut1 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
+                  '--exit-start-x': `${cardTransforms.card1.offsetX}px`,
+                  '--exit-start-y': `${cardTransforms.card1.offsetY}px`,
+                  '--exit-start-rotation': `${cardTransforms.card1.rotation}deg`,
+                  '--exit-converge-x': `${cardTransforms.card2.offsetX + cardTransforms.gap}px`,
                 } as React.CSSProperties}
               >
-                <Card card={humanPlayer.hand[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
               </div>
               <div
-                onClick={() => setCardsNeat(n => !n)}
+                onAnimationEnd={handleExitAnimationEnd}
                 style={{
-                  transform: `rotate(${cardTransforms.card2.rotation}deg) translateY(${cardTransforms.card2.offsetY}px)`,
-                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
-                  cursor: 'pointer',
-                  animation: isDealing ? `dealCardIn 0.3s ease-out 0.15s forwards` : 'none',
-                  opacity: isDealing ? 0 : 1,
-                  '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
-                  '--deal-offset': `${cardTransforms.card2.offsetY}px`,
+                  animation: `dealCardOut2 0.45s cubic-bezier(0.4, 0, 1, 1) forwards`,
+                  '--exit-start-x': `${cardTransforms.card2.offsetX}px`,
+                  '--exit-start-y': `${cardTransforms.card2.offsetY}px`,
+                  '--exit-start-rotation': `${cardTransforms.card2.rotation}deg`,
                 } as React.CSSProperties}
               >
-                <Card card={humanPlayer.hand[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
+              </div>
+            </>
+          ) : displayCards?.[0] && displayCards?.[1] ? (
+            <>
+              <div
+                onClick={toggleCardsNeat}
+                style={{
+                  transform: `rotate(${cardTransforms.card1.rotation}deg) translateX(${cardTransforms.card1.offsetX}px) translateY(${cardTransforms.card1.offsetY}px)`,
+                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
+                  cursor: 'pointer',
+                  animation: isDealing ? `dealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both` : 'none',
+                  opacity: humanPlayer?.is_folded ? 0.5 : 1,
+                  '--deal-rotation': `${cardTransforms.card1.rotation}deg`,
+                  '--deal-start-rotation': `${cardTransforms.card1.startRotation}deg`,
+                  '--deal-offset-x': `${cardTransforms.card1.offsetX}px`,
+                  '--deal-offset-y': `${cardTransforms.card1.offsetY}px`,
+                } as React.CSSProperties}
+              >
+                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
+              </div>
+              <div
+                onClick={toggleCardsNeat}
+                style={{
+                  transform: `rotate(${cardTransforms.card2.rotation}deg) translateX(${cardTransforms.card2.offsetX}px) translateY(${cardTransforms.card2.offsetY}px)`,
+                  transition: cardsNeat ? 'transform 0.2s ease-out' : 'none',
+                  cursor: 'pointer',
+                  animation: isDealing ? `dealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both` : 'none',
+                  opacity: humanPlayer?.is_folded ? 0.5 : 1,
+                  '--deal-rotation': `${cardTransforms.card2.rotation}deg`,
+                  '--deal-start-rotation': `${cardTransforms.card2.startRotation}deg`,
+                  '--deal-offset-x': `${cardTransforms.card2.offsetX}px`,
+                  '--deal-offset-y': `${cardTransforms.card2.offsetY}px`,
+                } as React.CSSProperties}
+              >
+                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
               </div>
             </>
           ) : (
@@ -425,7 +426,7 @@ export function MobilePokerTable({
             bigBlind={gameState.big_blind}
             potSize={gameState.pot.total}
             onAction={handlePlayerAction}
-            onQuickChat={() => setShowQuickChat(true)}
+            onQuickChat={() => setShowChatSheet(true)}
             bettingContext={gameState.betting_context}
           />
         ) : (
@@ -441,7 +442,7 @@ export function MobilePokerTable({
                 className={`action-btn preemptive-btn ${queuedAction === 'check_fold' ? 'queued' : ''}`}
                 onClick={() => setQueuedAction(queuedAction === 'check_fold' ? null : 'check_fold')}
               >
-                <span className="btn-icon">{queuedAction === 'check_fold' ? <Check size={16} /> : <><Check size={14} /><X size={14} /></>}</span>
+                <span className="action-icon">{queuedAction === 'check_fold' ? <Check /> : <><Check /><X /></>}</span>
                 <span className="btn-label">{queuedAction === 'check_fold' ? 'Queued' : 'Chk/Fold'}</span>
               </button>
             )}
@@ -450,39 +451,14 @@ export function MobilePokerTable({
             </span>
             <button
               className="action-btn chat-btn"
-              onClick={() => setShowQuickChat(true)}
+              onClick={() => setShowChatSheet(true)}
             >
-              <MessageCircle className="btn-icon" size={18} />
+              <span className="action-icon"><MessageCircle /></span>
               <span className="btn-label">Chat</span>
             </button>
           </div>
         )}
       </div>
-
-      {/* Quick Chat Overlay */}
-      {showQuickChat && providedGameId && gameState?.players && (
-        <div className="quick-chat-overlay" onClick={() => setShowQuickChat(false)}>
-          <div className="quick-chat-modal" onClick={e => e.stopPropagation()}>
-            <div className="quick-chat-modal-header">
-              <button onClick={() => setShowQuickChat(false)}>Cancel</button>
-              <span className="header-title">Quick Chat</span>
-              <div aria-hidden="true" style={{ visibility: 'hidden' }}>Cancel</div>
-            </div>
-            <QuickChatSuggestions
-              gameId={providedGameId}
-              playerName={playerName || 'Player'}
-              players={gameState.players}
-              defaultExpanded={true}
-              hideHeader={true}
-              onSelectSuggestion={(text) => {
-                handleSendMessage(text);
-                setShowQuickChat(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
 
       {/* Winner Announcement */}
       <MobileWinnerAnnouncement
@@ -493,16 +469,19 @@ export function MobilePokerTable({
         onSendMessage={handleSendMessage}
       />
 
-      {/* Tournament Complete - only show when no final hand winner announcement is active */}
-      {/* This prevents the tournament screen from covering the hand results */}
-      {!(winnerInfo?.is_final_hand) && (
+      {/* Tournament Complete - only show when winner announcement is dismissed */}
+      {/* This ensures winner announcement is ALWAYS shown first, then tournament complete after */}
+      {!winnerInfo && (
         <TournamentComplete
           result={tournamentResult}
           onComplete={handleTournamentComplete}
+          gameId={gameId || undefined}
+          playerName={playerName}
+          onSendMessage={handleSendMessage}
         />
       )}
 
-      {/* Chat Sheet (bottom drawer) */}
+      {/* Chat Sheet (bottom drawer) - Quick Chat prioritized at top */}
       {showChatSheet && (
         <div className="chat-sheet-overlay" onClick={() => setShowChatSheet(false)}>
           <div className="chat-sheet" onClick={e => e.stopPropagation()}>
@@ -510,6 +489,19 @@ export function MobilePokerTable({
               <h3>Table Chat</h3>
               <button onClick={() => setShowChatSheet(false)}><X size={20} /></button>
             </div>
+            {/* Quick Chat at top - expanded by default */}
+            {providedGameId && gameState?.players && (
+              <QuickChatSuggestions
+                gameId={providedGameId}
+                playerName={playerName || 'Player'}
+                players={gameState.players}
+                defaultExpanded={true}
+                onSelectSuggestion={(text) => {
+                  handleSendMessage(text);
+                }}
+              />
+            )}
+            {/* Message history below */}
             <div className="chat-sheet-messages" ref={chatMessagesRef}>
               {messages.slice(-50).map((msg, i) => (
                 <div key={msg.id || i} className={`chat-msg ${msg.type}`}>
@@ -518,16 +510,6 @@ export function MobilePokerTable({
                 </div>
               ))}
             </div>
-            {providedGameId && gameState?.players && (
-              <QuickChatSuggestions
-                gameId={providedGameId}
-                playerName={playerName || 'Player'}
-                players={gameState.players}
-                onSelectSuggestion={(text) => {
-                  handleSendMessage(text);
-                }}
-              />
-            )}
             <form
               className="chat-sheet-input"
               onSubmit={(e) => {

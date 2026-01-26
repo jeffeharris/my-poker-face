@@ -11,7 +11,7 @@ import { DebugTools } from './DebugTools';
 import { UnifiedSettings } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
 import { UserManagement } from './UserManagement';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 export { SIDEBAR_ITEMS };
@@ -22,9 +22,11 @@ interface AdminDashboardProps {
   onBack: () => void;
   initialTab?: AdminTab;
   onTabChange?: (tab: AdminTab) => void;
+  /** Called when a capture is selected in the analyzer (for URL navigation) */
+  onCaptureSelect?: (captureId: number | null) => void;
 }
 
-export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboardProps) {
+export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelect }: AdminDashboardProps) {
   const { isMobile } = useViewport();
   const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -91,6 +93,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
         <DecisionAnalyzer
           embedded
           onDetailModeChange={handleAnalyzerDetailModeChange}
+          onCaptureSelect={onCaptureSelect}
         />
       )}
       {activeTab === 'playground' && (
@@ -123,51 +126,58 @@ export function AdminDashboard({ onBack, initialTab, onTabChange }: AdminDashboa
     // No tab selected - show the menu using PageLayout (matches GameMenu style)
     if (!activeTab) {
       return (
-        <PageLayout variant="top" glowColor="gold">
-          <PageHeader
-            title="Admin Tools"
-            subtitle="Manage your poker game"
+        <>
+          <MenuBar
             onBack={onBack}
+            centerContent={
+              <span className="admin-header-title">Admin Tools</span>
+            }
+            showUserInfo
+            onAdminTools={() => { window.location.href = '/admin'; }}
           />
-          <div className="game-menu__options">
-            {SIDEBAR_ITEMS.map((item) => (
-              <button
-                key={item.id}
-                className="menu-option"
-                onClick={() => handleTabChange(item.id as AdminTab)}
-              >
-                {item.icon}
-                <div className="option-content">
-                  <h3>{item.label}</h3>
-                  <p>{item.description}</p>
-                </div>
-                <ChevronRight className="option-arrow" size={20} />
-              </button>
-            ))}
-          </div>
-        </PageLayout>
+          <PageLayout variant="top" glowColor="gold" hasMenuBar>
+            <PageHeader
+              title="Admin Tools"
+              subtitle="Manage your poker game"
+            />
+            <div className="game-menu__options">
+              {SIDEBAR_ITEMS.map((item) => (
+                <button
+                  key={item.id}
+                  className="menu-option"
+                  onClick={() => handleTabChange(item.id as AdminTab)}
+                >
+                  {item.icon}
+                  <div className="option-content">
+                    <h3>{item.label}</h3>
+                    <p>{item.description}</p>
+                  </div>
+                  <ChevronRight className="option-arrow" size={20} />
+                </button>
+              ))}
+            </div>
+          </PageLayout>
+        </>
       );
     }
 
-    // Determine back button behavior - if analyzer is in detail mode, go back to list
+    // Determine back button behavior
+    // - If analyzer is in detail mode, go back to list
+    // - Otherwise, go back to admin menu (clear activeTab)
     const handleMobileBack = () => {
       if (activeTab === 'analyzer' && analyzerInDetailMode && analyzerBackToList) {
         analyzerBackToList();
       } else {
-        onBack?.();
+        handleTabChange(undefined as unknown as AdminTab);
       }
     };
 
-    // Tab selected - show content with back to menu
+    // Tab selected - show content with back to admin menu
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <AdminMenuContainer
           title={activeTabConfig?.label || 'Admin'}
-          subtitle={activeTabConfig?.description}
           onBack={handleMobileBack}
-          navItems={SIDEBAR_ITEMS}
-          activeNavId={activeTab}
-          onNavChange={(id) => handleTabChange(id as AdminTab)}
         >
           <div className="admin-main__content admin-main__content--mobile">
             {renderTabContent()}

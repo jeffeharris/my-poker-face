@@ -1963,3 +1963,96 @@
     padding: 0.2rem 0.5rem;
   }
 }
+
+/* Error/Correction Display */
+.capture-error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.error-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+  text-transform: capitalize;
+}
+
+.correction-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 159, 28, 0.2);
+  color: #ff9f1c;
+}
+
+/* Error Info Panel in Detail View */
+.error-info-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.25);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.error-info-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.error-info-item label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.error-info-item span {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.error-type-value {
+  color: #ff6b6b !important;
+  text-transform: capitalize;
+}
+
+.error-info-item--full {
+  flex-basis: 100%;
+}
+
+.error-description {
+  display: block;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+
+/* Link button for clickable parent capture IDs */
+.link-button {
+  background: none;
+  border: none;
+  color: #4dabf7;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-button:hover {
+  color: #74c0fc;
+}

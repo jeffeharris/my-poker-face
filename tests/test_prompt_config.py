@@ -29,14 +29,16 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 12)  # 11 bool + 1 int
+        self.assertEqual(len(d), 17)  # 15 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
         self.assertIn('strategic_reflection', d)
         self.assertIn('memory_keep_exchanges', d)
         self.assertIn('situational_guidance', d)
+        self.assertIn('guidance_injection', d)
         self.assertEqual(d['memory_keep_exchanges'], 0)
+        self.assertEqual(d['guidance_injection'], "")
 
     def test_from_dict_full(self):
         """from_dict should restore from a full dict."""
@@ -162,8 +164,13 @@ class TestPromptConfig(unittest.TestCase):
         self.assertTrue(config.mind_games)
 
     def test_repr_all_enabled(self):
-        """repr should show 'all enabled' when all are True."""
-        config = PromptConfig()
+        """repr should show 'all enabled' when all booleans are True."""
+        # Must explicitly set fields that default to False
+        config = PromptConfig(
+            show_equity_always=True,
+            show_equity_verdict=True,
+            use_minimal_prompt=True
+        )
         self.assertIn('all enabled', repr(config))
 
     def test_repr_some_disabled(self):
@@ -203,7 +210,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertIn("PERSONA RESPONSE", result)
+        self.assertIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_mind_games_disabled(self):
         """render_decision_prompt should exclude MIND GAMES when disabled."""
@@ -218,10 +225,10 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertIn("PERSONA RESPONSE", result)
+        self.assertIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_persona_disabled(self):
-        """render_decision_prompt should exclude PERSONA RESPONSE when disabled."""
+        """render_decision_prompt should exclude DRAMATIC SEQUENCE when disabled."""
         from poker.prompt_manager import PromptManager
 
         pm = PromptManager()
@@ -233,7 +240,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertNotIn("PERSONA RESPONSE", result)
+        self.assertNotIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_both_disabled(self):
         """render_decision_prompt should exclude both when disabled."""
@@ -248,7 +255,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertNotIn("PERSONA RESPONSE", result)
+        self.assertNotIn("DRAMATIC SEQUENCE", result)
         # Should still have the base instruction
         self.assertIn("CRITICAL", result)
 

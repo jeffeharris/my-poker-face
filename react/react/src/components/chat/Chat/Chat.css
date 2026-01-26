@@ -165,6 +165,24 @@
   line-height: 1.4;
 }
 
+/* Dramatic sequence beats */
+.message-content .beat {
+  margin-bottom: 4px;
+}
+
+.message-content .beat:last-child {
+  margin-bottom: 0;
+}
+
+.message-content .beat.action {
+  color: #999;
+  font-style: italic;
+}
+
+.message-content .beat.speech {
+  color: #ddd;
+}
+
 /* Chat Input */
 .chat-input-form {
   border-top: 1px solid #444;

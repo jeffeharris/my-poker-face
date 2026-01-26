@@ -49,6 +49,9 @@ def list_captures():
         labels: Comma-separated labels to filter by (uses capture_labels table)
         label_match_all: If 'true', require ALL labels; if 'false' (default), require ANY
         call_type: Filter by call type (default: 'player_decision', use 'all' for all types)
+        error_type: Filter by specific error type (e.g., malformed_json, missing_field)
+        has_error: Filter to captures with errors ('true') or without ('false')
+        is_correction: Filter to correction attempts ('true') or originals only ('false')
         limit: Max results (default 50)
         offset: Pagination offset (default 0)
     """
@@ -63,6 +66,22 @@ def list_captures():
     labels = [l.strip() for l in labels_str.split(',') if l.strip()] if labels_str else None
     label_match_all = request.args.get('label_match_all', 'false').lower() == 'true'
 
+    # Parse error/correction filters
+    error_type = request.args.get('error_type')
+    has_error_str = request.args.get('has_error')
+    has_error = None
+    if has_error_str == 'true':
+        has_error = True
+    elif has_error_str == 'false':
+        has_error = False
+
+    is_correction_str = request.args.get('is_correction')
+    is_correction = None
+    if is_correction_str == 'true':
+        is_correction = True
+    elif is_correction_str == 'false':
+        is_correction = False
+
     filters = {
         'game_id': request.args.get('game_id'),
         'player_name': request.args.get('player_name'),
@@ -76,6 +95,9 @@ def list_captures():
         'max_big_blind': float(request.args.get('max_big_blind')) if request.args.get('max_big_blind') else None,
         'tags': request.args.get('tags', '').split(',') if request.args.get('tags') else None,
         'call_type': call_type,
+        'error_type': error_type,
+        'has_error': has_error,
+        'is_correction': is_correction,
         'limit': int(request.args.get('limit', 50)),
         'offset': int(request.args.get('offset', 0)),
     }

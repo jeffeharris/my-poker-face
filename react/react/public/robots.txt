@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /privacy
+Allow: /terms
+Disallow: /admin
+
+Sitemap: https://mypokerfacegame.com/sitemap.xml

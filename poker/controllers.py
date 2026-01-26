@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import logging
 
 from core.card import Card, CardRenderer
@@ -9,6 +9,7 @@ from .poker_state_machine import PokerStateMachine
 from .poker_player import AIPokerPlayer
 from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
+from .moment_analyzer import MomentAnalyzer
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
 from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS, is_development_mode
@@ -19,7 +20,12 @@ from .ai_resilience import (
     parse_json_response,
     validate_ai_response,
     get_fallback_chat_response,
-    AIFallbackStrategy
+    AIFallbackStrategy,
+    AIResponseError,
+    DecisionErrorType,
+    classify_response_error,
+    describe_response_error,
+    FallbackActionSelector,
 )
 from .player_psychology import PlayerPsychology
 from .memory.commentary_generator import DecisionPlan
@@ -36,6 +42,7 @@ from .hand_ranges import (
     format_opponent_stats,
     EquityConfig,
 )
+from .decision_analyzer import calculate_max_winnable
 
 logger = logging.getLogger(__name__)
 
@@ -590,40 +597,273 @@ class AIPlayerController:
         print(json.dumps(cleaned_response, indent=4))
         return cleaned_response
     
-    @with_ai_fallback(fallback_strategy=AIFallbackStrategy.MIMIC_PERSONALITY)
-    @expects_json
     def _get_ai_decision(self, message: str, **context) -> Dict:
-        """Get AI decision with automatic fallback on failure"""
-        # Store context for fallback
-        self._fallback_context = context
+        """Get AI decision with automatic error recovery and fallback.
 
-        # Calculate situational guidance if enabled
+        Recovery strategy:
+        - MALFORMED_JSON: Full retry with same prompt
+        - Semantic errors (missing fields, invalid action, raise=0): Targeted correction prompt
+        - 1 recovery attempt, then fallback to personality-based action
+        """
+        from core.llm.tracking import update_prompt_capture
+
+        # Store context for potential fallback
+        self._fallback_context = context
+        valid_actions = context.get('valid_actions', [])
+        game_state = self.state_machine.game_state
+
+        # Build the decision prompt with situational guidance
+        decision_prompt, drama_context = self._build_decision_prompt(message, context)
+
+        # Track captures for linking
+        parent_capture_id = [None]
+        final_capture_id = [None]
+        capture_enrichment = [None]
+
+        def make_enricher(parent_id=None, error_type=None, correction_attempt=0, drama_context=None):
+            """Create an enricher callback with resilience and drama context fields."""
+            def enrich_capture(capture_data: Dict) -> Dict:
+                player = game_state.current_player
+                cost_to_call = context.get('call_amount', 0)
+                pot_total = game_state.pot.get('total', 0)
+                player_stack = player.stack
+                already_bet = player.bet
+                big_blind = game_state.current_ante or 250
+
+                stack_bb = player_stack / big_blind if big_blind > 0 else None
+                already_bet_bb = already_bet / big_blind if big_blind > 0 else None
+
+                # Calculate effective pot odds for short-stack scenarios
+                effective_pot_odds = None
+                max_winnable = None
+                if cost_to_call > 0:
+                    all_players_bets = [(p.bet, p.is_folded) for p in game_state.players]
+                    max_winnable = calculate_max_winnable(
+                        player_bet=already_bet,
+                        player_stack=player_stack,
+                        cost_to_call=cost_to_call,
+                        all_players_bets=all_players_bets,
+                    )
+                    effective_pot = min(max_winnable, pot_total)
+                    effective_call = min(cost_to_call, player_stack)
+                    effective_pot_odds = effective_pot / effective_call if effective_call > 0 else None
+
+                enrichment = {
+                    'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
+                    'pot_total': pot_total,
+                    'cost_to_call': cost_to_call,
+                    'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
+                    'effective_pot_odds': effective_pot_odds,
+                    'max_winnable': max_winnable,
+                    'player_stack': player_stack,
+                    'stack_bb': round(stack_bb, 2) if stack_bb is not None else None,
+                    'already_bet_bb': round(already_bet_bb, 2) if already_bet_bb is not None else None,
+                    'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
+                    'player_hand': [str(c) for c in player.hand] if player.hand else [],
+                    'valid_actions': valid_actions,
+                    'prompt_config': self.prompt_config.to_dict() if self.prompt_config else None,
+                    # Resilience fields
+                    'parent_id': parent_id,
+                    'error_type': error_type,
+                    'correction_attempt': correction_attempt,
+                    # Drama context for auto-labeling
+                    'drama_context': drama_context,
+                    '_on_captured': lambda cid: final_capture_id.__setitem__(0, cid),
+                }
+                capture_data.update(enrichment)
+                capture_enrichment[0] = enrichment
+                return capture_data
+            return enrich_capture
+
+        # ========== ATTEMPT 1: Initial AI call ==========
+        response_dict = None
+        error_type = None
+        original_response_json = None
+
+        try:
+            llm_response = self.assistant.chat_full(
+                decision_prompt,
+                json_format=True,
+                hand_number=self.current_hand_number,
+                prompt_template='decision',
+                capture_enricher=make_enricher(drama_context=drama_context),
+            )
+            original_response_json = llm_response.content
+            parent_capture_id[0] = final_capture_id[0]
+            self._last_llm_response = llm_response
+
+            response_dict = parse_json_response(original_response_json)
+            response_dict = self._normalize_response(response_dict)
+
+            # Classify any errors
+            error_type = classify_response_error(response_dict, valid_actions)
+
+        except AIResponseError as e:
+            # JSON parse failure
+            logger.warning(f"[RESILIENCE] {self.player_name}: Malformed JSON - {e}")
+            error_type = DecisionErrorType.MALFORMED_JSON
+            response_dict = {}
+
+        except Exception as e:
+            logger.error(f"[RESILIENCE] {self.player_name}: Unexpected error - {e}")
+            error_type = DecisionErrorType.MALFORMED_JSON
+            response_dict = {}
+
+        # ========== ATTEMPT 2: Recovery if needed ==========
+        if error_type is not None:
+            logger.warning(f"[RESILIENCE] {self.player_name}: Error detected ({error_type.value}), attempting recovery")
+
+            # Generate error description for logging and correction prompt
+            if error_type == DecisionErrorType.MALFORMED_JSON:
+                error_description = "Could not parse JSON response. Please respond with valid JSON."
+            else:
+                error_description = describe_response_error(error_type, response_dict, valid_actions)
+
+            # Mark original capture with error
+            if parent_capture_id[0]:
+                update_prompt_capture(
+                    parent_capture_id[0],
+                    error_type=error_type.value,
+                    error_description=error_description
+                )
+
+            try:
+                # Determine recovery prompt
+                if error_type == DecisionErrorType.MALFORMED_JSON:
+                    # Full retry with same prompt
+                    recovery_prompt = decision_prompt
+                    logger.info(f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON")
+                else:
+                    # Targeted correction prompt
+                    recovery_prompt = self.prompt_manager.render_correction_prompt(
+                        original_response=original_response_json or str(response_dict),
+                        error_description=error_description,
+                        valid_actions=valid_actions,
+                        context=context,
+                    )
+                    logger.info(f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}")
+
+                # Make recovery call
+                correction_response = self.assistant.chat_full(
+                    recovery_prompt,
+                    json_format=True,
+                    hand_number=self.current_hand_number,
+                    prompt_template='decision_correction',
+                    capture_enricher=make_enricher(
+                        parent_id=parent_capture_id[0],
+                        error_type=error_type.value,
+                        correction_attempt=1,
+                        drama_context=drama_context
+                    ),
+                )
+                self._last_llm_response = correction_response
+
+                corrected_dict = parse_json_response(correction_response.content)
+                corrected_dict = self._normalize_response(corrected_dict)
+
+                # Check if correction succeeded
+                correction_error = classify_response_error(corrected_dict, valid_actions)
+                if correction_error is None:
+                    logger.info(f"[RESILIENCE] {self.player_name}: Recovery successful!")
+                    response_dict = corrected_dict
+                    error_type = None
+                    # Clear error from parent since recovery succeeded
+                    if parent_capture_id[0]:
+                        update_prompt_capture(
+                            parent_capture_id[0],
+                            error_type=None,
+                            error_description=None
+                        )
+                else:
+                    logger.warning(f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})")
+                    # Record the correction's actual error details
+                    if final_capture_id[0]:
+                        if correction_error == DecisionErrorType.MALFORMED_JSON:
+                            correction_error_description = "Could not parse JSON response."
+                        else:
+                            correction_error_description = describe_response_error(
+                                correction_error, corrected_dict, valid_actions
+                            )
+                        update_prompt_capture(
+                            final_capture_id[0],
+                            error_type=correction_error.value,
+                            error_description=correction_error_description
+                        )
+
+            except Exception as e:
+                logger.error(f"[RESILIENCE] {self.player_name}: Recovery attempt failed - {e}")
+
+        # ========== FALLBACK if still invalid ==========
+        if error_type is not None:
+            logger.warning(f"[RESILIENCE] {self.player_name}: Using fallback action")
+            response_dict = FallbackActionSelector.select_action(
+                valid_actions=valid_actions,
+                strategy=AIFallbackStrategy.MIMIC_PERSONALITY,
+                personality_traits=self.personality_traits,
+                call_amount=context.get('call_amount', 0),
+                min_raise=context.get('min_raise', MIN_RAISE),
+                max_raise=context.get('max_raise', MIN_RAISE * 10),
+            )
+            response_dict['_used_fallback'] = True
+
+        # ========== Final validation and analysis ==========
+        # Apply any remaining fixes (raise amount extraction, etc.)
+        response_dict = self._apply_final_fixes(response_dict, context, game_state)
+
+        # Analyze decision quality (only for the final decision)
+        # Pass player bet info for max_winnable calculation in analyzer
+        player = game_state.current_player
+        self._analyze_decision(
+            response_dict,
+            context,
+            final_capture_id[0],
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
+
+        # Update capture with final action
+        if final_capture_id[0]:
+            action = response_dict.get('action')
+            raise_amount = response_dict.get('raise_to') if action == 'raise' else None
+            update_prompt_capture(final_capture_id[0], action_taken=action, raise_amount=raise_amount)
+
+            # Compute and store auto-labels
+            if self._persistence and capture_enrichment[0]:
+                label_data = capture_enrichment[0].copy()
+                label_data['action_taken'] = action
+                self._persistence.compute_and_store_auto_labels(final_capture_id[0], label_data)
+
+        return response_dict
+
+    def _build_decision_prompt(self, message: str, context: Dict) -> tuple:
+        """Build the decision prompt with situational guidance.
+
+        Returns:
+            tuple: (prompt_string, drama_context_dict_or_none)
+        """
         game_state = self.state_machine.game_state
         player = game_state.current_player
         pot_committed_info = None
         short_stack_info = None
         made_hand_info = None
         equity_verdict_info = None
+        drama_context = None
+        hand_equity = 0.0  # Track for drama detection
 
         if self.prompt_config.situational_guidance:
             cost_to_call = context.get('call_amount', 0)
             pot_total = game_state.pot.get('total', 0)
-            already_bet = player.bet  # Amount already invested this hand
+            already_bet = player.bet
             player_stack = player.stack
-            big_blind = game_state.current_ante or 250  # Default to 250 if not set
+            big_blind = game_state.current_ante or 250
 
-            # Convert everything to BB for normalized reasoning
             already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
             stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
             cost_to_call_bb = cost_to_call / big_blind if big_blind > 0 else 0
 
-            # Pot-committed: invested more BB than remaining stack AND facing a bet
-            # Also trigger for extreme pot odds (>20:1) with small calls (<5 BB)
             if cost_to_call > 0:
                 pot_odds = pot_total / cost_to_call
                 required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
-
-                # Trigger if: invested more than remaining OR extreme pot odds with small call
                 is_pot_committed = already_bet_bb > stack_bb
                 is_extreme_odds = pot_odds >= 20 and cost_to_call_bb < 5
 
@@ -636,17 +876,11 @@ class AIPlayerController:
                         'cost_to_call_bb': round(cost_to_call_bb, 1)
                     }
 
-            # Short-stack: less than 3 big blinds
             if stack_bb < 3:
                 short_stack_info = {'stack_bb': round(stack_bb, 1)}
 
-            # Made hand guidance: help prevent folding strong hands
-            # Calculate equity and provide guidance based on thresholds
-            # Tone varies based on emotional state (tilted = softer guidance)
-            if game_state.community_cards:  # Post-flop only
-                # Convert cards to string format for equity calculation
+            if game_state.community_cards:
                 def card_to_str(c):
-                    """Convert card (dict or Card object) to short string like '8h'."""
                     if isinstance(c, dict):
                         rank = c.get('rank', '')
                         suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
@@ -671,14 +905,12 @@ class AIPlayerController:
                 ])
                 equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
                 if equity is not None:
-                    # Get emotional state - negative valence = tilted
+                    hand_equity = equity  # Store for drama detection
                     is_tilted = False
                     if self.psychology and self.psychology.emotional:
                         valence = self.psychology.emotional.valence
-                        is_tilted = valence < -0.2  # Negative mood threshold
+                        is_tilted = valence < -0.2
 
-                    # Determine guidance tier based on equity
-                    # 80%+ = strong guidance, 65-79% = moderate guidance
                     if equity >= 0.80:
                         hand_strength = evaluate_hand_strength(hole_cards, community_cards)
                         hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
@@ -698,14 +930,30 @@ class AIPlayerController:
                             'tier': 'moderate'
                         }
 
+            # Drama level for response intensity calibration
+            analysis = MomentAnalyzer.analyze(
+                game_state=game_state,
+                player=player,
+                cost_to_call=cost_to_call,
+                big_blind=big_blind,
+                last_raise_amount=game_state.last_raise_amount,
+                hand_equity=hand_equity
+            )
+            drama_context = {
+                'level': analysis.level,
+                'factors': analysis.factors,
+                'tone': analysis.tone
+            }
+
         # Calculate equity verdict if enabled (GTO foundation - always show the math)
-        if self.prompt_config.show_equity_always and cost_to_call > 0:
+        cost_to_call_for_equity = context.get('call_amount', 0)
+        if self.prompt_config.show_equity_always and cost_to_call_for_equity > 0:
             pot_total = game_state.pot.get('total', 0)
-            pot_odds = pot_total / cost_to_call if cost_to_call > 0 else 0
+            pot_odds = pot_total / cost_to_call_for_equity if cost_to_call_for_equity > 0 else 0
             required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
 
             # Convert cards for equity calculation
-            def card_to_str(c):
+            def card_to_str_equity(c):
                 """Convert card (dict or Card object) to short string like '8h'."""
                 if isinstance(c, dict):
                     rank = c.get('rank', '')
@@ -721,8 +969,8 @@ class AIPlayerController:
                     s = s.replace('10', 'T')
                     return s
 
-            hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
-            community_cards = [card_to_str(c) for c in game_state.community_cards]
+            hole_cards = [card_to_str_equity(c) for c in player.hand] if player.hand else []
+            community_cards = [card_to_str_equity(c) for c in game_state.community_cards]
 
             # Get opponents still in hand (needed for accurate multi-way equity)
             opponents_in_hand = [
@@ -829,153 +1077,90 @@ class AIPlayerController:
                     'required_equity': round(required_equity, 1),
                     'verdict': verdict,
                     'pot_odds': round(pot_odds, 1),
-                    'cost_to_call': cost_to_call,
+                    'cost_to_call': cost_to_call_for_equity,
                     'opponent_stats': opponent_stats_str,
                 }
 
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
-        decision_prompt = self.prompt_manager.render_decision_prompt(
+        prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
             include_persona_response=self.prompt_config.persona_response,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
             made_hand_info=made_hand_info,
-            equity_verdict_info=equity_verdict_info
+            equity_verdict_info=equity_verdict_info,
+            drama_context=drama_context
         )
 
-        # Store capture_id via callback (keeps LLM layer decoupled from capture)
-        captured_id = [None]  # Use list to allow mutation in closure
-        # Store capture enrichment data for auto-labeling after response
-        capture_enrichment = [None]
+        return (prompt, drama_context)
 
-        # Create enricher callback with game state for capture
-        def enrich_capture(capture_data: Dict) -> Dict:
-            """Add game state to capture data."""
-            game_state = self.state_machine.game_state
-            player = game_state.current_player
+    def _normalize_response(self, response_dict: Dict) -> Dict:
+        """Normalize response: lowercase action, convert raise_to to int."""
+        if 'action' in response_dict and response_dict['action']:
+            response_dict['action'] = response_dict['action'].lower()
 
-            cost_to_call = context.get('call_amount', 0)
-            pot_total = game_state.pot.get('total', 0)
-            player_stack = player.stack
-            already_bet = player.bet  # Amount already invested this hand
-            big_blind = game_state.current_ante or 250  # Default to 250 if not set
-
-            # Compute stack and bet in big blinds for auto-labeling
-            stack_bb = player_stack / big_blind if big_blind > 0 else None
-            already_bet_bb = already_bet / big_blind if big_blind > 0 else None
-
-            enrichment = {
-                'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
-                'pot_total': pot_total,
-                'cost_to_call': cost_to_call,
-                'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
-                'player_stack': player_stack,
-                'stack_bb': round(stack_bb, 2) if stack_bb is not None else None,
-                'already_bet_bb': round(already_bet_bb, 2) if already_bet_bb is not None else None,
-                'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
-                'player_hand': [str(c) for c in player.hand] if player.hand else [],
-                'valid_actions': context.get('valid_actions', []),
-                'prompt_config': self.prompt_config.to_dict() if self.prompt_config else None,
-                '_on_captured': lambda cid: captured_id.__setitem__(0, cid),  # Store capture_id
-            }
-            capture_data.update(enrichment)
-            # Store for auto-labeling after response
-            capture_enrichment[0] = enrichment
-            return capture_data
-
-        # Use JSON mode for more reliable structured responses
-        llm_response = self.assistant.chat_full(
-            decision_prompt,
-            json_format=True,
-            hand_number=self.current_hand_number,
-            prompt_template='decision',
-            capture_enricher=enrich_capture,
-        )
-        response_json = llm_response.content
-        response_dict = parse_json_response(response_json)
-
-        # Store LLM response for capture (latency, tokens, etc.)
-        self._last_llm_response = llm_response
-        
-        # Validate response has required keys (only action is truly required)
-        required_keys = ('action',)
-        valid_actions = context.get('valid_actions', [])
-        if not all(key in response_dict for key in required_keys):
-            # Try to fix missing keys - prefer check over fold (folding when you can check is never correct)
-            default_action = 'check' if 'check' in valid_actions else 'fold'
-            response_dict.setdefault('action', default_action)
-            logger.warning(f"AI response was missing action, defaulted to {default_action}")
-        
-        # Set default for raise_to if not present, and ensure it's an int
-        # (AI may return numbers as strings in JSON)
         if 'raise_to' not in response_dict:
             response_dict['raise_to'] = 0
         else:
             try:
                 response_dict['raise_to'] = int(response_dict['raise_to'])
             except (ValueError, TypeError):
-                logger.warning(f"Invalid raise_to value: {response_dict['raise_to']}, defaulting to 0")
                 response_dict['raise_to'] = 0
 
-        # Normalize action to lowercase for consistency (before validation checks)
-        if 'action' in response_dict:
-            response_dict['action'] = response_dict['action'].lower()
+        return response_dict
 
-        # AI now uses "raise TO" semantics directly - raise_to is the total bet amount
-        # Fix common AI mistake: saying "raise" but setting raise_to to 0
+    def _apply_final_fixes(self, response_dict: Dict, context: Dict, game_state) -> Dict:
+        """Apply final fixes like extracting raise amount from persona_response."""
+        import re
+        valid_actions = context.get('valid_actions', [])
+
+        # Fix raise with 0 amount by extracting from persona_response
         if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) == 0:
-            # Try to extract amount from persona_response
-            import re
             persona_response = response_dict.get('persona_response', '')
             highest_bet = game_state.highest_bet
             min_raise = context.get('min_raise', MIN_RAISE)
 
-            # Look for patterns like "raise to $500" or "raise $500"
             raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
             if raise_match:
                 mentioned_amount = int(raise_match.group(1))
                 response_dict['raise_to'] = mentioned_amount
                 response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}', using as raise TO amount")
+                logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}'")
             else:
-                # Default to minimum raise TO amount
                 min_raise_to = highest_bet + min_raise
                 response_dict['raise_to'] = min_raise_to
                 response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} chose raise with 0 amount, defaulting to min raise TO ${min_raise_to}")
-        
-        # Validate action is valid
-        if valid_actions and response_dict['action'] not in valid_actions:
+                logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
+
+        # Validate action is in valid_actions
+        if valid_actions and response_dict.get('action') not in valid_actions:
             logger.warning(f"AI chose invalid action {response_dict['action']}, validating...")
             validated = validate_ai_response(response_dict, valid_actions)
             response_dict['action'] = validated['action']
-            # Preserve raise_to if it was set, otherwise use validated value
             if response_dict.get('raise_to', 0) == 0:
                 response_dict['raise_to'] = validated.get('raise_to', 0)
 
-        # Analyze decision quality (always, for monitoring)
-        self._analyze_decision(response_dict, context)
-
-        # Update capture with action_taken (now that we've parsed the response)
-        if captured_id[0]:
-            from core.llm.tracking import update_prompt_capture
-            action = response_dict.get('action')
-            raise_amount = response_dict.get('raise_to') if action == 'raise' else None
-            update_prompt_capture(captured_id[0], action_taken=action, raise_amount=raise_amount)
-
-            # Compute and store auto-labels based on capture data
-            if self._persistence and capture_enrichment[0]:
-                label_data = capture_enrichment[0].copy()
-                label_data['action_taken'] = action
-                self._persistence.compute_and_store_auto_labels(captured_id[0], label_data)
-
         return response_dict
 
-    def _analyze_decision(self, response_dict: Dict, context: Dict) -> None:
+    def _analyze_decision(
+        self,
+        response_dict: Dict,
+        context: Dict,
+        capture_id: Optional[int] = None,
+        player_bet: int = 0,
+        all_players_bets: Optional[List[Tuple[int, bool]]] = None,
+    ) -> None:
         """Analyze decision quality and save to database.
 
         This runs for EVERY AI decision to track quality metrics.
+
+        Args:
+            response_dict: AI response with action and optional raise_to
+            context: Game context dictionary
+            capture_id: Optional ID of the prompt capture for linking
+            player_bet: Player's current round bet (for max_winnable calculation)
+            all_players_bets: List of (bet, is_folded) tuples for ALL players
         """
         if not self._persistence:
             return
@@ -1082,9 +1267,12 @@ class AIPlayerController:
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
                 request_id=request_id,
+                capture_id=capture_id,
                 player_position=player_position,
                 opponent_positions=opponent_positions,
                 opponent_infos=opponent_infos,
+                player_bet=player_bet,
+                all_players_bets=all_players_bets,
             )
 
             self._persistence.save_decision_analysis(analysis)

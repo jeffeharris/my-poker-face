@@ -24,6 +24,22 @@ _FORMAT_PLACEHOLDER_RE = re.compile(r'\{([^}:!]+)(?:[!:][^}]*)?\}')
 # Regex to validate safe variable names (no private/dunder access)
 _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
 
+# Drama context messages for response intensity calibration
+DRAMA_CONTEXTS = {
+    'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
+    'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
+    'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
+}
+
+# Tone modifiers that append to drama context based on hand strength
+TONE_MODIFIERS = {
+    'neutral': "",
+    'confident': " Channel quiet confidence - you know you have the goods.",
+    'desperate': " Show the pressure - this is do-or-die, make it feel that way.",
+    'triumphant': " Savor the moment - you've got them right where you want them."
+}
+
 
 def _validate_format_placeholders(text: str) -> Set[str]:
     """Extract and validate format placeholders from a string.
@@ -424,7 +440,8 @@ class PromptManager:
         pot_committed_info: dict | None = None,
         short_stack_info: dict | None = None,
         made_hand_info: dict | None = None,
-        equity_verdict_info: dict | None = None
+        equity_verdict_info: dict | None = None,
+        drama_context: dict | None = None
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -438,6 +455,7 @@ class PromptManager:
             short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
             made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
             equity_verdict_info: Dict with {equity, required_equity, verdict, pot_odds} for GTO foundation
+            drama_context: Dict with {level, factors} for response intensity calibration
 
         Returns:
             Rendered decision prompt
@@ -512,7 +530,78 @@ class PromptManager:
         if include_persona_response and 'persona_response' in template.sections:
             sections_to_render.append(template.sections['persona_response'])
 
-        return "\n\n".join(sections_to_render)
+        # Join all sections
+        rendered = "\n\n".join(sections_to_render)
+
+        # Append drama context at END (critical - avoids biasing decision)
+        if drama_context:
+            level = drama_context.get('level', 'routine')
+            tone = drama_context.get('tone', 'neutral')
+            drama_text = DRAMA_CONTEXTS.get(level, '')
+            tone_modifier = TONE_MODIFIERS.get(tone, '')
+            if drama_text:
+                rendered = f"{rendered}\n\n{drama_text}{tone_modifier}"
+
+        return rendered
+
+    def render_correction_prompt(
+        self,
+        original_response: str,
+        error_description: str,
+        valid_actions: list[str],
+        context: dict,
+    ) -> str:
+        """Render a targeted correction prompt for AI decision errors.
+
+        Used when an AI response has semantic errors (invalid action, missing fields, etc.)
+        to request a corrected response without repeating the entire game state.
+
+        Args:
+            original_response: The AI's original (invalid) response
+            error_description: Human-readable description of what went wrong
+            valid_actions: List of valid actions for current game state
+            context: Game context dict with call_amount, min_raise, max_raise
+
+        Returns:
+            Correction prompt string
+        """
+        call_amount = context.get('call_amount', 0)
+        min_raise = context.get('min_raise', 0)
+        max_raise = context.get('max_raise', 0)
+
+        # Build context hints based on available actions
+        action_hints = []
+        if 'fold' in valid_actions:
+            action_hints.append("- 'fold': Give up the hand")
+        if 'check' in valid_actions:
+            action_hints.append("- 'check': Pass without betting (free)")
+        if 'call' in valid_actions:
+            action_hints.append(f"- 'call': Match the bet (costs ${call_amount})")
+        if 'raise' in valid_actions:
+            action_hints.append(f"- 'raise': Increase the bet (raise_to between ${min_raise} and ${max_raise})")
+        if 'all_in' in valid_actions or 'all-in' in valid_actions:
+            action_hints.append("- 'all_in': Bet all your remaining chips")
+
+        action_hints_str = "\n".join(action_hints)
+
+        return f"""Your previous response had an error:
+
+ERROR: {error_description}
+
+Your response was:
+{original_response}
+
+Please provide a CORRECTED JSON response. Keep your same reasoning and strategy, just fix the error.
+
+VALID ACTIONS:
+{action_hints_str}
+
+REQUIREMENTS:
+1. Your 'action' must be one of: {', '.join(valid_actions)}
+2. If action is 'raise', you MUST include 'raise_to' with a valid amount (${min_raise} to ${max_raise})
+3. Include 'inner_monologue' with your thinking
+
+Respond with valid JSON only. No explanation or markdown, just the JSON object."""
 
 
 # Response format definitions - structured to simulate human thinking process
@@ -538,8 +627,7 @@ RESPONSE_FORMAT = {
     "play_style": "OPTIONAL: Your current play style (tight/loose/aggressive/passive)",
     "new_confidence": "OPTIONAL: Updated confidence level (single word)",
     "new_attitude": "OPTIONAL: Updated emotional state (single word)",
-    "persona_response": "OPTIONAL: What you say out loud to the table",
-    "physical": "OPTIONAL: List of physical actions, gestures, or tells",
+    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
 
     # PHASE 5: COMMITMENT (Final action - decided LAST after thinking it through)
     "action": "REQUIRED: Your final action from the provided options",
@@ -573,8 +661,7 @@ PERSONA_EXAMPLES = {
             "play_style": "tight",
             "new_confidence": "abysmal",
             "new_attitude": "gloomy",
-            "persona_response": "Oh bother, just my luck. Another miserable hand, I suppose.",
-            "physical": ["*looks at feet*", "*lets out a big sigh*"],
+            "dramatic_sequence": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."],
 
             # PHASE 5: COMMITMENT
             "action": "check",
@@ -604,8 +691,7 @@ PERSONA_EXAMPLES = {
             "play_style": "loose and aggressive",
             "new_confidence": "steady",
             "new_attitude": "determined",
-            "persona_response": "Your move.",
-            "physical": ["*narrows eyes*"],
+            "dramatic_sequence": ["*narrows eyes*", "Your move."],
 
             # PHASE 5: COMMITMENT
             "action": "raise",

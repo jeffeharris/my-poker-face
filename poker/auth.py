@@ -156,9 +156,14 @@ class AuthManager:
             session['oauth_state'] = state
             session['oauth_state_created'] = datetime.utcnow().isoformat()
 
-            # Get redirect URI
+            # Build redirect URI from FRONTEND_URL to ensure correct domain
+            # (url_for may not have correct host behind reverse proxy)
             from flask_app import config
-            redirect_uri = url_for('google_callback', _external=True)
+            frontend_url = config.FRONTEND_URL.rstrip('/')
+            # Replace frontend URL with backend callback path
+            # FRONTEND_URL is like https://mypokerfacegame.com
+            # We need https://mypokerfacegame.com/api/auth/google/callback
+            redirect_uri = f"{frontend_url}/api/auth/google/callback"
 
             return self.oauth.google.authorize_redirect(redirect_uri, state=state)
 

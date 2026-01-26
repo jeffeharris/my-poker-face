@@ -2,6 +2,16 @@ import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, Player } from '../../types';
 import { config } from '../../config';
+import {
+  TYPING_SPEED_MS,
+  READING_BUFFER_MS,
+  ACTION_FADE_DURATION_MS,
+  BEAT_DELAY_MS,
+  QUEUED_MESSAGE_BONUS_MS,
+  MESSAGE_BASE_DURATION_MS,
+  MESSAGE_MIN_DURATION_MS,
+  MESSAGE_MAX_DURATION_MS,
+} from '../../config/timing';
 import './FloatingChat.css';
 
 interface MessageWithMeta extends ChatMessage {
@@ -13,23 +23,139 @@ interface MessageWithMeta extends ChatMessage {
 interface FloatingChatProps {
   message: ChatMessage | null;
   onDismiss: () => void;
-  duration?: number;
   players?: Player[];
 }
 
-// Calculate display duration based on message length
-// Base: 3 seconds, plus 50ms per character, capped between 3-15 seconds
+// Parse a beat to determine if it's an action or speech
+interface ParsedBeat {
+  type: 'action' | 'speech';
+  text: string;
+}
+
+function parseBeats(text: string): ParsedBeat[] {
+  const lines = text.split('\n').filter(b => b.trim());
+  return lines.map(line => {
+    const actionMatch = line.match(/^\*(.+)\*$/);
+    if (actionMatch) {
+      return { type: 'action', text: actionMatch[1] };
+    }
+    return { type: 'speech', text: line };
+  });
+}
+
+// Calculate display duration based on message content and timing
 function calculateDuration(message: string, action?: string): number {
-  const baseMs = 3000;
-  const msPerChar = 50;
-  const minMs = 3000;
-  const maxMs = 15000;
-  // Prefer non-empty message text; if message is empty/whitespace, fall back to action text
   const trimmedMessage = message.trim();
   const trimmedAction = action?.trim() ?? '';
-  const textLength = trimmedMessage.length > 0 ? trimmedMessage.length : trimmedAction.length;
-  const calculated = baseMs + (textLength * msPerChar);
-  return Math.min(maxMs, Math.max(minMs, calculated));
+  const text = trimmedMessage.length > 0 ? trimmedMessage : trimmedAction;
+
+  if (!text) return MESSAGE_MIN_DURATION_MS;
+
+  const beats = parseBeats(text);
+  let animationTime = 0;
+
+  beats.forEach((beat, i) => {
+    // Add beat delay (except for first beat)
+    if (i > 0) animationTime += BEAT_DELAY_MS;
+
+    if (beat.type === 'action') {
+      animationTime += ACTION_FADE_DURATION_MS;
+    } else {
+      // Typing time for speech + reading buffer
+      animationTime += beat.text.length * (TYPING_SPEED_MS + READING_BUFFER_MS);
+    }
+  });
+
+  const calculated = animationTime + MESSAGE_BASE_DURATION_MS;
+  return Math.min(MESSAGE_MAX_DURATION_MS, Math.max(MESSAGE_MIN_DURATION_MS, calculated));
+}
+
+// Action beat component - fades in
+function ActionBeat({ text, delay }: { text: string; delay: number }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+
+  return (
+    <div className={`beat action ${visible ? 'visible' : ''}`}>
+      <em>{text}</em>
+    </div>
+  );
+}
+
+// Speech beat component - types out character by character
+function SpeechBeat({ text, delay }: { text: string; delay: number }) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [started, setStarted] = useState(false);
+
+  useEffect(() => {
+    const startTimer = setTimeout(() => setStarted(true), delay);
+    return () => clearTimeout(startTimer);
+  }, [delay]);
+
+  useEffect(() => {
+    if (!started) return;
+
+    let charIndex = 0;
+    const interval = setInterval(() => {
+      if (charIndex < text.length) {
+        setDisplayedText(text.slice(0, charIndex + 1));
+        charIndex++;
+      } else {
+        clearInterval(interval);
+      }
+    }, TYPING_SPEED_MS);
+
+    return () => clearInterval(interval);
+  }, [started, text]);
+
+  if (!started) return null;
+
+  return (
+    <div className="beat speech">
+      {displayedText}
+      {displayedText.length < text.length && <span className="typing-cursor">|</span>}
+    </div>
+  );
+}
+
+// Dramatic message component - orchestrates beat animations
+function DramaticMessage({ text }: { text: string }) {
+  const beats = parseBeats(text);
+
+  if (beats.length === 0) {
+    return <>{text}</>;
+  }
+
+  // Calculate cumulative delays for each beat
+  let cumulativeDelay = 0;
+  const beatsWithDelay = beats.map((beat, i) => {
+    const delay = cumulativeDelay;
+
+    // Calculate how long this beat takes
+    if (beat.type === 'action') {
+      cumulativeDelay += ACTION_FADE_DURATION_MS + BEAT_DELAY_MS;
+    } else {
+      cumulativeDelay += (beat.text.length * TYPING_SPEED_MS) + BEAT_DELAY_MS;
+    }
+
+    return { ...beat, delay, index: i };
+  });
+
+  return (
+    <>
+      {beatsWithDelay.map((beat) => (
+        beat.type === 'action' ? (
+          <ActionBeat key={beat.index} text={beat.text} delay={beat.delay} />
+        ) : (
+          <SpeechBeat key={beat.index} text={beat.text} delay={beat.delay} />
+        )
+      ))}
+    </>
+  );
 }
 
 // Message component - only X button dismisses
@@ -75,7 +201,9 @@ function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
           {msg.action || msg.sender}
         </div>
         {msg.message && (
-          <div className="floating-chat-message">{msg.message}</div>
+          <div className="floating-chat-message">
+            <DramaticMessage text={msg.message} />
+          </div>
         )}
       </div>
       <button
@@ -97,11 +225,12 @@ function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;
 
-export function FloatingChat({ message, onDismiss, duration = 8000, players = [] }: FloatingChatProps) {
+export function FloatingChat({ message, onDismiss, players = [] }: Omit<FloatingChatProps, 'duration'>) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
-
-  void duration; // Using per-message duration instead
+  // Keep a ref to current messages for timer callbacks (avoids stale closures)
+  const messagesRef = useRef<MessageWithMeta[]>([]);
+  messagesRef.current = messages;
 
   const getPlayerAvatar = (senderName: string): string | null => {
     const player = players.find(p => p.name === senderName);
@@ -136,7 +265,12 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
         // If message is now in active zone but timer hasn't started, start it
         if (index < ACTIVE_MESSAGE_LIMIT && msg.timerStartedAt === null) {
           changed = true;
-          return { ...msg, timerStartedAt: Date.now() };
+          // Add bonus time for messages that were waiting in queue
+          return {
+            ...msg,
+            timerStartedAt: Date.now(),
+            displayDuration: msg.displayDuration + QUEUED_MESSAGE_BONUS_MS
+          };
         }
         return msg;
       });
@@ -167,11 +301,11 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
       });
     };
 
-    // Calculate delay to next expiration (only for active timers)
+    // Calculate delay to next expiration using ref (avoids stale closure)
     const now = Date.now();
     let nextDelay = 15000;
 
-    for (const msg of messages) {
+    for (const msg of messagesRef.current) {
       if (msg.timerStartedAt === null) continue; // Skip paused messages
       const remaining = msg.displayDuration - (now - msg.timerStartedAt);
       if (remaining > 0 && remaining < nextDelay) {
@@ -184,7 +318,6 @@ export function FloatingChat({ message, onDismiss, duration = 8000, players = []
 
     const timer = setTimeout(checkExpired, Math.max(0, nextDelay));
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, onDismiss]);
 
   const handleDismiss = (id: string) => {

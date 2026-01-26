@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, X, Send, Loader2, Columns2, Maximize2 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
@@ -7,12 +7,24 @@ import { AdminSidebar } from './AdminSidebar';
 import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './ExperimentDesigner';
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { ReplayResults } from './ReplayResults';
+import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
+
+/**
+ * Shared hook for capture selection with URL updates.
+ * Updates the URL without triggering React Router navigation/remount.
+ */
+function useCaptureSelectHandler() {
+  return useCallback((captureId: number | null) => {
+    const newPath = captureId ? `/admin/analyzer/${captureId}` : '/admin/analyzer';
+    window.history.replaceState(null, '', newPath);
+  }, []);
+}
 
 /**
  * Wrapper for experiment detail view with URL params
@@ -437,6 +449,78 @@ function NewExperimentWrapper() {
   );
 }
 
+/**
+ * Wrapper for Decision Analyzer with URL-based capture selection
+ */
+function DecisionAnalyzerWrapper() {
+  const { captureId } = useParams<{ captureId: string }>();
+  const navigate = useNavigate();
+  const { isMobile } = useViewport();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const captureIdNum = captureId ? parseInt(captureId, 10) : undefined;
+
+  const handleBack = () => {
+    navigate('/admin/analyzer');
+  };
+
+  const handleCaptureSelect = useCaptureSelectHandler();
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <div className="admin-main__content admin-main__content--mobile">
+          <DecisionAnalyzer
+            embedded
+            initialCaptureId={captureIdNum}
+            onCaptureSelect={handleCaptureSelect}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout with sidebar + content
+  return (
+    <div className="admin-dashboard-layout">
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab="analyzer"
+        onTabChange={(tab) => navigate(`/admin/${tab}`)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="admin-main">
+        <header className="admin-main__header">
+          {captureIdNum && (
+            <button
+              className="admin-main__back"
+              onClick={handleBack}
+              aria-label="Go back to analyzer list"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          )}
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">Decision Analyzer</h1>
+            <p className="admin-main__subtitle">
+              {captureIdNum ? `Capture #${captureIdNum}` : 'Analyze and replay AI decision prompts'}
+            </p>
+          </div>
+        </header>
+        <div className="admin-main__content">
+          <DecisionAnalyzer
+            embedded
+            initialCaptureId={captureIdNum}
+            onCaptureSelect={handleCaptureSelect}
+          />
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function AdminTabWrapper() {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
@@ -446,23 +530,32 @@ function AdminTabWrapper() {
   const validTab = VALID_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'personalities';
 
   const handleBack = () => {
-    // On mobile, go back to admin menu; on desktop, go to main menu
+    // On mobile, go back to admin menu (replace history to preserve original back destination);
+    // on desktop, go back to where they came from
     if (isMobile) {
-      navigate('/admin');
+      navigate('/admin', { replace: true });
     } else {
-      navigate('/menu');
+      navigate(-1);
     }
   };
 
   const handleTabChange = (newTab: AdminTab) => {
-    navigate(`/admin/${newTab}`);
+    if (newTab) {
+      navigate(`/admin/${newTab}`);
+    } else {
+      // Going back to admin menu - replace history to preserve original back destination
+      navigate('/admin', { replace: true });
+    }
   };
+
+  const handleCaptureSelect = useCaptureSelectHandler();
 
   return (
     <AdminDashboard
       onBack={handleBack}
       initialTab={validTab}
       onTabChange={handleTabChange}
+      onCaptureSelect={handleCaptureSelect}
     />
   );
 }
@@ -478,7 +571,8 @@ function AdminIndex() {
   }
 
   const handleBack = () => {
-    navigate('/menu');
+    // Go back to where the user came from (game or menu)
+    navigate(-1);
   };
 
   const handleTabChange = (newTab: AdminTab) => {
@@ -519,6 +613,8 @@ export function AdminRoutes() {
       <Route path="experiments/new" element={<NewExperimentWrapper />} />
       <Route path="experiments/:experimentId" element={<ExperimentDetailWrapper />} />
       <Route path="replays/:experimentId" element={<ReplayResultsWrapper />} />
+      {/* Decision Analyzer with optional capture ID */}
+      <Route path="analyzer/:captureId" element={<DecisionAnalyzerWrapper />} />
       <Route path=":tab" element={<AdminTabWrapper />} />
     </Routes>
   );

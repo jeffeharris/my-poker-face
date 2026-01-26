@@ -1,0 +1,255 @@
+/* LandingPage - Premium Poker Aesthetic */
+
+/* Banner */
+.landing__banner {
+  padding: 0;
+  margin-bottom: var(--space-4);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.landing__banner-image {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+}
+
+.landing {
+  width: 100%;
+  max-width: 720px;
+  padding: var(--space-8);
+  animation: landingFadeIn 0.6s var(--ease-out-expo);
+}
+
+@keyframes landingFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Hero Section */
+.landing__hero {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.landing__title {
+  margin: 0 0 var(--space-4) 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 8vw, 4rem);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-tight);
+  background: var(--gradient-text-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.landing__tagline {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--font-size-xl);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+/* Features Grid */
+.landing__features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-6);
+  margin-bottom: var(--space-12);
+}
+
+.landing__feature {
+  background: var(--gradient-card);
+  backdrop-filter: blur(16px);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-default);
+  padding: var(--space-6);
+  text-align: center;
+  transition: var(--transition-all-slow);
+}
+
+.landing__feature:hover {
+  border-color: var(--color-border-hover);
+  transform: translateY(-2px);
+}
+
+.landing__feature-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-gold-muted);
+  border-radius: var(--radius-lg);
+  color: var(--color-gold);
+}
+
+.landing__feature-text {
+  flex: 1;
+  min-width: 0; /* Prevent text overflow issues */
+}
+
+.landing__feature-text h3 {
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.landing__feature-text p {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-relaxed);
+}
+
+/* CTA Section */
+.landing__cta {
+  text-align: center;
+  margin-bottom: var(--space-10);
+}
+
+.landing__button {
+  padding: var(--space-5) var(--space-12);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  border: none;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  transition: var(--transition-all-slow);
+  position: relative;
+  overflow: hidden;
+}
+
+.landing__button--primary {
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
+  box-shadow: var(--glow-gold), var(--shadow-md);
+}
+
+.landing__button--primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.landing__button--primary:hover::before {
+  left: 100%;
+}
+
+.landing__button--primary:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--glow-gold-strong), var(--shadow-lg);
+}
+
+.landing__button--primary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Footer */
+.landing__footer {
+  text-align: center;
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border-default);
+  font-size: var(--font-size-sm);
+}
+
+.landing__footer a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.landing__footer a:hover {
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+}
+
+.landing__footer-divider {
+  margin: 0 var(--space-2);
+  color: var(--color-text-disabled);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 600px) {
+  .landing {
+    padding: var(--space-4);
+  }
+
+  .landing__banner {
+    margin-bottom: var(--space-2);
+  }
+
+  .landing__banner-image {
+    max-width: 220px;
+  }
+
+  .landing__hero {
+    margin-bottom: var(--space-6);
+  }
+
+  .landing__tagline {
+    font-size: var(--font-size-md);
+  }
+
+  .landing__features {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+  }
+
+  .landing__feature {
+    padding: var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    text-align: left;
+  }
+
+  .landing__feature-icon {
+    margin: 0;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+  }
+
+  .landing__feature-text h3 {
+    margin-bottom: var(--space-1);
+  }
+
+  .landing__feature-text p {
+    font-size: var(--font-size-xs);
+  }
+
+  .landing__cta {
+    margin-bottom: var(--space-6);
+  }
+
+  .landing__button {
+    width: 100%;
+    padding: var(--space-4) var(--space-8);
+  }
+
+  .landing__footer {
+    padding-top: var(--space-4);
+  }
+}

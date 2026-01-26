@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Users, Settings, Bot, User, MessageCircle } from 'lucide-react';
 import type { ChatMessage } from '../../../types';
+import { parseMessageBlock } from '../../../utils/messages';
 import './Chat.css';
 
 interface ChatProps {
@@ -89,7 +90,7 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
                     </span>
                   </div>
                   <div className="message-content">
-                    {msg.message}
+                    {parseMessageBlock(msg.message)}
                   </div>
                 </div>
               ))
