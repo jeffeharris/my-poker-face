@@ -6,7 +6,7 @@
     background: var(--color-bg-overlay);
     backdrop-filter: blur(12px);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     z-index: 1000;
     animation: fadeIn 0.3s ease-out;
@@ -25,6 +25,7 @@
     flex-direction: column;
     align-items: center;
     gap: var(--space-3);
+    margin: auto 0;  /* Centers vertically when space available, stays at top when content overflows */
 }
 
 /* Winner Header - announcement at top */
