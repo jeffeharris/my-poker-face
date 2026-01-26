@@ -130,6 +130,7 @@ class ControlConfig:
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
     prompt_config: Optional[Dict] = None
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
@@ -145,6 +146,7 @@ class VariantConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     personality: Optional[str] = None  # Per-variant personality assignment
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
     prompt_config: Optional[Dict] = None
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
@@ -182,11 +184,17 @@ class ExperimentConfig:
 
     def __post_init__(self):
         """Validate control/variants structure."""
+        VALID_GAME_MODES = {'casual', 'standard', 'pro', None}
+
         if self.control is not None:
             if not isinstance(self.control, dict):
                 raise ValueError("control must be a dict")
             if not self.control.get('label'):
                 raise ValueError("control.label is required")
+            # Validate game_mode in control
+            control_game_mode = self.control.get('game_mode')
+            if control_game_mode and control_game_mode not in VALID_GAME_MODES:
+                raise ValueError(f"Invalid control game_mode: {control_game_mode}. Valid: casual, standard, pro")
 
         if self.variants is not None:
             if not isinstance(self.variants, list):
@@ -196,6 +204,10 @@ class ExperimentConfig:
                     raise ValueError(f"variants[{i}] must be a dict")
                 if not v.get('label'):
                     raise ValueError(f"variants[{i}].label is required")
+                # Validate game_mode in variant
+                variant_game_mode = v.get('game_mode')
+                if variant_game_mode and variant_game_mode not in VALID_GAME_MODES:
+                    raise ValueError(f"Invalid variants[{i}] game_mode: {variant_game_mode}. Valid: casual, standard, pro")
 
     def get_variant_configs(self) -> List[Tuple[str, Dict]]:
         """
@@ -223,6 +235,7 @@ class ExperimentConfig:
         control_config = {
             'model': self.model,      # Always use experiment-level
             'provider': self.provider, # Always use experiment-level
+            'game_mode': self.control.get('game_mode'),
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
             'enable_commentary': self.control.get('enable_commentary', False),
@@ -240,6 +253,8 @@ class ExperimentConfig:
                 # Model/provider inherit from experiment-level, not control
                 'model': variant.get('model') or self.model,
                 'provider': variant.get('provider') or self.provider,
+                # Game mode - use variant's or inherit from control
+                'game_mode': variant.get('game_mode') if 'game_mode' in variant else control_config.get('game_mode'),
                 # Use explicit None check - empty dict {} is a valid config
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified
@@ -640,27 +655,34 @@ class AITournamentRunner:
             }
 
         # Extract and resolve prompt_config from variant
-        # Priority: 1) inline prompt_config, 2) load from preset, 3) None (use defaults)
+        # Priority: 1) inline prompt_config (overrides game_mode), 2) load from preset, 3) game_mode, 4) defaults
         prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
         prompt_preset_id = variant_config.get('prompt_preset_id') if variant_config else None
         guidance_injection = variant_config.get('guidance_injection') if variant_config else None
+        game_mode = variant_config.get('game_mode') if variant_config else None
+
+        # Build base config from game_mode (if set), else defaults
+        if game_mode:
+            base_config = PromptConfig.from_mode_name(game_mode)
+        else:
+            base_config = PromptConfig()
 
         if prompt_config_dict is not None:
-            # Use inline prompt config
-            prompt_config = PromptConfig.from_dict(prompt_config_dict)
+            # Merge: game_mode provides base, prompt_config_dict overrides
+            prompt_config = base_config.copy(**prompt_config_dict)
         elif prompt_preset_id is not None:
-            # Load from preset
+            # Load from preset and merge with base
             preset = self.persistence.get_prompt_preset(prompt_preset_id)
             if preset and preset.get('prompt_config'):
-                prompt_config = PromptConfig.from_dict(preset['prompt_config'])
+                prompt_config = base_config.copy(**preset['prompt_config'])
                 # Use preset's guidance_injection if not overridden by variant
                 if not guidance_injection and preset.get('guidance_injection'):
                     guidance_injection = preset['guidance_injection']
             else:
-                prompt_config = PromptConfig()
-                logger.warning(f"Prompt preset {prompt_preset_id} not found, using defaults")
+                prompt_config = base_config
+                logger.warning(f"Prompt preset {prompt_preset_id} not found, using game_mode/defaults")
         else:
-            prompt_config = None
+            prompt_config = base_config
 
         # Apply guidance injection to prompt config if set
         if guidance_injection and prompt_config:

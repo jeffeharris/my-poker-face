@@ -30,8 +30,9 @@ class VariantConfig:
         model: LLM model to use (inherits from experiment if not set)
         provider: LLM provider to use (inherits from experiment if not set)
         personality: Personality name to use (for per-variant personality)
+        game_mode: Game mode preset ('casual', 'standard', 'pro')
         prompt_preset_id: ID of saved prompt preset to use
-        prompt_config: Inline prompt config dict (overrides preset)
+        prompt_config: Inline prompt config dict (overrides preset and game_mode)
         guidance_injection: Extra text to append to decision prompts
         reasoning_effort: LLM reasoning effort level
         enable_psychology: Enable tilt + emotional state generation
@@ -41,6 +42,7 @@ class VariantConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     personality: Optional[str] = None
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
     prompt_preset_id: Optional[int] = None
     prompt_config: Optional[Dict[str, Any]] = None
     guidance_injection: Optional[str] = None
@@ -111,6 +113,7 @@ class VariantConfig:
             'model': self.model,
             'provider': self.provider,
             'personality': self.personality,
+            'game_mode': self.game_mode,
             'prompt_preset_id': self.prompt_preset_id,
             'prompt_config': self.prompt_config,
             'guidance_injection': self.guidance_injection,
@@ -126,7 +129,7 @@ class VariantConfig:
         Filters out unknown keys for forward compatibility.
         """
         known_fields = {
-            'label', 'model', 'provider', 'personality',
+            'label', 'model', 'provider', 'personality', 'game_mode',
             'prompt_preset_id', 'prompt_config', 'guidance_injection',
             'reasoning_effort', 'enable_psychology', 'enable_commentary'
         }
@@ -145,7 +148,8 @@ class ControlConfig:
         label: Human-readable name for control group (required)
         model: LLM model (uses experiment default if not set)
         provider: LLM provider (uses experiment default if not set)
-        prompt_config: Baseline prompt config dict
+        game_mode: Game mode preset ('casual', 'standard', 'pro')
+        prompt_config: Baseline prompt config dict (overrides game_mode)
         guidance_injection: Extra text to append to prompts
         reasoning_effort: LLM reasoning effort level
         enable_psychology: Enable tilt + emotional state generation
@@ -154,6 +158,7 @@ class ControlConfig:
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro'
     prompt_config: Optional[Dict[str, Any]] = None
     guidance_injection: Optional[str] = None
     reasoning_effort: Optional[str] = None
@@ -166,6 +171,7 @@ class ControlConfig:
             'label': self.label,
             'model': self.model,
             'provider': self.provider,
+            'game_mode': self.game_mode,
             'prompt_config': self.prompt_config,
             'guidance_injection': self.guidance_injection,
             'reasoning_effort': self.reasoning_effort,
@@ -177,7 +183,7 @@ class ControlConfig:
     def from_dict(cls, d: Dict[str, Any]) -> 'ControlConfig':
         """Create ControlConfig from dictionary."""
         known_fields = {
-            'label', 'model', 'provider', 'prompt_config',
+            'label', 'model', 'provider', 'game_mode', 'prompt_config',
             'guidance_injection', 'reasoning_effort',
             'enable_psychology', 'enable_commentary'
         }
@@ -198,6 +204,9 @@ def build_effective_variant_config(
     2. Control settings are used as fallback for missing variant settings
     3. Experiment-level model/provider are used as final fallback
 
+    game_mode inheritance: variant.game_mode → control.game_mode → None
+    When resolved, game_mode provides base PromptConfig that prompt_config overrides.
+
     Args:
         variant_dict: Raw variant configuration dict
         control_dict: Optional control configuration dict
@@ -211,6 +220,7 @@ def build_effective_variant_config(
     effective = {
         'model': experiment_model,
         'provider': experiment_provider,
+        'game_mode': None,
         'prompt_config': None,
         'guidance_injection': None,
         'reasoning_effort': None,
@@ -222,7 +232,7 @@ def build_effective_variant_config(
 
     # Apply control settings if available
     if control_dict:
-        for key in ['prompt_config', 'guidance_injection', 'reasoning_effort',
+        for key in ['game_mode', 'prompt_config', 'guidance_injection', 'reasoning_effort',
                     'enable_psychology', 'enable_commentary']:
             if key in control_dict and control_dict[key] is not None:
                 effective[key] = control_dict[key]
@@ -243,6 +253,10 @@ def build_effective_variant_config(
     # Prompt preset: variant-specific
     if variant_dict.get('prompt_preset_id'):
         effective['prompt_preset_id'] = variant_dict['prompt_preset_id']
+
+    # Game mode: variant overrides control
+    if 'game_mode' in variant_dict and variant_dict['game_mode'] is not None:
+        effective['game_mode'] = variant_dict['game_mode']
 
     # Prompt config: use variant if explicitly set, else control
     if 'prompt_config' in variant_dict:
