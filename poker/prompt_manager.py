@@ -510,6 +510,65 @@ class PromptManager:
 
         return rendered
 
+    def render_correction_prompt(
+        self,
+        original_response: str,
+        error_description: str,
+        valid_actions: list[str],
+        context: dict,
+    ) -> str:
+        """Render a targeted correction prompt for AI decision errors.
+
+        Used when an AI response has semantic errors (invalid action, missing fields, etc.)
+        to request a corrected response without repeating the entire game state.
+
+        Args:
+            original_response: The AI's original (invalid) response
+            error_description: Human-readable description of what went wrong
+            valid_actions: List of valid actions for current game state
+            context: Game context dict with call_amount, min_raise, max_raise
+
+        Returns:
+            Correction prompt string
+        """
+        call_amount = context.get('call_amount', 0)
+        min_raise = context.get('min_raise', 0)
+        max_raise = context.get('max_raise', 0)
+
+        # Build context hints based on available actions
+        action_hints = []
+        if 'fold' in valid_actions:
+            action_hints.append("- 'fold': Give up the hand")
+        if 'check' in valid_actions:
+            action_hints.append("- 'check': Pass without betting (free)")
+        if 'call' in valid_actions:
+            action_hints.append(f"- 'call': Match the bet (costs ${call_amount})")
+        if 'raise' in valid_actions:
+            action_hints.append(f"- 'raise': Increase the bet (raise_to between ${min_raise} and ${max_raise})")
+        if 'all_in' in valid_actions or 'all-in' in valid_actions:
+            action_hints.append("- 'all_in': Bet all your remaining chips")
+
+        action_hints_str = "\n".join(action_hints)
+
+        return f"""Your previous response had an error:
+
+ERROR: {error_description}
+
+Your response was:
+{original_response}
+
+Please provide a CORRECTED JSON response. Keep your same reasoning and strategy, just fix the error.
+
+VALID ACTIONS:
+{action_hints_str}
+
+REQUIREMENTS:
+1. Your 'action' must be one of: {', '.join(valid_actions)}
+2. If action is 'raise', you MUST include 'raise_to' with a valid amount (${min_raise} to ${max_raise})
+3. Include 'inner_monologue' with your thinking
+
+Respond with valid JSON only. No explanation or markdown, just the JSON object."""
+
 
 # Response format definitions - structured to simulate human thinking process
 # AI should work through these phases in order: Observe → Analyze → Deliberate → React → Commit

@@ -14,9 +14,13 @@ interface DecisionAnalyzerProps {
   embedded?: boolean;
   /** Called when detail mode changes (for parent to adjust back button behavior) */
   onDetailModeChange?: (inDetailMode: boolean, backToList: () => void) => void;
+  /** Initial capture ID to load (from URL) */
+  initialCaptureId?: number;
+  /** Called when a capture is selected (for URL updates) */
+  onCaptureSelect?: (captureId: number | null) => void;
 }
 
-export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange }: DecisionAnalyzerProps) {
+export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange, initialCaptureId, onCaptureSelect }: DecisionAnalyzerProps) {
   // Viewport detection for responsive layout
   const { isMobile } = useViewport();
 
@@ -138,6 +142,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
       if (filters.max_big_blind !== undefined) params.set('max_big_blind', filters.max_big_blind.toString());
       if (filters.labels && filters.labels.length > 0) params.set('labels', filters.labels.join(','));
       if (filters.labelMatchAll) params.set('label_match_all', 'true');
+      if (filters.error_type) params.set('error_type', filters.error_type);
+      if (filters.has_error !== undefined) params.set('has_error', filters.has_error.toString());
+      if (filters.is_correction !== undefined) params.set('is_correction', filters.is_correction.toString());
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
 
@@ -211,7 +218,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
     }
   }, [getModelsForProviderWithFallback, interrogateModel]);
 
-  const fetchCaptureDetail = async (captureId: number) => {
+  const fetchCaptureDetail = async (captureId: number, updateUrl = true) => {
     try {
       const response = await fetch(
         `${config.API_URL}/api/prompt-debug/captures/${captureId}`,
@@ -243,10 +250,23 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
       setInterrogateProvider(data.capture.provider || 'openai');
       setInterrogateModel(data.capture.model || 'gpt-5-nano');
       setInterrogateReasoningEffort(data.capture.reasoning_effort || 'minimal');
+      // Notify parent to update URL
+      if (updateUrl) {
+        onCaptureSelect?.(captureId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     }
   };
+
+  // Load initial capture from URL if provided
+  // Note: selectedCapture is intentionally excluded from deps to prevent re-fetching
+  // when user navigates away and back. We only want to load once per initialCaptureId.
+  useEffect(() => {
+    if (initialCaptureId && !selectedCapture) {
+      fetchCaptureDetail(initialCaptureId, false);
+    }
+  }, [initialCaptureId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleReplay = async () => {
     if (!selectedCapture) return;
@@ -329,6 +349,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
     if (filters.phase) count++;
     if (filters.min_pot_odds !== undefined) count++;
     if (filters.labels && filters.labels.length > 0) count += filters.labels.length;
+    if (filters.error_type) count++;
+    if (filters.has_error !== undefined) count++;
+    if (filters.is_correction !== undefined) count++;
     return count;
   };
 
@@ -405,6 +428,18 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
           {capture.player_hand && (
             <div className="capture-hand">
               {capture.player_hand.join(' ')}
+            </div>
+          )}
+          {/* Display error info */}
+          {capture.error_type && (
+            <div className="capture-error" title={capture.error_description || undefined}>
+              <span className="error-badge">{capture.error_type.replace(/_/g, ' ')}</span>
+              {(capture.correction_attempt ?? 0) > 0 && (
+                <span className="correction-badge">Attempt #{capture.correction_attempt}</span>
+              )}
+              {capture.error_description && (
+                <span className="error-description">{capture.error_description}</span>
+              )}
             </div>
           )}
           {/* Display labels for this capture */}
@@ -616,6 +651,43 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
               })}
             />
 
+            <select
+              value={filters.error_type || ''}
+              onChange={(e) => setFilters({ ...filters, error_type: e.target.value || undefined, offset: 0 })}
+            >
+              <option value="">All Error Types</option>
+              <option value="malformed_json">Malformed JSON</option>
+              <option value="missing_field">Missing Field</option>
+              <option value="invalid_action">Invalid Action</option>
+              <option value="semantic_error">Semantic Error</option>
+            </select>
+
+            <select
+              value={filters.has_error === undefined ? '' : filters.has_error.toString()}
+              onChange={(e) => setFilters({
+                ...filters,
+                has_error: e.target.value === '' ? undefined : e.target.value === 'true',
+                offset: 0
+              })}
+            >
+              <option value="">All (Errors)</option>
+              <option value="true">Has Error</option>
+              <option value="false">No Error</option>
+            </select>
+
+            <select
+              value={filters.is_correction === undefined ? '' : filters.is_correction.toString()}
+              onChange={(e) => setFilters({
+                ...filters,
+                is_correction: e.target.value === '' ? undefined : e.target.value === 'true',
+                offset: 0
+              })}
+            >
+              <option value="">All (Corrections)</option>
+              <option value="false">Original Only</option>
+              <option value="true">Corrections Only</option>
+            </select>
+
             {/* Label filter chips - desktop */}
             {labelStats && Object.keys(labelStats).length > 0 && (
               <div className="debugger-filter-chips debugger-filter-chips--inline">
@@ -635,7 +707,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
               </div>
             )}
 
-            <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined })}>
+            <button onClick={() => setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined })}>
               Clear Filters
             </button>
 
@@ -686,6 +758,42 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
                     <span>${selectedCapture.player_stack}</span>
                   </div>
                 </div>
+
+                {/* Error/Correction Info */}
+                {(selectedCapture.error_type || selectedCapture.parent_id) && (
+                  <div className="error-info-panel">
+                    {selectedCapture.error_type && (
+                      <div className="error-info-item">
+                        <label>Error Type:</label>
+                        <span className="error-type-value">{selectedCapture.error_type.replace(/_/g, ' ')}</span>
+                      </div>
+                    )}
+                    {selectedCapture.error_description && (
+                      <div className="error-info-item error-info-item--full">
+                        <label>Error:</label>
+                        <span>{selectedCapture.error_description}</span>
+                      </div>
+                    )}
+                    {selectedCapture.parent_id && (
+                      <div className="error-info-item">
+                        <label>Parent Capture:</label>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => fetchCaptureDetail(selectedCapture.parent_id!)}
+                        >
+                          #{selectedCapture.parent_id}
+                        </button>
+                      </div>
+                    )}
+                    {selectedCapture.correction_attempt != null && selectedCapture.correction_attempt > 0 && (
+                      <div className="error-info-item">
+                        <label>Correction Attempt:</label>
+                        <span>#{selectedCapture.correction_attempt}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Decision Analysis */}
                 {selectedAnalysis && (
@@ -1100,6 +1208,42 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
                   <span>${selectedCapture.player_stack}</span>
                 </div>
               </div>
+
+              {/* Error/Correction Info */}
+              {(selectedCapture.error_type || selectedCapture.parent_id) && (
+                <div className="error-info-panel">
+                  {selectedCapture.error_type && (
+                    <div className="error-info-item">
+                      <label>Error Type:</label>
+                      <span className="error-type-value">{selectedCapture.error_type.replace(/_/g, ' ')}</span>
+                    </div>
+                  )}
+                  {selectedCapture.error_description && (
+                    <div className="error-info-item error-info-item--full">
+                      <label>Error:</label>
+                      <span>{selectedCapture.error_description}</span>
+                    </div>
+                  )}
+                  {selectedCapture.parent_id && (
+                    <div className="error-info-item">
+                      <label>Parent Capture:</label>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => fetchCaptureDetail(selectedCapture.parent_id!)}
+                      >
+                        #{selectedCapture.parent_id}
+                      </button>
+                    </div>
+                  )}
+                  {selectedCapture.correction_attempt != null && selectedCapture.correction_attempt > 0 && (
+                    <div className="error-info-item">
+                      <label>Correction Attempt:</label>
+                      <span>#{selectedCapture.correction_attempt}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Decision Analysis */}
               {selectedAnalysis && (
@@ -1533,6 +1677,61 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
             />
           </div>
 
+          <div className="debugger-filter-group">
+            <label className="debugger-filter-label">Error Type</label>
+            <select
+              className="debugger-filter-select"
+              value={filters.error_type || ''}
+              onChange={(e) => {
+                setFilters({ ...filters, error_type: e.target.value || undefined, offset: 0 });
+              }}
+            >
+              <option value="">All Error Types</option>
+              <option value="malformed_json">Malformed JSON</option>
+              <option value="missing_field">Missing Field</option>
+              <option value="invalid_action">Invalid Action</option>
+              <option value="semantic_error">Semantic Error</option>
+            </select>
+          </div>
+
+          <div className="debugger-filter-group">
+            <label className="debugger-filter-label">Error Status</label>
+            <select
+              className="debugger-filter-select"
+              value={filters.has_error === undefined ? '' : filters.has_error.toString()}
+              onChange={(e) => {
+                setFilters({
+                  ...filters,
+                  has_error: e.target.value === '' ? undefined : e.target.value === 'true',
+                  offset: 0
+                });
+              }}
+            >
+              <option value="">All</option>
+              <option value="true">Has Error</option>
+              <option value="false">No Error</option>
+            </select>
+          </div>
+
+          <div className="debugger-filter-group">
+            <label className="debugger-filter-label">Correction</label>
+            <select
+              className="debugger-filter-select"
+              value={filters.is_correction === undefined ? '' : filters.is_correction.toString()}
+              onChange={(e) => {
+                setFilters({
+                  ...filters,
+                  is_correction: e.target.value === '' ? undefined : e.target.value === 'true',
+                  offset: 0
+                });
+              }}
+            >
+              <option value="">All</option>
+              <option value="false">Original Only</option>
+              <option value="true">Corrections Only</option>
+            </select>
+          </div>
+
           {/* Label filter chips */}
           {labelStats && Object.keys(labelStats).length > 0 && (
             <div className="debugger-filter-group">
@@ -1559,7 +1758,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange 
             <button
               className="debugger-filter-clear"
               onClick={() => {
-                setFilters({ limit: 50, offset: 0, labels: undefined });
+                setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined });
                 setFilterSheetOpen(false);
               }}
               type="button"
