@@ -530,16 +530,22 @@ function AdminTabWrapper() {
   const validTab = VALID_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'personalities';
 
   const handleBack = () => {
-    // On mobile, go back to admin menu; on desktop, go back to where they came from
+    // On mobile, go back to admin menu (replace history to preserve original back destination);
+    // on desktop, go back to where they came from
     if (isMobile) {
-      navigate('/admin');
+      navigate('/admin', { replace: true });
     } else {
       navigate(-1);
     }
   };
 
   const handleTabChange = (newTab: AdminTab) => {
-    navigate(`/admin/${newTab}`);
+    if (newTab) {
+      navigate(`/admin/${newTab}`);
+    } else {
+      // Going back to admin menu - replace history to preserve original back destination
+      navigate('/admin', { replace: true });
+    }
   };
 
   const handleCaptureSelect = useCaptureSelectHandler();

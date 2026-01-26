@@ -139,23 +139,20 @@
 .admin-main__content--mobile {
   padding: 0;
   width: 100%;
-  height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* Let children handle their own scroll */
+  display: block; /* Allow content to determine height for parent scroll */
 }
 
-.admin-main__content--mobile > * {
-  flex: 1;
-  width: 100%;
-  min-height: 0;
-}
-
-/* Ensure embedded components fill mobile space */
+/* Components that need to fill the viewport and manage their own scroll */
 .admin-main__content--mobile .experiment-designer--embedded {
   height: 100%;
   min-height: 0;
+}
+
+/* PersonalityManager needs padding for fixed action bar */
+.admin-main__content--mobile .pm-container--embedded {
+  padding: var(--space-4);
+  padding-bottom: 100px;
 }
 
 /* Responsive - Desktop adjustments */
