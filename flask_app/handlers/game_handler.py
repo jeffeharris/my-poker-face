@@ -1058,8 +1058,8 @@ def progress_game(game_id: str) -> None:
                     emit_hole_cards_reveal(game_id, game_state)
                     current_game_data['has_revealed_cards'] = True
                     game_state_service.set_game(game_id, current_game_data)
-                    # Extra pause (3 seconds) for players to see the cards
-                    socketio.sleep(3)
+                    # Extra pause (4 seconds) for players to see the cards
+                    socketio.sleep(4)
 
                 # Delay 2 seconds to let player see the community cards being dealt
                 socketio.sleep(2)
