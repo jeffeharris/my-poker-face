@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PageLayout } from '../shared';
 import { config } from '../../config';
+import menuBanner from '../../assets/menu-banner.png';
 import './LoginForm.css';
 
 interface LoginFormProps {
@@ -49,7 +50,11 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
   return (
     <PageLayout variant="centered" glowColor="gold" maxWidth="sm">
       <div className="login-form__container">
-        <h2>Welcome to My Poker Face</h2>
+        {/* Banner */}
+        <div className="login-form__banner">
+          <img src={menuBanner} alt="My Poker Face" className="login-form__banner-image" />
+        </div>
+
         <p className="login-form__subtitle">Enter your name to start playing</p>
 
         <div className="login-form__content">

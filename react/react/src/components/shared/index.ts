@@ -11,8 +11,8 @@ export type { BackButtonProps } from './BackButton';
 export { PageHeader } from './PageHeader';
 export type { PageHeaderProps } from './PageHeader';
 
-export { MobileHeader, PotDisplay, ChatToggle } from './MobileHeader';
-export type { MobileHeaderProps, PotDisplayProps, ChatToggleProps } from './MobileHeader';
+export { MobileHeader, PotDisplay, ChatToggle, GameInfoDisplay } from './MobileHeader';
+export type { MobileHeaderProps, PotDisplayProps, ChatToggleProps, GameInfoDisplayProps } from './MobileHeader';
 
 export { UserBadge } from './UserBadge';
 export type { UserBadgeProps } from './UserBadge';

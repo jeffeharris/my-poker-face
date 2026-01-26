@@ -1,5 +1,5 @@
 import { ChevronLeft } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
+import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { UserDropdown } from './UserDropdown';
 import './MenuBar.css';
 
@@ -12,6 +12,10 @@ export interface MenuBarProps {
   showBrand?: boolean;
   /** Show user badge + logout (default: true) */
   showUserInfo?: boolean;
+  /** Handler for navigating to main menu */
+  onMainMenu?: () => void;
+  /** Handler for navigating to admin tools */
+  onAdminTools?: () => void;
   /** Additional class name */
   className?: string;
 }
@@ -31,9 +35,12 @@ export function MenuBar({
   title,
   showBrand = false,
   showUserInfo = true,
+  onMainMenu,
+  onAdminTools,
   className = '',
 }: MenuBarProps) {
   const { user, logout: authLogout } = useAuth();
+  const canAccessAdmin = user ? hasPermission(user, 'can_access_admin_tools') : false;
 
   const handleLogout = async () => {
     await authLogout();
@@ -73,7 +80,12 @@ export function MenuBar({
       {/* Right section: User info */}
       <div className="menu-bar__right">
         {showUserInfo && user && (
-          <UserDropdown user={user} onLogout={handleLogout} />
+          <UserDropdown
+            user={{ ...user, can_access_admin_tools: canAccessAdmin }}
+            onLogout={handleLogout}
+            onMainMenu={onMainMenu}
+            onAdminTools={canAccessAdmin ? onAdminTools : undefined}
+          />
         )}
       </div>
     </header>

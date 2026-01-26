@@ -10,7 +10,7 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
-import { MobileHeader, PotDisplay, ChatToggle } from '../shared';
+import { MobileHeader, PotDisplay, ChatToggle, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { config } from '../../config';
 import './MobilePokerTable.css';
@@ -297,10 +297,16 @@ export function MobilePokerTable({
         </div>
       )}
 
-      {/* Header with back button and pot */}
+      {/* Header with back button and game info */}
       <MobileHeader
         onBack={onBack}
-        centerContent={<PotDisplay total={gameState.pot.total} />}
+        centerContent={
+          <GameInfoDisplay
+            phase={gameState.phase}
+            smallBlind={gameState.small_blind}
+            bigBlind={gameState.big_blind}
+          />
+        }
         rightContent={
           <ChatToggle
             onClick={() => setShowChatSheet(true)}
@@ -380,6 +386,11 @@ export function MobilePokerTable({
         )}
       </div>
 
+      {/* Floating Pot Display - between opponents and community cards */}
+      <div className="mobile-floating-pot">
+        <PotDisplay total={gameState.pot.total} />
+      </div>
+
       {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
@@ -392,7 +403,6 @@ export function MobilePokerTable({
             <div key={`placeholder-${i}`} className="community-card-placeholder" />
           ))}
         </div>
-        <div className="phase-indicator">{gameState.phase.replace('_', ' ')}</div>
       </div>
 
       {/* Floating AI Message */}

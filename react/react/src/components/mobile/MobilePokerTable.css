@@ -465,16 +465,44 @@
     box-shadow: var(--glow-gold);
 }
 
-/* Community Cards - 30% of viewport */
+/* Floating Pot Display - between opponents and community cards */
+.mobile-floating-pot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 5dvh;
+  min-height: 5dvh;
+  max-height: 5dvh;
+  z-index: 2;
+  position: relative;
+}
+
+/* Override pot styles for floating context - more compact */
+.mobile-floating-pot .mobile-pot {
+  padding: var(--space-1) var(--space-4);
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 20px rgba(212, 165, 116, 0.15);
+}
+
+.mobile-floating-pot .mobile-pot__label {
+  font-size: 10px;
+}
+
+.mobile-floating-pot .mobile-pot__amount {
+  font-size: var(--font-size-lg);
+}
+
+/* Community Cards - 25% of viewport (reduced from 30% to accommodate floating pot) */
 .mobile-community {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 8px 16px;
-    height: 30dvh;
-    min-height: 30dvh;
-    max-height: 30dvh;
+    height: 25dvh;
+    min-height: 25dvh;
+    max-height: 25dvh;
     box-sizing: border-box;
 }
 
@@ -492,7 +520,7 @@
 .community-cards-row .playing-card.card-back {
     width: 100% !important;
     height: auto !important;
-    max-height: calc(25dvh - 50px);
+    max-height: calc(20dvh - 50px);
     aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
 }
 
@@ -505,22 +533,13 @@
 /* Community card placeholder - fills grid cell */
 .community-card-placeholder {
     width: 100%;
-    max-height: calc(25dvh - 50px);
+    max-height: calc(20dvh - 50px);
     aspect-ratio: 500 / 726;
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed rgba(255, 255, 255, 0.2);
     border-radius: 6px;
 }
 
-.phase-indicator {
-    margin-top: 12px;
-    font-family: var(--font-display);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: var(--letter-spacing-widest);
-    color: var(--color-text-tertiary);
-    font-weight: var(--font-weight-semibold);
-}
 
 /* Hero Section - 29% of viewport (action bar overlays bottom 12%) */
 .mobile-hero {

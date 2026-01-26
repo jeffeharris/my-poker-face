@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronDown, LogOut } from 'lucide-react';
+import { ChevronDown, LogOut, Settings, Home } from 'lucide-react';
 import './UserDropdown.css';
 
 export interface UserDropdownProps {
@@ -7,8 +7,11 @@ export interface UserDropdownProps {
     name: string;
     is_guest: boolean;
     picture?: string;
+    can_access_admin_tools?: boolean;
   };
   onLogout: () => void;
+  onMainMenu?: () => void;
+  onAdminTools?: () => void;
 }
 
 /**
@@ -21,7 +24,7 @@ export interface UserDropdownProps {
  * - Escape key to close
  * - Smooth open/close animation
  */
-export function UserDropdown({ user, onLogout }: UserDropdownProps) {
+export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools }: UserDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -104,6 +107,28 @@ export function UserDropdown({ user, onLogout }: UserDropdownProps) {
       {/* Dropdown Menu */}
       {isOpen && (
         <div className="user-dropdown__menu" role="menu">
+          {onMainMenu && (
+            <button
+              className="user-dropdown__menu-item"
+              onClick={() => { setIsOpen(false); onMainMenu(); }}
+              role="menuitem"
+            >
+              <Home size={16} />
+              <span>Main Menu</span>
+            </button>
+          )}
+
+          {user.can_access_admin_tools && onAdminTools && (
+            <button
+              className="user-dropdown__menu-item"
+              onClick={() => { setIsOpen(false); onAdminTools(); }}
+              role="menuitem"
+            >
+              <Settings size={16} />
+              <span>Admin Tools</span>
+            </button>
+          )}
+
           <button
             className="user-dropdown__menu-item user-dropdown__menu-item--logout"
             onClick={handleLogout}

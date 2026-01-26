@@ -69,6 +69,32 @@ export function PotDisplay({ total }: PotDisplayProps) {
   );
 }
 
+export interface GameInfoDisplayProps {
+  phase: string;
+  smallBlind: number;
+  bigBlind: number;
+}
+
+/**
+ * Game info display for mobile header - shows phase and blinds.
+ */
+export function GameInfoDisplay({ phase, smallBlind, bigBlind }: GameInfoDisplayProps) {
+  // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
+  const formatPhase = (p: string) => {
+    return p
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join('-');
+  };
+
+  return (
+    <div className="mobile-game-info">
+      <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
+      <span className="mobile-game-info__blinds">${smallBlind}/${bigBlind}</span>
+    </div>
+  );
+}
+
 export interface ChatToggleProps {
   onClick: () => void;
   badgeCount?: number;

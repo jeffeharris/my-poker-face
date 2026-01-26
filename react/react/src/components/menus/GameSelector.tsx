@@ -84,7 +84,7 @@ export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelec
   if (loading) {
     return (
       <>
-        <MenuBar onBack={onBack} title="Saved Games" showUserInfo />
+        <MenuBar onBack={onBack} title="Saved Games" showUserInfo onMainMenu={onBack} />
         <PageLayout variant="centered" glowColor="amethyst" maxWidth="lg" hasMenuBar>
           <h2 className="game-selector__loading">Loading saved games...</h2>
         </PageLayout>
@@ -94,7 +94,7 @@ export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelec
 
   return (
     <>
-      <MenuBar onBack={onBack} title="Saved Games" showUserInfo />
+      <MenuBar onBack={onBack} title="Saved Games" showUserInfo onMainMenu={onBack} />
       <PageLayout variant="top" glowColor="amethyst" maxWidth="lg" hasMenuBar>
         <PageHeader
           title="Saved Games"

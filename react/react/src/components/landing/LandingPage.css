@@ -1,5 +1,20 @@
 /* LandingPage - Premium Poker Aesthetic */
 
+/* Banner */
+.landing__banner {
+  padding: 0;
+  margin-bottom: var(--space-4);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.landing__banner-image {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+}
+
 .landing {
   width: 100%;
   max-width: 720px;
@@ -173,6 +188,14 @@
 @media (max-width: 600px) {
   .landing {
     padding: var(--space-6);
+  }
+
+  .landing__banner {
+    margin-bottom: var(--space-2);
+  }
+
+  .landing__banner-image {
+    max-width: 85%;
   }
 
   .landing__hero {

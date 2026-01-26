@@ -18,7 +18,7 @@ export function CareerStats({ onBack }: CareerStatsProps) {
   if (loading) {
     return (
       <>
-        <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+        <MenuBar onBack={onBack} title="My Stats" showUserInfo onMainMenu={onBack} />
         <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
           <div className="career-stats-loading">
             <div className="loading-spinner" />
@@ -32,7 +32,7 @@ export function CareerStats({ onBack }: CareerStatsProps) {
   if (error) {
     return (
       <>
-        <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+        <MenuBar onBack={onBack} title="My Stats" showUserInfo onMainMenu={onBack} />
         <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
           <div className="career-stats-error">
             <span className="error-icon">!</span>
@@ -50,7 +50,7 @@ export function CareerStats({ onBack }: CareerStatsProps) {
   if (!stats || stats.games_played === 0) {
     return (
       <>
-        <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+        <MenuBar onBack={onBack} title="My Stats" showUserInfo onMainMenu={onBack} />
         <PageLayout variant="centered" glowColor="sapphire" hasMenuBar>
           <div className="career-stats-empty">
             <div className="empty-icon">&#x1F3B0;</div>
@@ -69,7 +69,7 @@ export function CareerStats({ onBack }: CareerStatsProps) {
 
   return (
     <>
-      <MenuBar onBack={onBack} title="My Stats" showUserInfo />
+      <MenuBar onBack={onBack} title="My Stats" showUserInfo onMainMenu={onBack} />
       <PageLayout variant="top" glowColor="sapphire" hasMenuBar>
         <PageHeader title="My Stats" />
 

@@ -92,7 +92,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
 
   return (
     <>
-      <MenuBar onBack={onBack} title="Themed Game" showUserInfo />
+      <MenuBar onBack={onBack} title="Themed Game" showUserInfo onMainMenu={onBack} />
       <PageLayout variant="top" glowColor="amber" maxWidth="lg" hasMenuBar>
         <PageHeader
           title="Choose Your Theme"

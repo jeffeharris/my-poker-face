@@ -1,6 +1,21 @@
 /* LoginForm - Premium Poker Aesthetic */
 /* Container and ambient styles now handled by PageLayout */
 
+/* Banner */
+.login-form__banner {
+  padding: 0;
+  margin-bottom: var(--space-4);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.login-form__banner-image {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+}
+
 .login-form__container {
   background: var(--gradient-card);
   backdrop-filter: blur(16px);

@@ -206,7 +206,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   return (
     <>
-      <MenuBar onBack={onBack} title="Custom Game" showUserInfo />
+      <MenuBar onBack={onBack} title="Custom Game" showUserInfo onMainMenu={onBack} />
       <PageLayout variant="top" glowColor="sapphire" maxWidth="xl" hasMenuBar>
         <PageHeader
           title="Custom Game Setup"

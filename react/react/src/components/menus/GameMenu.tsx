@@ -192,7 +192,7 @@ export function GameMenu({
 
   return (
     <>
-      <MenuBar showUserInfo />
+      <MenuBar showUserInfo onAdminTools={onAdminDashboard} />
       <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? undefined : 'md'} hasMenuBar>
         {/* Banner */}
         <div className="game-menu__banner">
