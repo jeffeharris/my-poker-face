@@ -1053,11 +1053,12 @@
   margin-left: 0;
 }
 
-/* Ensure small cards are appropriately sized */
+/* Cards sized relative to viewport */
 .opponent-revealed-cards .playing-card.image-card,
 .opponent-revealed-cards .playing-card.card-back {
-  width: 40px !important;
-  height: 58px !important;
+  width: 13vw !important;
+  height: auto !important;
+  aspect-ratio: 500 / 726;
 }
 
 @keyframes revealCardsSlideDown {
