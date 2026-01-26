@@ -89,7 +89,7 @@
 
 .raise-btn {
   background: var(--gradient-gold);
-  color: var(--color-bg-void);
+  color: var(--color-text-primary);
   box-shadow: var(--glow-gold), var(--shadow-md);
 }
 
