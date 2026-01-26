@@ -900,14 +900,9 @@
     flex-direction: column;
   }
 
-  /* When embedded in AdminMenuContainer, adjust layout */
+  /* When embedded in AdminMenuContainer, parent handles scrolling */
   .pm-container--embedded {
-    padding-bottom: 100px; /* Space for fixed action bar */
-  }
-
-  .pm-container--embedded .pm-sections {
-    flex: 1;
-    min-height: 0;
+    display: block; /* Natural flow, parent scrolls */
   }
 
   /* Action bar stays fixed even when embedded */

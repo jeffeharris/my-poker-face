@@ -52,4 +52,4 @@ sections:
     MIND GAMES: Pay attention to what opponents said in Recent Actions. Are they nervous? Overconfident? Trying to tilt you or bait you into a bad call? Use their words to read their hand - excessive trash talk often means weakness, while silence or short responses may signal strength. Let their table talk influence your decision.
 
   persona_response: |-
-    PERSONA RESPONSE: Talk directly to your opponents - taunt, trash talk, intimidate, or charm them. Stay in character as an exaggerated version of yourself. Reference specific opponents by name when needling them. Use your signature phrases and mannerisms. Mix up your energy - sometimes quiet menace, sometimes loud bravado. Emojis optional. Keep your actual hand SECRET - lie, misdirect, or stay cryptic.
+    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats. Each beat is either speech (plain text) or an action (*wrapped in asterisks*). Match intensity to the moment - routine hands get 0-1 beats, climactic moments get 3-5 beats building tension. Stay in character. Reference opponents by name when needling them. Keep your actual hand SECRET - lie, misdirect, or stay cryptic.

@@ -63,8 +63,37 @@ export interface PotDisplayProps {
 export function PotDisplay({ total }: PotDisplayProps) {
   return (
     <div className="mobile-pot">
-      <span className="mobile-pot__label">POT</span>
+      <span className="mobile-pot__label">POT:</span>
       <span className="mobile-pot__amount">${total}</span>
+    </div>
+  );
+}
+
+export interface GameInfoDisplayProps {
+  phase: string;
+  smallBlind: number;
+  bigBlind: number;
+}
+
+/**
+ * Game info display for mobile header - shows phase and blinds.
+ */
+export function GameInfoDisplay({ phase, smallBlind, bigBlind }: GameInfoDisplayProps) {
+  // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
+  const formatPhase = (p: string) => {
+    return p
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join('-');
+  };
+
+  // Fallback: small blind is typically half of big blind
+  const displaySmallBlind = smallBlind || Math.floor(bigBlind / 2);
+
+  return (
+    <div className="mobile-game-info">
+      <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
+      <span className="mobile-game-info__blinds">${displaySmallBlind}/${bigBlind}</span>
     </div>
   );
 }

@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { PartyPopper, Smile, Angry, Handshake, Trophy, ArrowLeft, Check, type LucideIcon } from "lucide-react";
+import { PartyPopper, Smile, Angry, Handshake, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
-import { getOrdinal } from "../../types/tournament";
+import { getOrdinal, type BackendCard } from "../../types/tournament";
 import type { PostRoundTone, PostRoundSuggestion } from "../../types/chat";
 import "./MobileWinnerAnnouncement.css";
 
 interface PlayerShowdownInfo {
-    cards: string[];
+    cards: string[] | BackendCard[];
     hand_name: string;
     hand_rank: number;
     kickers?: string[];
@@ -32,7 +32,7 @@ interface WinnerInfo {
     winning_hand?: string[];
     showdown: boolean;
     players_showdown?: { [key: string]: PlayerShowdownInfo };
-    community_cards?: string[];
+    community_cards?: string[] | BackendCard[];
     // Tournament final hand context
     is_final_hand?: boolean;
     tournament_outcome?: {
@@ -231,14 +231,27 @@ export function MobileWinnerAnnouncement({
     return (
         <div className="mobile-winner-overlay">
             <div className="mobile-winner-content">
-                <div className="winner-trophy"><Trophy size={48} /></div>
-
                 {/* Tournament Outcome Banner - only shown on final hand */}
                 {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
                     <div className={`mobile-tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}>
                         {winnerInfo.tournament_outcome.human_won
                             ? 'CHAMPION!'
                             : `Finished ${getOrdinal(winnerInfo.tournament_outcome.human_position)}`}
+                    </div>
+                )}
+
+                {/* Winner Announcement Header */}
+                {winnerInfo.showdown && (
+                    <div className="winner-header">
+                        <div className="winner-names">
+                            {winnerInfo.winners.length > 1
+                                ? `${winnerInfo.winners.join(' & ')} split`
+                                : `${winnerInfo.winners[0]} wins`}
+                        </div>
+                        <div className="winner-amount">${totalWinnings}</div>
+                        {winnerInfo.hand_name && !hasSidePots && (
+                            <div className="winner-hand-name">{winnerInfo.hand_name}</div>
+                        )}
                     </div>
                 )}
 

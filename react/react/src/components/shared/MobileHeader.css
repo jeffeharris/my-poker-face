@@ -50,26 +50,62 @@
 
 .mobile-pot {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  gap: 6px;
   background: rgba(0, 0, 0, 0.6);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-2xl);
   backdrop-filter: blur(8px);
+  border: 1px solid rgba(212, 165, 116, 0.2);
 }
 
 .mobile-pot__label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  color: var(--color-gold);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
   font-weight: var(--font-weight-semibold);
 }
 
 .mobile-pot__amount {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
-  color: #ffd700;
+  color: var(--color-gold-light);
+  text-shadow: 0 0 12px rgba(212, 165, 116, 0.4);
+}
+
+/* ===========================================
+   GAME INFO DISPLAY WIDGET (Phase + Blinds)
+   =========================================== */
+
+.mobile-game-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: rgba(0, 0, 0, 0.5);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-2xl);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-border-default);
+}
+
+.mobile-game-info__phase {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mobile-game-info__blinds {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-gold);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border-default);
 }
 
 /* ===========================================

@@ -7,6 +7,8 @@ interface User {
   is_guest: boolean;
   created_at: string;
   permissions?: string[];
+  email?: string;    // Available for Google users
+  picture?: string;  // Google profile picture URL
 }
 
 /**

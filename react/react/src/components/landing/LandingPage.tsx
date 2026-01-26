@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Monitor, MessageCircle, Brain, Flame } from 'lucide-react';
 import { PageLayout } from '../shared';
+import menuBanner from '../../assets/menu-banner.png';
 import './LandingPage.css';
 
 export function LandingPage() {
@@ -9,9 +10,13 @@ export function LandingPage() {
   return (
     <PageLayout variant="centered" glowColor="gold" maxWidth="md">
       <div className="landing">
+        {/* Banner */}
+        <div className="landing__banner">
+          <img src={menuBanner} alt="My Poker Face" className="landing__banner-image" />
+        </div>
+
         {/* Hero Section */}
         <header className="landing__hero">
-          <h1 className="landing__title">My Poker Face</h1>
           <p className="landing__tagline">
             Poker against AI that feels human - emotions, rivalries, and mind games
           </p>

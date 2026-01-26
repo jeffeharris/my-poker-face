@@ -65,6 +65,14 @@
   --color-cyan: #22d3ee;
   --color-rose: #fb7185;
 
+  --color-teal: #26a69a;
+  --color-teal-dark: #00897b;
+  --color-teal-muted: rgba(38, 166, 154, 0.15);
+
+  --color-indigo: #677eea;
+  --color-indigo-dark: #764ba2;
+  --color-indigo-muted: rgba(103, 126, 234, 0.15);
+
   /* Legacy color aliases for compatibility */
   --color-green: var(--color-emerald);
   --color-green-dark: var(--color-emerald-dark);
@@ -142,6 +150,8 @@
   --gradient-ruby: linear-gradient(135deg, var(--color-ruby) 0%, var(--color-ruby-dark) 100%);
   --gradient-amethyst: linear-gradient(135deg, var(--color-amethyst) 0%, var(--color-amethyst-dark) 100%);
   --gradient-amber: linear-gradient(135deg, var(--color-amber) 0%, var(--color-amber-dark) 100%);
+  --gradient-teal: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal-dark) 100%);
+  --gradient-indigo: linear-gradient(135deg, var(--color-indigo) 0%, var(--color-indigo-dark) 100%);
 
   /* Legacy gradient aliases */
   --gradient-green: var(--gradient-emerald);
@@ -252,6 +262,8 @@
   --glow-ruby: 0 0 20px rgba(244, 63, 94, 0.3), 0 0 40px rgba(244, 63, 94, 0.15);
   --glow-amethyst: 0 0 20px rgba(168, 85, 247, 0.3), 0 0 40px rgba(168, 85, 247, 0.15);
   --glow-amber: 0 0 20px rgba(245, 158, 11, 0.3), 0 0 40px rgba(245, 158, 11, 0.15);
+  --glow-teal: 0 0 20px rgba(38, 166, 154, 0.3), 0 0 40px rgba(38, 166, 154, 0.15);
+  --glow-indigo: 0 0 20px rgba(103, 126, 234, 0.3), 0 0 40px rgba(103, 126, 234, 0.15);
 
   /* Legacy shadow aliases */
   --shadow-green: var(--glow-emerald);

@@ -4,7 +4,7 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import { config } from '../../config';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import './ThemedGameSelector.css';
 
 interface Theme {
@@ -91,13 +91,14 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
   };
 
   return (
-    <PageLayout variant="top" glowColor="amber" maxWidth="lg">
-      <PageHeader
-        title="Choose Your Theme"
-        subtitle="Each theme brings together unique personalities for an unforgettable game!"
-        onBack={onBack}
-        titleVariant="themed"
-      />
+    <>
+      <MenuBar onBack={onBack} title="Themed Game" showUserInfo onMainMenu={onBack} />
+      <PageLayout variant="top" glowColor="amber" maxWidth="lg" hasMenuBar>
+        <PageHeader
+          title="Choose Your Theme"
+          subtitle="Each theme brings together unique personalities for an unforgettable game!"
+          titleVariant="primary"
+        />
 
         {error && (
           <div className="error-message">
@@ -126,7 +127,11 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
         {generating && (
           <div className="generating-overlay">
             <div className="generating-content">
-              <div className="generating-spinner">🎰</div>
+              <div className="generating-cards">
+                {['♠', '♥', '♦', '♣'].map((suit, i) => (
+                  <div key={i} className={`generating-card suit-${i}`}>{suit}</div>
+                ))}
+              </div>
               <h3>Assembling your table...</h3>
               <p>Finding the perfect personalities for your theme</p>
             </div>
@@ -138,6 +143,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
           Personalities won't be revealed until the game starts - it's part of the surprise!
         </p>
       </div>
-    </PageLayout>
+      </PageLayout>
+    </>
   );
 }

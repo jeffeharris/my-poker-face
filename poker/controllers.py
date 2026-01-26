@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import logging
 
 from core.card import Card, CardRenderer
@@ -9,6 +9,7 @@ from .poker_state_machine import PokerStateMachine
 from .poker_player import AIPokerPlayer
 from .utils import prepare_ui_data
 from .prompt_manager import PromptManager
+from .moment_analyzer import MomentAnalyzer
 from .chattiness_manager import ChattinessManager
 from .response_validator import ResponseValidator
 from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS, is_development_mode
@@ -28,6 +29,7 @@ from .ai_resilience import (
 )
 from .player_psychology import PlayerPsychology
 from .memory.commentary_generator import DecisionPlan
+from .decision_analyzer import calculate_max_winnable
 
 logger = logging.getLogger(__name__)
 
@@ -568,15 +570,15 @@ class AIPlayerController:
         game_state = self.state_machine.game_state
 
         # Build the decision prompt with situational guidance
-        decision_prompt = self._build_decision_prompt(message, context)
+        decision_prompt, drama_context = self._build_decision_prompt(message, context)
 
         # Track captures for linking
         parent_capture_id = [None]
         final_capture_id = [None]
         capture_enrichment = [None]
 
-        def make_enricher(parent_id=None, error_type=None, correction_attempt=0):
-            """Create an enricher callback with optional resilience fields."""
+        def make_enricher(parent_id=None, error_type=None, correction_attempt=0, drama_context=None):
+            """Create an enricher callback with resilience and drama context fields."""
             def enrich_capture(capture_data: Dict) -> Dict:
                 player = game_state.current_player
                 cost_to_call = context.get('call_amount', 0)
@@ -588,11 +590,28 @@ class AIPlayerController:
                 stack_bb = player_stack / big_blind if big_blind > 0 else None
                 already_bet_bb = already_bet / big_blind if big_blind > 0 else None
 
+                # Calculate effective pot odds for short-stack scenarios
+                effective_pot_odds = None
+                max_winnable = None
+                if cost_to_call > 0:
+                    all_players_bets = [(p.bet, p.is_folded) for p in game_state.players]
+                    max_winnable = calculate_max_winnable(
+                        player_bet=already_bet,
+                        player_stack=player_stack,
+                        cost_to_call=cost_to_call,
+                        all_players_bets=all_players_bets,
+                    )
+                    effective_pot = min(max_winnable, pot_total)
+                    effective_call = min(cost_to_call, player_stack)
+                    effective_pot_odds = effective_pot / effective_call if effective_call > 0 else None
+
                 enrichment = {
                     'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
                     'pot_total': pot_total,
                     'cost_to_call': cost_to_call,
                     'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
+                    'effective_pot_odds': effective_pot_odds,
+                    'max_winnable': max_winnable,
                     'player_stack': player_stack,
                     'stack_bb': round(stack_bb, 2) if stack_bb is not None else None,
                     'already_bet_bb': round(already_bet_bb, 2) if already_bet_bb is not None else None,
@@ -604,6 +623,8 @@ class AIPlayerController:
                     'parent_id': parent_id,
                     'error_type': error_type,
                     'correction_attempt': correction_attempt,
+                    # Drama context for auto-labeling
+                    'drama_context': drama_context,
                     '_on_captured': lambda cid: final_capture_id.__setitem__(0, cid),
                 }
                 capture_data.update(enrichment)
@@ -622,7 +643,7 @@ class AIPlayerController:
                 json_format=True,
                 hand_number=self.current_hand_number,
                 prompt_template='decision',
-                capture_enricher=make_enricher(),
+                capture_enricher=make_enricher(drama_context=drama_context),
             )
             original_response_json = llm_response.content
             parent_capture_id[0] = final_capture_id[0]
@@ -688,7 +709,8 @@ class AIPlayerController:
                     capture_enricher=make_enricher(
                         parent_id=parent_capture_id[0],
                         error_type=error_type.value,
-                        correction_attempt=1
+                        correction_attempt=1,
+                        drama_context=drama_context
                     ),
                 )
                 self._last_llm_response = correction_response
@@ -746,7 +768,15 @@ class AIPlayerController:
         response_dict = self._apply_final_fixes(response_dict, context, game_state)
 
         # Analyze decision quality (only for the final decision)
-        self._analyze_decision(response_dict, context, final_capture_id[0])
+        # Pass player bet info for max_winnable calculation in analyzer
+        player = game_state.current_player
+        self._analyze_decision(
+            response_dict,
+            context,
+            final_capture_id[0],
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
 
         # Update capture with final action
         if final_capture_id[0]:
@@ -762,13 +792,19 @@ class AIPlayerController:
 
         return response_dict
 
-    def _build_decision_prompt(self, message: str, context: Dict) -> str:
-        """Build the decision prompt with situational guidance."""
+    def _build_decision_prompt(self, message: str, context: Dict) -> tuple:
+        """Build the decision prompt with situational guidance.
+
+        Returns:
+            tuple: (prompt_string, drama_context_dict_or_none)
+        """
         game_state = self.state_machine.game_state
         player = game_state.current_player
         pot_committed_info = None
         short_stack_info = None
         made_hand_info = None
+        drama_context = None
+        hand_equity = 0.0  # Track for drama detection
 
         if self.prompt_config.situational_guidance:
             cost_to_call = context.get('call_amount', 0)
@@ -820,6 +856,7 @@ class AIPlayerController:
 
                 equity = calculate_quick_equity(hole_cards, community_cards)
                 if equity is not None:
+                    hand_equity = equity  # Store for drama detection
                     is_tilted = False
                     if self.psychology and self.psychology.emotional:
                         valence = self.psychology.emotional.valence
@@ -844,14 +881,32 @@ class AIPlayerController:
                             'tier': 'moderate'
                         }
 
-        return self.prompt_manager.render_decision_prompt(
+            # Drama level for response intensity calibration
+            analysis = MomentAnalyzer.analyze(
+                game_state=game_state,
+                player=player,
+                cost_to_call=cost_to_call,
+                big_blind=big_blind,
+                last_raise_amount=game_state.last_raise_amount,
+                hand_equity=hand_equity
+            )
+            drama_context = {
+                'level': analysis.level,
+                'factors': analysis.factors,
+                'tone': analysis.tone
+            }
+
+        prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
             include_persona_response=self.prompt_config.persona_response,
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
-            made_hand_info=made_hand_info
+            made_hand_info=made_hand_info,
+            drama_context=drama_context
         )
+
+        return (prompt, drama_context)
 
     def _normalize_response(self, response_dict: Dict) -> Dict:
         """Normalize response: lowercase action, convert raise_to to int."""
@@ -901,7 +956,14 @@ class AIPlayerController:
 
         return response_dict
 
-    def _analyze_decision(self, response_dict: Dict, context: Dict, capture_id: Optional[int] = None) -> None:
+    def _analyze_decision(
+        self,
+        response_dict: Dict,
+        context: Dict,
+        capture_id: Optional[int] = None,
+        player_bet: int = 0,
+        all_players_bets: Optional[List[Tuple[int, bool]]] = None,
+    ) -> None:
         """Analyze decision quality and save to database.
 
         This runs for EVERY AI decision to track quality metrics.
@@ -910,6 +972,8 @@ class AIPlayerController:
             response_dict: AI response with action and optional raise_to
             context: Game context dictionary
             capture_id: Optional ID of the prompt capture for linking
+            player_bet: Player's current round bet (for max_winnable calculation)
+            all_players_bets: List of (bet, is_folded) tuples for ALL players
         """
         if not self._persistence:
             return
@@ -1002,6 +1066,8 @@ class AIPlayerController:
                 player_position=player_position,
                 opponent_positions=opponent_positions,
                 opponent_infos=opponent_infos,
+                player_bet=player_bet,
+                all_players_bets=all_players_bets,
             )
 
             self._persistence.save_decision_analysis(analysis)

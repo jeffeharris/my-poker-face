@@ -2,16 +2,23 @@ import { useState, useEffect } from 'react';
 import type { TournamentResult } from '../../../types/tournament';
 import { getOrdinal } from '../../../types/tournament';
 import { WinnerAnnouncement } from '../WinnerAnnouncement/WinnerAnnouncement';
+import { MobileWinnerAnnouncement } from '../../mobile/MobileWinnerAnnouncement';
+import { useViewport } from '../../../hooks/useViewport';
 import './TournamentComplete.css';
 
 interface TournamentCompleteProps {
   result: (TournamentResult & { human_eliminated?: boolean }) | null;
   onComplete: () => void;
+  // For mobile final hand view
+  gameId?: string;
+  playerName?: string;
+  onSendMessage?: (text: string) => void;
 }
 
-export function TournamentComplete({ result, onComplete }: TournamentCompleteProps) {
+export function TournamentComplete({ result, onComplete, gameId, playerName, onSendMessage }: TournamentCompleteProps) {
   const [show, setShow] = useState(false);
   const [showFinalHand, setShowFinalHand] = useState(false);
+  const { isMobile } = useViewport();
 
   useEffect(() => {
     if (result) {
@@ -110,13 +117,26 @@ export function TournamentComplete({ result, onComplete }: TournamentCompletePro
 
       {/* Final Hand Overlay */}
       {showFinalHand && result.final_hand_data && (
-        <WinnerAnnouncement
-          winnerInfo={{
-            ...result.final_hand_data,
-            is_final_hand: false  // Override to enable normal dismiss behavior
-          }}
-          onComplete={() => setShowFinalHand(false)}
-        />
+        isMobile && gameId && playerName && onSendMessage ? (
+          <MobileWinnerAnnouncement
+            winnerInfo={{
+              ...result.final_hand_data,
+              is_final_hand: false  // Allow normal dismiss behavior
+            }}
+            onComplete={() => setShowFinalHand(false)}
+            gameId={gameId}
+            playerName={playerName}
+            onSendMessage={onSendMessage}
+          />
+        ) : (
+          <WinnerAnnouncement
+            winnerInfo={{
+              ...result.final_hand_data,
+              is_final_hand: false  // Override to enable normal dismiss behavior
+            }}
+            onComplete={() => setShowFinalHand(false)}
+          />
+        )
       )}
     </div>
   );

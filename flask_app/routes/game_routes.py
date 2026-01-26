@@ -24,7 +24,7 @@ from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
 from poker.memory.opponent_model import OpponentModelManager
 from poker.tournament_tracker import TournamentTracker
-from poker.character_images import get_avatar_url
+from poker.character_images import get_full_avatar_url
 
 from ..game_adapter import StateMachineAdapter
 from ..extensions import socketio, persistence, auth_manager, limiter
@@ -383,7 +383,7 @@ def api_game_state(game_id):
                 avatar_emotion = emotional_state.get_display_emotion()
             else:
                 avatar_emotion = 'confident'
-            avatar_url = get_avatar_url(player.name, avatar_emotion)
+            avatar_url = get_full_avatar_url(player.name, avatar_emotion)
 
         players.append({
             'name': player.name,

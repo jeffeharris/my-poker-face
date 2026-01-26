@@ -11,7 +11,6 @@ import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { CareerStats } from './components/stats/CareerStats'
 import { InstallPrompt } from './components/pwa/InstallPrompt'
-import { UserBadge } from './components/shared'
 import { GamePage } from './components/game/GamePage'
 import { AdminRoutes } from './components/admin/AdminRoutes'
 import { PrivacyPolicy, TermsOfService } from './components/legal'
@@ -50,7 +49,7 @@ const ROUTE_TITLES: Record<string, string> = {
 };
 
 function App() {
-  const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -247,11 +246,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     fetchSavedGamesCount();
   };
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
-
   // Show loading state while checking auth
   if (authLoading) {
     return (
@@ -263,16 +257,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   return (
     <>
-      {/* User info - only show on game menu screen */}
-      {isAuthenticated && user && location.pathname === '/menu' && (
-        <UserBadge
-          name={user.name}
-          isGuest={user.is_guest}
-          onLogout={handleLogout}
-          className="user-badge--fixed"
-        />
-      )}
-
       {/* Routes */}
       <Routes>
         {/* Public routes */}

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ChatMessage } from '../../../types';
+import { parseMessageInline } from '../../../utils/messages';
 import './ActivityFeed.css';
 
 interface ActivityFeedProps {
@@ -118,7 +119,7 @@ export function ActivityFeed({
               return (
                 <div key={item.id || idx} className="activity-item chat ai-chat">
                   <span className="activity-item__sender">{item.sender}:</span>
-                  <span className="activity-item__message">{item.message}</span>
+                  <span className="activity-item__message">{parseMessageInline(item.message)}</span>
                 </div>
               );
             }
