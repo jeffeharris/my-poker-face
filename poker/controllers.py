@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import logging
 
 from core.card import Card, CardRenderer
@@ -962,7 +962,7 @@ class AIPlayerController:
         context: Dict,
         capture_id: Optional[int] = None,
         player_bet: int = 0,
-        all_players_bets: Optional[List[tuple]] = None,
+        all_players_bets: Optional[List[Tuple[int, bool]]] = None,
     ) -> None:
         """Analyze decision quality and save to database.
 

@@ -9,7 +9,7 @@ import json
 import time
 import logging
 from dataclasses import dataclass, asdict
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def calculate_max_winnable(
     player_bet: int,
     player_stack: int,
     cost_to_call: int,
-    all_players_bets: List[tuple],
+    all_players_bets: List[Tuple[int, bool]],
 ) -> int:
     """Calculate max amount player can win, accounting for side pot limits.
 
@@ -207,7 +207,7 @@ class DecisionAnalyzer:
         opponent_positions: Optional[List[str]] = None,
         opponent_infos: Optional[List[Any]] = None,
         player_bet: int = 0,
-        all_players_bets: Optional[List[tuple]] = None,
+        all_players_bets: Optional[List[Tuple[int, bool]]] = None,
     ) -> DecisionAnalysis:
         """
         Analyze a decision and return analysis result.
