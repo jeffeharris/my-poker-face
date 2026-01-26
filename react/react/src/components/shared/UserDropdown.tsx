@@ -89,14 +89,6 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools }: UserD
           )}
         </div>
 
-        {/* Username */}
-        <span className="user-dropdown__name">
-          {user.name}
-          {user.is_guest && (
-            <span className="user-dropdown__guest-tag">(Guest)</span>
-          )}
-        </span>
-
         {/* Chevron */}
         <ChevronDown
           size={16}
@@ -107,6 +99,14 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools }: UserD
       {/* Dropdown Menu */}
       {isOpen && (
         <div className="user-dropdown__menu" role="menu">
+          {/* User info header */}
+          <div className="user-dropdown__header">
+            <span className="user-dropdown__header-name">{user.name}</span>
+            {user.is_guest && (
+              <span className="user-dropdown__header-guest">Guest</span>
+            )}
+          </div>
+
           {onMainMenu && (
             <button
               className="user-dropdown__menu-item"

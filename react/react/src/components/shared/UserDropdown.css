@@ -19,9 +19,9 @@
 .user-dropdown__trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: 42px;
-  padding: 4px 10px 4px 4px;
+  padding: 4px 8px 4px 4px;
   background: linear-gradient(
     135deg,
     rgba(212, 165, 116, 0.12) 0%,
@@ -91,25 +91,6 @@
 }
 
 /* ===========================================
-   USERNAME
-   =========================================== */
-.user-dropdown__name {
-  font-size: 14px;
-  font-weight: 500;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-dropdown__guest-tag {
-  margin-left: 4px;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 400;
-  font-size: 12px;
-}
-
-/* ===========================================
    CHEVRON
    =========================================== */
 .user-dropdown__chevron {
@@ -152,6 +133,35 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ===========================================
+   MENU HEADER (User Info)
+   =========================================== */
+.user-dropdown__header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+}
+
+.user-dropdown__header-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-gold, #d4a574);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-dropdown__header-guest {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* ===========================================
@@ -202,8 +212,8 @@
 @media (max-width: 640px) {
   .user-dropdown__trigger {
     height: 40px;
-    padding: 4px 8px 4px 4px;
-    gap: 6px;
+    padding: 4px 6px 4px 4px;
+    gap: 4px;
   }
 
   .user-dropdown__avatar {
@@ -215,15 +225,6 @@
     font-size: 13px;
   }
 
-  .user-dropdown__name {
-    font-size: 13px;
-    max-width: 80px;
-  }
-
-  .user-dropdown__guest-tag {
-    display: none;
-  }
-
   .user-dropdown__menu {
     min-width: 140px;
   }
@@ -233,22 +234,5 @@
     font-size: 13px;
     /* Ensure 44px min touch target */
     min-height: 44px;
-  }
-}
-
-/* Extra small screens */
-@media (max-width: 380px) {
-  .user-dropdown__name {
-    display: none;
-  }
-
-  .user-dropdown__trigger {
-    padding: 4px 8px 4px 4px;
-    gap: 4px;
-  }
-
-  .user-dropdown__avatar {
-    width: 34px;
-    height: 34px;
   }
 }
