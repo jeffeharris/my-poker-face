@@ -13,6 +13,7 @@ from flask_socketio import join_room
 
 from poker.controllers import AIPlayerController
 from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
+from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
@@ -773,6 +774,15 @@ def api_new_game():
     blinds_increase = data.get('blinds_increase', 6)
     max_blind = data.get('max_blind', 0)  # 0 = no limit
 
+    # Validate game mode (if provided)
+    game_mode = data.get('game_mode', 'casual').lower()
+    VALID_GAME_MODES = {'casual', 'standard', 'pro'}
+    if game_mode not in VALID_GAME_MODES:
+        return jsonify({
+            'error': f'Invalid game_mode: {game_mode}',
+            'valid_modes': list(VALID_GAME_MODES)
+        }), 400
+
     # Validate default LLM config if provided
     if default_llm_config:
         default_provider = default_llm_config.get('provider', 'openai').lower()
@@ -786,10 +796,11 @@ def api_new_game():
     if starting_stack < big_blind * 10:
         starting_stack = big_blind * 10
 
-    # Parse personalities - supports both string names and objects with llm_config
-    # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}}]
+    # Parse personalities - supports both string names and objects with llm_config/game_mode
+    # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}, "game_mode": "pro"}]
     ai_player_names = []
     player_llm_configs = {}  # Map of player_name -> llm_config
+    player_prompt_configs = {}  # Map of player_name -> prompt_config
 
     if requested_personalities:
         for p in requested_personalities:
@@ -812,6 +823,15 @@ def api_new_game():
                             return jsonify({'error': f'Invalid model {model} for provider {provider}'}), 400
                         # Merge with default config (per-player overrides default)
                         player_llm_configs[name] = {**default_llm_config, **p_llm_config}
+                    # Handle per-player game_mode override
+                    if 'game_mode' in p:
+                        p_mode = p['game_mode'].lower()
+                        if p_mode not in VALID_GAME_MODES:
+                            return jsonify({
+                                'error': f'Invalid game_mode for {name}: {p_mode}',
+                                'valid_modes': list(VALID_GAME_MODES)
+                            }), 400
+                        player_prompt_configs[name] = PromptConfig.from_mode_name(p_mode)
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
@@ -834,6 +854,9 @@ def api_new_game():
     # Generate game_id first so it can be passed to controllers for tracking
     game_id = generate_game_id()
 
+    # Create default game-level prompt config from game_mode
+    default_prompt_config = PromptConfig.from_mode_name(game_mode)
+
     ai_controllers = {}
     elasticity_manager = ElasticityManager()
 
@@ -841,10 +864,12 @@ def api_new_game():
         if not player.is_human:
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
+            player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
             new_controller = AIPlayerController(
                 player.name,
                 state_machine,
                 llm_config=player_config,
+                prompt_config=player_prompt_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 persistence=persistence
@@ -893,7 +918,9 @@ def api_new_game():
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': default_llm_config,  # Default config for new players
-        'player_llm_configs': player_llm_configs,  # Per-player overrides
+        'player_llm_configs': player_llm_configs,  # Per-player LLM overrides
+        'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
+        'default_game_mode': game_mode,  # Game-level mode setting
         'last_announced_phase': None,  # Track which phase we've announced cards for
         'messages': [{
             'id': '1',

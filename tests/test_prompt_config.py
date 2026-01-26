@@ -253,5 +253,68 @@ class TestPromptConfigIntegration(unittest.TestCase):
         self.assertIn("CRITICAL", result)
 
 
+class TestGameModes(unittest.TestCase):
+    """Tests for game mode factory methods."""
+
+    def test_casual_mode(self):
+        """Casual mode should use defaults (no equity shown)."""
+        config = PromptConfig.casual()
+        self.assertFalse(config.show_equity_always)
+        self.assertFalse(config.show_equity_verdict)
+        self.assertTrue(config.chattiness)
+        self.assertTrue(config.persona_response)
+
+    def test_standard_mode(self):
+        """Standard mode should show equity but not verdict."""
+        config = PromptConfig.standard()
+        self.assertTrue(config.show_equity_always)
+        self.assertFalse(config.show_equity_verdict)
+        self.assertTrue(config.chattiness)
+        self.assertTrue(config.persona_response)
+
+    def test_pro_mode(self):
+        """Pro mode should show equity + verdict, disable chattiness and persona."""
+        config = PromptConfig.pro()
+        self.assertTrue(config.show_equity_always)
+        self.assertTrue(config.show_equity_verdict)
+        self.assertFalse(config.chattiness)
+        self.assertFalse(config.persona_response)
+
+    def test_from_mode_name_valid(self):
+        """from_mode_name should resolve valid mode names."""
+        casual = PromptConfig.from_mode_name('casual')
+        self.assertEqual(casual.to_dict(), PromptConfig.casual().to_dict())
+
+        standard = PromptConfig.from_mode_name('standard')
+        self.assertEqual(standard.to_dict(), PromptConfig.standard().to_dict())
+
+        pro = PromptConfig.from_mode_name('pro')
+        self.assertEqual(pro.to_dict(), PromptConfig.pro().to_dict())
+
+    def test_from_mode_name_case_insensitive(self):
+        """from_mode_name should be case insensitive."""
+        self.assertEqual(
+            PromptConfig.from_mode_name('STANDARD').to_dict(),
+            PromptConfig.standard().to_dict()
+        )
+        self.assertEqual(
+            PromptConfig.from_mode_name('Pro').to_dict(),
+            PromptConfig.pro().to_dict()
+        )
+
+    def test_from_mode_name_invalid(self):
+        """from_mode_name should raise ValueError for invalid modes."""
+        with self.assertRaises(ValueError) as context:
+            PromptConfig.from_mode_name('invalid')
+        self.assertIn('Invalid game mode', str(context.exception))
+        self.assertIn('invalid', str(context.exception))
+
+    def test_casual_is_default(self):
+        """Casual mode should equal default PromptConfig."""
+        casual = PromptConfig.casual()
+        default = PromptConfig()
+        self.assertEqual(casual.to_dict(), default.to_dict())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

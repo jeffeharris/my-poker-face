@@ -98,12 +98,19 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
 
 
 def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
-                           num_simulations: int = 300) -> Optional[float]:
+                           num_simulations: int = 300,
+                           num_opponents: int = 1) -> Optional[float]:
     """
     Calculate quick equity estimate against random opponent hands.
 
     Uses Monte Carlo simulation with eval7. Returns equity as 0.0-1.0.
     ~30-50ms for 300 simulations - acceptable for real-time use.
+
+    Args:
+        hole_cards: Hero's hole cards
+        community_cards: Community cards on board
+        num_simulations: Number of Monte Carlo iterations
+        num_opponents: Number of opponents to simulate (important for multi-way pots)
     """
     if not community_cards:
         return None
@@ -120,19 +127,35 @@ def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
             for c in hand + board_cards:
                 deck.cards.remove(c)
             deck.shuffle()
-            opp_hand = list(deck.deal(2))
+
+            # Deal cards to all opponents
+            opponent_hands = []
+            for _ in range(num_opponents):
+                opp_hand = list(deck.deal(2))
+                opponent_hands.append(opp_hand)
 
             # Complete board if needed (flop/turn)
             remaining = 5 - len(board_cards)
             full_board = board_cards + list(deck.deal(remaining))
 
             hero_score = eval7.evaluate(hand + full_board)
-            opp_score = eval7.evaluate(opp_hand + full_board)
 
-            # Higher score = better hand in eval7
-            if hero_score > opp_score:
+            # Must beat ALL opponents to win
+            hero_wins = True
+            hero_ties = True
+            for opp_hand in opponent_hands:
+                opp_score = eval7.evaluate(opp_hand + full_board)
+                if opp_score > hero_score:
+                    hero_wins = False
+                    hero_ties = False
+                    break
+                elif opp_score < hero_score:
+                    hero_ties = False
+
+            if hero_wins and not hero_ties:
                 wins += 1
-            elif hero_score == opp_score:
+            elif hero_wins and hero_ties:
+                # Tie with all opponents - split pot
                 wins += 0.5
 
         return wins / num_simulations
@@ -641,7 +664,12 @@ class AIPlayerController:
                 hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
                 community_cards = [card_to_str(c) for c in game_state.community_cards]
 
-                equity = calculate_quick_equity(hole_cards, community_cards)
+                # Count opponents still in hand for accurate multi-way equity
+                num_opponents = len([
+                    p for p in game_state.players
+                    if not p.is_folded and p.name != player.name
+                ])
+                equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
                 if equity is not None:
                     # Get emotional state - negative valence = tilted
                     is_tilted = False
@@ -696,22 +724,33 @@ class AIPlayerController:
             hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
             community_cards = [card_to_str(c) for c in game_state.community_cards]
 
+            # Get opponents still in hand (needed for accurate multi-way equity)
+            opponents_in_hand = [
+                p for p in game_state.players
+                if not p.is_folded and p.name != player.name
+            ]
+            num_opponents = len(opponents_in_hand)
+
             # Calculate equity (post-flop) or use preflop estimates
             if community_cards:
-                equity = calculate_quick_equity(hole_cards, community_cards)
+                equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
             else:
                 # Preflop: use hand ranking as rough equity estimate
+                # These estimates are for heads-up; adjust for multi-way
                 canonical = _get_canonical_hand(hole_cards)
                 if canonical in PREMIUM_HANDS:
-                    equity = 0.75  # Premium hands ~75% equity vs random
+                    base_equity = 0.75  # Premium hands ~75% equity vs random
                 elif canonical in TOP_10_HANDS:
-                    equity = 0.65  # Top 10% ~65% equity
+                    base_equity = 0.65  # Top 10% ~65% equity
                 elif canonical in TOP_20_HANDS:
-                    equity = 0.55  # Top 20% ~55% equity
+                    base_equity = 0.55  # Top 20% ~55% equity
                 elif canonical in TOP_35_HANDS:
-                    equity = 0.50  # Top 35% ~50% equity
+                    base_equity = 0.50  # Top 35% ~50% equity
                 else:
-                    equity = 0.40  # Below average ~40% equity
+                    base_equity = 0.40  # Below average ~40% equity
+                # Rough multi-way adjustment: equity decreases with more opponents
+                # Simplified model: equity^(num_opponents) gives approximate multi-way equity
+                equity = base_equity ** max(1, num_opponents * 0.7) if num_opponents > 1 else base_equity
 
             if equity is not None:
                 equity_pct = round(equity * 100)
@@ -720,12 +759,6 @@ class AIPlayerController:
                 equity_ranges_pct = None
                 opponent_stats_str = ""
                 try:
-                    # Get opponents still in hand
-                    opponents_in_hand = [
-                        p for p in game_state.players
-                        if not p.is_folded and p.name != player.name
-                    ]
-
                     if opponents_in_hand:
                         # Get positions
                         table_positions = game_state.table_positions
@@ -766,16 +799,27 @@ class AIPlayerController:
                     logger.debug(f"Range equity calculation failed: {e}")
 
                 # Determine verdict (consider both equities)
+                # Range-based equity is more accurate than vs-random, so weight it heavily
                 if self.prompt_config.show_equity_verdict:
-                    if equity_pct >= required_equity:
-                        if equity_ranges_pct is not None and equity_ranges_pct >= required_equity:
-                            verdict = "CALL is +EV vs both"
-                        elif equity_ranges_pct is not None:
-                            verdict = f"CALL +EV vs random, MARGINAL vs ranges"
+                    if equity_ranges_pct is not None:
+                        # When we have range-based equity, use it as primary signal
+                        if equity_ranges_pct >= required_equity:
+                            if equity_pct >= required_equity:
+                                verdict = "CALL is +EV vs both"
+                            else:
+                                verdict = "CALL is +EV vs ranges"
+                        elif equity_ranges_pct >= required_equity * 0.85:
+                            # Close to break-even vs ranges - truly marginal
+                            verdict = "MARGINAL - close to break-even vs ranges"
                         else:
-                            verdict = "CALL is +EV"
+                            # Clearly below required equity vs ranges - fold
+                            verdict = "FOLD - below required equity vs ranges"
                     else:
-                        verdict = "FOLD is correct"
+                        # No range data, use random equity only
+                        if equity_pct >= required_equity:
+                            verdict = "CALL is +EV"
+                        else:
+                            verdict = "FOLD is correct"
                 else:
                     verdict = None
 

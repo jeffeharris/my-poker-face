@@ -140,3 +140,40 @@ class PromptConfig:
         if extras:
             parts.append(", ".join(extras))
         return f"PromptConfig({', '.join(parts)})"
+
+    # Game mode factory methods
+    @classmethod
+    def casual(cls) -> 'PromptConfig':
+        """Casual mode - personality-driven fun poker."""
+        return cls()  # Default config is casual
+
+    @classmethod
+    def standard(cls) -> 'PromptConfig':
+        """Standard mode - balanced personality + GTO awareness."""
+        return cls(
+            show_equity_always=True,
+            show_equity_verdict=False,
+        )
+
+    @classmethod
+    def pro(cls) -> 'PromptConfig':
+        """Pro mode - GTO-focused analytical poker."""
+        return cls(
+            show_equity_always=True,
+            show_equity_verdict=True,
+            chattiness=False,
+            persona_response=False,
+        )
+
+    @classmethod
+    def from_mode_name(cls, mode: str) -> 'PromptConfig':
+        """Resolve a game mode by name string."""
+        mode = mode.lower()
+        modes = {
+            'casual': cls.casual,
+            'standard': cls.standard,
+            'pro': cls.pro,
+        }
+        if mode not in modes:
+            raise ValueError(f"Invalid game mode: {mode}. Valid: {list(modes.keys())}")
+        return modes[mode]()

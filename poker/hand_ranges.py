@@ -1009,7 +1009,8 @@ def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
             # No observed stats - use position-based defaults
             from .hand_ranges import get_position_group, get_range_percentage
             pos_group = get_position_group(opp.position)
-            range_pct = int(get_range_percentage(pos_group) * 100)
+            # get_range_percentage already returns a percentage (e.g., 28.4), not a fraction
+            range_pct = int(get_range_percentage(pos_group))
             lines.append(f"  {pos_abbrev}: position-based (~{range_pct}% range)")
 
     return "\n".join(lines) if lines else ""
