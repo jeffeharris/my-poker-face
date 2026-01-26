@@ -901,11 +901,11 @@ class AIPlayerController:
         return response_dict
 
     def _apply_final_fixes(self, response_dict: Dict, context: Dict, game_state) -> Dict:
-        """Apply final fixes like extracting raise amount from persona_response.
+        """Apply final fixes to AI response.
 
         If bb_normalized mode is enabled, converts raise_to from BB to dollars.
+        Falls back to min_raise if raise action has no amount set.
         """
-        import re
         valid_actions = context.get('valid_actions', [])
         bb_normalized = self.prompt_config.bb_normalized
         big_blind = game_state.current_ante or 100
@@ -919,39 +919,16 @@ class AIPlayerController:
             response_dict['raise_to'] = dollar_value
             logger.debug(f"[BB_CONVERSION] {self.player_name} raise_to: {bb_value} BB → ${dollar_value}")
 
-        # Fix raise with 0 amount by extracting from persona_response
+        # Fix raise with 0 amount - fallback to min raise
+        # Note: The resilience layer should have already asked the AI to fix this,
+        # so this is a last-resort fallback if the AI still didn't provide an amount.
         if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) == 0:
-            persona_response = response_dict.get('persona_response', '')
             highest_bet = game_state.highest_bet
             min_raise = context.get('min_raise', MIN_RAISE)
-
-            # Try to extract raise amount from persona_response
-            extracted_amount = None
-
-            if bb_normalized:
-                # Match "raise to 8 BB" or "raise to 8.5 BB" or just "8 BB"
-                raise_match = re.search(r'(\d+(?:\.\d+)?)\s*BB', persona_response, re.IGNORECASE)
-                if raise_match:
-                    bb_amount = float(raise_match.group(1))
-                    extracted_amount = round(bb_amount * big_blind)
-                    response_dict['_raise_to_bb'] = bb_amount
-                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to {bb_amount} BB' (${extracted_amount})")
-            else:
-                # Original dollar-based extraction
-                raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
-                if raise_match:
-                    extracted_amount = int(raise_match.group(1))
-                    logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${extracted_amount}'")
-
-            # Apply extracted amount or fallback to min raise
-            if extracted_amount is not None:
-                response_dict['raise_to'] = extracted_amount
-            else:
-                min_raise_to = highest_bet + min_raise
-                response_dict['raise_to'] = min_raise_to
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
-
+            min_raise_to = highest_bet + min_raise
+            response_dict['raise_to'] = min_raise_to
             response_dict['raise_amount_corrected'] = True
+            logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
 
         # Validate action is in valid_actions
         if valid_actions and response_dict.get('action') not in valid_actions:
@@ -1320,6 +1297,7 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
             f"Pot Total: {_format_money(current_pot, big_blind, True)}\n"
             f"How much you've bet: {_format_money(current_bet, big_blind, True)}\n"
             f"Your cost to call: {_format_money(cost_to_call, big_blind, True)}\n"
+            f"Blinds: 0.5/1 BB\n"
         )
     else:
         pot_state = (
