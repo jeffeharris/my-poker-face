@@ -48,7 +48,7 @@ export function LoginForm({ onLogin, onCancel }: LoginFormProps) {
   };
 
   return (
-    <PageLayout variant="centered" glowColor="gold" maxWidth="sm">
+    <PageLayout variant="fixed" glowColor="gold" maxWidth="sm">
       <div className="login-form__container">
         {/* Banner */}
         <div className="login-form__banner">
