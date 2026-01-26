@@ -16,6 +16,17 @@ import type { AdminTab } from './AdminSidebar';
 const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
 
 /**
+ * Shared hook for capture selection with URL updates.
+ * Updates the URL without triggering React Router navigation/remount.
+ */
+function useCaptureSelectHandler() {
+  return useCallback((captureId: number | null) => {
+    const newPath = captureId ? `/admin/analyzer/${captureId}` : '/admin/analyzer';
+    window.history.replaceState(null, '', newPath);
+  }, []);
+}
+
+/**
  * Wrapper for experiment detail view with URL params
  */
 function ExperimentDetailWrapper() {
@@ -453,11 +464,7 @@ function DecisionAnalyzerWrapper() {
     navigate('/admin/analyzer');
   };
 
-  const handleCaptureSelect = useCallback((newCaptureId: number | null) => {
-    // Update URL without triggering navigation/remount
-    const newPath = newCaptureId ? `/admin/analyzer/${newCaptureId}` : '/admin/analyzer';
-    window.history.replaceState(null, '', newPath);
-  }, []);
+  const handleCaptureSelect = useCaptureSelectHandler();
 
   // Mobile layout
   if (isMobile) {
@@ -535,11 +542,7 @@ function AdminTabWrapper() {
     navigate(`/admin/${newTab}`);
   };
 
-  const handleCaptureSelect = useCallback((captureId: number | null) => {
-    // Update URL without triggering navigation/remount
-    const newPath = captureId ? `/admin/analyzer/${captureId}` : '/admin/analyzer';
-    window.history.replaceState(null, '', newPath);
-  }, []);
+  const handleCaptureSelect = useCaptureSelectHandler();
 
   return (
     <AdminDashboard

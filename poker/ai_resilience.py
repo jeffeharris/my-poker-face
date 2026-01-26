@@ -299,8 +299,11 @@ def classify_response_error(
         DecisionErrorType if error detected, None if response is valid
     """
     # Check for missing required action field
-    # Handle None, empty string, and whitespace-only values
-    action = (response_dict.get('action') or '').strip().lower()
+    # Handle None, empty string, whitespace-only values, and non-string types
+    action_raw = response_dict.get('action')
+    if not isinstance(action_raw, str):
+        return DecisionErrorType.MISSING_REQUIRED_FIELD
+    action = action_raw.strip().lower()
 
     if not action:
         return DecisionErrorType.MISSING_REQUIRED_FIELD

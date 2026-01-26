@@ -260,6 +260,8 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   };
 
   // Load initial capture from URL if provided
+  // Note: selectedCapture is intentionally excluded from deps to prevent re-fetching
+  // when user navigates away and back. We only want to load once per initialCaptureId.
   useEffect(() => {
     if (initialCaptureId && !selectedCapture) {
       fetchCaptureDetail(initialCaptureId, false);
@@ -775,7 +777,13 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     {selectedCapture.parent_id && (
                       <div className="error-info-item">
                         <label>Parent Capture:</label>
-                        <span>#{selectedCapture.parent_id}</span>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => fetchCaptureDetail(selectedCapture.parent_id!)}
+                        >
+                          #{selectedCapture.parent_id}
+                        </button>
                       </div>
                     )}
                     {selectedCapture.correction_attempt != null && selectedCapture.correction_attempt > 0 && (
@@ -1219,7 +1227,13 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                   {selectedCapture.parent_id && (
                     <div className="error-info-item">
                       <label>Parent Capture:</label>
-                      <span>#{selectedCapture.parent_id}</span>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => fetchCaptureDetail(selectedCapture.parent_id!)}
+                      >
+                        #{selectedCapture.parent_id}
+                      </button>
                     </div>
                   )}
                   {selectedCapture.correction_attempt != null && selectedCapture.correction_attempt > 0 && (

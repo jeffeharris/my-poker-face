@@ -2039,3 +2039,20 @@
   margin-top: 0.25rem;
   font-style: italic;
 }
+
+/* Link button for clickable parent capture IDs */
+.link-button {
+  background: none;
+  border: none;
+  color: #4dabf7;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-button:hover {
+  color: #74c0fc;
+}

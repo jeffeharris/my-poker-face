@@ -702,8 +702,28 @@ class AIPlayerController:
                     logger.info(f"[RESILIENCE] {self.player_name}: Recovery successful!")
                     response_dict = corrected_dict
                     error_type = None
+                    # Clear error from parent since recovery succeeded
+                    if parent_capture_id[0]:
+                        update_prompt_capture(
+                            parent_capture_id[0],
+                            error_type=None,
+                            error_description=None
+                        )
                 else:
                     logger.warning(f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})")
+                    # Record the correction's actual error details
+                    if final_capture_id[0]:
+                        if correction_error == DecisionErrorType.MALFORMED_JSON:
+                            correction_error_description = "Could not parse JSON response."
+                        else:
+                            correction_error_description = describe_response_error(
+                                correction_error, corrected_dict, valid_actions
+                            )
+                        update_prompt_capture(
+                            final_capture_id[0],
+                            error_type=correction_error.value,
+                            error_description=correction_error_description
+                        )
 
             except Exception as e:
                 logger.error(f"[RESILIENCE] {self.player_name}: Recovery attempt failed - {e}")

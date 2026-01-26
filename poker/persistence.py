@@ -2554,12 +2554,16 @@ class GamePersistence:
         columns = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
 
         if 'parent_id' not in columns:
-            conn.execute("ALTER TABLE prompt_captures ADD COLUMN parent_id INTEGER REFERENCES prompt_captures(id)")
+            # Note: SQLite doesn't enforce FK constraints added via ALTER TABLE, but we include
+            # the REFERENCES clause for documentation. The actual constraint is enforced by
+            # application logic. ON DELETE SET NULL matches the schema in _init_db().
+            conn.execute("ALTER TABLE prompt_captures ADD COLUMN parent_id INTEGER REFERENCES prompt_captures(id) ON DELETE SET NULL")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
             logger.info("Added parent_id column to prompt_captures")
 
         if 'error_type' not in columns:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_type TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_error_type ON prompt_captures(error_type)")
             logger.info("Added error_type column to prompt_captures")
 
         if 'error_description' not in columns:
