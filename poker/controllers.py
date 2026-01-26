@@ -876,7 +876,12 @@ class AIPlayerController:
         )
 
     def _normalize_response(self, response_dict: Dict) -> Dict:
-        """Normalize response: lowercase action, convert raise_to to int."""
+        """Normalize response: lowercase action, convert raise_to appropriately.
+
+        In BB-normalized mode, raise_to is kept as float to preserve decimal values
+        (e.g., 8.5 BB) until _apply_final_fixes converts to dollars.
+        In dollar mode, raise_to is converted to int immediately.
+        """
         if 'action' in response_dict and response_dict['action']:
             response_dict['action'] = response_dict['action'].lower()
 
@@ -884,7 +889,12 @@ class AIPlayerController:
             response_dict['raise_to'] = 0
         else:
             try:
-                response_dict['raise_to'] = int(response_dict['raise_to'])
+                value = float(response_dict['raise_to'])
+                # In BB mode, keep as float until _apply_final_fixes converts to dollars
+                # In dollar mode, convert to int immediately
+                if not self.prompt_config.bb_normalized:
+                    value = int(value)
+                response_dict['raise_to'] = value
             except (ValueError, TypeError):
                 response_dict['raise_to'] = 0
 
@@ -1272,8 +1282,8 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
             hand_strength = classify_preflop_hand(hole_cards)
         hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
-    # Get big_blind early for BB formatting
-    big_blind = game_state.current_ante
+    # Get big_blind early for BB formatting (with defensive fallback)
+    big_blind = game_state.current_ante or 100
 
     persona_state = (
         f"Persona: {persona}\n"
@@ -1284,13 +1294,13 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
         f"Your Stack: {_format_money(player_money, big_blind, bb_normalized)}\n"
     )
 
-    # Format opponent status with BB or dollars
-    opponent_status = [
+    # Format opponent status with BB or dollars (joined to avoid list brackets in prompt)
+    opponent_status = ''.join([
         f'{p.name} has {_format_money(p.stack, big_blind, bb_normalized)}'
         + (' and they have folded' if p.is_folded else '')
         + '.\n'
         for p in game_state.players
-    ]
+    ])
 
     hand_state = (
         # f"{current_situation}\n"
