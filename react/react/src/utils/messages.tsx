@@ -36,7 +36,7 @@ export function parseMessageBlock(text: string): React.ReactNode {
     if (beat.type === 'action') {
       return <div key={i} className="beat action"><em>{beat.text}</em></div>;
     }
-    return <div key={i} className="beat speech">{beat}</div>;
+    return <div key={i} className="beat speech">{beat.text}</div>;
   });
 }
 

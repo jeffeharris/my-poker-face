@@ -120,10 +120,10 @@ export function MobilePokerTable({
   const [isExiting, setIsExiting] = useState(false);
   const prevHandId = useRef<string | null>(null);
   // Display cards persist after fold so player can watch the action
-  const [displayCards, setDisplayCards] = useState<typeof humanPlayer.hand | null>(null);
+  const [displayCards, setDisplayCards] = useState<Player['hand'] | null>(null);
   const [displayTransforms, setDisplayTransforms] = useState<CardDealTransforms | null>(null);
   // Store pending cards during exit animation
-  const pendingCards = useRef<typeof humanPlayer.hand | null>(null);
+  const pendingCards = useRef<Player['hand'] | null>(null);
   const pendingTransforms = useRef<CardDealTransforms | null>(null);
 
   // Auto-scroll to center the active opponent when turn changes

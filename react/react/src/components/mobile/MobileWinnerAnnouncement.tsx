@@ -2,12 +2,12 @@ import { useEffect, useState, useCallback } from "react";
 import { PartyPopper, Smile, Angry, Handshake, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
-import { getOrdinal } from "../../types/tournament";
+import { getOrdinal, type BackendCard } from "../../types/tournament";
 import type { PostRoundTone, PostRoundSuggestion } from "../../types/chat";
 import "./MobileWinnerAnnouncement.css";
 
 interface PlayerShowdownInfo {
-    cards: string[];
+    cards: string[] | BackendCard[];
     hand_name: string;
     hand_rank: number;
     kickers?: string[];
@@ -32,7 +32,7 @@ interface WinnerInfo {
     winning_hand?: string[];
     showdown: boolean;
     players_showdown?: { [key: string]: PlayerShowdownInfo };
-    community_cards?: string[];
+    community_cards?: string[] | BackendCard[];
     // Tournament final hand context
     is_final_hand?: boolean;
     tournament_outcome?: {

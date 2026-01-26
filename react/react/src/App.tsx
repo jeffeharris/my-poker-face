@@ -49,7 +49,7 @@ const ROUTE_TITLES: Record<string, string> = {
 };
 
 function App() {
-  const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -244,11 +244,6 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   const handleGamesChanged = () => {
     fetchSavedGamesCount();
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
   };
 
   // Show loading state while checking auth
