@@ -240,6 +240,21 @@ export function MobileWinnerAnnouncement({
                     </div>
                 )}
 
+                {/* Winner Announcement Header */}
+                {winnerInfo.showdown && (
+                    <div className="winner-header">
+                        <div className="winner-names">
+                            {winnerInfo.winners.length > 1
+                                ? `${winnerInfo.winners.join(' & ')} split`
+                                : `${winnerInfo.winners[0]} wins`}
+                        </div>
+                        <div className="winner-amount">${totalWinnings}</div>
+                        {winnerInfo.hand_name && !hasSidePots && (
+                            <div className="winner-hand-name">{winnerInfo.hand_name}</div>
+                        )}
+                    </div>
+                )}
+
                 {/* Side pots summary - only shown when multiple pots */}
                 {hasSidePots && winnerInfo.pot_breakdown && (
                     <div className="side-pots-summary">
