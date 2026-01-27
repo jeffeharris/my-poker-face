@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 # v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
 # v54: Squashed features - heartbeat tracking, outcome columns, system presets
 # v55: Add last_game_created_at column to users table for duplicate game prevention
-SCHEMA_VERSION = 56
+# v56: Add exploitative guidance to pro and competitive presets
+# v57: Add raise_amount_bb to player_decision_analysis for BB-normalized mode
+SCHEMA_VERSION = 57
 
 
 @dataclass
@@ -639,6 +641,7 @@ class GamePersistence:
                     community_cards TEXT,
                     action_taken TEXT,
                     raise_amount INTEGER,
+                    raise_amount_bb REAL,
                     equity REAL,
                     required_equity REAL,
                     ev_call REAL,
@@ -960,6 +963,7 @@ class GamePersistence:
             54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
             55: (self._migrate_v55_add_last_game_created_at, "Add last_game_created_at to users for duplicate prevention"),
             56: (self._migrate_v56_add_exploitative_guidance, "Add exploitative guidance to pro and competitive presets"),
+            57: (self._migrate_v57_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2655,14 +2659,14 @@ class GamePersistence:
             {
                 'name': 'standard',
                 'description': 'Standard mode - balanced personality with GTO awareness (shows equity comparisons)',
-                'prompt_config': {'show_equity_always': True},
+                'prompt_config': {'gto_equity': True},
             },
             {
                 'name': 'pro',
                 'description': 'Pro mode - GTO-focused analytical poker with explicit equity verdicts',
                 'prompt_config': {
-                    'show_equity_always': True,
-                    'show_equity_verdict': True,
+                    'gto_equity': True,
+                    'gto_verdict': True,
                     'chattiness': False,
                     'persona_response': False,
                 },
@@ -2671,8 +2675,8 @@ class GamePersistence:
                 'name': 'competitive',
                 'description': 'Competitive mode - full GTO guidance with personality and trash talk',
                 'prompt_config': {
-                    'show_equity_always': True,
-                    'show_equity_verdict': True,
+                    'gto_equity': True,
+                    'gto_verdict': True,
                 },
             },
         ]
@@ -2721,6 +2725,20 @@ class GamePersistence:
         and synced on every app startup via sync_game_modes_from_yaml().
         """
         logger.info("Migration v56: no-op, YAML sync handles system preset updates")
+
+    def _migrate_v57_add_raise_amount_bb(self, conn: sqlite3.Connection) -> None:
+        """Migration v57: Add raise_amount_bb to player_decision_analysis.
+
+        This column stores the BB-normalized raise amount when BB mode
+        is enabled, allowing analysis of AI betting patterns in BB terms.
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()]
+
+        if 'raise_amount_bb' not in columns:
+            conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN raise_amount_bb REAL")
+            logger.info("Added raise_amount_bb column to player_decision_analysis")
+
+        logger.info("Migration v57 complete: raise_amount_bb added to player_decision_analysis")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -5460,13 +5478,13 @@ class GamePersistence:
                     game_id, player_name, hand_number, phase, player_position,
                     pot_total, cost_to_call, player_stack, num_opponents,
                     player_hand, community_cards,
-                    action_taken, raise_amount,
+                    action_taken, raise_amount, raise_amount_bb,
                     equity, required_equity, ev_call,
                     optimal_action, decision_quality, ev_lost,
                     hand_rank, relative_strength,
                     equity_vs_ranges, opponent_positions,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -5483,6 +5501,7 @@ class GamePersistence:
                 data.get('community_cards'),
                 data.get('action_taken'),
                 data.get('raise_amount'),
+                data.get('raise_amount_bb'),
                 data.get('equity'),
                 data.get('required_equity'),
                 data.get('ev_call'),

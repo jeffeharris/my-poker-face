@@ -127,80 +127,10 @@ The UI displays version and hash for each template.
 
 ---
 
-## Minimal Prompt System
+## Personality and Response Format Toggles
 
-An alternative to the full template system is the **minimal prompt**, which bypasses all YAML templates and provides only essential game state information.
+The unified prompt system supports baseline testing through `PromptConfig` toggles. See [CLAUDE.md](CLAUDE.md#personality-and-response-format-toggles) for full documentation.
 
-### Purpose
-
-The minimal prompt serves as a baseline for:
-1. Testing pure model poker ability without personality/psychology overhead
-2. A/B testing to measure the impact of prompt additions
-3. Comparing different LLM models on identical, simple prompts
-
-### Enabling
-
-Set `use_minimal_prompt: true` in PromptConfig:
-
-```python
-prompt_config = PromptConfig(use_minimal_prompt=True)
-```
-
-Or in experiment config JSON:
-```json
-{
-  "prompt_config": {
-    "use_minimal_prompt": true
-  }
-}
-```
-
-### Format
-
-The minimal prompt uses BB-normalized values and standard poker terminology:
-
-```
-You are playing No-Limit Texas Hold'em.
-
-Hand: Ah Kd
-Board: Js 7c 2h
-Street: Flop
-
-Position: CO
-Stack: 94.0 BB
-
-Pot: 7.0 BB
-To call: 3.0 BB
-Min raise to: 6.0 BB
-
-Players behind: BTN (102.0 BB), SB (45.0 BB)
-
-Respond in JSON. Valid actions:
-{"action": "fold"}
-{"action": "call"}
-{"action": "raise", "raise_to": <6.0-94.0>}
-```
-
-### Response Format
-
-Simple JSON with action and optional raise amount:
-```json
-{"action": "raise", "raise_to": 12}
-```
-
-### What's Excluded
-
-When minimal prompt is enabled, the following are bypassed:
-- All YAML templates (poker_player.yaml, decision.yaml, etc.)
-- Personality traits and personas
-- Psychological state (tilt, emotions)
-- Situational guidance (pot_committed, short_stack, made_hand)
-- Session memory and opponent modeling
-- Table talk and persona responses
-
-### Files
-
-- `poker/minimal_prompt.py` - Core implementation (BB normalization, position mapping, parsing)
-- `poker/controllers.py` - `_decide_action_minimal()` method
-- `experiments/run_minimal_prompt_test.py` - Test script
-- `experiments/configs/minimal_prompt_test.json` - Example config
+Quick reference:
+- `include_personality=False` - Generic poker player prompt (no personality)
+- `use_simple_response_format=True` - Simple `{"action", "raise_to"}` JSON only

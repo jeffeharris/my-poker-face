@@ -29,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 17)  # 15 bool + 1 int + 1 str
+        self.assertEqual(len(d), 18)  # 16 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
@@ -167,9 +167,9 @@ class TestPromptConfig(unittest.TestCase):
         """repr should show 'all enabled' when all booleans are True."""
         # Must explicitly set fields that default to False
         config = PromptConfig(
-            show_equity_always=True,
-            show_equity_verdict=True,
-            use_minimal_prompt=True
+            gto_equity=True,
+            gto_verdict=True,
+            use_simple_response_format=True,
         )
         self.assertIn('all enabled', repr(config))
 
@@ -266,24 +266,24 @@ class TestGameModes(unittest.TestCase):
     def test_casual_mode(self):
         """Casual mode should use defaults (no equity shown)."""
         config = PromptConfig.casual()
-        self.assertFalse(config.show_equity_always)
-        self.assertFalse(config.show_equity_verdict)
+        self.assertFalse(config.gto_equity)
+        self.assertFalse(config.gto_verdict)
         self.assertTrue(config.chattiness)
         self.assertTrue(config.persona_response)
 
     def test_standard_mode(self):
         """Standard mode should show equity but not verdict."""
         config = PromptConfig.standard()
-        self.assertTrue(config.show_equity_always)
-        self.assertFalse(config.show_equity_verdict)
+        self.assertTrue(config.gto_equity)
+        self.assertFalse(config.gto_verdict)
         self.assertTrue(config.chattiness)
         self.assertTrue(config.persona_response)
 
     def test_pro_mode(self):
         """Pro mode should show equity + verdict, disable chattiness and persona."""
         config = PromptConfig.pro()
-        self.assertTrue(config.show_equity_always)
-        self.assertTrue(config.show_equity_verdict)
+        self.assertTrue(config.gto_equity)
+        self.assertTrue(config.gto_verdict)
         self.assertFalse(config.chattiness)
         self.assertFalse(config.persona_response)
 

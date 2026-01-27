@@ -34,8 +34,10 @@ class PromptConfig:
         mind_games: MIND GAMES instruction (read opponent table talk)
         persona_response: PERSONA RESPONSE instruction (trash talk guidance)
         situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
-        show_equity_always: Always show equity vs required equity comparison for all decisions
-        show_equity_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
+        gto_equity: Always show equity vs required equity comparison for all decisions
+        gto_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
+        include_personality: Include personality system prompt (when False, uses generic prompt)
+        use_simple_response_format: Use simple JSON response format instead of rich format
         guidance_injection: Extra text to append to decision prompts (for experiments)
     """
 
@@ -62,14 +64,16 @@ class PromptConfig:
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand
 
     # GTO Foundation components (math-first decision support)
-    show_equity_always: bool = False  # Always show equity verdict for all decisions
-    show_equity_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
+    gto_equity: bool = False  # Always show equity verdict for all decisions
+    gto_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
     use_enhanced_ranges: bool = True   # Use PFR/action-based range estimation (vs VPIP-only)
 
-    # Minimal prompt mode - strips everything to bare game state
-    # When True, uses minimal_prompt.py instead of full prompt system
-    # Disables personality, psychology, guidance - just pure game theory inputs
-    use_minimal_prompt: bool = False
+    # Personality toggle — when False, uses a generic system prompt instead of personality
+    include_personality: bool = True
+
+    # Response format toggle
+    # When True, expect simple {"action": "...", "raise_to": ...} instead of rich format
+    use_simple_response_format: bool = False
 
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
@@ -85,10 +89,36 @@ class PromptConfig:
 
         Logs warnings for empty data or unknown fields, and errors are
         caught and logged with fallback to defaults.
+
+        Supports legacy field names for backward compatibility:
+        - show_equity_always -> gto_equity
+        - show_equity_verdict -> gto_verdict
         """
         if not data:
             logger.warning("PromptConfig.from_dict called with empty/None data, using defaults")
             return cls()
+
+        # Migrate legacy field names
+        data = dict(data)  # Don't mutate caller's dict
+        # Drop removed fields silently
+        data.pop('bb_normalized', None)
+        data.pop('use_dollar_amounts', None)
+
+        if 'show_equity_always' in data and 'gto_equity' not in data:
+            data['gto_equity'] = data.pop('show_equity_always')
+        elif 'show_equity_always' in data:
+            data.pop('show_equity_always')
+
+        if 'show_equity_verdict' in data and 'gto_verdict' not in data:
+            data['gto_verdict'] = data.pop('show_equity_verdict')
+        elif 'show_equity_verdict' in data:
+            data.pop('show_equity_verdict')
+
+        # Migrate use_minimal_prompt -> include_personality + use_simple_response_format
+        if 'use_minimal_prompt' in data:
+            if data.pop('use_minimal_prompt'):
+                data['include_personality'] = False
+                data['use_simple_response_format'] = True
 
         # Get known field names
         known_fields = {f.name for f in fields(cls)}
@@ -156,8 +186,8 @@ class PromptConfig:
     def standard(cls) -> 'PromptConfig':
         """Standard mode - balanced personality + GTO awareness."""
         return cls(
-            show_equity_always=True,
-            show_equity_verdict=False,
+            gto_equity=True,
+            gto_verdict=False,
         )
 
     EXPLOITATIVE_GUIDANCE = (
@@ -172,8 +202,8 @@ class PromptConfig:
     def pro(cls) -> 'PromptConfig':
         """Pro mode - GTO-focused analytical poker with exploitative adjustments."""
         return cls(
-            show_equity_always=True,
-            show_equity_verdict=True,
+            gto_equity=True,
+            gto_verdict=True,
             chattiness=False,
             persona_response=False,
             guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
@@ -183,8 +213,8 @@ class PromptConfig:
     def competitive(cls) -> 'PromptConfig':
         """Competitive mode - full GTO guidance with personality and trash talk."""
         return cls(
-            show_equity_always=True,
-            show_equity_verdict=True,
+            gto_equity=True,
+            gto_verdict=True,
             guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 
