@@ -67,6 +67,18 @@ def _format_money(amount: int, big_blind: int, as_bb: bool) -> str:
     return f"{bb_value:.2f} BB"
 
 
+def _convert_messages_to_bb(messages: str, big_blind: int) -> str:
+    """Convert dollar amounts in messages to BB format for AI prompts."""
+    import re
+
+    def replace_dollar(match):
+        amount = int(match.group(1))
+        bb_value = amount / big_blind
+        return f"{bb_value:.2f} BB"
+
+    return re.sub(r'\$(\d+)', replace_dollar, messages)
+
+
 def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
     """
     Evaluate hand strength and return a human-readable description.
@@ -1248,8 +1260,6 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
     # if len(action_comment_list) > 0:
     #     action_summary = hand_state["table_manager"].summarize_actions_for_player(
     #         action_comment_list[-number_of_opponents:], self.name)
-    action_summary = messages
-
     # Evaluate hand strength - preflop uses classification, post-flop uses eval7
     hand_strength_line = ""
     if include_hand_strength:
@@ -1261,6 +1271,9 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
 
     # Get big_blind early for BB formatting (with defensive fallback)
     big_blind = game_state.current_ante or 100
+
+    # Convert dollar amounts in messages to BB if bb_normalized mode is active
+    action_summary = _convert_messages_to_bb(messages, big_blind) if bb_normalized else messages
 
     persona_state = (
         f"Persona: {persona}\n"

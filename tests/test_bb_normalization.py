@@ -1,11 +1,11 @@
 """
 Tests for BB (Big Blind) normalization functionality.
 
-Tests the _format_money helper and BB-to-dollar conversion logic
-used when PromptConfig.bb_normalized is enabled.
+Tests the _format_money helper, message conversion, and BB-to-dollar
+conversion logic used when PromptConfig.bb_normalized is enabled.
 """
 import unittest
-from poker.controllers import _format_money
+from poker.controllers import _format_money, _convert_messages_to_bb
 
 
 class TestFormatMoney(unittest.TestCase):
@@ -83,6 +83,46 @@ class TestBBConversionMath(unittest.TestCase):
         big_blind = 100
         dollar_value = round(bb_value * big_blind)
         self.assertEqual(dollar_value, 333)
+
+
+class TestConvertMessagesToBB(unittest.TestCase):
+    """Tests for converting dollar amounts in messages to BB format."""
+
+    def test_raise_message(self):
+        """Raise messages should convert dollar amounts to BB."""
+        msg = "Batman raises to $500."
+        result = _convert_messages_to_bb(msg, big_blind=50)
+        self.assertEqual(result, "Batman raises to 10.00 BB.")
+
+    def test_bet_message(self):
+        """Bet messages should convert dollar amounts to BB."""
+        msg = "Superman bets $100."
+        result = _convert_messages_to_bb(msg, big_blind=50)
+        self.assertEqual(result, "Superman bets 2.00 BB.")
+
+    def test_no_dollar_amounts(self):
+        """Messages without dollar amounts should pass through unchanged."""
+        msg = "Batman checks."
+        result = _convert_messages_to_bb(msg, big_blind=50)
+        self.assertEqual(result, "Batman checks.")
+
+    def test_multiple_amounts(self):
+        """Multiple dollar amounts in one string should all convert."""
+        msg = "Pot is $200, Batman raises to $500."
+        result = _convert_messages_to_bb(msg, big_blind=100)
+        self.assertEqual(result, "Pot is 2.00 BB, Batman raises to 5.00 BB.")
+
+    def test_multiline_messages(self):
+        """Conversion should work across multiple lines."""
+        msg = "This hand:\n  Batman raises to $500.\n  Superman calls."
+        result = _convert_messages_to_bb(msg, big_blind=100)
+        self.assertEqual(result, "This hand:\n  Batman raises to 5.00 BB.\n  Superman calls.")
+
+    def test_fractional_bb(self):
+        """Non-round BB values should show 2 decimal places."""
+        msg = "Batman raises to $75."
+        result = _convert_messages_to_bb(msg, big_blind=100)
+        self.assertEqual(result, "Batman raises to 0.75 BB.")
 
 
 if __name__ == '__main__':
