@@ -22,7 +22,7 @@ class GameStateAdapter:
         """Get available actions for the current player."""
         options = []
 
-        if self._game_state.awaiting_action:
+        if self._game_state.awaiting_action and not self._game_state.run_it_out:
             current_player = self._game_state.current_player
             cost_to_call = self._game_state.highest_bet - current_player.bet
 

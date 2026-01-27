@@ -273,7 +273,7 @@ def update_and_emit_game_state(game_id: str) -> None:
     game_state_dict['small_blind_idx'] = game_state.small_blind_idx
     game_state_dict['big_blind_idx'] = game_state.big_blind_idx
     game_state_dict['highest_bet'] = game_state.highest_bet
-    game_state_dict['player_options'] = list(game_state.current_player_options) if game_state.current_player_options else []
+    game_state_dict['player_options'] = [] if game_state.run_it_out else (list(game_state.current_player_options) if game_state.current_player_options else [])
     game_state_dict['min_raise'] = game_state.min_raise_amount
     game_state_dict['big_blind'] = game_state.current_ante
     game_state_dict['phase'] = str(current_game_data['state_machine'].current_phase).split('.')[-1]
