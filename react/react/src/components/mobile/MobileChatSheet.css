@@ -237,36 +237,49 @@
 }
 
 .mcs-msg-table {
-  background: rgba(212, 165, 116, 0.06);
-  border-color: rgba(212, 165, 116, 0.1);
-  font-style: italic;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 4px 0;
   align-self: center;
-  max-width: 85%;
+  max-width: 90%;
   text-align: center;
-}
-
-.mcs-msg-table .mcs-msg-sender {
-  color: rgba(212, 165, 116, 0.65);
 }
 
 .mcs-msg-table .mcs-msg-text {
-  color: var(--color-text-tertiary);
+  color: rgba(212, 165, 116, 0.55);
+  font-size: 12px;
+  font-style: italic;
+  letter-spacing: 0.02em;
 }
 
-.mcs-msg-system {
-  background: rgba(245, 158, 11, 0.06);
-  border-color: rgba(245, 158, 11, 0.1);
-  align-self: center;
-  max-width: 85%;
-  text-align: center;
+/* System messages are filtered out in MobileChatSheet.tsx */
+
+/* Hand separator */
+.mcs-hand-separator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  margin: 8px 0 4px;
 }
 
-.mcs-msg-system .mcs-msg-sender {
-  color: rgba(245, 158, 11, 0.7);
+.mcs-hand-separator::before,
+.mcs-hand-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(212, 165, 116, 0.18);
 }
 
-.mcs-msg-system .mcs-msg-text {
-  color: var(--color-text-tertiary);
+.mcs-hand-separator-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(212, 165, 116, 0.4);
+  white-space: nowrap;
 }
 
 /* ============================================

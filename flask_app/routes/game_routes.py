@@ -954,10 +954,10 @@ def api_new_game():
         'last_announced_phase': None,  # Track which phase we've announced cards for
         'messages': [{
             'id': '1',
-            'sender': 'System',
-            'content': 'New game started! Good luck!',
+            'sender': 'Table',
+            'content': '***   GAME START   ***',
             'timestamp': datetime.now().isoformat(),
-            'type': 'system'
+            'type': 'table'
         }]
     }
     game_state_service.set_game(game_id, game_data)

@@ -133,12 +133,36 @@ export function MobileChatSheet({
               <span className="mcs-empty-text">No messages yet. Start the conversation!</span>
             </div>
           ) : (
-            displayMessages.map((msg, i) => (
-              <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}`}>
-                <span className="mcs-msg-sender">{msg.sender}</span>
-                <span className="mcs-msg-text">{msg.message}</span>
-              </div>
-            ))
+            displayMessages.map((msg, i) => {
+              // Render hand/game markers as visual separators
+              if (msg.type === 'table' && msg.message.includes('GAME START')) {
+                return (
+                  <div key={msg.id || i} className="mcs-hand-separator">
+                    <span className="mcs-hand-separator-label">Game Start</span>
+                  </div>
+                );
+              }
+              if (msg.type === 'table' && msg.message.includes('NEW HAND DEALT')) {
+                return (
+                  <div key={msg.id || i} className="mcs-hand-separator">
+                    <span className="mcs-hand-separator-label">New Hand</span>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}`}>
+                  {msg.type === 'table' ? (
+                    <span className="mcs-msg-text">{msg.message}</span>
+                  ) : (
+                    <>
+                      <span className="mcs-msg-sender">{msg.sender}</span>
+                      <span className="mcs-msg-text">{msg.message}</span>
+                    </>
+                  )}
+                </div>
+              );
+            })
           )}
           <div ref={messagesEndRef} />
         </div>
