@@ -87,8 +87,6 @@ export function QuickChatSuggestions({
 
   // Get AI players (non-human, not folded)
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
-
-
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Cooldown check (skip if force refresh)
     const now = Date.now();

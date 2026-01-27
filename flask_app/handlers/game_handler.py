@@ -837,6 +837,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Award winnings FIRST so chip counts are updated
     game_state = award_pot_winnings(game_state, winner_info)
 
+    if not winning_player_names:
+        logger.error(f"[Game {game_id}] No winning player names found in pot_breakdown")
+        return game_state, False
+
     # Prepare winner announcement data
     winning_players_string = (', '.join(winning_player_names[:-1]) +
                               f" and {winning_player_names[-1]}") if len(winning_player_names) > 1 else winning_player_names[0]
@@ -877,12 +881,13 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             f"Winning hand: {winner_info['winning_hand']}"
         )
         # Build structured win_result for rich chat rendering
-        # Get winner's hole cards (use first winner for display)
-        winner_player = next(
-            (p for p in game_state.players if p.name == winning_player_names[0]),
-            None
-        )
-        winner_hole_cards = [str(c) for c in winner_player.hand] if winner_player and winner_player.hand else []
+        winner_hole_cards = []
+        if winning_player_names:
+            winner_player = next(
+                (p for p in game_state.players if p.name == winning_player_names[0]),
+                None
+            )
+            winner_hole_cards = [str(c) for c in winner_player.hand] if winner_player and winner_player.hand else []
         community_card_strings = [str(c) for c in game_state.community_cards]
         win_result = {
             'winners': winning_players_string,

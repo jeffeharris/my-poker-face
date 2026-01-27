@@ -6,38 +6,21 @@ import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { parseMessageBlock } from '../../utils/messages';
 import './MobileChatSheet.css';
 
-/** Parse a card string like "A♠" or "10♥" into { rank, suit, color } */
-function parseCard(raw: string): { rank: string; suit: string; color: 'red' | 'white' } | null {
-  const match = raw.match(/^(\d{1,2}|[AKQJ])([♠♥♦♣])$/);
+type ParsedCard = { rank: string; suit: string; color: 'red' | 'white' };
+
+function parseCard(raw: string): ParsedCard | null {
+  const match = raw.match(/^(10|[2-9]|[AKQJ])([♠♥♦♣])$/);
   if (!match) return null;
   const [, rank, suit] = match;
   const color = suit === '♥' || suit === '♦' ? 'red' : 'white';
   return { rank, suit, color };
 }
 
-/** Render structured card-deal data as formatted card chips */
-function renderCardDeal(phase: string, cards: string[]): React.ReactNode {
-  const parsed = cards.map(c => parseCard(c)).filter(Boolean) as { rank: string; suit: string; color: 'red' | 'white' }[];
-  const label = phase.charAt(0).toUpperCase() + phase.slice(1);
-
-  return (
-    <span className="mcs-card-deal">
-      <span className="mcs-card-phase">{label}</span>
-      <span className="mcs-card-row">
-        {parsed.map((card, i) => (
-          <span key={i} className={`mcs-card mcs-card-${card.color}`}>
-            <span className="mcs-card-rank">{card.rank}</span>
-            <span className="mcs-card-suit">{card.suit}</span>
-          </span>
-        ))}
-      </span>
-    </span>
-  );
+function parseCards(cards: string[]): ParsedCard[] {
+  return cards.map(c => parseCard(c)).filter(Boolean) as ParsedCard[];
 }
 
-/** Render a row of card chips from card strings */
-function renderCardRow(cards: string[]): React.ReactNode {
-  const parsed = cards.map(c => parseCard(c)).filter(Boolean) as { rank: string; suit: string; color: 'red' | 'white' }[];
+function renderCardChips(parsed: ParsedCard[]): React.ReactNode {
   return (
     <span className="mcs-card-row">
       {parsed.map((card, i) => (
@@ -50,7 +33,20 @@ function renderCardRow(cards: string[]): React.ReactNode {
   );
 }
 
-/** Render structured win result as formatted display */
+function renderCardDeal(phase: string, cards: string[]): React.ReactNode {
+  const label = phase.charAt(0).toUpperCase() + phase.slice(1);
+  return (
+    <span className="mcs-card-deal">
+      <span className="mcs-card-phase">{label}</span>
+      {renderCardChips(parseCards(cards))}
+    </span>
+  );
+}
+
+function renderCardRow(cards: string[]): React.ReactNode {
+  return renderCardChips(parseCards(cards));
+}
+
 function renderWinResult(wr: WinResult): React.ReactNode {
   if (!wr.is_showdown) {
     // Fold-out: simple text
@@ -130,9 +126,19 @@ export function MobileChatSheet({
   const dragStartY = useRef(0);
   const dragCurrentY = useRef(0);
   const isDragging = useRef(false);
+  const dragTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Track whether the sheet just opened vs already open
   const wasOpenRef = useRef(false);
+
+  // Clean up drag timeouts on unmount
+  useEffect(() => {
+    return () => {
+      clearTimeout(dragTimeoutRef.current);
+      clearTimeout(snapTimeoutRef.current);
+    };
+  }, []);
 
   // Scroll to bottom: instant on open, smooth for new messages
   useEffect(() => {
@@ -197,7 +203,7 @@ export function MobileChatSheet({
       // Dismiss — animate out from current position
       sheet.style.transition = 'transform 0.25s ease-in';
       sheet.style.transform = 'translateY(100%)';
-      setTimeout(() => {
+      dragTimeoutRef.current = setTimeout(() => {
         sheet.style.transition = '';
         sheet.style.transform = '';
         onClose();
@@ -206,7 +212,7 @@ export function MobileChatSheet({
       // Snap back
       sheet.style.transition = 'transform 0.2s ease-out';
       sheet.style.transform = 'translateY(0)';
-      setTimeout(() => {
+      snapTimeoutRef.current = setTimeout(() => {
         sheet.style.transition = '';
       }, 200);
     }
@@ -284,14 +290,14 @@ export function MobileChatSheet({
               // Render hand/game markers as visual separators
               if (msg.type === 'table' && msg.message.includes('GAME START')) {
                 return (
-                  <div key={msg.id || i} className="mcs-hand-separator">
+                  <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className="mcs-hand-separator">
                     <span className="mcs-hand-separator-label">Game Start</span>
                   </div>
                 );
               }
               if (msg.type === 'table' && msg.message.includes('NEW HAND DEALT')) {
                 return (
-                  <div key={msg.id || i} className="mcs-hand-separator">
+                  <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className="mcs-hand-separator">
                     <span className="mcs-hand-separator-label">New Hand</span>
                   </div>
                 );
@@ -300,7 +306,7 @@ export function MobileChatSheet({
               const isCardDeal = msg.type === 'table' && msg.phase && msg.cards;
               const isWinResult = msg.type === 'table' && msg.win_result;
               return (
-                <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}`}>
+                <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}`}>
                   {isWinResult ? (
                     <span className="mcs-msg-text">
                       {renderWinResult(msg.win_result!)}
@@ -327,8 +333,12 @@ export function MobileChatSheet({
         {/* Input area with tabs */}
         <div className="mcs-input-area">
           {/* Tab switcher */}
-          <div className="mcs-tabs">
+          <div className="mcs-tabs" role="tablist" aria-label="Chat input mode">
             <button
+              role="tab"
+              aria-selected={activeTab === 'quick'}
+              aria-controls="mcs-tabpanel-quick"
+              aria-label="Switch to Quick Chat mode"
               className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''}`}
               onClick={() => setActiveTab('quick')}
             >
@@ -336,6 +346,10 @@ export function MobileChatSheet({
               <span>Quick Chat</span>
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'keyboard'}
+              aria-controls="mcs-tabpanel-keyboard"
+              aria-label="Switch to keyboard input mode"
               className={`mcs-tab ${activeTab === 'keyboard' ? 'mcs-tab-active' : ''}`}
               onClick={() => setActiveTab('keyboard')}
             >
@@ -345,7 +359,7 @@ export function MobileChatSheet({
           </div>
 
           {/* Tab content */}
-          <div className="mcs-tab-content" ref={tabContentRef}>
+          <div className="mcs-tab-content" ref={tabContentRef} role="tabpanel" id={`mcs-tabpanel-${activeTab}`}>
             {activeTab === 'quick' ? (
               <div className="mcs-quick-chat-wrapper">
                 <QuickChatSuggestions
@@ -381,8 +395,9 @@ export function MobileChatSheet({
                   type="submit"
                   className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
                   disabled={!inputValue.trim()}
+                  aria-label="Send message"
                 >
-                  <Send size={22} />
+                  <Send size={22} aria-hidden="true" />
                 </button>
               </form>
             )}

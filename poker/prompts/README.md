@@ -98,7 +98,7 @@ Targeted chat for psychological tactics:
 - `instruction`: Specific tactic instructions
 - `response_format`: Response format
 
-Templates: tilt, false_confidence, doubt, goad, mislead, befriend, table
+Templates: tilt, bait, needle, goad, bluff, befriend, table
 
 ### post_round_*.yaml
 Post-round reactions based on outcome:
