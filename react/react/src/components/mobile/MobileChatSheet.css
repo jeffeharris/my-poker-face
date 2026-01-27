@@ -78,7 +78,7 @@
   height: 4px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.18);
-  margin: 0 auto 10px;
+  flex-shrink: 0;
 }
 
 .mcs-header-row {
@@ -98,23 +98,36 @@
 }
 
 .mcs-close-btn {
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
+  padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--color-text-secondary);
+  background: none;
+  background-color: transparent;
+  color: rgba(255, 255, 255, 0.75);
   cursor: pointer;
   transition: all 0.15s ease;
   -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.mcs-close-btn svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 2.5;
 }
 
 .mcs-close-btn:active {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--color-text-primary);
+  background: transparent;
+  color: #fff;
   transform: scale(0.92);
 }
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Keyboard, Zap, Send, ChevronDown } from 'lucide-react';
+import { X, Keyboard, Zap, Send } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
@@ -103,13 +103,13 @@ export function MobileChatSheet({
         className={`mcs-sheet ${isClosing ? 'mcs-sheet-closing' : ''}`}
         onClick={e => e.stopPropagation()}
       >
-        {/* Drag handle + header */}
+        {/* Header with drag handle centered in row */}
         <div className="mcs-header">
-          <div className="mcs-drag-handle" />
           <div className="mcs-header-row">
             <h3 className="mcs-title">Chat</h3>
+            <div className="mcs-drag-handle" />
             <button className="mcs-close-btn" onClick={handleClose} aria-label="Close chat">
-              <ChevronDown size={22} />
+              <X size={20} />
             </button>
           </div>
         </div>
