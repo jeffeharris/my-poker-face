@@ -174,6 +174,9 @@ export function MobilePokerTable({
   const isHeadsUp = opponents.length === 1;
   const headsUpOpponent = isHeadsUp ? opponents[0] : null;
 
+  // Two opponents mode: 2 AI opponents (3 players total)
+  const isTwoOpponents = opponents.length === 2;
+
   const showActionButtons = currentPlayer?.is_human &&
                            !currentPlayer.is_folded &&
                            gameState?.player_options &&
@@ -233,7 +236,7 @@ export function MobilePokerTable({
       <div className="menu-bar-spacer" />
 
       {/* Opponents Strip */}
-      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
+      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -249,7 +252,7 @@ export function MobilePokerTable({
                   opponentRefs.current.delete(opponent.name);
                 }
               }}
-              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''}`}
+              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''} ${isTwoOpponents ? 'two-opponents-avatar' : ''}`}
             >
               <div
                 className={`opponent-avatar ${config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'debug-enabled' : ''}`}

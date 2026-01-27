@@ -1009,6 +1009,49 @@
 }
 
 /* =================================
+   TWO OPPONENTS MODE
+   When 2 AI opponents remain (3 players)
+   ================================= */
+
+.mobile-opponents.two-opponents-mode {
+  justify-content: center;
+  gap: 12px;
+  overflow-x: hidden; /* No scrolling needed with 2 opponents */
+  /* Constrain total width so opponents share fixed space */
+  max-width: 88vw;
+  margin: 0 auto;
+  padding-left: 6vw;
+  padding-right: 6vw;
+}
+
+/* Disable centering spacers in two-opponents mode */
+.mobile-opponents.two-opponents-mode::before,
+.mobile-opponents.two-opponents-mode::after {
+  display: none;
+}
+
+/* Flexible avatars that share the space */
+.mobile-opponent.two-opponents-avatar {
+  /* Remove fixed width, use flex to share space */
+  width: auto;
+  min-width: 0;
+  flex: 1 1 40%;
+  max-width: 48%;
+  transition: flex 0.4s ease-out, max-width 0.4s ease-out;
+}
+
+/* When thinking, take more space (other shrinks to accommodate) */
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking {
+  flex: 1.5 1 50%;
+  max-width: 58%;
+}
+
+/* Non-thinking opponent shrinks when sibling is thinking */
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar:not(.thinking) {
+  flex: 0.8 1 35%;
+}
+
+/* =================================
    HEADS-UP MODE
    When only 1 AI opponent remains
    ================================= */
@@ -1020,17 +1063,25 @@
   overflow-x: hidden; /* No scrolling needed in heads-up */
 }
 
-/* Wider avatar in heads-up mode */
-.mobile-opponent.heads-up-avatar {
-  width: 55vw;
-  min-width: 55vw;
-  transition: width 0.4s ease-out, min-width 0.4s ease-out;
+/* Disable centering spacers in heads-up mode - panel takes the space instead */
+.mobile-opponents.heads-up-mode::before,
+.mobile-opponents.heads-up-mode::after {
+  display: none;
 }
 
-/* When thinking in heads-up, don't expand further */
+/* Avatar and panel share space via flex */
+.mobile-opponent.heads-up-avatar {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 45%;
+  max-width: 45%;
+  transition: flex 0.3s ease-out, max-width 0.3s ease-out;
+}
+
+/* When thinking, grow slightly but leave room for panel */
 .mobile-opponents.heads-up-mode .mobile-opponent.heads-up-avatar.thinking {
-  width: 55vw;
-  min-width: 55vw;
+  flex: 0 0 50%;
+  max-width: 50%;
 }
 
 /* =================================
