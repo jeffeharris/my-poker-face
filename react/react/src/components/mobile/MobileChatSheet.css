@@ -204,7 +204,7 @@
 .mcs-msg-sender {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 12px;
+  font-size: inherit;
   margin-right: 7px;
   color: var(--color-text-secondary);
 }
@@ -212,6 +212,11 @@
 .mcs-msg-text {
   color: var(--color-text-primary);
   word-break: break-word;
+}
+
+.mcs-msg-text .beat.action em {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 /* Message type variants */
@@ -256,15 +261,14 @@
 /* Card deal messages */
 .mcs-card-deal {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   font-style: normal;
 }
 
 .mcs-card-phase {
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: clamp(13px, 3.2vw, 15px);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -294,7 +298,7 @@
 }
 
 .mcs-card-suit {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .mcs-card-white .mcs-card-rank {

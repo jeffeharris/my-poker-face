@@ -3,6 +3,7 @@ import { X, Keyboard, Zap, Send } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { parseMessageBlock } from '../../utils/messages';
 import './MobileChatSheet.css';
 
 /** Parse a card string like "A♠" or "10♥" into { rank, suit, color } */
@@ -190,7 +191,7 @@ export function MobileChatSheet({
                   ) : (
                     <>
                       <span className="mcs-msg-sender">{msg.sender}</span>
-                      <span className="mcs-msg-text">{msg.message}</span>
+                      <span className="mcs-msg-text">{parseMessageBlock(msg.message)}</span>
                     </>
                   )}
                 </div>
