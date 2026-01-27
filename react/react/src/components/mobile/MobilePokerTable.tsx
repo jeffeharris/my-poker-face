@@ -7,7 +7,7 @@ import { MobileActionButtons } from './MobileActionButtons';
 import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
-import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
+import { MobileChatSheet } from './MobileChatSheet';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
@@ -33,7 +33,6 @@ export function MobilePokerTable({
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
-  const chatMessagesRef = useRef<HTMLDivElement>(null);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -92,17 +91,6 @@ export function MobilePokerTable({
       window.location.href = '/';
     }
   }, [gameId, clearTournamentResult, onBack]);
-
-  // Scroll chat to bottom only when first opened
-  useEffect(() => {
-    if (showChatSheet && chatMessagesRef.current) {
-      setTimeout(() => {
-        if (chatMessagesRef.current) {
-          chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
-        }
-      }, 0);
-    }
-  }, [showChatSheet]);
 
   const currentPlayer = gameState?.players[gameState.current_player_idx];
   const humanPlayer = gameState?.players.find(p => p.is_human);
@@ -481,52 +469,16 @@ export function MobilePokerTable({
         />
       )}
 
-      {/* Chat Sheet (bottom drawer) - Quick Chat prioritized at top */}
-      {showChatSheet && (
-        <div className="chat-sheet-overlay" onClick={() => setShowChatSheet(false)}>
-          <div className="chat-sheet" onClick={e => e.stopPropagation()}>
-            <div className="chat-sheet-header">
-              <h3>Table Chat</h3>
-              <button onClick={() => setShowChatSheet(false)}><X size={20} /></button>
-            </div>
-            {/* Quick Chat at top - expanded by default */}
-            {providedGameId && gameState?.players && (
-              <QuickChatSuggestions
-                gameId={providedGameId}
-                playerName={playerName || 'Player'}
-                players={gameState.players}
-                defaultExpanded={true}
-                onSelectSuggestion={(text) => {
-                  handleSendMessage(text);
-                }}
-              />
-            )}
-            {/* Message history below */}
-            <div className="chat-sheet-messages" ref={chatMessagesRef}>
-              {messages.slice(-50).map((msg, i) => (
-                <div key={msg.id || i} className={`chat-msg ${msg.type}`}>
-                  <span className="chat-sender">{msg.sender}:</span>
-                  <span className="chat-text">{msg.message}</span>
-                </div>
-              ))}
-            </div>
-            <form
-              className="chat-sheet-input"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const input = e.currentTarget.querySelector('input');
-                if (input?.value.trim()) {
-                  handleSendMessage(input.value.trim());
-                  input.value = '';
-                }
-              }}
-            >
-              <input type="text" placeholder="Say something..." />
-              <button type="submit">Send</button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}
+      <MobileChatSheet
+        isOpen={showChatSheet}
+        onClose={() => setShowChatSheet(false)}
+        messages={messages}
+        onSendMessage={handleSendMessage}
+        gameId={providedGameId || ''}
+        playerName={playerName || 'Player'}
+        players={gameState?.players || []}
+      />
 
       {/* LLM Debug Modal */}
       <LLMDebugModal

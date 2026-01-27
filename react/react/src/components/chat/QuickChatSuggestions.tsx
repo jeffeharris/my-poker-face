@@ -21,6 +21,7 @@ interface QuickChatSuggestionsProps {
   onSelectSuggestion: (text: string) => void;
   defaultExpanded?: boolean;
   hideHeader?: boolean;
+  onSuggestionsLoaded?: () => void;
 }
 
 interface ToneOption {
@@ -45,7 +46,8 @@ export function QuickChatSuggestions({
   lastAction,
   onSelectSuggestion,
   defaultExpanded = false,
-  hideHeader = false
+  hideHeader = false,
+  onSuggestionsLoaded
 }: QuickChatSuggestionsProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
@@ -130,8 +132,9 @@ export function QuickChatSuggestions({
     } finally {
       setLoading(false);
       setContainerHeight(null); // Release fixed height
+      onSuggestionsLoaded?.();
     }
-  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey]);
+  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey, onSuggestionsLoaded]);
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {
@@ -140,6 +143,7 @@ export function QuickChatSuggestions({
       const cached = suggestionsCache.current[cacheKey];
       if (cached) {
         setSuggestions(cached);
+        onSuggestionsLoaded?.();
       } else {
         // No cache - capture height and fetch new suggestions
         if (suggestionsRef.current) {
@@ -158,6 +162,7 @@ export function QuickChatSuggestions({
       const cached = suggestionsCache.current[cacheKey];
       if (cached) {
         setSuggestions(cached);
+        onSuggestionsLoaded?.();
       } else {
         // Capture height before fetching
         if (suggestionsRef.current) {
@@ -178,6 +183,7 @@ export function QuickChatSuggestions({
       const cached = suggestionsCache.current[cacheKey];
       if (cached) {
         setSuggestions(cached);
+        onSuggestionsLoaded?.();
       } else {
         // Capture height before fetching
         if (suggestionsRef.current) {
