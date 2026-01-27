@@ -35,12 +35,22 @@ export function MobileChatSheet({
   const inputRef = useRef<HTMLInputElement>(null);
   const tabContentRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom when messages change or sheet opens
+  // Track whether the sheet just opened vs already open
+  const wasOpenRef = useRef(false);
+
+  // Scroll to bottom: instant on open, smooth for new messages
   useEffect(() => {
     if (isOpen && messagesEndRef.current) {
+      const justOpened = !wasOpenRef.current;
+      wasOpenRef.current = true;
       setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+        messagesEndRef.current?.scrollIntoView({
+          behavior: justOpened ? 'instant' : 'smooth',
+        });
+      }, justOpened ? 0 : 100);
+    }
+    if (!isOpen) {
+      wasOpenRef.current = false;
     }
   }, [isOpen, messages.length]);
 
