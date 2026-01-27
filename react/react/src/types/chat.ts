@@ -5,6 +5,8 @@ export interface ChatMessage {
   timestamp: string;
   type: 'player' | 'ai' | 'table' | 'system';
   action?: string;  // Optional action text (e.g., "raised to $50") for AI messages
+  phase?: string;   // Optional game phase for card-deal messages (e.g., "flop")
+  cards?: string[]; // Optional card strings for card-deal messages (e.g., ["A♠", "K♦"])
 }
 
 /**
@@ -18,6 +20,8 @@ export interface BackendChatMessage {
   timestamp: string;
   message_type: ChatMessage['type'];
   action?: string;  // Optional action text for AI messages
+  phase?: string;   // Optional game phase for card-deal messages
+  cards?: string[]; // Optional card strings for card-deal messages
 }
 
 /**

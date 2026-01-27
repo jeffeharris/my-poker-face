@@ -182,7 +182,7 @@
 .mcs-msg {
   padding: 7px 11px;
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: clamp(15px, 3.6vw, 17px);
   line-height: 1.4;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.04);
@@ -248,9 +248,69 @@
 
 .mcs-msg-table .mcs-msg-text {
   color: rgba(212, 165, 116, 0.55);
-  font-size: 12px;
+  font-size: clamp(14px, 3.4vw, 16px);
   font-style: italic;
   letter-spacing: 0.02em;
+}
+
+/* Card deal messages */
+.mcs-card-deal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-style: normal;
+}
+
+.mcs-card-phase {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(212, 165, 116, 0.45);
+}
+
+.mcs-card-row {
+  display: flex;
+  gap: 5px;
+}
+
+.mcs-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: var(--font-display);
+  line-height: 1;
+}
+
+.mcs-card-rank {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mcs-card-suit {
+  font-size: 12px;
+}
+
+.mcs-card-white .mcs-card-rank {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.mcs-card-white .mcs-card-suit {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.mcs-card-red .mcs-card-rank {
+  color: #e85d5d;
+}
+
+.mcs-card-red .mcs-card-suit {
+  color: #d94848;
 }
 
 /* System messages are filtered out in MobileChatSheet.tsx */

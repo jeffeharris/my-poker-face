@@ -96,7 +96,10 @@ export function GameProvider({ children }: GameProviderProps) {
         sender: msg.sender,
         message: msg.content,
         timestamp: msg.timestamp,
-        type: msg.message_type
+        type: msg.message_type,
+        ...(msg.action && { action: msg.action }),
+        ...(msg.phase && { phase: msg.phase }),
+        ...(msg.cards && { cards: msg.cards }),
       };
 
       appendNewMessages([transformedMessage]);

@@ -5,6 +5,35 @@ import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import './MobileChatSheet.css';
 
+/** Parse a card string like "A♠" or "10♥" into { rank, suit, color } */
+function parseCard(raw: string): { rank: string; suit: string; color: 'red' | 'white' } | null {
+  const match = raw.match(/^(\d{1,2}|[AKQJ])([♠♥♦♣])$/);
+  if (!match) return null;
+  const [, rank, suit] = match;
+  const color = suit === '♥' || suit === '♦' ? 'red' : 'white';
+  return { rank, suit, color };
+}
+
+/** Render structured card-deal data as formatted card chips */
+function renderCardDeal(phase: string, cards: string[]): React.ReactNode {
+  const parsed = cards.map(c => parseCard(c)).filter(Boolean) as { rank: string; suit: string; color: 'red' | 'white' }[];
+  const label = phase.charAt(0).toUpperCase() + phase.slice(1);
+
+  return (
+    <span className="mcs-card-deal">
+      <span className="mcs-card-phase">{label}</span>
+      <span className="mcs-card-row">
+        {parsed.map((card, i) => (
+          <span key={i} className={`mcs-card mcs-card-${card.color}`}>
+            <span className="mcs-card-rank">{card.rank}</span>
+            <span className="mcs-card-suit">{card.suit}</span>
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
 type InputTab = 'quick' | 'keyboard';
 
 interface MobileChatSheetProps {
@@ -152,7 +181,11 @@ export function MobileChatSheet({
 
               return (
                 <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}`}>
-                  {msg.type === 'table' ? (
+                  {msg.type === 'table' && msg.phase && msg.cards ? (
+                    <span className="mcs-msg-text">
+                      {renderCardDeal(msg.phase, msg.cards)}
+                    </span>
+                  ) : msg.type === 'table' ? (
                     <span className="mcs-msg-text">{msg.message}</span>
                   ) : (
                     <>

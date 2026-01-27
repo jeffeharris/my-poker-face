@@ -288,8 +288,10 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
     """
     num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
     cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
-    message_content = f"{state_machine.current_phase} cards dealt: {cards}"
-    send_message(game_id, "Table", message_content, "table")
+    phase_name = str(state_machine.current_phase)
+    message_content = f"{phase_name}: {' '.join(cards)}"
+    send_message(game_id, "Table", message_content, "table",
+                 phase=phase_name.lower(), cards=cards)
 
     # Record community cards to hand history
     if game_data:
