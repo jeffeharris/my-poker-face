@@ -13,6 +13,7 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
+import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { config } from '../../config';
 import './MobilePokerTable.css';
 import './MobileActionButtons.css';
@@ -121,6 +122,12 @@ export function MobilePokerTable({
   } = useCardAnimation({
     hand: humanPlayer?.hand,
   });
+
+  // Community card animation hook - handles slide-in with cascade delays
+  const communityCardAnimations = useCommunityCardAnimation(
+    gameState?.newly_dealt_count,
+    gameState?.community_cards?.length ?? 0,
+  );
 
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
@@ -322,10 +329,20 @@ export function MobilePokerTable({
       {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
-          {/* Show dealt cards */}
-          {gameState.community_cards.map((card, i) => (
-            <Card key={i} card={card} faceDown={false} size="medium" />
-          ))}
+          {/* Show dealt cards with slide-in animation */}
+          {gameState.community_cards.map((card, i) => {
+            const anim = communityCardAnimations[i];
+            return (
+              <div
+                key={i}
+                style={anim?.shouldAnimate ? {
+                  animation: `communityCardDealIn ${anim.duration}s cubic-bezier(0.16, 1, 0.3, 1) ${anim.delay}s both`,
+                } : undefined}
+              >
+                <Card card={card} faceDown={false} size="medium" />
+              </div>
+            );
+          })}
           {/* Show placeholders for remaining cards */}
           {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
             <div key={`placeholder-${i}`} className="community-card-placeholder" />

@@ -99,6 +99,7 @@ class PokerGameState:
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
     run_it_out: bool = False  # True when all players are all-in, auto-advance with delays
+    newly_dealt_count: int = 0  # Number of community cards just dealt (3 for flop, 1 for turn/river)
 
     def to_dict(self) -> Dict:
         """
@@ -117,6 +118,7 @@ class PokerGameState:
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
             'run_it_out': self.run_it_out,
+            'newly_dealt_count': self.newly_dealt_count,
             'small_blind_idx': self.small_blind_idx,
             'big_blind_idx': self.big_blind_idx,
             'current_player_options': self.current_player_options,
@@ -579,7 +581,8 @@ def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
     cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards_to_draw)
     new_community_cards = game_state.community_cards + cards
     return game_state.update(community_cards=new_community_cards,
-                             deck=new_deck)
+                             deck=new_deck,
+                             newly_dealt_count=num_cards_to_draw)
 
 
 def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGameState:
@@ -741,7 +744,8 @@ def reset_game_state_for_new_hand(
         players=tuple(new_players),
         deck=create_deck(shuffled=True, random_seed=deck_seed),
         current_ante=game_state.current_ante,
-        last_raise_amount=game_state.current_ante
+        last_raise_amount=game_state.current_ante,
+        newly_dealt_count=0
     )
 
 

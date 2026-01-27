@@ -1126,3 +1126,24 @@
   }
 }
 
+/* Community card deal-in animation - slides from off-screen left across the felt.
+   Duration set inline per card for proportional velocity (further cards take longer). */
+@keyframes communityCardDealIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-100vw) translateY(-8vw) rotate(-3deg) scale(0.95);
+    filter: blur(0.5px);
+  }
+  20% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  75% {
+    /* Slight overshoot past landing position for natural feel */
+    transform: translateX(4px) translateY(0) rotate(0deg) scale(1);
+  }
+  100% {
+    transform: translateX(0) translateY(0) rotate(0deg) scale(1);
+  }
+}
+
