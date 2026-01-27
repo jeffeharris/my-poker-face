@@ -78,7 +78,6 @@ const LOSER_TONES: ToneOption[] = [
 
 export function MobileWinnerAnnouncement({
     winnerInfo,
-    commentary = [],
     onComplete,
     gameId,
     playerName,
