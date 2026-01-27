@@ -25,7 +25,7 @@ from ..extensions import socketio, persistence
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
-from .message_handler import send_message, format_action_message, record_action_in_memory
+from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -258,15 +258,7 @@ def update_and_emit_game_state(game_id: str) -> None:
                     player_dict['llm_debug'] = llm_stats[player_name]
 
     # Include messages (transform to frontend format)
-    messages = []
-    for msg in current_game_data.get('messages', []):
-        messages.append({
-            'id': str(msg.get('id', len(messages))),
-            'sender': msg.get('sender', 'System'),
-            'message': msg.get('content', msg.get('message', '')),
-            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
-            'type': msg.get('message_type', msg.get('type', 'system'))
-        })
+    messages = format_messages_for_api(current_game_data.get('messages', []))
 
     game_state_dict['messages'] = messages
     game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
