@@ -102,7 +102,9 @@ export function MobileChatSheet({
 
   if (!isOpen) return null;
 
-  const displayMessages = messages.slice(-80);
+  const displayMessages = messages
+    .filter(msg => msg.type !== 'system')
+    .slice(-80);
 
   return (
     <div

@@ -88,6 +88,7 @@ export function QuickChatSuggestions({
   // Get AI players (non-human, not folded)
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
 
+
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Cooldown check (skip if force refresh)
     const now = Date.now();
@@ -253,36 +254,32 @@ export function QuickChatSuggestions({
         <div className="selector-label">Who?</div>
         <div className="target-options">
           <button
-            className={`target-btn ${selectedTarget === 'table' ? 'selected' : ''}`}
+            className={`target-btn target-btn-table ${selectedTarget === 'table' ? 'selected' : ''}`}
             onClick={() => handleTargetSelect('table')}
             title="Talk to the table"
           >
-            <Users className="target-avatar" size={16} />
+            <Users size={22} style={{ opacity: 0.85 }} />
             <span className="target-name">Table</span>
           </button>
-          {aiPlayers.map((player) => (
-            <button
-              key={player.name}
-              className={`target-btn ${selectedTarget === player.name ? 'selected' : ''}`}
-              onClick={() => handleTargetSelect(player.name)}
-              title={`Talk to ${player.name}`}
-            >
-              <span className={`target-avatar ${player.avatar_url ? 'has-image' : ''}`}>
-                {player.avatar_url ? (
-                  <img
-                    src={`${config.API_URL}${player.avatar_url}`}
-                    alt={player.name}
-                    className="target-avatar-img"
-                  />
-                ) : (
-                  player.name.charAt(0).toUpperCase()
-                )}
-              </span>
-              <span className="target-name">
-                {player.nickname || player.name}
-              </span>
-            </button>
-          ))}
+          {aiPlayers.map((player) => {
+            // Use avatar_url if available, otherwise construct from player name
+            const avatarUrl = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
+              ? `${config.API_URL}${player.avatar_url}`
+              : `${config.API_URL}/api/avatar/${encodeURIComponent(player.name)}/confident/full`;
+            return (
+              <button
+                key={player.name}
+                className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} has-bg-image`}
+                onClick={() => handleTargetSelect(player.name)}
+                title={`Talk to ${player.name}`}
+                style={{ backgroundImage: `url(${avatarUrl})` }}
+              >
+                <span className="target-name">
+                  {player.nickname || player.name}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

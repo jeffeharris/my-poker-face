@@ -334,44 +334,50 @@
 
 .mcs-quick-chat-wrapper .target-selector,
 .mcs-quick-chat-wrapper .tone-selector {
-  gap: 4px;
+  gap: 6px;
 }
 
 .mcs-quick-chat-wrapper .target-options {
-  gap: 5px;
+  gap: 6px;
+  width: 100%;
 }
 
 .mcs-quick-chat-wrapper .target-btn {
-  min-width: 2.75rem;
-  padding: 4px 3px;
-  border-radius: 8px;
-  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border-radius: 10px;
+  gap: 4px;
+  min-height: 3.5rem;
 }
 
 .mcs-quick-chat-wrapper .target-avatar {
-  width: 1.5rem;
-  height: 1.5rem;
-  font-size: 0.75rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  font-size: 0.875rem;
 }
 
 .mcs-quick-chat-wrapper .target-name {
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .mcs-quick-chat-wrapper .tone-options {
-  gap: 4px;
+  gap: 6px;
+  width: 100%;
 }
 
 .mcs-quick-chat-wrapper .tone-btn {
-  padding: 4px 7px;
-  font-size: 10.5px;
+  flex: 1 1 calc(33.3% - 4px);
+  justify-content: center;
+  padding: 7px 8px;
+  font-size: 11.5px;
   border-radius: 1.25rem;
-  gap: 3px;
+  gap: 4px;
 }
 
 .mcs-quick-chat-wrapper .tone-icon {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 .mcs-quick-chat-wrapper .suggestion-pill {
@@ -385,7 +391,7 @@
 }
 
 .mcs-quick-chat-wrapper .selector-label {
-  font-size: 9.5px;
+  font-size: 10.5px;
 }
 
 .mcs-quick-chat-wrapper .toggle-btn {
