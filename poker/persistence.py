@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 # v55: Add last_game_created_at column to users table for duplicate game prevention
 # v56: Add exploitative guidance to pro and competitive presets
 # v57: Add raise_amount_bb to player_decision_analysis for BB-normalized mode
-SCHEMA_VERSION = 57
+# v58: Fix v54 squash - apply missing heartbeat, outcome, and system preset columns
+SCHEMA_VERSION = 58
 
 
 @dataclass
@@ -964,6 +965,7 @@ class GamePersistence:
             55: (self._migrate_v55_add_last_game_created_at, "Add last_game_created_at to users for duplicate prevention"),
             56: (self._migrate_v56_add_exploitative_guidance, "Add exploitative guidance to pro and competitive presets"),
             57: (self._migrate_v57_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
+            58: (self._migrate_v58_fix_squashed_features, "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2739,6 +2741,65 @@ class GamePersistence:
             logger.info("Added raise_amount_bb column to player_decision_analysis")
 
         logger.info("Migration v57 complete: raise_amount_bb added to player_decision_analysis")
+
+    def _migrate_v58_fix_squashed_features(self, conn: sqlite3.Connection) -> None:
+        """Migration v58: Apply columns that v54 was supposed to add.
+
+        The v54 squashed migration got its version number shuffled during
+        a branch squash-merge, so it recorded as applied but the actual
+        ALTER TABLEs never ran. This re-applies them idempotently.
+        """
+        # === Heartbeat tracking columns (experiment_games) ===
+        for col_name, col_def in [
+            ("state", "TEXT DEFAULT 'idle'"),
+            ("last_heartbeat_at", "TIMESTAMP"),
+            ("last_api_call_started_at", "TIMESTAMP"),
+            ("process_id", "INTEGER"),
+            ("resume_lock_acquired_at", "TIMESTAMP"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE experiment_games ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to experiment_games")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in experiment_games")
+                else:
+                    raise
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_experiment_games_state_heartbeat
+            ON experiment_games(state, last_heartbeat_at)
+        """)
+
+        # === Outcome and tracking columns (tournament_standings) ===
+        for col_name, col_def in [
+            ("final_stack", "INTEGER"),
+            ("hands_won", "INTEGER"),
+            ("hands_played", "INTEGER"),
+            ("times_eliminated", "INTEGER"),
+            ("all_in_wins", "INTEGER"),
+            ("all_in_losses", "INTEGER"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE tournament_standings ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to tournament_standings")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in tournament_standings")
+                else:
+                    raise
+
+        # === is_system column (prompt_presets) ===
+        try:
+            conn.execute("ALTER TABLE prompt_presets ADD COLUMN is_system BOOLEAN DEFAULT FALSE")
+            logger.info("Added is_system column to prompt_presets")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                logger.debug("Column is_system already exists in prompt_presets")
+            else:
+                raise
+
+        logger.info("Migration v58 complete: fixed missing v54 squashed feature columns")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
