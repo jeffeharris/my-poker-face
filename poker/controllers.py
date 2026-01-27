@@ -48,6 +48,155 @@ from .card_utils import normalize_card_string, card_to_string
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Functional Helpers for Message Parsing
+# =============================================================================
+
+# Aggression priority for postflop actions (higher = more aggressive)
+AGGRESSION_PRIORITY = {
+    'raise': 4,
+    'bet': 3,
+    'check_call': 2,
+    'check': 1,
+}
+
+# Raise level to action name mapping for preflop
+RAISE_LEVEL_ACTIONS = {
+    0: 'open_raise',
+    1: '3bet',
+}
+
+
+def _parse_game_messages(game_messages) -> Optional[List[str]]:
+    """Parse game messages into a list of non-empty string lines."""
+    if isinstance(game_messages, str):
+        return [line for line in game_messages.strip().split('\n') if line]
+    elif isinstance(game_messages, list):
+        return [line for line in game_messages if line and isinstance(line, str)]
+    return None
+
+
+def _get_preflop_lines(lines: List[str]) -> List[str]:
+    """Extract lines from preflop phase only, stopping at postflop indicators."""
+    postflop_indicators = ('flop', 'turn', 'river', 'community')
+    result = []
+    for line in lines:
+        line_lower = line.lower()
+        if any(indicator in line_lower for indicator in postflop_indicators):
+            break
+        result.append(line)
+    return result
+
+
+def _get_street_lines(lines: List[str], current_phase: str) -> List[str]:
+    """Extract lines from the specified street phase only."""
+    street_markers = {'FLOP': 'flop', 'TURN': 'turn', 'RIVER': 'river'}
+    current_marker = street_markers.get(current_phase, '').lower()
+    if not current_marker:
+        return []
+
+    next_streets = [s for s in ('turn', 'river', 'showdown') if s != current_marker]
+    in_current_street = False
+    result = []
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Check for current street marker
+        if current_marker in line_lower:
+            in_current_street = True
+            continue
+
+        # Check for next street marker (stop processing)
+        if in_current_street and any(s in line_lower for s in next_streets):
+            break
+
+        if in_current_street:
+            result.append(line)
+
+    return result
+
+
+def _classify_raise_action(raise_count: int) -> str:
+    """Classify a raise/all-in action based on raise count."""
+    return RAISE_LEVEL_ACTIONS.get(raise_count, '4bet+')
+
+
+def _is_raise_action(line_lower: str) -> bool:
+    """Check if line contains a raise or bet (not big blind post)."""
+    return 'raise' in line_lower or ('bet' in line_lower and 'big blind' not in line_lower)
+
+
+def _is_allin_action(line_lower: str) -> bool:
+    """Check if line contains an all-in action."""
+    return 'all' in line_lower and 'in' in line_lower
+
+
+def _process_preflop_lines(
+    lines: List[str],
+    opponent_lower: str,
+    opponent_name: str,
+    bb_player: Optional[str]
+) -> Optional[str]:
+    """
+    Process preflop lines and extract opponent's action.
+
+    Returns the opponent's preflop action or None if they folded/not determinable.
+    """
+    raise_count = 0
+    opponent_action = None
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Check if this line is about our opponent
+        if opponent_lower not in line_lower:
+            # Track raises by others to count raise level
+            if _is_raise_action(line_lower):
+                raise_count += 1
+            continue
+
+        # This line is about our opponent - determine their action
+        if 'fold' in line_lower:
+            return None  # Folded preflop - not in hand
+
+        if 'raise' in line_lower:
+            opponent_action = _classify_raise_action(raise_count)
+            raise_count += 1
+        elif 'call' in line_lower:
+            if raise_count == 0:
+                # Called with no raise = limp (unless they're BB)
+                opponent_action = None if opponent_name == bb_player else 'limp'
+            else:
+                opponent_action = 'call'
+        elif 'check' in line_lower:
+            # Check preflop only happens in BB with no raise
+            pass
+        elif _is_allin_action(line_lower):
+            # All-in preflop - treat as raise
+            opponent_action = _classify_raise_action(raise_count)
+
+    return opponent_action
+
+
+def _classify_aggression(line_lower: str) -> Optional[str]:
+    """Classify a single line's aggression level."""
+    if 'raise' in line_lower or _is_allin_action(line_lower):
+        return 'raise'
+    elif 'bet' in line_lower:
+        return 'bet'
+    elif 'call' in line_lower:
+        return 'check_call'
+    elif 'check' in line_lower:
+        return 'check'
+    return None
+
+
+# =============================================================================
+# Hand Evaluation
+# =============================================================================
+
+
 def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
     """
     Evaluate hand strength and return a human-readable description.
@@ -1434,76 +1583,27 @@ class AIPlayerController:
         Returns:
             Action string or None if not determinable
         """
-        import re
-
-        # Parse messages into lines
-        if isinstance(game_messages, str):
-            lines = game_messages.strip().split('\n')
-        elif isinstance(game_messages, list):
-            lines = game_messages
-        else:
+        lines = _parse_game_messages(game_messages)
+        if lines is None:
             return None
 
-        # Track raise count to distinguish open-raise vs 3-bet vs 4-bet
-        raise_count = 0
-        opponent_action = None
-        big_blind = game_state.current_ante or 250
-
         # Get BB player name to ignore forced BB
-        table_positions = game_state.table_positions
-        bb_player = table_positions.get('big_blind_player')
+        bb_player = game_state.table_positions.get('big_blind_player')
+        opponent_lower = opponent_name.lower()
 
-        for line in lines:
-            if not line or not isinstance(line, str):
-                continue
+        # Filter to preflop lines only
+        preflop_lines = _get_preflop_lines(lines)
 
-            line_lower = line.lower()
+        # Process lines, accumulating state as (raise_count, opponent_action)
+        # Using reduce-like iteration but keeping it readable
+        state = _process_preflop_lines(
+            preflop_lines,
+            opponent_lower,
+            opponent_name,
+            bb_player
+        )
 
-            # Stop processing if we hit post-flop indicators
-            if any(indicator in line_lower for indicator in ['flop', 'turn', 'river', 'community']):
-                break
-
-            # Check if this line is about our opponent
-            if opponent_name.lower() not in line_lower:
-                # Track raises by others to count raise level
-                if 'raise' in line_lower or ('bet' in line_lower and 'big blind' not in line_lower):
-                    raise_count += 1
-                continue
-
-            # This line is about our opponent - determine their action
-            if 'fold' in line_lower:
-                # Folded preflop - not in hand
-                return None
-            elif 'raise' in line_lower:
-                if raise_count == 0:
-                    opponent_action = 'open_raise'
-                elif raise_count == 1:
-                    opponent_action = '3bet'
-                else:
-                    opponent_action = '4bet+'
-                raise_count += 1
-            elif 'call' in line_lower:
-                if raise_count == 0:
-                    # Called with no raise = limp (unless they're BB)
-                    if opponent_name == bb_player:
-                        opponent_action = None  # BB just checking
-                    else:
-                        opponent_action = 'limp'
-                else:
-                    opponent_action = 'call'
-            elif 'check' in line_lower:
-                # Check preflop only happens in BB with no raise
-                pass
-            elif 'all' in line_lower and 'in' in line_lower:
-                # All-in preflop - treat as raise
-                if raise_count == 0:
-                    opponent_action = 'open_raise'
-                elif raise_count == 1:
-                    opponent_action = '3bet'
-                else:
-                    opponent_action = '4bet+'
-
-        return opponent_action
+        return state
 
     def _extract_opponent_postflop_aggression(
         self,
@@ -1522,67 +1622,32 @@ class AIPlayerController:
         Returns:
             'bet', 'raise', 'check_call', 'check', or None
         """
-        import re
-
         if current_phase == 'PRE_FLOP':
             return None
 
-        # Parse messages
-        if isinstance(game_messages, str):
-            lines = game_messages.strip().split('\n')
-        elif isinstance(game_messages, list):
-            lines = game_messages
-        else:
+        lines = _parse_game_messages(game_messages)
+        if lines is None:
             return None
 
-        # Find lines from current street
-        in_current_street = False
-        street_markers = {
-            'FLOP': 'flop',
-            'TURN': 'turn',
-            'RIVER': 'river'
-        }
-        current_marker = street_markers.get(current_phase, '').lower()
+        # Get lines from current street for the opponent
+        street_lines = _get_street_lines(lines, current_phase)
+        opponent_lower = opponent_name.lower()
+        opponent_lines = [
+            line for line in street_lines
+            if opponent_lower in line.lower()
+        ]
 
-        opponent_aggression = None
+        # Classify each line's aggression and find the highest priority action
+        actions = [
+            action for line in opponent_lines
+            if (action := _classify_aggression(line.lower())) is not None
+        ]
 
-        for line in lines:
-            if not line or not isinstance(line, str):
-                continue
+        if not actions:
+            return None
 
-            line_lower = line.lower()
-
-            # Check for street markers
-            if current_marker and current_marker in line_lower:
-                in_current_street = True
-                continue
-
-            # Check for next street marker (stop processing)
-            if in_current_street:
-                next_streets = ['turn', 'river', 'showdown']
-                if any(s in line_lower for s in next_streets if s != current_marker):
-                    break
-
-            if not in_current_street:
-                continue
-
-            # Check if this is opponent's action
-            if opponent_name.lower() not in line_lower:
-                continue
-
-            # Determine aggression
-            if 'raise' in line_lower or ('all' in line_lower and 'in' in line_lower):
-                opponent_aggression = 'raise'
-            elif 'bet' in line_lower:
-                opponent_aggression = 'bet'
-            elif 'call' in line_lower:
-                if opponent_aggression is None:
-                    opponent_aggression = 'check_call'
-            elif 'check' in line_lower:
-                if opponent_aggression is None:
-                    opponent_aggression = 'check'
-
-        return opponent_aggression
+        # Return highest priority action (aggressive actions override passive ones)
+        return max(actions, key=lambda a: AGGRESSION_PRIORITY.get(a, 0))
 
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""
