@@ -861,7 +861,7 @@ def api_new_game():
                             }), 400
                         player_prompt_configs[name] = load_game_mode_preset(p_mode)
     else:
-        opponent_count = data.get('opponent_count', 3)
+        opponent_count = max(1, min(9, data.get('opponent_count', 3)))
         ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
 
     game_state = initialize_game_state(

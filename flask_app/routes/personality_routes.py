@@ -292,19 +292,34 @@ def _validate_theme_game_settings(settings: dict) -> dict:
         if mode in ('casual', 'standard', 'competitive'):
             validated['game_mode'] = mode
     if 'starting_stack' in settings:
-        validated['starting_stack'] = max(500, min(20000, int(settings['starting_stack'])))
+        try:
+            validated['starting_stack'] = max(500, min(20000, int(settings['starting_stack'])))
+        except (ValueError, TypeError):
+            pass
     if 'big_blind' in settings:
-        validated['big_blind'] = max(10, min(200, int(settings['big_blind'])))
+        try:
+            validated['big_blind'] = max(10, min(200, int(settings['big_blind'])))
+        except (ValueError, TypeError):
+            pass
     if 'blind_growth' in settings:
-        growth = float(settings['blind_growth'])
-        valid_growths = [1.25, 1.5, 2]
-        validated['blind_growth'] = min(valid_growths, key=lambda x: abs(x - growth))
+        try:
+            growth = float(settings['blind_growth'])
+            valid_growths = [1.25, 1.5, 2]
+            validated['blind_growth'] = min(valid_growths, key=lambda x: abs(x - growth))
+        except (ValueError, TypeError):
+            pass
     if 'blinds_increase' in settings:
-        increase = int(settings['blinds_increase'])
-        valid_increases = [4, 6, 8, 10]
-        validated['blinds_increase'] = min(valid_increases, key=lambda x: abs(x - increase))
+        try:
+            increase = int(settings['blinds_increase'])
+            valid_increases = [4, 6, 8, 10]
+            validated['blinds_increase'] = min(valid_increases, key=lambda x: abs(x - increase))
+        except (ValueError, TypeError):
+            pass
     if 'max_blind' in settings:
-        validated['max_blind'] = max(0, min(5000, int(settings['max_blind'])))
+        try:
+            validated['max_blind'] = max(0, min(5000, int(settings['max_blind'])))
+        except (ValueError, TypeError):
+            pass
     return validated
 
 

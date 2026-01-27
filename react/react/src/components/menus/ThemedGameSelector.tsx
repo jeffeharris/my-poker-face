@@ -1,26 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   FlaskConical, Clapperboard, Medal, Crown, Music, Laugh, Skull, Sparkles, Dices,
-  type LucideIcon
 } from 'lucide-react';
 import { config } from '../../config';
+import { type Theme } from '../../types/theme';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import './ThemedGameSelector.css';
-
-interface Theme {
-  id: string;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-  personalities?: Array<string | { name: string; game_mode?: string }>;
-  themeDescription?: string;
-  game_mode?: string;
-  starting_stack?: number;
-  big_blind?: number;
-  blind_growth?: number;
-  blinds_increase?: number;
-  max_blind?: number;
-}
 
 interface ThemedGameSelectorProps {
   onSelectTheme: (theme: Theme) => Promise<void>;

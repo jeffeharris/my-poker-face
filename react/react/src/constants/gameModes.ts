@@ -1,6 +1,8 @@
 /**
  * Game mode options shared across components.
- * Keep in sync with config/game_modes.yaml (the backend source of truth).
+ * Keep in sync with VALID_GAME_MODES in flask_app/routes/game_routes.py
+ * and ALLOWED_PLAYER_MODES in flask_app/routes/personality_routes.py.
+ * Note: "pro" mode is available for Custom Game but excluded from themed games.
  */
 
 export interface GameModeOption {

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { type LucideIcon } from 'lucide-react'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
@@ -18,26 +17,12 @@ import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
 import { LoadingOverlay } from './components/shared'
 import { config } from './config'
+import { type Theme } from './types/theme'
 import './App.css'
 
 // Game limit constants
 const MAX_GAMES_GUEST = 3;
 const MAX_GAMES_USER = 10;
-
-interface Theme {
-  id: string;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-  personalities?: Array<string | { name: string; game_mode?: string }>;
-  themeDescription?: string;
-  game_mode?: string;
-  starting_stack?: number;
-  big_blind?: number;
-  blind_growth?: number;
-  blinds_increase?: number;
-  max_blind?: number;
-}
 
 // Route titles for document.title
 const ROUTE_TITLES: Record<string, string> = {
@@ -233,11 +218,11 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     if (!theme.personalities) return;
     if (isCreatingGame) return;
     setIsCreatingGame(true);
-    if (theme.themeDescription) {
-      setLoadingSubmessage(theme.themeDescription);
-    }
 
     try {
+      if (theme.themeDescription) {
+        setLoadingSubmessage(theme.themeDescription);
+      }
       let response: Response;
       try {
         response = await fetch(`${config.API_URL}/api/new-game`, {
