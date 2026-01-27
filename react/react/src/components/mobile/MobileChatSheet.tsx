@@ -199,7 +199,7 @@ export function MobileChatSheet({
                   className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
                   disabled={!inputValue.trim()}
                 >
-                  <Send size={18} />
+                  <Send size={22} />
                 </button>
               </form>
             )}

@@ -282,7 +282,7 @@
 .mcs-tabs {
   display: flex;
   gap: 2px;
-  padding: 8px 14px 0;
+  padding: 0;
 }
 
 .mcs-tab {
@@ -442,25 +442,30 @@
   justify-content: center;
   width: 40px;
   height: 40px;
+  padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--color-text-muted);
+  background: none;
+  background-color: transparent;
+  color: var(--color-gold);
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
 }
 
+.mcs-send-btn svg {
+  display: block;
+  stroke: currentColor;
+}
+
 .mcs-send-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.3;
   cursor: default;
 }
 
 .mcs-send-btn.mcs-send-active {
-  background: var(--gradient-gold);
-  color: var(--color-bg-void);
-  box-shadow: 0 0 16px rgba(212, 165, 116, 0.25);
+  color: var(--color-gold-light);
 }
 
 .mcs-send-btn.mcs-send-active:active {
