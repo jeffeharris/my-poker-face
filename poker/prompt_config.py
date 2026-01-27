@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass, fields
 from typing import Dict, Any
 
+from poker.game_modes_loader import get_preset_configs
+
 logger = logging.getLogger(__name__)
 
 
@@ -196,7 +198,6 @@ class PromptConfig:
 
         # Try YAML-based config first
         try:
-            from poker.game_modes_loader import get_preset_configs
             yaml_presets = get_preset_configs()
             if mode in yaml_presets:
                 return cls.from_dict(yaml_presets[mode])

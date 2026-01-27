@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ChatMessage, GameState } from '../types';
-import type { TournamentResult, EliminationEvent } from '../types/tournament';
+import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import { config } from '../config';
 
 interface UsePokerGameOptions {
@@ -14,6 +14,12 @@ interface UsePokerGameOptions {
 
 type QueuedAction = 'check_fold' | null;
 
+// Type for revealed hole cards during run-it-out showdown
+interface RevealedCardsInfo {
+  players_cards: Record<string, BackendCard[]>;
+  community_cards: BackendCard[];
+}
+
 interface UsePokerGameResult {
   gameState: GameState | null;
   loading: boolean;
@@ -22,6 +28,7 @@ interface UsePokerGameResult {
   messages: ChatMessage[];
   aiThinking: boolean;
   winnerInfo: any;
+  revealedCards: RevealedCardsInfo | null;
   tournamentResult: TournamentResult | null;
   eliminationEvents: EliminationEvent[];
   socketRef: React.MutableRefObject<Socket | null>;
@@ -32,6 +39,7 @@ interface UsePokerGameResult {
   handleSendMessage: (message: string) => Promise<void>;
   clearWinnerInfo: () => void;
   clearTournamentResult: () => void;
+  clearRevealedCards: () => void;
   refreshGameState: (gId: string) => Promise<boolean>;
   // Debug functions
   debugTriggerSplitPot: () => void;
@@ -61,6 +69,7 @@ export function usePokerGame({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
   const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const [revealedCards, setRevealedCards] = useState<RevealedCardsInfo | null>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -69,8 +78,12 @@ export function usePokerGame({
   const queuedActionRef = useRef<QueuedAction>(null);
   const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
 
-  const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
+  const clearWinnerInfo = useCallback(() => {
+    setWinnerInfo(null);
+    setRevealedCards(null);
+  }, []);
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
+  const clearRevealedCards = useCallback(() => setRevealedCards(null), []);
 
   // Keep ref in sync with state for use in socket callbacks
   useEffect(() => {
@@ -194,6 +207,11 @@ export function usePokerGame({
       console.log('Winner announcement received:', data);
       setWinnerInfo(data);
       setQueuedAction(null); // Clear queue when hand ends
+    });
+
+    // Listen for hole cards reveal during run-it-out showdown
+    socket.on('reveal_hole_cards', (data: RevealedCardsInfo) => {
+      setRevealedCards(data);
     });
 
     socket.on('player_eliminated', (data: EliminationEvent) => {
@@ -549,6 +567,7 @@ export function usePokerGame({
     messages,
     aiThinking,
     winnerInfo,
+    revealedCards,
     tournamentResult,
     eliminationEvents,
     socketRef,
@@ -559,6 +578,7 @@ export function usePokerGame({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    clearRevealedCards,
     refreshGameState,
     // Debug functions
     debugTriggerSplitPot,

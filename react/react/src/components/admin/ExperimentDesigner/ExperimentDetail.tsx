@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
+  ArrowLeft,
   RefreshCw,
   Loader2,
   Trophy,
@@ -340,6 +341,14 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
       {/* Sticky Toolbar */}
       <div className="experiment-detail__toolbar">
         <div className="experiment-detail__toolbar-left">
+          <button
+            className="experiment-detail__back-btn"
+            onClick={onBack}
+            type="button"
+            aria-label="Go back"
+          >
+            <ArrowLeft size={20} />
+          </button>
           <h2 className="experiment-detail__name">{experiment.name}</h2>
           <span className={`status-badge ${isPausing ? 'status-badge--pausing' : statusConfig.className}`}>
             {isPausing ? (

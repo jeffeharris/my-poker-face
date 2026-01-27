@@ -57,5 +57,11 @@ export interface OpponentLLMConfig {
   provider: string;
   model: string;
   reasoning_effort?: string;
+}
+
+/**
+ * Combined per-opponent configuration (LLM settings + game mode override).
+ */
+export interface OpponentConfig extends OpponentLLMConfig {
   game_mode?: string;
 }

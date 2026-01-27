@@ -55,3 +55,24 @@ export function truncate(str: string, maxLen: number = 20): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 2) + '..';
 }
+
+/**
+ * Format currency in compact form for large values.
+ * Examples: 500 -> "$500", 1000 -> "$1K", 1500 -> "$1.5K", 1000000 -> "$1M"
+ *
+ * @param amount - The currency amount to format
+ * @param includeSymbol - Whether to include the $ symbol (default: true)
+ */
+export function formatCompactCurrency(amount: number, includeSymbol: boolean = true): string {
+  const prefix = includeSymbol ? '$' : '';
+
+  if (amount >= 1_000_000) {
+    const value = amount / 1_000_000;
+    return `${prefix}${Number.isInteger(value) ? value : value.toFixed(1)}M`;
+  }
+  if (amount >= 1_000) {
+    const value = amount / 1_000;
+    return `${prefix}${Number.isInteger(value) ? value : value.toFixed(1)}K`;
+  }
+  return `${prefix}${amount}`;
+}

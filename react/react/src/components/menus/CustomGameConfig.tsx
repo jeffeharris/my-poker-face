@@ -4,7 +4,8 @@ import { config } from '../../config';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { OpponentConfigScreen } from './OpponentConfigScreen';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
-import type { OpponentLLMConfig } from '../../types/llm';
+import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
+import { GAME_MODES } from '../../constants/gameModes';
 import './CustomGameConfig.css';
 
 interface Personality {
@@ -36,9 +37,10 @@ interface CustomGameConfigProps {
     gameMode: string
   ) => void;
   onBack: () => void;
+  isCreatingGame?: boolean;
 }
 
-export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps) {
+export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }: CustomGameConfigProps) {
   const [personalities, setPersonalities] = useState<{ [key: string]: Personality }>({});
   const [selectedPersonalities, setSelectedPersonalities] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,7 +61,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const [defaultReasoning, setDefaultReasoning] = useState('minimal');
 
   // Per-opponent LLM configuration
-  const [opponentConfigs, setOpponentConfigs] = useState<Record<string, OpponentLLMConfig>>({});
+  const [opponentConfigs, setOpponentConfigs] = useState<Record<string, OpponentConfig>>({});
   const [showConfigScreen, setShowConfigScreen] = useState(false);
 
   // Game configuration state
@@ -119,7 +121,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
     }
   };
 
-  const handleOpponentConfigChange = (name: string, newConfig: OpponentLLMConfig | null) => {
+  const handleOpponentConfigChange = (name: string, newConfig: OpponentConfig | null) => {
     setOpponentConfigs(prev => {
       const next = { ...prev };
       if (newConfig === null) {
@@ -159,7 +161,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         const customConfig = opponentConfigs[name];
         if (customConfig) {
           const { game_mode, ...llm_config } = customConfig;
-          const entry: { name: string; llm_config: Omit<OpponentLLMConfig, 'game_mode'>; game_mode?: string } = { name, llm_config };
+          const entry: { name: string; llm_config: OpponentLLMConfig; game_mode?: string } = { name, llm_config };
           if (game_mode) {
             entry.game_mode = game_mode;
           }
@@ -288,10 +290,9 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
               value={defaultGameMode}
               onChange={(e) => setDefaultGameMode(e.target.value)}
             >
-              <option value="casual">Casual — Fun, personality-driven</option>
-              <option value="standard">Standard — Balanced + GTO awareness</option>
-              <option value="competitive">Competitive — GTO + trash talk</option>
-              <option value="pro">Pro — Full GTO, analytical</option>
+              {GAME_MODES.map(gm => (
+                <option key={gm.value} value={gm.value}>{gm.label} — {gm.description}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -417,7 +418,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         <button
           className="start-button"
           onClick={handleStartGame}
-          disabled={selectedPersonalities.length === 0}
+          disabled={selectedPersonalities.length === 0 || isCreatingGame}
         >
           Start Game with {selectedPersonalities.length} Opponent{selectedPersonalities.length !== 1 ? 's' : ''}
         </button>

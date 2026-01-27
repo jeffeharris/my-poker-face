@@ -147,7 +147,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
     <div className="heads-up-opponent-panel">
       {/* Reading Header */}
       <div className="panel-header">
-        Reading {opponent.name.split(' ')[0]}...
+        Reading {opponent.nickname || opponent.name}...
       </div>
 
       {/* Play Style - Primary observation */}

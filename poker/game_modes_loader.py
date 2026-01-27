@@ -13,10 +13,13 @@ import json
 import logging
 import os
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 import yaml
+
+from poker.db_utils import get_default_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +30,6 @@ def get_default_config_path() -> str:
         return '/app/config/game_modes.yaml'
     # Local development
     return str(Path(__file__).parent.parent / 'config' / 'game_modes.yaml')
-
-
-def get_default_db_path() -> str:
-    """Get the default database path based on environment."""
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    return str(Path(__file__).parent.parent / 'poker_games.db')
 
 
 def load_game_modes_yaml(config_path: Optional[str] = None) -> dict:
@@ -57,11 +53,13 @@ def load_game_modes_yaml(config_path: Optional[str] = None) -> dict:
         return {}
 
 
+@lru_cache(maxsize=1)
 def get_preset_configs(config_path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Get preset configurations from YAML without requiring a database.
 
     Returns a dict mapping mode name to its prompt_config dict.
     Useful for from_mode_name() fallback when no DB is available.
+    Results are cached after first load.
 
     Args:
         config_path: Path to game_modes.yaml (default: auto-detect)
@@ -126,12 +124,10 @@ def sync_game_modes_from_yaml(
             for name, preset_data in presets.items():
                 description = preset_data.get('description', '')
                 prompt_config = preset_data.get('prompt_config', {})
-                prompt_config_json = json.dumps(prompt_config)
 
                 # Extract guidance_injection separately (stored in its own column)
-                guidance_injection = prompt_config.pop('guidance_injection', '') if isinstance(prompt_config, dict) else ''
-                # Re-serialize without guidance_injection in prompt_config
-                prompt_config_json = json.dumps(prompt_config)
+                guidance_injection = prompt_config.get('guidance_injection', '') if isinstance(prompt_config, dict) else ''
+                prompt_config_json = json.dumps({k: v for k, v in prompt_config.items() if k != 'guidance_injection'})
 
                 try:
                     # Try insert first

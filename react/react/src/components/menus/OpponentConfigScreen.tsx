@@ -1,6 +1,7 @@
 import { Settings } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
-import type { ProviderInfo, OpponentLLMConfig } from '../../types/llm';
+import type { ProviderInfo, OpponentLLMConfig, OpponentConfig } from '../../types/llm';
+import { GAME_MODES } from '../../constants/gameModes';
 import './OpponentConfigScreen.css';
 
 interface OpponentConfigScreenProps {
@@ -9,8 +10,8 @@ interface OpponentConfigScreenProps {
   providersLoading: boolean;
   defaultConfig: OpponentLLMConfig;
   defaultGameMode: string;
-  opponentConfigs: Record<string, OpponentLLMConfig>;
-  onConfigChange: (name: string, config: OpponentLLMConfig | null) => void;
+  opponentConfigs: Record<string, OpponentConfig>;
+  onConfigChange: (name: string, config: OpponentConfig | null) => void;
   onBack: () => void;
 }
 
@@ -40,7 +41,7 @@ export function OpponentConfigScreen({
     return tier ? `${model} (${tier})` : model;
   };
 
-  const getEffectiveConfig = (opponentName: string): OpponentLLMConfig => {
+  const getEffectiveConfig = (opponentName: string): OpponentConfig => {
     return opponentConfigs[opponentName] || defaultConfig;
   };
 
@@ -57,7 +58,7 @@ export function OpponentConfigScreen({
         ? currentConfig.model
         : provider.default_model;
 
-      const newConfig: OpponentLLMConfig = {
+      const newConfig: OpponentConfig = {
         provider: newProvider,
         model: newModel,
       };
@@ -152,11 +153,10 @@ export function OpponentConfigScreen({
                     value={config.game_mode || ''}
                     onChange={(e) => handleGameModeChange(opponentName, e.target.value)}
                   >
-                    <option value="">Default ({defaultGameMode})</option>
-                    <option value="casual">Casual</option>
-                    <option value="standard">Standard</option>
-                    <option value="competitive">Competitive</option>
-                    <option value="pro">Pro</option>
+                    <option value="">Default ({defaultGameMode.charAt(0).toUpperCase() + defaultGameMode.slice(1)})</option>
+                    {GAME_MODES.map(gm => (
+                      <option key={gm.value} value={gm.value}>{gm.label}</option>
+                    ))}
                   </select>
 
                   <span className="setting-label">Provider</span>

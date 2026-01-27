@@ -31,3 +31,5 @@ export type { ThemedSelectProps } from './ThemedSelect';
 
 export { UserDropdown } from './UserDropdown';
 export type { UserDropdownProps } from './UserDropdown';
+
+export { LoadingOverlay } from './LoadingOverlay';
