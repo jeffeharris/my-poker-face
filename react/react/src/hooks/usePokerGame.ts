@@ -78,7 +78,10 @@ export function usePokerGame({
   const queuedActionRef = useRef<QueuedAction>(null);
   const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
 
-  const clearWinnerInfo = useCallback(() => setWinnerInfo(null), []);
+  const clearWinnerInfo = useCallback(() => {
+    setWinnerInfo(null);
+    setRevealedCards(null);
+  }, []);
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
   const clearRevealedCards = useCallback(() => setRevealedCards(null), []);
 
@@ -203,7 +206,6 @@ export function usePokerGame({
     socket.on('winner_announcement', (data: any) => {
       console.log('Winner announcement received:', data);
       setWinnerInfo(data);
-      setRevealedCards(null); // Clear revealed cards when winner is announced
       setQueuedAction(null); // Clear queue when hand ends
     });
 

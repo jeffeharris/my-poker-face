@@ -1126,14 +1126,13 @@
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 2px;
   z-index: 20;
   animation: revealCardsSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Stack cards with slight overlap */
+/* Stack cards with heavy overlap */
 .opponent-revealed-cards .playing-card {
-  margin-left: -12px;
+  margin-left: -10vw;
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.5),
     0 0 16px rgba(212, 165, 116, 0.3);

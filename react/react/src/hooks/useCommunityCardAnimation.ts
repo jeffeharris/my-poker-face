@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 interface CardAnimationState {
   shouldAnimate: boolean;
@@ -8,10 +8,10 @@ interface CardAnimationState {
 
 /**
  * Hook that tracks when new community cards are dealt and returns
- * per-card animation state with cascade delays and proportional durations.
+ * per-card animation state with cascade delays.
  *
- * Flop (3 cards): 0s/1s/2s delays, 0.50s/0.60s/0.70s durations
- * Turn/River (1 card): 0s delay, 0.55s duration
+ * Flop (3 cards): 0s/1s/2s delays, 0.825s duration each
+ * Turn/River (1 card): 0s delay, 0.825s duration
  */
 export function useCommunityCardAnimation(
   newlyDealtCount: number | undefined,
@@ -72,8 +72,8 @@ export function useCommunityCardAnimation(
     };
   }, [newlyDealtCount, totalCards]);
 
-  // Build animation state array for each card position
-  return Array.from({ length: totalCards }, (_, index) => {
+  // Build animation state array for all 5 community card positions
+  return useMemo(() => Array.from({ length: 5 }, (_, index) => {
     if (!animatingIndices.has(index)) {
       return { shouldAnimate: false, delay: 0, duration: 0.55 };
     }
@@ -90,5 +90,5 @@ export function useCommunityCardAnimation(
     const duration = 0.825;
 
     return { shouldAnimate: true, delay, duration };
-  });
+  }), [animatingIndices, totalCards]);
 }

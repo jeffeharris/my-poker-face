@@ -99,6 +99,7 @@ class PokerGameState:
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
     run_it_out: bool = False  # True when all players are all-in, auto-advance with delays
+    has_revealed_cards: bool = False  # True once hole cards have been revealed during run-it-out
     newly_dealt_count: int = 0  # Number of community cards just dealt (3 for flop, 1 for turn/river)
 
     def to_dict(self) -> Dict:
