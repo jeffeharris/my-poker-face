@@ -16,6 +16,7 @@ import { AdminRoutes } from './components/admin/AdminRoutes'
 import { PrivacyPolicy, TermsOfService } from './components/legal'
 import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
+import { LoadingOverlay } from './components/shared'
 import { config } from './config'
 import './App.css'
 
@@ -56,6 +57,7 @@ function App() {
 const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
+  const [isCreatingGame, setIsCreatingGame] = useState(false)
 
   // Update player name when user changes
   useEffect(() => {
@@ -139,6 +141,8 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   };
 
   const handleQuickPlay = async (quickPlayConfig: QuickPlayConfig) => {
+    if (isCreatingGame) return;
+    setIsCreatingGame(true);
     try {
       // Calculate starting stack based on big blinds
       const bigBlind = 50;
@@ -167,6 +171,8 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       }
     } catch (error) {
       console.error('Failed to create game:', error);
+    } finally {
+      setIsCreatingGame(false);
     }
   };
 
@@ -174,6 +180,8 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     selectedPersonalities: Array<string | { name: string; llm_config: { provider: string; model: string; reasoning_effort?: string } }>,
     llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number }
   ) => {
+    if (isCreatingGame) return;
+    setIsCreatingGame(true);
     try {
       const response = await fetch(`${config.API_URL}/api/new-game`, {
         method: 'POST',
@@ -202,44 +210,52 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       }
     } catch (error) {
       console.error('Failed to create custom game:', error);
+    } finally {
+      setIsCreatingGame(false);
     }
   };
 
   const handleSelectTheme = async (theme: Theme) => {
     if (!theme.personalities) return;
+    if (isCreatingGame) return;
+    setIsCreatingGame(true);
 
-    let response: Response;
     try {
-      response = await fetch(`${config.API_URL}/api/new-game`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          playerName,
-          personalities: theme.personalities
-        }),
-      });
-    } catch {
-      throw new Error('Network error. Please check your connection and try again.');
+      let response: Response;
+      try {
+        response = await fetch(`${config.API_URL}/api/new-game`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            playerName,
+            personalities: theme.personalities
+          }),
+        });
+      } catch {
+        throw new Error('Network error. Please check your connection and try again.');
+      }
+
+      if (response.status === 429) {
+        throw new Error('Rate limit exceeded. Please wait a few minutes before starting a new game.');
+      }
+
+      const data = await response.json();
+
+      if (checkMaxGamesError(response, data)) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to create game. Please try again.');
+      }
+
+      navigate(`/game/${data.game_id}`);
+    } finally {
+      setIsCreatingGame(false);
     }
-
-    if (response.status === 429) {
-      throw new Error('Rate limit exceeded. Please wait a few minutes before starting a new game.');
-    }
-
-    const data = await response.json();
-
-    if (checkMaxGamesError(response, data)) {
-      return;
-    }
-
-    if (!response.ok) {
-      throw new Error('Failed to create game. Please try again.');
-    }
-
-    navigate(`/game/${data.game_id}`);
   };
 
   const handleGamesChanged = () => {
@@ -281,6 +297,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
               onViewStats={() => navigate('/stats')}
               onAdminDashboard={() => navigate('/admin')}
               savedGamesCount={savedGamesCount}
+              isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
         } />
@@ -300,6 +317,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
             <CustomGameConfig
               onStartGame={handleStartCustomGame}
               onBack={() => navigate('/menu')}
+              isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
         } />
@@ -309,6 +327,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
             <ThemedGameSelector
               onSelectTheme={handleSelectTheme}
               onBack={() => navigate('/menu')}
+              isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
         } />
@@ -341,6 +360,14 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <Route path="/" element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />} />
         <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
       </Routes>
+
+      {/* Loading Overlay - blocks all interaction during game creation */}
+      {isCreatingGame && (
+        <LoadingOverlay
+          message="Setting up your game..."
+          submessage="Preparing the table and seating your opponents"
+        />
+      )}
 
       {/* Max Games Error Modal */}
       {maxGamesError && (

@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
 # v54: Squashed features - heartbeat tracking, outcome columns, system presets
-SCHEMA_VERSION = 54
+# v55: Add last_game_created_at column to users table for duplicate game prevention
+SCHEMA_VERSION = 55
 
 
 @dataclass
@@ -748,7 +749,8 @@ class GamePersistence:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP,
                     linked_guest_id TEXT,
-                    is_guest BOOLEAN DEFAULT 0
+                    is_guest BOOLEAN DEFAULT 0,
+                    last_game_created_at REAL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
@@ -956,6 +958,7 @@ class GamePersistence:
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
             53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
             54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
+            55: (self._migrate_v55_add_last_game_created_at, "Add last_game_created_at to users for duplicate prevention"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2698,6 +2701,18 @@ class GamePersistence:
 
         logger.info("Migration v54 complete: squashed features added")
 
+    def _migrate_v55_add_last_game_created_at(self, conn: sqlite3.Connection) -> None:
+        """Migration v55: Add last_game_created_at column to users table for duplicate game prevention."""
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN last_game_created_at REAL")
+            logger.info("Added last_game_created_at column to users table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                logger.debug("Column last_game_created_at already exists in users")
+            else:
+                raise
+        logger.info("Migration v55 complete: last_game_created_at added to users")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -2886,6 +2901,24 @@ class GamePersistence:
                 SELECT COUNT(*) FROM games WHERE owner_id = ?
             """, (owner_id,))
             return cursor.fetchone()[0]
+
+    def get_last_game_creation_time(self, owner_id: str) -> Optional[float]:
+        """Get the timestamp of the user's last game creation."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT last_game_created_at FROM users WHERE id = ?",
+                (owner_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row and row[0] is not None else None
+
+    def update_last_game_creation_time(self, owner_id: str, timestamp: float) -> None:
+        """Update the user's last game creation timestamp."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE users SET last_game_created_at = ? WHERE id = ?",
+                (timestamp, owner_id)
+            )
 
     # ==================== User Management Methods ====================
 

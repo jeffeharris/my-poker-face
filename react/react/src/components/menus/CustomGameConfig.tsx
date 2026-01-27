@@ -35,9 +35,10 @@ interface CustomGameConfigProps {
     llmConfig: LLMConfig
   ) => void;
   onBack: () => void;
+  isCreatingGame?: boolean;
 }
 
-export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps) {
+export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }: CustomGameConfigProps) {
   const [personalities, setPersonalities] = useState<{ [key: string]: Personality }>({});
   const [selectedPersonalities, setSelectedPersonalities] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -395,7 +396,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         <button
           className="start-button"
           onClick={handleStartGame}
-          disabled={selectedPersonalities.length === 0}
+          disabled={selectedPersonalities.length === 0 || isCreatingGame}
         >
           Start Game with {selectedPersonalities.length} Opponent{selectedPersonalities.length !== 1 ? 's' : ''}
         </button>

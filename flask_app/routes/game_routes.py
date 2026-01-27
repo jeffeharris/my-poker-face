@@ -784,6 +784,13 @@ def api_new_game():
             return jsonify({
                 'error': f'Game limit reached. {"Guest users" if current_user.get("is_guest") else "You"} can have up to {max_games} saved game{"" if max_games == 1 else "s"}.'
             }), 400
+
+        # Prevent duplicate game creation from rapid clicks
+        last_created = persistence.get_last_game_creation_time(owner_id)
+        if last_created is not None and (time.time() - last_created) < 3:
+            return jsonify({
+                'error': 'Please wait a moment before creating another game.'
+            }), 429
     else:
         player_name = data.get('playerName', 'Player')
         owner_id = None
@@ -962,6 +969,10 @@ def api_new_game():
     persistence.save_tournament_tracker(game_id, tournament_tracker)
     persistence.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     start_background_avatar_generation(game_id, ai_player_names)
+
+    # Record game creation timestamp to prevent rapid duplicate creation
+    if owner_id:
+        persistence.update_last_game_creation_time(owner_id, time.time())
 
     return jsonify({'game_id': game_id})
 

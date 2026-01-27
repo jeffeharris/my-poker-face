@@ -166,6 +166,7 @@ interface GameMenuProps {
   onViewStats?: () => void;
   onAdminDashboard?: () => void;
   savedGamesCount: number;
+  isCreatingGame?: boolean;
 }
 
 export function GameMenu({
@@ -176,7 +177,8 @@ export function GameMenu({
   onContinueGame,
   onViewStats,
   onAdminDashboard,
-  savedGamesCount
+  savedGamesCount,
+  isCreatingGame = false
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const { isDesktop } = useViewport();
@@ -211,6 +213,7 @@ export function GameMenu({
               <button
                 className="quick-play-btn quick-play-btn--lightning"
                 onClick={() => onQuickPlay({ mode: 'lightning', opponents: 5, startingBB: 10 })}
+                disabled={isCreatingGame}
                 {...getHoverHandlers('lightning')}
               >
                 <Zap className="quick-play-btn__icon" size={22} />
@@ -221,6 +224,7 @@ export function GameMenu({
               <button
                 className="quick-play-btn quick-play-btn--1v1"
                 onClick={() => onQuickPlay({ mode: '1v1', opponents: 1, startingBB: 20 })}
+                disabled={isCreatingGame}
                 {...getHoverHandlers('1v1')}
               >
                 <Users className="quick-play-btn__icon" size={22} />
@@ -231,6 +235,7 @@ export function GameMenu({
               <button
                 className="quick-play-btn quick-play-btn--random"
                 onClick={() => onQuickPlay({ mode: 'random', opponents: 4, startingBB: 20 })}
+                disabled={isCreatingGame}
                 {...getHoverHandlers('random')}
               >
                 <Shuffle className="quick-play-btn__icon" size={22} />
@@ -243,6 +248,7 @@ export function GameMenu({
           <button
             className="menu-option custom-game"
             onClick={onCustomGame}
+            disabled={isCreatingGame}
             {...getHoverHandlers('custom')}
           >
             <Settings className="option-icon" size={24} />
@@ -256,6 +262,7 @@ export function GameMenu({
           <button
             className="menu-option themed-game"
             onClick={onThemedGame}
+            disabled={isCreatingGame}
             {...getHoverHandlers('themed')}
           >
             <Sparkles className="option-icon" size={24} />

@@ -18,6 +18,7 @@ interface Theme {
 interface ThemedGameSelectorProps {
   onSelectTheme: (theme: Theme) => Promise<void>;
   onBack: () => void;
+  isCreatingGame?: boolean;
 }
 
 // Predefined theme prompts that will be sent to OpenAI
@@ -32,7 +33,7 @@ const THEME_PROMPTS: Theme[] = [
   { id: 'surprise', name: 'Surprise Me!', icon: Sparkles, description: 'A mysterious mix of personalities' }
 ];
 
-export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelectorProps) {
+export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = false }: ThemedGameSelectorProps) {
   const [themes, setThemes] = useState<Theme[]>([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +113,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
               key={theme.id}
               className={`theme-card ${theme.id}`}
               onClick={() => handleGenerateTheme(theme)}
-              disabled={generating}
+              disabled={generating || isCreatingGame}
             >
               <div className="theme-icon"><theme.icon size={32} /></div>
               <h3>{theme.name}</h3>
@@ -123,20 +124,6 @@ export function ThemedGameSelector({ onSelectTheme, onBack }: ThemedGameSelector
             </button>
           ))}
         </div>
-
-        {generating && (
-          <div className="generating-overlay">
-            <div className="generating-content">
-              <div className="generating-cards">
-                {['♠', '♥', '♦', '♣'].map((suit, i) => (
-                  <div key={i} className={`generating-card suit-${i}`}>{suit}</div>
-                ))}
-              </div>
-              <h3>Assembling your table...</h3>
-              <p>Finding the perfect personalities for your theme</p>
-            </div>
-          </div>
-        )}
 
       <div className="themed-selector__footer">
         <p className="hint">
