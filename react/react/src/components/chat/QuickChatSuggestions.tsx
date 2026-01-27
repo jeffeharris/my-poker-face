@@ -262,10 +262,12 @@ export function QuickChatSuggestions({
             <span className="target-name">Table</span>
           </button>
           {aiPlayers.map((player) => {
-            // Use avatar_url if available, otherwise construct from player name
-            const avatarUrl = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
-              ? `${config.API_URL}${player.avatar_url}`
-              : `${config.API_URL}/api/avatar/${encodeURIComponent(player.name)}/confident/full`;
+            // Encode avatar URL path segments to handle spaces in player names
+            const rawPath = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
+              ? player.avatar_url
+              : `/api/avatar/${player.name}/confident/full`;
+            const encodedPath = rawPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
+            const avatarUrl = `${config.API_URL}${encodedPath}`;
             return (
               <button
                 key={player.name}
