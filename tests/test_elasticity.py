@@ -35,10 +35,10 @@ class TestElasticTrait(unittest.TestCase):
     def test_apply_pressure(self):
         """Test pressure application changes trait value."""
         trait = ElasticTrait(value=0.5, anchor=0.5, elasticity=0.3)
-        
-        # Small pressure shouldn't change value
+
+        # Small pressure applies immediate effect (amount * elasticity * 0.3)
         trait.apply_pressure(0.1)
-        self.assertEqual(trait.value, 0.5)
+        self.assertAlmostEqual(trait.value, 0.509, places=3)  # 0.5 + 0.1*0.3*0.3
         self.assertEqual(trait.pressure, 0.1)
         
         # Large pressure should change value
@@ -156,14 +156,14 @@ class TestPressureEventDetector(unittest.TestCase):
         """Test detecting events from showdown."""
         # Create a mock game state
         players = [
-            Player(name="Player1", stack=1000, bet=100, hand=[], 
+            Player(name="Player1", stack=1000, bet=100, hand=[],
                    is_human=False, is_all_in=False, is_folded=False, has_acted=True),
-            Player(name="Player2", stack=500, bet=100, hand=[], 
+            Player(name="Player2", stack=500, bet=100, hand=[],
                    is_human=False, is_all_in=False, is_folded=False, has_acted=True),
-            Player(name="Player3", stack=200, bet=0, hand=[], 
+            Player(name="Player3", stack=200, bet=0, hand=[],
                    is_human=False, is_all_in=False, is_folded=True, has_acted=True),
         ]
-        
+
         game_state = PokerGameState(
             players=tuple(players),
             deck=tuple(),
@@ -173,20 +173,25 @@ class TestPressureEventDetector(unittest.TestCase):
             current_dealer_idx=0,
             current_ante=10
         )
-        
-        # Mock winner info - Player1 wins with weak hand (bluff)
+
+        # Winner info using pot_breakdown format (current code format)
         winner_info = {
-            'winner_name': 'Player1',
+            'pot_breakdown': [
+                {
+                    'winners': [{'name': 'Player1', 'amount': 2000}],
+                    'hand_name': 'One Pair'
+                }
+            ],
             'hand_rank': 9,  # One pair (weak)
-            'winning_hand': 'One Pair'
+            'winnings': {'Player1': 2000}
         }
-        
+
         events = self.detector.detect_showdown_events(game_state, winner_info)
-        
-        # Should detect big loss for others (not bluff since multiple players still in)
+
+        # Should detect big win/loss events (not bluff since multiple players still in)
         event_names = [e[0] for e in events]
-        # With multiple active players, it's not detected as a bluff
         self.assertTrue(len(events) > 0)  # Should have some events
+        self.assertIn("big_win", event_names)
     
     def test_detect_chat_events(self):
         """Test detecting events from chat."""

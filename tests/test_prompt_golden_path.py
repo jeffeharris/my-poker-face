@@ -88,16 +88,16 @@ class TestGoldenPath(unittest.TestCase):
                 
                 # Verify prompt structure
                 self.assertIn(f'Persona: {test_case["name"]}', prompt)
-                self.assertIn('charity', prompt)  # Context
+                self.assertIn('tournament', prompt)  # Context
                 self.assertIn('JSON', prompt)  # Format requirement
                 self.assertIn('Example response:', prompt)  # Example included
                 
                 # Test the prompt manager integration
                 prompt_manager = PromptManager()
-                
-                # Test decision prompt rendering
-                decision_prompt = prompt_manager.render_prompt(
-                    'decision',
+
+                # Test decision prompt rendering (uses render_decision_prompt
+                # which selectively includes sections)
+                decision_prompt = prompt_manager.render_decision_prompt(
                     message="Test game state"
                 )
                 self.assertIn('Test game state', decision_prompt)
@@ -117,14 +117,14 @@ class TestGoldenPath(unittest.TestCase):
         # Verify confidence and attitude are set correctly
         self.assertEqual(eeyore.confidence, 'pessimistic')
         self.assertEqual(eeyore.attitude, 'gloomy')
-        self.assertEqual(trump.confidence, 'supreme')
-        self.assertEqual(trump.attitude, 'domineering')
-        
+        self.assertEqual(trump.confidence, 'overconfident')
+        self.assertEqual(trump.attitude, 'intimidating and charismatic')
+
         # Verify these appear in prompts
         self.assertIn('pessimistic', eeyore_prompt)
         self.assertIn('gloomy', eeyore_prompt)
-        self.assertIn('supreme', trump_prompt)
-        self.assertIn('domineering', trump_prompt)
+        self.assertIn('overconfident', trump_prompt)
+        self.assertIn('intimidating and charismatic', trump_prompt)
     
     def test_dynamic_strategy_in_prompts(self):
         """Test that dynamic strategy adjustments work correctly."""

@@ -16,13 +16,13 @@ from poker.chattiness_manager import ChattinessManager
 class TestHandStrategyPersistence(unittest.TestCase):
     """Test that hand strategy remains rigid throughout a hand."""
     
-    @patch('poker.poker_player.OpenAILLMAssistant')
-    @patch('poker.poker_player.ElasticPersonality')
-    def setUp(self, mock_elastic, mock_assistant):
-        # Mock the OpenAI assistant to avoid API calls
-        mock_assistant.return_value = Mock()
-        mock_elastic.from_base_personality.return_value = Mock()
-        
+    @patch('poker.poker_player.Assistant')
+    def setUp(self, mock_assistant):
+        # Mock the assistant to avoid API calls
+        mock_instance = Mock()
+        mock_instance.memory = []  # Avoid len() error in _trim_and_preserve_context
+        mock_assistant.return_value = mock_instance
+
         self.player = AIPokerPlayer(name="Test Player", starting_money=10000)
         self.player.elastic_personality = Mock()
         self.player.elastic_personality.get_trait_value = Mock(return_value=0.5)
@@ -280,7 +280,7 @@ class TestResponseProcessing(unittest.TestCase):
 class TestIntegrationScenarios(unittest.TestCase):
     """Test complete scenarios with all components."""
     
-    @patch('poker.poker_player.OpenAILLMAssistant')
+    @patch('poker.poker_player.Assistant')
     def test_full_hand_scenario(self, mock_assistant_class):
         """Test a complete hand with multiple players."""
         # Setup players with different chattiness

@@ -85,7 +85,13 @@ class TestGamePersistence(unittest.TestCase):
         
         for i, (msg_type, msg_text) in enumerate(messages):
             self.assertEqual(loaded_messages[i]['type'], msg_type)
-            self.assertEqual(loaded_messages[i]['text'], msg_text)
+            # load_messages parses "sender: content" format, so check via sender+content
+            if ': ' in msg_text:
+                sender, content = msg_text.split(': ', 1)
+                self.assertEqual(loaded_messages[i]['sender'], sender)
+                self.assertEqual(loaded_messages[i]['content'], content)
+            else:
+                self.assertEqual(loaded_messages[i]['content'], msg_text)
     
     def test_list_games(self):
         """Test listing saved games."""
