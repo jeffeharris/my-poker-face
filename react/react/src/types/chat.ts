@@ -27,7 +27,7 @@ export interface BackendChatMessage {
 /**
  * Psychological manipulation goals for targeted chat suggestions.
  */
-export type ChatTone = 'tilt' | 'false_confidence' | 'doubt' | 'goad' | 'mislead' | 'befriend';
+export type ChatTone = 'tilt' | 'bait' | 'needle' | 'goad' | 'bluff' | 'befriend';
 
 /**
  * Length modifier for chat suggestions.

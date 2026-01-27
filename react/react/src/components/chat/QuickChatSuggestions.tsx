@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Flame, Smile, HelpCircle, Zap, Theater, Handshake, Users, type LucideIcon } from 'lucide-react';
+import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, Users, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
@@ -32,10 +32,10 @@ interface ToneOption {
 
 const TONE_OPTIONS: ToneOption[] = [
   { id: 'tilt', icon: Flame, label: 'Tilt' },
-  { id: 'false_confidence', icon: Smile, label: 'False Confidence' },
-  { id: 'doubt', icon: HelpCircle, label: 'Doubt' },
+  { id: 'bait', icon: Crosshair, label: 'Bait' },
+  { id: 'needle', icon: CircleDot, label: 'Needle' },
   { id: 'goad', icon: Zap, label: 'Goad' },
-  { id: 'mislead', icon: Theater, label: 'Mislead' },
+  { id: 'bluff', icon: Sparkles, label: 'Bluff' },
   { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 

@@ -1,0 +1,24 @@
+name: quick_chat_bluff
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Lie about YOUR hand. Give false tells. Misdirection about what you're holding.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "I missed everything, {target_first_name}."
+    - "Finally caught something."
+    - "This board killed me."
+    - "I needed that card."
+
+    This is about YOUR hand, not theirs. Act weak when strong, strong when bluffing. Keep it casual — like it slipped out. NEVER talk about your emotions or strategy — only about your cards or the board.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "bluff"}}, {{"text": "...", "tone": "bluff"}}], "targetPlayer": "{target_player}"}}

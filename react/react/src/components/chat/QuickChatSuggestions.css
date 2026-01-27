@@ -308,20 +308,20 @@
   border-color: #f44336;
 }
 
-.tone-btn.tone-false_confidence {
+.tone-btn.tone-bait {
   border-color: rgba(76, 175, 80, 0.3);
 }
-.tone-btn.tone-false_confidence:hover,
-.tone-btn.tone-false_confidence.selected {
+.tone-btn.tone-bait:hover,
+.tone-btn.tone-bait.selected {
   background: rgba(76, 175, 80, 0.25);
   border-color: #4caf50;
 }
 
-.tone-btn.tone-doubt {
+.tone-btn.tone-needle {
   border-color: rgba(156, 39, 176, 0.3);
 }
-.tone-btn.tone-doubt:hover,
-.tone-btn.tone-doubt.selected {
+.tone-btn.tone-needle:hover,
+.tone-btn.tone-needle.selected {
   background: rgba(156, 39, 176, 0.25);
   border-color: #9c27b0;
 }
@@ -335,11 +335,11 @@
   border-color: #ff5722;
 }
 
-.tone-btn.tone-mislead {
+.tone-btn.tone-bluff {
   border-color: rgba(33, 150, 243, 0.3);
 }
-.tone-btn.tone-mislead:hover,
-.tone-btn.tone-mislead.selected {
+.tone-btn.tone-bluff:hover,
+.tone-btn.tone-bluff.selected {
   background: rgba(33, 150, 243, 0.25);
   border-color: #2196f3;
 }
@@ -415,16 +415,16 @@
 .suggestion-pill.tone-tilt {
   border-left: 3px solid #f44336;
 }
-.suggestion-pill.tone-false_confidence {
+.suggestion-pill.tone-bait {
   border-left: 3px solid #4caf50;
 }
-.suggestion-pill.tone-doubt {
+.suggestion-pill.tone-needle {
   border-left: 3px solid #9c27b0;
 }
 .suggestion-pill.tone-goad {
   border-left: 3px solid #ff5722;
 }
-.suggestion-pill.tone-mislead {
+.suggestion-pill.tone-bluff {
   border-left: 3px solid #2196f3;
 }
 .suggestion-pill.tone-befriend {

@@ -1,0 +1,24 @@
+name: quick_chat_needle
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Plant seeds of doubt. Be subtle. Make them second-guess their read without being aggressive.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "Interesting sizing, {target_first_name}..."
+    - "You sure about that?"
+    - "Hm."
+    - "{target_first_name}, that was... bold."
+
+    Be SUBTLE and questioning. Raise doubt with a light touch — a pause, a loaded word, a raised eyebrow in text.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "needle"}}, {{"text": "...", "tone": "needle"}}], "targetPlayer": "{target_player}"}}
