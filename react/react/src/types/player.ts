@@ -18,6 +18,7 @@ export interface LLMDebugInfo {
 
 export interface Player {
   name: string;
+  nickname?: string;
   stack: number;
   bet: number;
   is_folded: boolean;

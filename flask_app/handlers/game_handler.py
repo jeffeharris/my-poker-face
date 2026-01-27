@@ -226,6 +226,11 @@ def update_and_emit_game_state(game_id: str) -> None:
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 
+            # Add nickname from personality config (for compact UI display)
+            nickname = controller.ai_player.personality_config.get('nickname')
+            if nickname:
+                player_dict['nickname'] = nickname
+
             # Add psychology data for heads-up mode display
             psych = controller.psychology
             psych_data = {

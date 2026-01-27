@@ -39,6 +39,7 @@ Generate a unique personality configuration that includes:
    - recovery_rate: How fast they return to baseline (typically 0.05-0.2)
 6. verbal_tics: List of 3-5 characteristic phrases they might say
 7. physical_tics: List of 2-4 physical actions/gestures they might do (in *asterisks*)
+8. nickname: (OPTIONAL) A short display name (1-2 words max) for compact UI display. Only include this if the full name is long or would look bad truncated. For example: "The Hulk" -> "Hulk", "Dr. Seuss" -> "Dr. Seuss", "Ruth Bader Ginsburg" -> "RBG". Omit this field for names that already work well as-is (e.g., "Batman", "Socrates").
 
 Consider the character's name and any cultural/fictional associations. Make the personality feel authentic and interesting.
 

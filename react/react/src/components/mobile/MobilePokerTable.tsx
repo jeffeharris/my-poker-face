@@ -280,7 +280,7 @@ export function MobilePokerTable({
                 )}
               </div>
               <div className="opponent-info">
-                <span className="opponent-name">{opponent.name.split(' ')[0]}</span>
+                <span className="opponent-name">{opponent.nickname || opponent.name}</span>
                 <span className="opponent-stack">${opponent.stack}</span>
               </div>
               {opponent.bet > 0 && (
