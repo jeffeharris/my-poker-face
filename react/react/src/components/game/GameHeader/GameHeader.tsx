@@ -1,3 +1,4 @@
+import { formatCompactCurrency } from '../../../utils/formatters';
 import './GameHeader.css';
 
 interface GameHeaderProps {
@@ -48,7 +49,7 @@ export function GameHeader({
         )}
         <span className="game-header__separator">&#8226;</span>
         <span className="game-header__info-item">
-          Blinds ${blinds.small}/${blinds.big}
+          Blinds {formatCompactCurrency(blinds.small)}/{formatCompactCurrency(blinds.big, false)}
         </span>
         <span className="game-header__separator">&#8226;</span>
         <span className="game-header__phase-badge">

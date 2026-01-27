@@ -35,9 +35,38 @@
   align-items: center;
 }
 
+/* Allow scrolling when content overflows in centered mode */
+.page-layout--centered .page-layout__content {
+  margin: auto 0;
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+
 /* Top: Content starts from top with margin (scrollable pages) */
 .page-layout--top {
   align-items: flex-start;
+}
+
+/* Fixed: Content fills viewport without scrolling (menus with MenuBar) */
+.page-layout--fixed {
+  align-items: center;
+  overflow: hidden;
+}
+
+/* Allow scroll on short viewports (small phones, keyboard open) */
+@media (max-height: 600px) {
+  .page-layout--fixed {
+    overflow-y: auto;
+  }
+}
+
+/* ===========================================
+   MENU BAR SUPPORT
+   =========================================== */
+
+/* Add padding when MenuBar is present */
+.page-layout--has-menu-bar {
+  padding-top: calc(56px + max(var(--space-4), env(safe-area-inset-top)));
 }
 
 /* ===========================================
@@ -176,6 +205,11 @@
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
     padding-left: max(var(--space-4), env(safe-area-inset-left));
     padding-right: max(var(--space-4), env(safe-area-inset-right));
+  }
+
+  /* Must come after base padding to override */
+  .page-layout--has-menu-bar {
+    padding-top: calc(56px + max(var(--space-2), env(safe-area-inset-top)));
   }
 
   .page-layout--top .page-layout__content {

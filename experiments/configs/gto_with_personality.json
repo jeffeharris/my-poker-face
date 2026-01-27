@@ -1,0 +1,94 @@
+{
+  "name": "gto_with_personality",
+  "description": "Test GTO foundation with personality layered on top - best of both worlds",
+  "hypothesis": "GTO foundation (equity verdict) maintains high accuracy while personality affects style, not correctness",
+  "tags": ["gto", "personality", "equity", "ablation", "production-candidate"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 30,
+  "num_players": 4,
+  "starting_stack": 2000,
+  "big_blind": 40,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "parallel_tournaments": 4,
+  "stagger_start_delay": 2.0,
+  "capture_prompts": true,
+  "control": {
+    "label": "GTO-NoPersonality",
+    "prompt_config": {
+      "use_minimal_prompt": false,
+      "pot_odds": true,
+      "hand_strength": true,
+      "gto_equity": true,
+      "gto_verdict": true,
+      "situational_guidance": true,
+      "session_memory": false,
+      "opponent_intel": false,
+      "strategic_reflection": false,
+      "chattiness": false,
+      "emotional_state": false,
+      "tilt_effects": false,
+      "mind_games": false,
+      "persona_response": false
+    }
+  },
+  "variants": [
+    {
+      "label": "GTO+LightPersonality",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "gto_equity": true,
+        "gto_verdict": true,
+        "situational_guidance": true,
+        "session_memory": false,
+        "opponent_intel": false,
+        "strategic_reflection": false,
+        "chattiness": true,
+        "emotional_state": false,
+        "tilt_effects": false,
+        "mind_games": false,
+        "persona_response": true
+      }
+    },
+    {
+      "label": "GTO+FullPersonality",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "gto_equity": true,
+        "gto_verdict": true,
+        "situational_guidance": true,
+        "session_memory": true,
+        "opponent_intel": true,
+        "strategic_reflection": true,
+        "chattiness": true,
+        "emotional_state": true,
+        "tilt_effects": true,
+        "mind_games": true,
+        "persona_response": true
+      }
+    },
+    {
+      "label": "CurrentSystem-NoGTO",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "gto_equity": false,
+        "gto_verdict": false,
+        "situational_guidance": true,
+        "session_memory": true,
+        "opponent_intel": true,
+        "strategic_reflection": true,
+        "chattiness": true,
+        "emotional_state": true,
+        "tilt_effects": true,
+        "mind_games": true,
+        "persona_response": true
+      }
+    }
+  ]
+}

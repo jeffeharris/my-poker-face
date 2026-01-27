@@ -2,7 +2,7 @@
 Tests for BB (Big Blind) normalization functionality.
 
 Tests the _format_money helper, message conversion, and BB-to-dollar
-conversion logic used when PromptConfig.bb_normalized is enabled.
+conversion logic used when BB mode is active (PromptConfig.use_dollar_amounts=False).
 """
 import unittest
 from poker.controllers import _format_money, _convert_messages_to_bb

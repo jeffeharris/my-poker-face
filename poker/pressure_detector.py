@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from .poker_game import PokerGameState, Player
 from .elasticity_manager import ElasticityManager
 from .hand_evaluator import HandEvaluator
+from .moment_analyzer import MomentAnalyzer
 
 
 class PressureEventDetector:
@@ -59,8 +60,8 @@ class PressureEventDetector:
         active_stacks = [p.stack for p in game_state.players if p.stack > 0]
         avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
         
-        # More reasonable threshold - pot > 0.75x average stack is considered "big"
-        is_big_pot = pot_total > avg_stack * 0.75
+        # Use shared threshold from MomentAnalyzer (single source of truth)
+        is_big_pot = MomentAnalyzer.is_big_pot(pot_total, 0, avg_stack)
         
         # Get active players who showed cards
         active_players = [p for p in game_state.players if not p.is_folded]

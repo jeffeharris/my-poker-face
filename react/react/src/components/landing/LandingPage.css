@@ -1,5 +1,20 @@
 /* LandingPage - Premium Poker Aesthetic */
 
+/* Banner */
+.landing__banner {
+  padding: 0;
+  margin-bottom: var(--space-4);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.landing__banner-image {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+}
+
 .landing {
   width: 100%;
   max-width: 720px;
@@ -79,7 +94,12 @@
   color: var(--color-gold);
 }
 
-.landing__feature h3 {
+.landing__feature-text {
+  flex: 1;
+  min-width: 0; /* Prevent text overflow issues */
+}
+
+.landing__feature-text h3 {
   margin: 0 0 var(--space-2) 0;
   font-family: var(--font-display);
   font-size: var(--font-size-lg);
@@ -87,7 +107,7 @@
   color: var(--color-text-primary);
 }
 
-.landing__feature p {
+.landing__feature-text p {
   margin: 0;
   font-family: var(--font-body);
   font-size: var(--font-size-sm);
@@ -172,29 +192,64 @@
 /* Mobile responsiveness */
 @media (max-width: 600px) {
   .landing {
-    padding: var(--space-6);
+    padding: var(--space-4);
+  }
+
+  .landing__banner {
+    margin-bottom: var(--space-2);
+  }
+
+  .landing__banner-image {
+    max-width: 220px;
   }
 
   .landing__hero {
-    margin-bottom: var(--space-8);
+    margin-bottom: var(--space-6);
   }
 
   .landing__tagline {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-md);
   }
 
   .landing__features {
     grid-template-columns: 1fr;
-    gap: var(--space-4);
-    margin-bottom: var(--space-8);
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
   }
 
   .landing__feature {
-    padding: var(--space-5);
+    padding: var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    text-align: left;
+  }
+
+  .landing__feature-icon {
+    margin: 0;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+  }
+
+  .landing__feature-text h3 {
+    margin-bottom: var(--space-1);
+  }
+
+  .landing__feature-text p {
+    font-size: var(--font-size-xs);
+  }
+
+  .landing__cta {
+    margin-bottom: var(--space-6);
   }
 
   .landing__button {
     width: 100%;
     padding: var(--space-4) var(--space-8);
+  }
+
+  .landing__footer {
+    padding-top: var(--space-4);
   }
 }

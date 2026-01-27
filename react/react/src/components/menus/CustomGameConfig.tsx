@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Check, Settings } from 'lucide-react';
 import { config } from '../../config';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { OpponentConfigScreen } from './OpponentConfigScreen';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import type { OpponentLLMConfig } from '../../types/llm';
@@ -205,13 +205,14 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   }
 
   return (
-    <PageLayout variant="top" glowColor="sapphire" maxWidth="xl">
-      <PageHeader
-        title="Custom Game Setup"
-        subtitle="Choose your opponents (up to 5)"
-        onBack={onBack}
-        titleVariant="primary"
-      />
+    <>
+      <MenuBar onBack={onBack} title="Custom Game" showUserInfo onMainMenu={onBack} />
+      <PageLayout variant="top" glowColor="sapphire" maxWidth="xl" hasMenuBar>
+        <PageHeader
+          title="Custom Game Setup"
+          subtitle="Choose your opponents (up to 5)"
+          titleVariant="primary"
+        />
 
         <div className="config-section">
           <h3>Game Settings</h3>
@@ -399,6 +400,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
           Start Game with {selectedPersonalities.length} Opponent{selectedPersonalities.length !== 1 ? 's' : ''}
         </button>
       </div>
-    </PageLayout>
+      </PageLayout>
+    </>
   );
 }

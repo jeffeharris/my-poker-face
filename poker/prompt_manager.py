@@ -24,6 +24,22 @@ _FORMAT_PLACEHOLDER_RE = re.compile(r'\{([^}:!]+)(?:[!:][^}]*)?\}')
 # Regex to validate safe variable names (no private/dunder access)
 _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
 
+# Drama context messages for response intensity calibration
+DRAMA_CONTEXTS = {
+    'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
+    'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
+    'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
+}
+
+# Tone modifiers that append to drama context based on hand strength
+TONE_MODIFIERS = {
+    'neutral': "",
+    'confident': " Channel quiet confidence - you know you have the goods.",
+    'desperate': " Show the pressure - this is do-or-die, make it feel that way.",
+    'triumphant': " Savor the moment - you've got them right where you want them."
+}
+
 
 def _validate_format_placeholders(text: str) -> Set[str]:
     """Extract and validate format placeholders from a string.
@@ -294,10 +310,16 @@ class PromptManager:
     def stop_hot_reload(self) -> None:
         """Stop the file watcher. Call this on shutdown."""
         if self._observer:
-            self._observer.stop()
-            self._observer.join(timeout=2.0)
-            self._observer = None
-            logger.info("[PromptManager] Hot-reload stopped")
+            try:
+                self._observer.stop()
+                # Only join if the observer thread was actually started
+                if self._observer.is_alive():
+                    self._observer.join(timeout=2.0)
+                logger.info("[PromptManager] Hot-reload stopped")
+            except Exception as e:
+                logger.debug(f"[PromptManager] Error stopping hot-reload: {e}")
+            finally:
+                self._observer = None
 
         if self._debounce_timer:
             self._debounce_timer.cancel()
@@ -417,7 +439,9 @@ class PromptManager:
         include_persona_response: bool = True,
         pot_committed_info: dict | None = None,
         short_stack_info: dict | None = None,
-        made_hand_info: dict | None = None
+        made_hand_info: dict | None = None,
+        equity_verdict_info: dict | None = None,
+        drama_context: dict | None = None
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -430,6 +454,8 @@ class PromptManager:
             pot_committed_info: Dict with {pot_odds, required_equity, already_bet} if pot-committed
             short_stack_info: Dict with {stack_bb} if short-stacked (<3 BB)
             made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
+            equity_verdict_info: Dict with {equity, required_equity, verdict, pot_odds} for GTO foundation
+            drama_context: Dict with {level, factors} for response intensity calibration
 
         Returns:
             Rendered decision prompt
@@ -472,13 +498,51 @@ class PromptManager:
                     equity=made_hand_info.get('equity', 0)
                 ))
 
+        # Include equity verdict if applicable (GTO foundation)
+        if equity_verdict_info:
+            # Get both equity values (fall back to equity_random if equity_ranges unavailable)
+            equity_random = equity_verdict_info.get('equity_random', equity_verdict_info.get('equity', 0))
+            equity_ranges = equity_verdict_info.get('equity_ranges', equity_random)
+            opponent_stats = equity_verdict_info.get('opponent_stats', '')
+
+            # Choose template based on whether verdict is provided
+            if equity_verdict_info.get('verdict') and 'equity_verdict_with_call' in template.sections:
+                sections_to_render.append(template.sections['equity_verdict_with_call'].format(
+                    equity_random=equity_random,
+                    equity_ranges=equity_ranges,
+                    required_equity=equity_verdict_info.get('required_equity', 0),
+                    pot_odds=equity_verdict_info.get('pot_odds', 0),
+                    verdict=equity_verdict_info.get('verdict', ''),
+                    opponent_stats=opponent_stats,
+                ))
+            elif 'equity_verdict' in template.sections:
+                sections_to_render.append(template.sections['equity_verdict'].format(
+                    equity_random=equity_random,
+                    equity_ranges=equity_ranges,
+                    required_equity=equity_verdict_info.get('required_equity', 0),
+                    pot_odds=equity_verdict_info.get('pot_odds', 0),
+                    opponent_stats=opponent_stats,
+                ))
+
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])
 
         if include_persona_response and 'persona_response' in template.sections:
             sections_to_render.append(template.sections['persona_response'])
 
-        return "\n\n".join(sections_to_render)
+        # Join all sections
+        rendered = "\n\n".join(sections_to_render)
+
+        # Append drama context at END (critical - avoids biasing decision)
+        if drama_context:
+            level = drama_context.get('level', 'routine')
+            tone = drama_context.get('tone', 'neutral')
+            drama_text = DRAMA_CONTEXTS.get(level, '')
+            tone_modifier = TONE_MODIFIERS.get(tone, '')
+            if drama_text:
+                rendered = f"{rendered}\n\n{drama_text}{tone_modifier}"
+
+        return rendered
 
     def render_correction_prompt(
         self,
@@ -563,8 +627,7 @@ RESPONSE_FORMAT = {
     "play_style": "OPTIONAL: Your current play style (tight/loose/aggressive/passive)",
     "new_confidence": "OPTIONAL: Updated confidence level (single word)",
     "new_attitude": "OPTIONAL: Updated emotional state (single word)",
-    "persona_response": "OPTIONAL: What you say out loud to the table",
-    "physical": "OPTIONAL: List of physical actions, gestures, or tells",
+    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
 
     # PHASE 5: COMMITMENT (Final action - decided LAST after thinking it through)
     "action": "REQUIRED: Your final action from the provided options",
@@ -598,8 +661,7 @@ PERSONA_EXAMPLES = {
             "play_style": "tight",
             "new_confidence": "abysmal",
             "new_attitude": "gloomy",
-            "persona_response": "Oh bother, just my luck. Another miserable hand, I suppose.",
-            "physical": ["*looks at feet*", "*lets out a big sigh*"],
+            "dramatic_sequence": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."],
 
             # PHASE 5: COMMITMENT
             "action": "check",
@@ -629,8 +691,7 @@ PERSONA_EXAMPLES = {
             "play_style": "loose and aggressive",
             "new_confidence": "steady",
             "new_attitude": "determined",
-            "persona_response": "Your move.",
-            "physical": ["*narrows eyes*"],
+            "dramatic_sequence": ["*narrows eyes*", "Your move."],
 
             # PHASE 5: COMMITMENT
             "action": "raise",

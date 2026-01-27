@@ -13,6 +13,7 @@ from flask_socketio import join_room
 
 from poker.controllers import AIPlayerController
 from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
+from poker.prompt_config import PromptConfig
 from poker.betting_context import BettingContext
 from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from poker.utils import get_celebrities
@@ -24,7 +25,7 @@ from poker.pressure_stats import PressureStatsTracker
 from poker.memory import AIMemoryManager
 from poker.memory.opponent_model import OpponentModelManager
 from poker.tournament_tracker import TournamentTracker
-from poker.character_images import get_avatar_url
+from poker.character_images import get_full_avatar_url
 
 from ..game_adapter import StateMachineAdapter
 from ..extensions import socketio, persistence, auth_manager, limiter
@@ -43,6 +44,32 @@ from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 logger = logging.getLogger(__name__)
 
 game_bp = Blueprint('game', __name__)
+
+
+def load_game_mode_preset(game_mode: str) -> PromptConfig:
+    """Load a game mode as a preset from the database.
+
+    Game modes (casual, standard, pro, competitive) are stored as system presets
+    in the prompt_presets table, unifying them with user-defined presets.
+
+    Args:
+        game_mode: The game mode name ('casual', 'standard', 'pro', 'competitive')
+
+    Returns:
+        PromptConfig with the preset's settings applied
+    """
+    preset = persistence.get_prompt_preset_by_name(game_mode)
+    if preset:
+        prompt_config = preset.get('prompt_config')
+        if prompt_config:
+            return PromptConfig.from_dict(prompt_config)
+        else:
+            # Preset exists but has empty/null config - use defaults
+            return PromptConfig()
+    else:
+        # Fallback to hardcoded mode if preset not found (e.g., migration not run)
+        logger.warning(f"Preset '{game_mode}' not found in database, using fallback")
+        return PromptConfig.from_mode_name(game_mode)
 
 
 def analyze_player_decision(
@@ -383,7 +410,7 @@ def api_game_state(game_id):
                 avatar_emotion = emotional_state.get_display_emotion()
             else:
                 avatar_emotion = 'confident'
-            avatar_url = get_avatar_url(player.name, avatar_emotion)
+            avatar_url = get_full_avatar_url(player.name, avatar_emotion)
 
         players.append({
             'name': player.name,
@@ -639,9 +666,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    from pathlib import Path
-
-    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    db_path = _get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -661,7 +686,8 @@ def _get_enabled_models_map():
                 (row[0], row[1]): bool(row[2]) and bool(row[3] if row[3] is not None else True)
                 for row in cursor.fetchall()
             }
-    except Exception:
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in _get_enabled_models_map: {e}")
         return {}
 
 
@@ -676,9 +702,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    from pathlib import Path
-
-    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    db_path = _get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -698,7 +722,8 @@ def _get_system_enabled_models_map():
                 (row[0], row[1]): bool(row[2])
                 for row in cursor.fetchall()
             }
-    except Exception:
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in _get_system_enabled_models_map: {e}")
         return {}
 
 
@@ -711,9 +736,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    from pathlib import Path
-
-    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    db_path = _get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -737,7 +760,8 @@ def _get_model_capabilities_map():
                 }
                 for row in cursor.fetchall()
             }
-    except Exception:
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in _get_model_capabilities_map: {e}")
         return {}
 
 
@@ -773,6 +797,15 @@ def api_new_game():
     blinds_increase = data.get('blinds_increase', 6)
     max_blind = data.get('max_blind', 0)  # 0 = no limit
 
+    # Validate game mode (if provided)
+    game_mode = data.get('game_mode', 'casual').lower()
+    VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
+    if game_mode not in VALID_GAME_MODES:
+        return jsonify({
+            'error': f'Invalid game_mode: {game_mode}',
+            'valid_modes': list(VALID_GAME_MODES)
+        }), 400
+
     # Validate default LLM config if provided
     if default_llm_config:
         default_provider = default_llm_config.get('provider', 'openai').lower()
@@ -786,10 +819,11 @@ def api_new_game():
     if starting_stack < big_blind * 10:
         starting_stack = big_blind * 10
 
-    # Parse personalities - supports both string names and objects with llm_config
-    # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}}]
+    # Parse personalities - supports both string names and objects with llm_config/game_mode
+    # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}, "game_mode": "pro"}]
     ai_player_names = []
     player_llm_configs = {}  # Map of player_name -> llm_config
+    player_prompt_configs = {}  # Map of player_name -> prompt_config
 
     if requested_personalities:
         for p in requested_personalities:
@@ -812,6 +846,15 @@ def api_new_game():
                             return jsonify({'error': f'Invalid model {model} for provider {provider}'}), 400
                         # Merge with default config (per-player overrides default)
                         player_llm_configs[name] = {**default_llm_config, **p_llm_config}
+                    # Handle per-player game_mode override
+                    if 'game_mode' in p:
+                        p_mode = p['game_mode'].lower()
+                        if p_mode not in VALID_GAME_MODES:
+                            return jsonify({
+                                'error': f'Invalid game_mode for {name}: {p_mode}',
+                                'valid_modes': list(VALID_GAME_MODES)
+                            }), 400
+                        player_prompt_configs[name] = load_game_mode_preset(p_mode)
     else:
         ai_player_names = get_celebrities(shuffled=True)[:3]
 
@@ -834,6 +877,9 @@ def api_new_game():
     # Generate game_id first so it can be passed to controllers for tracking
     game_id = generate_game_id()
 
+    # Create default game-level prompt config from game_mode (loaded from DB preset)
+    default_prompt_config = load_game_mode_preset(game_mode)
+
     ai_controllers = {}
     elasticity_manager = ElasticityManager()
 
@@ -841,10 +887,12 @@ def api_new_game():
         if not player.is_human:
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
+            player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
             new_controller = AIPlayerController(
                 player.name,
                 state_machine,
                 llm_config=player_config,
+                prompt_config=player_prompt_config,
                 game_id=game_id,
                 owner_id=owner_id,
                 persistence=persistence
@@ -893,7 +941,9 @@ def api_new_game():
         'owner_id': owner_id,
         'owner_name': owner_name,
         'llm_config': default_llm_config,  # Default config for new players
-        'player_llm_configs': player_llm_configs,  # Per-player overrides
+        'player_llm_configs': player_llm_configs,  # Per-player LLM overrides
+        'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
+        'default_game_mode': game_mode,  # Game-level mode setting
         'last_announced_phase': None,  # Track which phase we've announced cards for
         'messages': [{
             'id': '1',

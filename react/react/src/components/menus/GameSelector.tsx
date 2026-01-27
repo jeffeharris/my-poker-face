@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../config';
-import { PageLayout, PageHeader } from '../shared';
+import { PageLayout, PageHeader, MenuBar } from '../shared';
 import './GameSelector.css';
 
 interface SavedGame {
@@ -83,20 +83,24 @@ export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelec
 
   if (loading) {
     return (
-      <PageLayout variant="centered" glowColor="amethyst" maxWidth="lg">
-        <h2 className="game-selector__loading">Loading saved games...</h2>
-      </PageLayout>
+      <>
+        <MenuBar onBack={onBack} title="Saved Games" showUserInfo onMainMenu={onBack} />
+        <PageLayout variant="centered" glowColor="amethyst" maxWidth="lg" hasMenuBar>
+          <h2 className="game-selector__loading">Loading saved games...</h2>
+        </PageLayout>
+      </>
     );
   }
 
   return (
-    <PageLayout variant="top" glowColor="amethyst" maxWidth="lg">
-      <PageHeader
-        title="Saved Games"
-        subtitle="Continue where you left off"
-        onBack={onBack}
-        titleVariant="primary"
-      />
+    <>
+      <MenuBar onBack={onBack} title="Saved Games" showUserInfo onMainMenu={onBack} />
+      <PageLayout variant="top" glowColor="amethyst" maxWidth="lg" hasMenuBar>
+        <PageHeader
+          title="Saved Games"
+          subtitle="Continue where you left off"
+          titleVariant="primary"
+        />
 
       <div className="game-selector__content">
         {savedGames.length > 0 && (
@@ -252,6 +256,7 @@ export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelec
           </div>
         )}
       </div>
-    </PageLayout>
+      </PageLayout>
+    </>
   );
 }

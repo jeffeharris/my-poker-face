@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from experiments.run_ai_tournament import ExperimentConfig, TournamentResult
+from experiments.variant_config import build_effective_variant_config, VariantConfig, ControlConfig
 
 
 class TestExperimentConfigVariants(unittest.TestCase):
@@ -198,6 +199,170 @@ class TestExperimentConfigVariants(unittest.TestCase):
 
         # 5 tournaments × 1 variant (control only) = 5
         self.assertEqual(config.get_total_tournaments(), 5)
+
+
+class TestBuildEffectiveVariantConfigGameMode(unittest.TestCase):
+    """Test cases for build_effective_variant_config with game_mode."""
+
+    def test_build_effective_with_game_mode(self):
+        """build_effective_variant_config should include game_mode."""
+        result = build_effective_variant_config(
+            {'label': 'V1', 'game_mode': 'pro'},
+            control_dict={'game_mode': 'standard'}
+        )
+        self.assertEqual(result['game_mode'], 'pro')  # Variant overrides control
+
+    def test_game_mode_inheritance_from_control(self):
+        """Variant should inherit game_mode from control if not set."""
+        result = build_effective_variant_config(
+            {'label': 'V1'},  # No game_mode
+            control_dict={'game_mode': 'standard'}
+        )
+        self.assertEqual(result['game_mode'], 'standard')
+
+    def test_game_mode_none_when_not_set(self):
+        """game_mode should be None when not set anywhere."""
+        result = build_effective_variant_config(
+            {'label': 'V1'},
+            control_dict=None
+        )
+        self.assertIsNone(result['game_mode'])
+
+    def test_variant_config_dataclass_game_mode(self):
+        """VariantConfig dataclass should have game_mode field."""
+        config = VariantConfig(label="Test", game_mode="pro")
+        self.assertEqual(config.game_mode, "pro")
+        d = config.to_dict()
+        self.assertEqual(d['game_mode'], "pro")
+
+    def test_control_config_dataclass_game_mode(self):
+        """ControlConfig dataclass should have game_mode field."""
+        config = ControlConfig(label="Control", game_mode="standard")
+        self.assertEqual(config.game_mode, "standard")
+        d = config.to_dict()
+        self.assertEqual(d['game_mode'], "standard")
+
+    def test_variant_config_from_dict_with_game_mode(self):
+        """VariantConfig.from_dict should preserve game_mode."""
+        config = VariantConfig.from_dict({'label': 'Test', 'game_mode': 'casual'})
+        self.assertEqual(config.game_mode, 'casual')
+
+    def test_control_config_from_dict_with_game_mode(self):
+        """ControlConfig.from_dict should preserve game_mode."""
+        config = ControlConfig.from_dict({'label': 'Control', 'game_mode': 'pro'})
+        self.assertEqual(config.game_mode, 'pro')
+
+
+class TestGameModeInVariants(unittest.TestCase):
+    """Test cases for game_mode field in ExperimentConfig control and variants."""
+
+    def test_game_mode_in_variant_config(self):
+        """game_mode should be included in variant config."""
+        config = ExperimentConfig(
+            name='test_game_mode',
+            model='gpt-5-nano',
+            provider='openai',
+            control={'label': 'Control', 'game_mode': 'casual'},
+            variants=[{'label': 'Pro Mode', 'game_mode': 'pro'}],
+        )
+
+        variants = config.get_variant_configs()
+
+        self.assertEqual(len(variants), 2)
+        # Control
+        label, control_config = variants[0]
+        self.assertEqual(control_config['game_mode'], 'casual')
+        # Variant
+        label, variant_config = variants[1]
+        self.assertEqual(variant_config['game_mode'], 'pro')
+
+    def test_game_mode_inheritance_from_control(self):
+        """Variant should inherit game_mode from control if not set."""
+        config = ExperimentConfig(
+            name='test_inheritance',
+            model='gpt-5-nano',
+            provider='openai',
+            control={'label': 'Control', 'game_mode': 'standard'},
+            variants=[{'label': 'Variant'}],  # No game_mode
+        )
+
+        variants = config.get_variant_configs()
+
+        label, variant_config = variants[1]
+        self.assertEqual(variant_config['game_mode'], 'standard')
+
+    def test_game_mode_variant_overrides_control(self):
+        """Variant game_mode should override control game_mode."""
+        config = ExperimentConfig(
+            name='test_override',
+            model='gpt-5-nano',
+            provider='openai',
+            control={'label': 'Control', 'game_mode': 'casual'},
+            variants=[{'label': 'Pro Mode', 'game_mode': 'pro'}],
+        )
+
+        variants = config.get_variant_configs()
+
+        # Control stays casual
+        label, control_config = variants[0]
+        self.assertEqual(control_config['game_mode'], 'casual')
+        # Variant is pro
+        label, variant_config = variants[1]
+        self.assertEqual(variant_config['game_mode'], 'pro')
+
+    def test_game_mode_none_when_not_specified(self):
+        """game_mode should be None when not specified anywhere."""
+        config = ExperimentConfig(
+            name='test_no_mode',
+            model='gpt-5-nano',
+            provider='openai',
+            control={'label': 'Control'},  # No game_mode
+            variants=[{'label': 'Variant'}],  # No game_mode
+        )
+
+        variants = config.get_variant_configs()
+
+        label, control_config = variants[0]
+        self.assertIsNone(control_config['game_mode'])
+        label, variant_config = variants[1]
+        self.assertIsNone(variant_config['game_mode'])
+
+    def test_invalid_game_mode_in_control_raises(self):
+        """Invalid game_mode in control should raise ValueError."""
+        with self.assertRaises(ValueError) as context:
+            ExperimentConfig(
+                name='test_invalid',
+                control={'label': 'Control', 'game_mode': 'invalid_mode'},
+            )
+
+        self.assertIn('Invalid control game_mode', str(context.exception))
+
+    def test_invalid_game_mode_in_variant_raises(self):
+        """Invalid game_mode in variant should raise ValueError."""
+        with self.assertRaises(ValueError) as context:
+            ExperimentConfig(
+                name='test_invalid',
+                control={'label': 'Control'},
+                variants=[{'label': 'V1', 'game_mode': 'ultra_pro'}],
+            )
+
+        self.assertIn('Invalid variants[0] game_mode', str(context.exception))
+
+    def test_valid_game_modes_accepted(self):
+        """Valid game modes (casual, standard, pro, competitive) should be accepted."""
+        # Should not raise
+        config = ExperimentConfig(
+            name='test_valid',
+            control={'label': 'Control', 'game_mode': 'casual'},
+            variants=[
+                {'label': 'Standard', 'game_mode': 'standard'},
+                {'label': 'Pro', 'game_mode': 'pro'},
+                {'label': 'Competitive', 'game_mode': 'competitive'},
+            ],
+        )
+
+        variants = config.get_variant_configs()
+        self.assertEqual(len(variants), 4)  # control + 3 variants
 
 
 class TestTournamentResultVariant(unittest.TestCase):

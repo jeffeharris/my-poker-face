@@ -9,11 +9,11 @@ class TestPromptConfig(unittest.TestCase):
     """Tests for PromptConfig dataclass."""
 
     def test_default_all_enabled(self):
-        """All components should be enabled by default (except bb_normalized)."""
+        """All components should be enabled by default (except use_dollar_amounts)."""
         config = PromptConfig()
         self.assertTrue(config.pot_odds)
         self.assertTrue(config.hand_strength)
-        self.assertFalse(config.bb_normalized)  # Defaults to False (opt-in feature)
+        self.assertFalse(config.use_dollar_amounts)  # Defaults to False (BB mode is default)
         self.assertTrue(config.session_memory)
         self.assertTrue(config.opponent_intel)
         self.assertTrue(config.strategic_reflection)
@@ -30,14 +30,16 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 14)  # 12 bool + 1 int + 1 str
+        self.assertEqual(len(d), 20)  # 18 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
         self.assertIn('strategic_reflection', d)
         self.assertIn('memory_keep_exchanges', d)
         self.assertIn('situational_guidance', d)
+        self.assertIn('guidance_injection', d)
         self.assertEqual(d['memory_keep_exchanges'], 0)
+        self.assertEqual(d['guidance_injection'], "")
 
     def test_from_dict_full(self):
         """from_dict should restore from a full dict."""
@@ -164,8 +166,14 @@ class TestPromptConfig(unittest.TestCase):
 
     def test_repr_all_enabled(self):
         """repr should show 'all enabled' when all booleans are True."""
-        # Default PromptConfig has bb_normalized=False, so use enable_all()
-        config = PromptConfig().enable_all()
+        # Must explicitly set fields that default to False
+        config = PromptConfig(
+            use_dollar_amounts=True,
+            gto_equity=True,
+            gto_verdict=True,
+            use_minimal_prompt=True,
+            use_simple_response_format=True,
+        )
         self.assertIn('all enabled', repr(config))
 
     def test_repr_some_disabled(self):
@@ -205,7 +213,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertIn("PERSONA RESPONSE", result)
+        self.assertIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_mind_games_disabled(self):
         """render_decision_prompt should exclude MIND GAMES when disabled."""
@@ -220,10 +228,10 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertIn("PERSONA RESPONSE", result)
+        self.assertIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_persona_disabled(self):
-        """render_decision_prompt should exclude PERSONA RESPONSE when disabled."""
+        """render_decision_prompt should exclude DRAMATIC SEQUENCE when disabled."""
         from poker.prompt_manager import PromptManager
 
         pm = PromptManager()
@@ -235,7 +243,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertNotIn("PERSONA RESPONSE", result)
+        self.assertNotIn("DRAMATIC SEQUENCE", result)
 
     def test_render_decision_prompt_both_disabled(self):
         """render_decision_prompt should exclude both when disabled."""
@@ -250,9 +258,72 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertNotIn("PERSONA RESPONSE", result)
+        self.assertNotIn("DRAMATIC SEQUENCE", result)
         # Should still have the base instruction
         self.assertIn("CRITICAL", result)
+
+
+class TestGameModes(unittest.TestCase):
+    """Tests for game mode factory methods."""
+
+    def test_casual_mode(self):
+        """Casual mode should use defaults (no equity shown)."""
+        config = PromptConfig.casual()
+        self.assertFalse(config.gto_equity)
+        self.assertFalse(config.gto_verdict)
+        self.assertTrue(config.chattiness)
+        self.assertTrue(config.persona_response)
+
+    def test_standard_mode(self):
+        """Standard mode should show equity but not verdict."""
+        config = PromptConfig.standard()
+        self.assertTrue(config.gto_equity)
+        self.assertFalse(config.gto_verdict)
+        self.assertTrue(config.chattiness)
+        self.assertTrue(config.persona_response)
+
+    def test_pro_mode(self):
+        """Pro mode should show equity + verdict, disable chattiness and persona."""
+        config = PromptConfig.pro()
+        self.assertTrue(config.gto_equity)
+        self.assertTrue(config.gto_verdict)
+        self.assertFalse(config.chattiness)
+        self.assertFalse(config.persona_response)
+
+    def test_from_mode_name_valid(self):
+        """from_mode_name should resolve valid mode names."""
+        casual = PromptConfig.from_mode_name('casual')
+        self.assertEqual(casual.to_dict(), PromptConfig.casual().to_dict())
+
+        standard = PromptConfig.from_mode_name('standard')
+        self.assertEqual(standard.to_dict(), PromptConfig.standard().to_dict())
+
+        pro = PromptConfig.from_mode_name('pro')
+        self.assertEqual(pro.to_dict(), PromptConfig.pro().to_dict())
+
+    def test_from_mode_name_case_insensitive(self):
+        """from_mode_name should be case insensitive."""
+        self.assertEqual(
+            PromptConfig.from_mode_name('STANDARD').to_dict(),
+            PromptConfig.standard().to_dict()
+        )
+        self.assertEqual(
+            PromptConfig.from_mode_name('Pro').to_dict(),
+            PromptConfig.pro().to_dict()
+        )
+
+    def test_from_mode_name_invalid(self):
+        """from_mode_name should raise ValueError for invalid modes."""
+        with self.assertRaises(ValueError) as context:
+            PromptConfig.from_mode_name('invalid')
+        self.assertIn('Invalid game mode', str(context.exception))
+        self.assertIn('invalid', str(context.exception))
+
+    def test_casual_is_default(self):
+        """Casual mode should equal default PromptConfig."""
+        casual = PromptConfig.casual()
+        default = PromptConfig()
+        self.assertEqual(casual.to_dict(), default.to_dict())
 
 
 if __name__ == '__main__':

@@ -8,8 +8,9 @@ export interface PageLayoutProps {
    * Layout variant:
    * - 'centered': Content centered vertically (default for simple pages)
    * - 'top': Content starts from top with margin (for scrollable pages)
+   * - 'fixed': Content fills viewport without scrolling (for menus with MenuBar)
    */
-  variant?: 'centered' | 'top';
+  variant?: 'centered' | 'top' | 'fixed';
   /**
    * Ambient glow color variant for the page background
    */
@@ -18,6 +19,10 @@ export interface PageLayoutProps {
    * Maximum width of the content container
    */
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl';
+  /**
+   * Whether page has a MenuBar (adds top padding to account for fixed header)
+   */
+  hasMenuBar?: boolean;
   /**
    * Additional class name for the outer container
    */
@@ -40,12 +45,14 @@ export function PageLayout({
   variant = 'centered',
   glowColor = 'gold',
   maxWidth = 'lg',
+  hasMenuBar = false,
   className = '',
 }: PageLayoutProps) {
   const containerClasses = [
     'page-layout',
     `page-layout--${variant}`,
     `page-layout--glow-${glowColor}`,
+    hasMenuBar && 'page-layout--has-menu-bar',
     className,
   ].filter(Boolean).join(' ');
 

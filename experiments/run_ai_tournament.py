@@ -79,6 +79,54 @@ class TournamentPausedException(Exception):
         super().__init__(f"{message} at hand {hand_number}")
 
 
+class TournamentSupersededException(Exception):
+    """Raised when a tournament is superseded by a resume operation.
+
+    This happens when another process has acquired the resume lock,
+    indicating this process should exit gracefully.
+    """
+
+    def __init__(self, tournament_id: str, message: str = "Tournament superseded by resume"):
+        self.tournament_id = tournament_id
+        super().__init__(f"{message}: {tournament_id}")
+
+
+@dataclass
+class HandResult:
+    """Result from running a single hand.
+
+    Replaces the untyped Dict return with a typed dataclass.
+
+    Status values:
+    - 'continue': Game should continue normally
+    - 'paused': Tournament was paused (user request)
+    - 'end': Tournament should end (only 1 player with chips before hand started)
+    - 'reset_needed': Only 1 player with chips after hand (may need stack reset)
+    """
+    status: str
+    all_in_winners: List[str] = field(default_factory=list)
+
+    @property
+    def should_continue(self) -> bool:
+        """True if game should continue to next hand."""
+        return self.status == 'continue'
+
+    @property
+    def is_paused(self) -> bool:
+        """True if tournament was paused."""
+        return self.status == 'paused'
+
+    @property
+    def needs_reset(self) -> bool:
+        """True if tournament ended and may need stack reset."""
+        return self.status == 'reset_needed'
+
+    @property
+    def is_end(self) -> bool:
+        """True if tournament should end (only 1 player before hand started)."""
+        return self.status == 'end'
+
+
 # Configure logging (only if not already configured, e.g., when imported)
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -99,7 +147,7 @@ class TournamentResult:
     hands_played: int
     winner: str
     final_standings: List[Dict]
-    elimination_order: List[str]
+    elimination_order: List[str]  # Legacy: names only (for backwards compatibility)
     model_config: Dict
     total_api_calls: int
     total_cost: float
@@ -108,6 +156,8 @@ class TournamentResult:
     variant: Optional[str] = None  # Variant label for A/B testing
     round_winners: List[str] = field(default_factory=list)  # Winners of each "round" before reset
     total_resets: int = 0  # How many times stacks were reset
+    # Detailed elimination tracking (new)
+    eliminations: List[Dict] = field(default_factory=list)  # [{player_name, hand_number, round_number}]
 
 
 @dataclass
@@ -116,6 +166,7 @@ class ControlConfig:
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro', 'competitive'
     prompt_config: Optional[Dict] = None
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
@@ -131,6 +182,7 @@ class VariantConfig:
     model: Optional[str] = None
     provider: Optional[str] = None
     personality: Optional[str] = None  # Per-variant personality assignment
+    game_mode: Optional[str] = None  # 'casual', 'standard', 'pro', 'competitive'
     prompt_config: Optional[Dict] = None
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
@@ -168,11 +220,17 @@ class ExperimentConfig:
 
     def __post_init__(self):
         """Validate control/variants structure."""
+        VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive', None}
+
         if self.control is not None:
             if not isinstance(self.control, dict):
                 raise ValueError("control must be a dict")
             if not self.control.get('label'):
                 raise ValueError("control.label is required")
+            # Validate game_mode in control
+            control_game_mode = self.control.get('game_mode')
+            if control_game_mode and control_game_mode not in VALID_GAME_MODES:
+                raise ValueError(f"Invalid control game_mode: {control_game_mode}. Valid: casual, standard, pro, competitive")
 
         if self.variants is not None:
             if not isinstance(self.variants, list):
@@ -182,6 +240,10 @@ class ExperimentConfig:
                     raise ValueError(f"variants[{i}] must be a dict")
                 if not v.get('label'):
                     raise ValueError(f"variants[{i}].label is required")
+                # Validate game_mode in variant
+                variant_game_mode = v.get('game_mode')
+                if variant_game_mode and variant_game_mode not in VALID_GAME_MODES:
+                    raise ValueError(f"Invalid variants[{i}] game_mode: {variant_game_mode}. Valid: casual, standard, pro, competitive")
 
     def get_variant_configs(self) -> List[Tuple[str, Dict]]:
         """
@@ -209,6 +271,7 @@ class ExperimentConfig:
         control_config = {
             'model': self.model,      # Always use experiment-level
             'provider': self.provider, # Always use experiment-level
+            'game_mode': self.control.get('game_mode'),
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
             'enable_commentary': self.control.get('enable_commentary', False),
@@ -226,6 +289,8 @@ class ExperimentConfig:
                 # Model/provider inherit from experiment-level, not control
                 'model': variant.get('model') or self.model,
                 'provider': variant.get('provider') or self.provider,
+                # Game mode - use variant's or inherit from control
+                'game_mode': variant.get('game_mode') if 'game_mode' in variant else control_config.get('game_mode'),
                 # Use explicit None check - empty dict {} is a valid config
                 'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified
@@ -388,6 +453,10 @@ class TournamentWorker:
                         variant_config=task.variant_config,
                         tournament_number=task.tournament_number,
                     )
+                    # Record process_id and initial heartbeat for resume tracking
+                    runner.persistence.update_experiment_game_heartbeat(
+                        task.tournament_id, 'processing', process_id=os.getpid()
+                    )
                 except Exception as e:
                     logger.warning(f"Could not link game to experiment: {e}")
 
@@ -425,6 +494,19 @@ class TournamentWorker:
                 task=task,
                 error=str(e),
                 error_type='TournamentPausedException',
+                duration_seconds=duration,
+            )
+
+        except TournamentSupersededException as e:
+            # Tournament was superseded by a resume - not an error, graceful exit
+            duration = time.time() - start_time
+            logger.info(
+                f"Tournament {task.tournament_id} superseded by resume after {duration:.1f}s"
+            )
+            return TournamentOutcome(
+                task=task,
+                error=str(e),
+                error_type='TournamentSupersededException',
                 duration_seconds=duration,
             )
 
@@ -521,17 +603,65 @@ class AITournamentRunner:
             except Exception as e:
                 logger.warning(f"Checkpoint save failed: {e}")
 
-    def select_personalities(self) -> List[str]:
-        """Select personalities for the tournament."""
-        if self.config.personalities:
-            return self.config.personalities[:self.config.num_players]
+    def _load_game_mode_preset(self, game_mode: str) -> PromptConfig:
+        """Load a game mode as a preset from the database.
 
-        # Random selection from available personalities
-        # get_celebrities() returns a list of names
-        available = self.all_personalities if isinstance(self.all_personalities, list) else list(self.all_personalities.keys())
-        if self.config.random_seed:
-            random.seed(self.config.random_seed)
-        return random.sample(available, min(self.config.num_players, len(available)))
+        Game modes (casual, standard, pro, competitive) are stored as system presets
+        in the prompt_presets table, unifying them with user-defined presets.
+
+        Args:
+            game_mode: The game mode name ('casual', 'standard', 'pro', 'competitive')
+
+        Returns:
+            PromptConfig with the preset's settings applied
+        """
+        preset = self.persistence.get_prompt_preset_by_name(game_mode)
+        if preset and preset.get('prompt_config'):
+            return PromptConfig.from_dict(preset['prompt_config'])
+        else:
+            # Fallback to hardcoded mode if preset not found (e.g., migration not run)
+            logger.warning(f"Preset '{game_mode}' not found in database, using fallback")
+            return PromptConfig.from_mode_name(game_mode)
+
+    def select_personalities(self) -> Tuple[List[str], Dict[str, Dict]]:
+        """Select personalities for the tournament.
+
+        Supports both simple string names and objects with per-player config:
+        ["Batman", {"name": "Sherlock", "game_mode": "pro", "llm_config": {...}}]
+
+        Returns:
+            Tuple of (player_names, player_configs) where player_configs maps
+            player name to their individual settings (game_mode, llm_config, prompt_config)
+        """
+        player_names = []
+        player_configs = {}  # {player_name: {game_mode: ..., llm_config: ..., prompt_config: ...}}
+
+        if self.config.personalities:
+            for p in self.config.personalities[:self.config.num_players]:
+                if isinstance(p, str):
+                    player_names.append(p)
+                elif isinstance(p, dict):
+                    name = p.get('name')
+                    if name:
+                        player_names.append(name)
+                        # Extract per-player config
+                        config = {}
+                        if 'game_mode' in p:
+                            config['game_mode'] = p['game_mode']
+                        if 'llm_config' in p:
+                            config['llm_config'] = p['llm_config']
+                        if 'prompt_config' in p:
+                            config['prompt_config'] = p['prompt_config']
+                        if config:
+                            player_configs[name] = config
+        else:
+            # Random selection from available personalities
+            available = self.all_personalities if isinstance(self.all_personalities, list) else list(self.all_personalities.keys())
+            if self.config.random_seed:
+                random.seed(self.config.random_seed)
+            player_names = random.sample(available, min(self.config.num_players, len(available)))
+
+        return player_names, player_configs
 
     def create_game(
         self,
@@ -549,8 +679,10 @@ class AITournamentRunner:
         Returns:
             Tuple of (state_machine, controllers, memory_manager)
         """
-        player_names = self.select_personalities()
+        player_names, per_player_configs = self.select_personalities()
         logger.info(f"Tournament {tournament_id}: Players = {player_names}")
+        if per_player_configs:
+            logger.info(f"Tournament {tournament_id}: Per-player configs = {list(per_player_configs.keys())}")
 
         # Create all-AI game state directly (bypassing initialize_game_state which adds a human)
         from poker.poker_game import Player, PokerGameState
@@ -590,6 +722,8 @@ class AITournamentRunner:
             owner_id=self._owner_id,
             commentary_enabled=commentary_enabled
         )
+        # Set persistence so hand history is saved to database
+        memory_manager.set_persistence(self.persistence)
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
         if variant_config:
@@ -607,27 +741,35 @@ class AITournamentRunner:
             }
 
         # Extract and resolve prompt_config from variant
-        # Priority: 1) inline prompt_config, 2) load from preset, 3) None (use defaults)
+        # Priority: 1) inline prompt_config (overrides game_mode), 2) load from preset, 3) game_mode, 4) defaults
         prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
         prompt_preset_id = variant_config.get('prompt_preset_id') if variant_config else None
         guidance_injection = variant_config.get('guidance_injection') if variant_config else None
+        game_mode = variant_config.get('game_mode') if variant_config else None
+
+        # Build base config from game_mode (if set), else defaults
+        # game_mode is now resolved via database presets (unified with prompt_preset system)
+        if game_mode:
+            base_config = self._load_game_mode_preset(game_mode)
+        else:
+            base_config = PromptConfig()
 
         if prompt_config_dict is not None:
-            # Use inline prompt config
-            prompt_config = PromptConfig.from_dict(prompt_config_dict)
+            # Merge: game_mode provides base, prompt_config_dict overrides
+            prompt_config = base_config.copy(**prompt_config_dict)
         elif prompt_preset_id is not None:
-            # Load from preset
+            # Load from preset and merge with base
             preset = self.persistence.get_prompt_preset(prompt_preset_id)
             if preset and preset.get('prompt_config'):
-                prompt_config = PromptConfig.from_dict(preset['prompt_config'])
+                prompt_config = base_config.copy(**preset['prompt_config'])
                 # Use preset's guidance_injection if not overridden by variant
                 if not guidance_injection and preset.get('guidance_injection'):
                     guidance_injection = preset['guidance_injection']
             else:
-                prompt_config = PromptConfig()
-                logger.warning(f"Prompt preset {prompt_preset_id} not found, using defaults")
+                prompt_config = base_config
+                logger.warning(f"Prompt preset {prompt_preset_id} not found, using game_mode/defaults")
         else:
-            prompt_config = None
+            prompt_config = base_config
 
         # Apply guidance injection to prompt config if set
         if guidance_injection and prompt_config:
@@ -637,14 +779,46 @@ class AITournamentRunner:
 
         controllers = {}
         for player in game_state.players:
+            # Check for per-player config override
+            player_cfg = per_player_configs.get(player.name, {})
+
+            # Resolve per-player LLM config (merge with variant default)
+            if player_cfg.get('llm_config'):
+                player_llm_config = {**llm_config, **player_cfg['llm_config']}
+            else:
+                player_llm_config = llm_config
+
+            # Resolve per-player prompt config (per-player game_mode/prompt_config overrides variant)
+            if player_cfg.get('game_mode') or player_cfg.get('prompt_config'):
+                # Start with per-player game_mode or fall back to variant game_mode
+                player_game_mode = player_cfg.get('game_mode') or game_mode
+                if player_game_mode:
+                    player_base_config = self._load_game_mode_preset(player_game_mode)
+                else:
+                    player_base_config = PromptConfig()
+
+                # Apply per-player prompt_config overrides
+                if player_cfg.get('prompt_config'):
+                    player_prompt_config = player_base_config.copy(**player_cfg['prompt_config'])
+                else:
+                    player_prompt_config = player_base_config
+
+                # Apply guidance injection if set at variant level
+                if guidance_injection:
+                    player_prompt_config = player_prompt_config.copy(guidance_injection=guidance_injection)
+
+                logger.debug(f"Player {player.name} using custom config: game_mode={player_cfg.get('game_mode')}")
+            else:
+                player_prompt_config = prompt_config
+
             controller = AIPlayerController(
                 player_name=player.name,
                 state_machine=state_machine,
-                llm_config=llm_config,
+                llm_config=player_llm_config,
                 game_id=tournament_id,
                 owner_id=self._owner_id,
                 debug_capture=self.config.capture_prompts,
-                prompt_config=prompt_config,
+                prompt_config=player_prompt_config,
                 persistence=self.persistence,
             )
             controllers[player.name] = controller
@@ -751,7 +925,7 @@ class AITournamentRunner:
                  hand_number: int,
                  tournament_id: Optional[str] = None,
                  variant_config: Optional[Dict] = None,
-                 tournament_number: int = 1):
+                 tournament_number: int = 1) -> HandResult:
         """
         Run a single hand to completion.
 
@@ -765,8 +939,8 @@ class AITournamentRunner:
             tournament_number: Tournament number within experiment (1-indexed, for deterministic seeding)
 
         Returns:
-            True if game should continue, False if tournament is paused,
-            or "reset_needed" if only one player remains with chips.
+            HandResult with status ('continue', 'paused', 'end', 'reset_needed')
+            and list of all-in winners from the hand.
         """
         # Let the state machine handle setup_hand via its INITIALIZING_HAND transition
         # Do NOT call setup_hand() directly - that would deal cards twice!
@@ -776,7 +950,7 @@ class AITournamentRunner:
         active_players = [p for p in game_state.players if p.stack > 0]
         if len(active_players) <= 1:
             logger.info(f"Tournament ending: {len(active_players)} player(s) with chips remaining")
-            return False
+            return HandResult(status="end", all_in_winners=[])
 
         # Set deterministic deck seed for this hand (for A/B experiments)
         # Formula: base_seed + (tournament_number * 1000) + hand_number
@@ -843,10 +1017,23 @@ class AITournamentRunner:
 
                 if controller:
                     try:
+                        # Update heartbeat before API call
+                        if tournament_id and self.experiment_id:
+                            self.persistence.update_experiment_game_heartbeat(
+                                tournament_id, 'calling_api', api_call_started=True,
+                                process_id=os.getpid()
+                            )
+
                         # Get AI decision
                         start_time = time.time()
                         response = controller.decide_action([])
                         latency = (time.time() - start_time) * 1000
+
+                        # Update heartbeat after API call
+                        if tournament_id and self.experiment_id:
+                            self.persistence.update_experiment_game_heartbeat(
+                                tournament_id, 'processing', process_id=os.getpid()
+                            )
 
                         self.api_calls += 1
                         self.total_latency += latency
@@ -880,7 +1067,7 @@ class AITournamentRunner:
 
                         # Check for pause request
                         if self._check_pause_requested():
-                            return False  # Signal tournament should stop
+                            return HandResult(status="paused", all_in_winners=[])
 
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
@@ -893,7 +1080,7 @@ class AITournamentRunner:
 
                         # Check for pause request
                         if self._check_pause_requested():
-                            return False
+                            return HandResult(status="paused", all_in_winners=[])
 
                 action_count += 1
 
@@ -905,6 +1092,15 @@ class AITournamentRunner:
             winners = winner_info.get('pot_breakdown', [{}])[0].get('winners', [])
             winner_names = [w.get('name') for w in winners if w.get('name')]
             logger.debug(f"Hand {hand_number}: Winners = {winners}")
+
+            # Record hand history to database (always, for outcome metrics)
+            # This persists to hand_history table via memory_manager's persistence layer
+            memory_manager.on_hand_complete(
+                winner_info=winner_info,
+                game_state=game_state,
+                ai_players={},  # No AI player context needed for hand recording
+                skip_commentary=True  # Commentary handled separately below if enabled
+            )
 
             # Post-hand psychological processing (if enabled)
             enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
@@ -930,6 +1126,12 @@ class AITournamentRunner:
                 # Generate commentary (uses memory_manager's instance-level commentary_enabled)
                 memory_manager.generate_commentary_for_hand(ai_players_context)
 
+        # Capture all-in outcomes BEFORE reset clears the flags
+        all_in_winners = []
+        for player in game_state.players:
+            if player.is_all_in and player.stack > 0:
+                all_in_winners.append(player.name)
+
         # Reset for next hand
         # Calculate seed for NEXT hand (hand_number + 1) if deterministic seeding is enabled
         # Formula: base_seed + (tournament_number * 1000) + hand_number
@@ -944,8 +1146,8 @@ class AITournamentRunner:
         # Check if tournament should continue
         active_players = [p for p in game_state.players if p.stack > 0]
         if len(active_players) <= 1:
-            return "reset_needed"
-        return True
+            return HandResult(status="reset_needed", all_in_winners=all_in_winners)
+        return HandResult(status="continue", all_in_winners=all_in_winners)
 
     def run_tournament(
         self,
@@ -974,8 +1176,14 @@ class AITournamentRunner:
         # Save initial game state for live monitoring
         self.persistence.save_game(tournament_id, state_machine, self._owner_id)
 
-        elimination_order = []
+        elimination_order = []  # Legacy: names only for backwards compatibility
+        all_eliminations: List[Dict] = []  # New: detailed elimination tracking
         prev_active = set(p.name for p in state_machine.game_state.players)
+
+        # Track all-in outcomes per player: {player_name: {'wins': N, 'losses': N}}
+        all_in_outcomes: Dict[str, Dict[str, int]] = {
+            p.name: {'wins': 0, 'losses': 0} for p in state_machine.game_state.players
+        }
 
         # Determine hand limit and reset behavior
         # reset_on_elimination determines if hand count is maximum or exact:
@@ -987,6 +1195,7 @@ class AITournamentRunner:
         # Track round winners (for reset scenarios)
         round_winners: List[str] = []
         total_resets = 0
+        current_round = 1  # Track which round we're in (for elimination data)
 
         hand_number = 0
         paused = False
@@ -1003,16 +1212,41 @@ class AITournamentRunner:
             # Save game state for live monitoring (every hand)
             self.persistence.save_game(tournament_id, state_machine, self._owner_id)
 
-            # Track eliminations
+            # Check if we've been superseded by a resume operation
+            if self.experiment_id and self.persistence.check_resume_lock_superseded(tournament_id):
+                logger.info(f"Tournament {tournament_id} superseded by resume operation, exiting gracefully")
+                raise TournamentSupersededException(tournament_id)
+
+            # Periodic heartbeat every 5 hands
+            if self.experiment_id and hand_number % 5 == 0:
+                self.persistence.update_experiment_game_heartbeat(
+                    tournament_id, 'processing', process_id=os.getpid()
+                )
+
+            # Track eliminations and all-in outcomes
             current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
             eliminated = prev_active - current_active
+
+            # Track all-in outcomes: players who were eliminated lost their all-in
             for name in eliminated:
-                elimination_order.append(name)
-                logger.info(f"  Eliminated: {name}")
+                elimination_order.append(name)  # Legacy tracking
+                all_eliminations.append({
+                    'player_name': name,
+                    'hand_number': hand_number,
+                    'round_number': current_round,
+                })
+                # Getting eliminated means losing an all-in (or final chips)
+                all_in_outcomes[name]['losses'] += 1
+                logger.info(f"  Eliminated: {name} (hand {hand_number}, round {current_round})")
+
+            # Track all-in wins from hand result (captured before reset cleared flags)
+            for name in hand_result.all_in_winners:
+                all_in_outcomes[name]['wins'] += 1
+                logger.debug(f"  All-in survived: {name} (hand {hand_number})")
             prev_active = current_active
 
             # Handle different return values from run_hand
-            if hand_result == "reset_needed":
+            if hand_result.needs_reset:
                 if should_reset:
                     # Record round winner (player with most chips) and reset
                     game_state = state_machine.game_state
@@ -1031,14 +1265,15 @@ class AITournamentRunner:
 
                     # Reset elimination tracking for next round (all players back)
                     prev_active = set(p.name for p in original_players)
-                    elimination_order = []  # Clear elimination order for new round
+                    elimination_order = []  # Clear legacy order for new round
+                    current_round += 1  # Increment round counter (all_eliminations persists)
                     continue
                 else:
                     # No reset - tournament ends when one player wins
                     break
-            elif not hand_result:
-                # False means paused
-                if self._check_pause_requested():
+            elif hand_result.is_paused or hand_result.is_end:
+                # Paused or tournament ending
+                if hand_result.is_paused:
                     paused = True
                 break
 
@@ -1052,10 +1287,32 @@ class AITournamentRunner:
         if paused:
             raise TournamentPausedException(tournament_id, hand_number)
 
-        # Determine final standings
+        # Determine final standings with outcome metrics
         end_time = datetime.now()
+
+        # Get per-player outcome data from hand_history
+        player_outcomes = self._get_player_outcomes(tournament_id)
+
+        # Count eliminations per player from all_eliminations
+        elimination_counts = {}
+        for elim in all_eliminations:
+            name = elim['player_name']
+            elimination_counts[name] = elimination_counts.get(name, 0) + 1
+
         final_standings = sorted(
-            [{"name": p.name, "stack": p.stack} for p in state_machine.game_state.players],
+            [
+                {
+                    "name": p.name,
+                    "stack": p.stack,
+                    "final_stack": p.stack,  # Alias for persistence compatibility
+                    "hands_won": player_outcomes.get(p.name, {}).get('hands_won', 0),
+                    "hands_played": player_outcomes.get(p.name, {}).get('hands_played', 0),
+                    "times_eliminated": elimination_counts.get(p.name, 0),
+                    "all_in_wins": all_in_outcomes.get(p.name, {}).get('wins', 0),
+                    "all_in_losses": all_in_outcomes.get(p.name, {}).get('losses', 0),
+                }
+                for p in state_machine.game_state.players
+            ],
             key=lambda x: x["stack"],
             reverse=True
         )
@@ -1094,11 +1351,238 @@ class AITournamentRunner:
             variant=variant_label,
             round_winners=round_winners,
             total_resets=total_resets,
+            eliminations=all_eliminations,
         )
+
+        # Save tournament result and standings with outcome metrics
+        standings_data = [
+            {
+                'player_name': s['name'],
+                'is_human': False,
+                'finishing_position': i + 1,
+                'final_stack': s.get('final_stack', s.get('stack', 0)),
+                'hands_won': s.get('hands_won', 0),
+                'hands_played': s.get('hands_played', 0),
+                'times_eliminated': s.get('times_eliminated', 0),
+                'all_in_wins': s.get('all_in_wins', 0),
+                'all_in_losses': s.get('all_in_losses', 0),
+            }
+            for i, s in enumerate(final_standings)
+        ]
+        tournament_result_data = {
+            'winner_name': winner,
+            'total_hands': hand_number,
+            'biggest_pot': 0,  # Could track this if needed
+            'starting_player_count': len(final_standings),
+            'human_player_name': None,
+            'human_finishing_position': None,
+            'started_at': start_time.isoformat(),
+            'standings': standings_data,  # Include standings for persistence
+        }
+        self.persistence.save_tournament_result(tournament_id, tournament_result_data)
+
+        # Mark tournament as idle (completed) for heartbeat tracking
+        if self.experiment_id:
+            self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
+            self.persistence.release_resume_lock(tournament_id)
 
         variant_info = f" [{variant_label}]" if variant_label else ""
         resets_info = f", Resets = {total_resets}" if total_resets > 0 else ""
         logger.info(f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}{resets_info}")
+        return result
+
+    def _continue_tournament(
+        self,
+        tournament_id: str,
+        state_machine: PokerStateMachine,
+        controllers: Dict[str, AIPlayerController],
+        memory_manager: AIMemoryManager,
+        variant_label: Optional[str] = None,
+        variant_config: Optional[Dict] = None,
+        starting_hand: int = 1,
+    ) -> Optional[TournamentResult]:
+        """Continue a tournament from saved state (for resume after pause/crash).
+
+        This is similar to run_tournament but uses existing state_machine, controllers,
+        and memory_manager instead of creating new ones.
+
+        Args:
+            tournament_id: Unique identifier for this tournament
+            state_machine: Existing PokerStateMachine with saved state
+            controllers: Existing AI controllers (with restored conversation history)
+            memory_manager: Existing memory manager
+            variant_label: Optional variant label for A/B testing
+            variant_config: Optional variant-specific config
+            starting_hand: Hand number to resume from
+
+        Returns:
+            TournamentResult if tournament completes, None if it gets paused again
+        """
+        start_time = datetime.now()
+        variant_info = f" [{variant_label}]" if variant_label else ""
+        logger.info(f"Continuing tournament {tournament_id}{variant_info} from hand {starting_hand}")
+
+        # Store original players for reset scenarios
+        original_players = state_machine.game_state.players
+
+        elimination_order = []
+        all_eliminations: List[Dict] = []
+        prev_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
+
+        all_in_outcomes: Dict[str, Dict[str, int]] = {
+            p.name: {'wins': 0, 'losses': 0} for p in state_machine.game_state.players
+        }
+
+        max_hands = self.config.hands_per_tournament
+        should_reset = self.config.reset_on_elimination
+
+        round_winners: List[str] = []
+        total_resets = 0
+        current_round = 1
+
+        hand_number = starting_hand - 1  # Will be incremented at start of loop
+        paused = False
+
+        while hand_number < max_hands:
+            hand_number += 1
+
+            hand_result = self.run_hand(
+                state_machine, controllers, memory_manager, hand_number,
+                tournament_id=tournament_id,
+                variant_config=variant_config,
+                tournament_number=1  # Resume doesn't track tournament_number
+            )
+
+            # Save game state for live monitoring
+            self.persistence.save_game(tournament_id, state_machine, self._owner_id)
+
+            # Check for superseded
+            if self.experiment_id and self.persistence.check_resume_lock_superseded(tournament_id):
+                logger.info(f"Tournament {tournament_id} superseded by resume operation")
+                raise TournamentSupersededException(tournament_id)
+
+            # Periodic heartbeat
+            if self.experiment_id and hand_number % 5 == 0:
+                self.persistence.update_experiment_game_heartbeat(
+                    tournament_id, 'processing', process_id=os.getpid()
+                )
+
+            # Track eliminations and all-in outcomes
+            current_active = set(p.name for p in state_machine.game_state.players if p.stack > 0)
+            eliminated = prev_active - current_active
+
+            for name in eliminated:
+                elimination_order.append(name)
+                all_eliminations.append({
+                    'player_name': name,
+                    'hand_number': hand_number,
+                    'round_number': current_round,
+                })
+                all_in_outcomes[name]['losses'] += 1
+                logger.info(f"  Eliminated: {name} (hand {hand_number})")
+
+            for name in hand_result.all_in_winners:
+                all_in_outcomes[name]['wins'] += 1
+            prev_active = current_active
+
+            # Handle different hand results
+            if hand_result.needs_reset:
+                if should_reset:
+                    game_state = state_machine.game_state
+                    winner = max(game_state.players, key=lambda p: p.stack)
+                    round_winners.append(winner.name)
+                    total_resets += 1
+                    logger.info(f"Round {total_resets}: {winner.name} wins. Resetting stacks.")
+
+                    reset_players = tuple(
+                        player.update(stack=self.config.starting_stack, is_folded=False, is_all_in=False)
+                        for player in original_players
+                    )
+                    game_state = game_state.update(players=reset_players)
+                    state_machine.game_state = game_state
+
+                    prev_active = set(p.name for p in original_players)
+                    elimination_order = []
+                    current_round += 1
+                    continue
+                else:
+                    break
+            elif hand_result.is_paused or hand_result.is_end:
+                if hand_result.is_paused:
+                    paused = True
+                break
+
+        if paused:
+            logger.info(f"Tournament {tournament_id} paused at hand {hand_number}")
+            raise TournamentPausedException(tournament_id, hand_number)
+
+        # Build final result (same as run_tournament)
+        end_time = datetime.now()
+        game_state = state_machine.game_state
+
+        # Count eliminations per player
+        elimination_counts = {}
+        for elim in all_eliminations:
+            name = elim['player_name']
+            elimination_counts[name] = elimination_counts.get(name, 0) + 1
+
+        final_standings = sorted(
+            [
+                {
+                    "name": p.name,
+                    "stack": p.stack,
+                    "final_stack": p.stack,
+                    "times_eliminated": elimination_counts.get(p.name, 0),
+                    "all_in_wins": all_in_outcomes.get(p.name, {}).get('wins', 0),
+                    "all_in_losses": all_in_outcomes.get(p.name, {}).get('losses', 0),
+                }
+                for p in game_state.players
+            ],
+            key=lambda x: x["stack"],
+            reverse=True
+        )
+        winner = final_standings[0]["name"] if final_standings else "Unknown"
+
+        avg_latency = self.total_latency / max(self.api_calls, 1)
+
+        if variant_config:
+            model_config = {
+                "provider": variant_config.get('provider') or self.config.provider,
+                "model": variant_config.get('model') or self.config.model,
+            }
+        else:
+            model_config = {
+                "provider": self.config.provider,
+                "model": self.config.model,
+            }
+
+        result = TournamentResult(
+            experiment_name=self.config.name,
+            tournament_id=tournament_id,
+            start_time=start_time.isoformat(),
+            end_time=end_time.isoformat(),
+            duration_seconds=(end_time - start_time).total_seconds(),
+            hands_played=hand_number,
+            winner=winner,
+            final_standings=final_standings,
+            elimination_order=elimination_order,
+            model_config=model_config,
+            total_api_calls=self.api_calls,
+            total_cost=self.total_cost,
+            avg_latency_ms=avg_latency,
+            decision_stats=self._get_decision_stats(tournament_id),
+            variant=variant_label,
+            round_winners=round_winners,
+            total_resets=total_resets,
+            eliminations=all_eliminations,
+        )
+
+        # Mark tournament as idle
+        if self.experiment_id:
+            self.persistence.update_experiment_game_heartbeat(tournament_id, 'idle')
+            self.persistence.release_resume_lock(tournament_id)
+
+        logger.info(f"Tournament {tournament_id} complete: Winner = {winner}, Hands = {hand_number}")
         return result
 
     def _get_decision_stats(self, game_id: str) -> Dict:
@@ -1133,6 +1617,68 @@ class AITournamentRunner:
             logger.warning(f"Could not get decision stats: {e}")
 
         return {}
+
+    def _get_player_outcomes(self, game_id: str) -> Dict[str, Dict[str, int]]:
+        """Get per-player outcome metrics from hand_history table.
+
+        Args:
+            game_id: The tournament/game ID to query
+
+        Returns:
+            Dict mapping player name to {hands_played, hands_won}
+        """
+        try:
+            import sqlite3
+
+            with sqlite3.connect(self.persistence.db_path) as conn:
+                cursor = conn.cursor()
+
+                cursor.execute('''
+                    SELECT players_json, winners_json
+                    FROM hand_history
+                    WHERE game_id = ?
+                ''', (game_id,))
+
+                rows = cursor.fetchall()
+
+                # Aggregate per-player stats
+                player_stats: Dict[str, Dict[str, int]] = {}
+
+                for players_json, winners_json in rows:
+                    # Parse players
+                    try:
+                        players = json.loads(players_json) if players_json else []
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Parse winners
+                    try:
+                        winners = json.loads(winners_json) if winners_json else []
+                    except json.JSONDecodeError:
+                        winners = []
+
+                    # Track hands played
+                    for player in players:
+                        name = player.get('name') if isinstance(player, dict) else str(player)
+                        if name not in player_stats:
+                            player_stats[name] = {'hands_played': 0, 'hands_won': 0}
+                        player_stats[name]['hands_played'] += 1
+
+                    # Track hands won
+                    winner_names = set()
+                    for winner in winners:
+                        name = winner.get('name') if isinstance(winner, dict) else str(winner)
+                        winner_names.add(name)
+
+                    for name in winner_names:
+                        if name in player_stats:
+                            player_stats[name]['hands_won'] += 1
+
+                return player_stats
+
+        except Exception as e:
+            logger.warning(f"Could not get player outcomes: {e}")
+            return {}
 
     def run_experiment(self) -> List[TournamentResult]:
         """Run the full experiment (multiple tournaments).
@@ -1198,10 +1744,22 @@ class AITournamentRunner:
         # Complete experiment with summary (include failure info)
         if self.experiment_id:
             try:
-                summary = self._compute_experiment_summary(results, failed)
-                # Generate AI interpretation of results (best-effort, won't block completion)
-                summary = self._generate_ai_interpretation(summary, failed)
-                self.persistence.complete_experiment(self.experiment_id, summary)
+                # If ALL tournaments failed, mark experiment as failed
+                if not results and failed:
+                    error_msgs = [f.error for f in failed if f.error]
+                    error_summary = "; ".join(error_msgs[:3])  # First 3 errors
+                    if len(error_msgs) > 3:
+                        error_summary += f" (and {len(error_msgs) - 3} more)"
+                    logger.error(f"All {len(failed)} tournaments failed, marking experiment as failed")
+                    self.persistence.update_experiment_status(
+                        self.experiment_id, 'failed',
+                        f"All {len(failed)} tournaments failed: {error_summary}"
+                    )
+                else:
+                    summary = self._compute_experiment_summary(results, failed)
+                    # Generate AI interpretation of results (best-effort, won't block completion)
+                    summary = self._generate_ai_interpretation(summary, failed)
+                    self.persistence.complete_experiment(self.experiment_id, summary)
             except Exception as e:
                 logger.warning(f"Could not complete experiment: {e}")
 
@@ -1525,6 +2083,12 @@ class AITournamentRunner:
                 len(results) * 100 / (len(results) + len(failed)), 1
             ) if (results or failed) else 0
 
+        # Compute quality indicators (degenerate play detection)
+        if self.experiment_id:
+            quality_indicators = self._compute_quality_indicators(self.experiment_id)
+            if quality_indicators:
+                summary['quality_indicators'] = quality_indicators
+
         return summary
 
     def _compute_variant_summaries(self, results: List[TournamentResult]) -> Dict[str, Dict]:
@@ -1694,6 +2258,88 @@ class AITournamentRunner:
             logger.warning(f"Could not get error stats: {e}")
 
         return None
+
+    def _compute_quality_indicators(self, experiment_id: str) -> Optional[Dict]:
+        """Compute quality indicators from player_decision_analysis + prompt_captures.
+
+        Uses improved 3-tier stack depth detection for suspicious all-ins:
+        - Short (<=10BB): Filtered out as defensible
+        - Marginal (11-15BB): Tracked as marginal_allins
+        - Deep (>15BB): Tracked as suspicious_allins
+
+        A "suspicious all-in" requires:
+        - bluff_likelihood < 50 (AI thinks it has a real hand)
+        - Trash hand: hand_strength contains "high card" OR equity < 0.25
+
+        Args:
+            experiment_id: The experiment ID to compute metrics for
+
+        Returns:
+            Dictionary with quality indicators, or None if no data
+        """
+        try:
+            import sqlite3
+            from poker.quality_metrics import compute_allin_categorizations, build_quality_indicators
+
+            with sqlite3.connect(self.persistence.db_path) as conn:
+                # Get basic quality metrics
+                cursor = conn.execute("""
+                    SELECT
+                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                        COUNT(*) as total_decisions
+                    FROM player_decision_analysis pda
+                    JOIN experiment_games eg ON pda.game_id = eg.game_id
+                    WHERE eg.experiment_id = ?
+                """, (experiment_id,))
+
+                row = cursor.fetchone()
+
+                if not row or row[3] == 0:  # total_decisions == 0 (now at index 3)
+                    logger.debug(f"No decision analysis records found for experiment {experiment_id}")
+                    return None
+
+                fold_mistakes = row[0] or 0
+                total_all_ins = row[1] or 0
+                total_folds = row[2] or 0
+                total_decisions = row[3]
+
+                # Query all-ins with AI response data for smarter categorization
+                cursor = conn.execute("""
+                    SELECT
+                        pc.stack_bb,
+                        pc.ai_response,
+                        pda.equity
+                    FROM prompt_captures pc
+                    JOIN experiment_games eg ON pc.game_id = eg.game_id
+                    LEFT JOIN player_decision_analysis pda
+                        ON pc.game_id = pda.game_id
+                        AND pc.hand_number = pda.hand_number
+                        AND pc.player_name = pda.player_name
+                        AND pc.phase = pda.phase
+                    WHERE eg.experiment_id = ?
+                      AND pc.action_taken = 'all_in'
+                """, (experiment_id,))
+
+                # Use shared categorization logic
+                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
+
+                result = build_quality_indicators(
+                    fold_mistakes=fold_mistakes,
+                    total_all_ins=total_all_ins,
+                    total_folds=total_folds,
+                    total_decisions=total_decisions,
+                    suspicious_allins=suspicious_allins,
+                    marginal_allins=marginal_allins,
+                )
+
+                logger.info(f"Computed quality indicators: {suspicious_allins} suspicious all-ins, {marginal_allins} marginal all-ins, {fold_mistakes} fold mistakes")
+                return result
+
+        except Exception as e:
+            logger.warning(f"Could not compute quality indicators: {e}", exc_info=True)
+            return None
 
     def _generate_ai_interpretation(
         self,

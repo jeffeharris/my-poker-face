@@ -1,13 +1,19 @@
+/* Register custom property for gradient animation */
+@property --gradient-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+}
+
 .mobile-poker-table {
     display: flex;
     flex-direction: column;
     width: 100vw;
     height: 100vh;
     height: 100dvh; /* Dynamic viewport height for mobile browsers */
-    background: var(--color-bg-primary, #0a0b10);
+    background: var(--gradient-bg-main);
     color: var(--color-text-primary);
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-body);
     position: fixed;
     inset: 0;
     overflow: hidden;
@@ -15,6 +21,19 @@
        then quickly reveals once content has settled. cubic-bezier(0.7, 0, 1, 1)
        keeps opacity low initially, accelerating toward the end. */
     animation: gameTableFadeIn 2.5s cubic-bezier(0.7, 0, 1, 1);
+}
+
+/* Ambient radial glow overlay */
+.mobile-poker-table::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--gradient-bg-radial);
+    pointer-events: none;
+    z-index: 0;
 }
 
 @keyframes gameTableFadeIn {
@@ -46,21 +65,23 @@
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.9);
+    background: rgba(10, 11, 16, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border-default);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
     font-size: 13px;
-    font-weight: 500;
-    animation: fadeIn 0.3s ease-out;
+    font-weight: var(--font-weight-medium);
+    animation: fadeIn 0.3s var(--ease-out-expo);
+    box-shadow: var(--shadow-lg);
 }
 
 .reconnecting-spinner {
     width: 14px;
     height: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid rgba(212, 165, 116, 0.2);
+    border-top-color: var(--color-gold);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -133,6 +154,13 @@
 
 /* Header styles now in shared/MobileHeader.css */
 
+/* Spacer for fixed MenuBar (56px + safe area) */
+.menu-bar-spacer {
+    flex-shrink: 0;
+    height: calc(56px + env(safe-area-inset-top, 0px));
+    min-height: calc(56px + env(safe-area-inset-top, 0px));
+}
+
 /* Opponents Strip - 33% of viewport */
 .mobile-opponents {
     display: flex;
@@ -147,6 +175,7 @@
     min-height: 33dvh;
     max-height: 33dvh;
     align-items: center;
+    justify-content: center; /* Center opponents when they fit */
     box-sizing: border-box;
 }
 
@@ -161,65 +190,106 @@
     align-items: center;
     justify-content: flex-end; /* Push info to bottom */
     padding: 0;
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: 16px;
-    width: 28vw;
-    min-width: 28vw;
+    background: linear-gradient(
+        145deg,
+        rgba(20, 22, 28, 0.7) 0%,
+        rgba(10, 12, 16, 0.8) 100%
+    );
+    border-radius: var(--radius-xl);
+    width: 30vw;
+    min-width: 30vw;
     height: calc(33dvh - 24px); /* Fill available height minus padding */
     position: relative;
-    border: 2px solid transparent;
-    transition: all 0.3s;
+    border: 1px solid var(--color-border-default);
+    transition: var(--transition-all-base);
     box-sizing: border-box;
     overflow: visible; /* Allow bet pills to extend outside */
+    box-shadow: var(--shadow-card);
 }
 
 .mobile-opponent.thinking {
-    border-color: rgba(76, 175, 80, 0.4);
-    background: rgba(0, 0, 0, 0.5);
+    border-color: var(--color-amber);
+    background: linear-gradient(
+        145deg,
+        rgba(20, 22, 28, 0.8) 0%,
+        rgba(10, 12, 16, 0.9) 100%
+    );
     width: 50vw;
     min-width: 50vw;
+    box-shadow: var(--glow-amber), var(--shadow-card);
 }
 
-/* Animated ring around the active player's avatar */
+/* Animated border glow around the active player's avatar */
 .mobile-opponent.thinking .opponent-avatar {
     box-shadow:
-        0 0 0 3px rgba(76, 175, 80, 0.9),
-        0 0 24px rgba(76, 175, 80, 0.5);
+        0 0 0 2px var(--color-amber),
+        0 0 20px rgba(245, 158, 11, 0.4);
 }
 
+/* Sweeping gradient border effect */
 .mobile-opponent.thinking .opponent-avatar::before {
     content: '';
     position: absolute;
-    inset: -6px;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    border-top-color: rgba(105, 240, 174, 0.9);
-    border-right-color: rgba(105, 240, 174, 0.5);
-    animation: avatarRingSpin 1.2s linear infinite;
+    inset: -4px;
+    border-radius: 18px;
+    background: conic-gradient(
+        from var(--gradient-angle, 0deg),
+        transparent 0deg,
+        rgba(245, 158, 11, 0.1) 60deg,
+        var(--color-amber) 120deg,
+        rgba(255, 220, 150, 0.9) 180deg,
+        var(--color-amber) 240deg,
+        rgba(245, 158, 11, 0.1) 300deg,
+        transparent 360deg
+    );
+    animation: sweepGradient 2s linear infinite;
+    z-index: -1;
+    /* Mask to show only the border */
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    padding: 3px;
 }
 
+/* Subtle pulsing glow behind */
 .mobile-opponent.thinking .opponent-avatar::after {
     content: '';
     position: absolute;
-    inset: -10px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(76, 175, 80, 0.15) 0%, transparent 70%);
-    animation: avatarGlowPulse 2s ease-in-out infinite;
+    inset: -8px;
+    border-radius: 22px;
+    background: radial-gradient(ellipse, rgba(245, 158, 11, 0.2) 0%, transparent 70%);
+    animation: avatarGlowPulse 2.5s ease-in-out infinite;
+    z-index: -2;
 }
 
-@keyframes avatarRingSpin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+@keyframes sweepGradient {
+    from { --gradient-angle: 0deg; }
+    to { --gradient-angle: 360deg; }
 }
 
 @keyframes avatarGlowPulse {
     0%, 100% {
-        opacity: 0.6;
+        opacity: 0.5;
         transform: scale(1);
     }
     50% {
-        opacity: 1;
-        transform: scale(1.1);
+        opacity: 0.8;
+        transform: scale(1.05);
+    }
+}
+
+/* Fallback for browsers without @property support (e.g., Safari < 15.4) */
+@supports not (background: conic-gradient(from var(--test, 0deg), red, blue)) {
+    .mobile-opponent.thinking .opponent-avatar::before {
+        background: var(--color-amber);
+        animation: avatarBorderPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes avatarBorderPulse {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
     }
 }
 
@@ -228,7 +298,8 @@
 }
 
 .mobile-opponent.all-in {
-    border-color: #ff9800;
+    border-color: var(--color-gold);
+    box-shadow: var(--glow-gold);
 }
 
 .opponent-avatar {
@@ -275,15 +346,17 @@
     z-index: 3;
     width: 27px;
     height: 27px;
-    background: white;
-    color: #1a1a1a;
+    background: var(--gradient-gold-shine);
+    color: var(--color-bg-void);
     border-radius: 50%;
+    font-family: var(--font-display);
     font-size: 13px;
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid #ffd700;
+    border: 2px solid var(--color-gold-bright);
+    box-shadow: 0 0 12px rgba(212, 165, 116, 0.4);
 }
 
 /* AI Debug mode - tappable avatars */
@@ -332,38 +405,44 @@
     gap: 2px;
     position: relative;
     z-index: 2; /* Above avatar */
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
     padding: 20px 12px 8px 12px;
     width: 100%;
     box-sizing: border-box;
-    border-radius: 0 0 14px 14px; /* Match card bottom corners */
+    border-radius: 0 0 calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px); /* Match card bottom corners */
 }
 
 .opponent-name {
+    font-family: var(--font-display);
     font-size: clamp(14px, 2.5dvh, 20px);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     max-width: 112px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    color: var(--color-text-primary);
 }
 
 .opponent-stack {
+    font-family: var(--font-mono);
     font-size: clamp(11px, 1.8dvh, 16px);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    color: var(--color-text-secondary);
 }
 
 .opponent-bet {
     position: absolute;
     bottom: -2.25dvh;
     z-index: 10;
-    background: #4caf50;
-    color: white;
+    background: var(--gradient-gold);
+    color: var(--color-bg-void);
+    font-family: var(--font-mono);
     font-size: clamp(11px, 1.8dvh, 15px);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     padding: clamp(2px, 0.5dvh, 4px) clamp(8px, 1.2dvh, 12px);
-    border-radius: clamp(10px, 1.5dvh, 14px);
+    border-radius: var(--radius-full);
+    box-shadow: 0 0 12px rgba(212, 165, 116, 0.3), var(--shadow-sm);
 }
 
 .status-badge {
@@ -371,34 +450,68 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
+    font-family: var(--font-display);
     font-size: clamp(10px, 1.8dvh, 14px);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     padding: clamp(5px, 0.8dvh, 8px) clamp(10px, 1.5dvh, 14px);
-    border-radius: clamp(4px, 0.7dvh, 7px);
+    border-radius: var(--radius-md);
     text-transform: uppercase;
+    letter-spacing: var(--letter-spacing-wide);
     white-space: nowrap;
+    backdrop-filter: blur(8px);
 }
 
 .status-badge.folded {
-    background: rgba(0, 0, 0, 0.7);
-    color: #999;
+    background: rgba(10, 11, 16, 0.85);
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border-default);
 }
 
 .status-badge.all-in {
-    background: #ff9800;
-    color: white;
+    background: var(--gradient-gold);
+    color: var(--color-bg-void);
+    box-shadow: var(--glow-gold);
 }
 
-/* Community Cards - 30% of viewport */
+/* Floating Pot Display - between opponents and community cards */
+.mobile-floating-pot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 4dvh;
+  min-height: 4dvh;
+  max-height: 4dvh;
+  z-index: 2;
+  position: relative;
+  margin-top: 1.5dvh;
+}
+
+/* Override pot styles for floating context - more compact */
+.mobile-floating-pot .mobile-pot {
+  padding: var(--space-1) var(--space-4);
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 20px rgba(212, 165, 116, 0.15);
+}
+
+.mobile-floating-pot .mobile-pot__label {
+  font-size: 10px;
+}
+
+.mobile-floating-pot .mobile-pot__amount {
+  font-size: var(--font-size-lg);
+}
+
+/* Community Cards - 23% of viewport (compact layout) */
 .mobile-community {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 8px 16px;
-    height: 30dvh;
-    min-height: 30dvh;
-    max-height: 30dvh;
+    padding: 0 16px;
+    height: 23dvh;
+    min-height: 23dvh;
+    max-height: 23dvh;
     box-sizing: border-box;
 }
 
@@ -416,7 +529,7 @@
 .community-cards-row .playing-card.card-back {
     width: 100% !important;
     height: auto !important;
-    max-height: calc(25dvh - 50px);
+    max-height: 26dvh;
     aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
 }
 
@@ -429,44 +542,44 @@
 /* Community card placeholder - fills grid cell */
 .community-card-placeholder {
     width: 100%;
-    max-height: calc(25dvh - 50px);
+    max-height: 26dvh;
     aspect-ratio: 500 / 726;
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed rgba(255, 255, 255, 0.2);
     border-radius: 6px;
 }
 
-.phase-indicator {
-    margin-top: 12px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    opacity: 0.6;
-    font-weight: 600;
-}
 
 /* Hero Section - 29% of viewport (action bar overlays bottom 12%) */
 .mobile-hero {
-    padding: 12px 16px 0 16px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 20px 20px 0 0;
+    padding: 4px 16px 0 16px;
+    background: linear-gradient(
+        to top,
+        rgba(10, 11, 16, 0.6) 0%,
+        rgba(15, 17, 24, 0.4) 100%
+    );
+    border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
     gap: 8px;
     border: 2px solid transparent;
-    transition: all 0.3s ease;
+    border-bottom: none;
+    transition: var(--transition-all-base);
     height: 29dvh;
     min-height: 29dvh;
     max-height: 29dvh;
     box-sizing: border-box;
+    position: relative;
+    z-index: 1;
+    overflow: visible; /* Allow bet chip to overflow above */
 }
 
 /* Hero active turn state - matches opponent thinking glow */
 .mobile-hero.active-turn {
-    border-color: #4caf50;
-    box-shadow: inset 0 0 20px rgba(76, 175, 80, 0.3);
+    border-color: var(--color-emerald);
+    box-shadow: inset 0 0 30px rgba(52, 211, 153, 0.2);
     animation: currentPlayerPulse 2s ease-in-out infinite;
 }
 
@@ -488,43 +601,67 @@
     height: 5.75dvh; /* 25% of usable hero space (23dvh) */
     min-height: 5.75dvh;
     flex-shrink: 0;
+    margin-top: 8px;
 }
 
 .hero-name {
+    font-family: var(--font-display);
     font-size: clamp(14px, 2dvh, 18px);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     display: flex;
     align-items: center;
     gap: 8px;
+    color: var(--color-text-primary);
 }
 
 .dealer-chip {
-    width: 22px;
-    height: 22px;
-    background: white;
-    color: #1a1a1a;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 26px;
+    height: 26px;
+    background: var(--gradient-gold-shine);
+    color: var(--color-bg-void);
     border-radius: 50%;
-    font-size: 11px;
-    font-weight: 700;
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: var(--font-weight-bold);
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid #ffd700;
+    border: 2px solid var(--color-gold-bright);
+    box-shadow: 0 0 12px rgba(212, 165, 116, 0.5);
 }
 
 .hero-stack {
+    font-family: var(--font-mono);
     font-size: clamp(16px, 2.5dvh, 22px);
-    font-weight: 700;
-    color: #ffd700;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-gold-light);
+    text-shadow: 0 0 16px rgba(212, 165, 116, 0.3);
 }
 
 .hero-bet {
-    font-size: clamp(11px, 1.8dvh, 15px);
-    font-weight: 600;
-    color: white;
-    background: #4caf50;
-    padding: clamp(2px, 0.5dvh, 4px) clamp(8px, 1.2dvh, 12px);
-    border-radius: clamp(10px, 1.5dvh, 14px);
+    /* Position at top of hero section, above the player name */
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+
+    font-family: var(--font-mono);
+    font-size: clamp(12px, 2dvh, 16px);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-bg-void);
+    background: var(--gradient-gold);
+    padding: clamp(4px, 0.8dvh, 8px) clamp(12px, 2dvh, 20px);
+    border-radius: var(--radius-full);
+    box-shadow:
+        0 0 16px rgba(212, 165, 116, 0.5),
+        0 4px 12px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    border: 2px solid var(--color-gold-bright);
 }
 
 .hero-cards {
@@ -575,60 +712,32 @@
     box-sizing: border-box;
 }
 
-/* Waiting text - Shows when it's not player's turn */
-.mobile-action-buttons .waiting-text {
-    flex: 6;
-    font-size: 16px;
-    color: rgba(255, 255, 255, 0.7);
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 1; }
-}
-
-/* Preemptive Check/Fold Button - only define what's different from .action-btn */
-.preemptive-btn {
-    background: linear-gradient(135deg, #26a69a 0%, #00897b 100%);
-    color: white;
-    box-shadow: 0 4px 12px rgba(38, 166, 154, 0.4);
-    flex: 2;
-}
-
-/* Balance chat button with preemptive button in waiting mode */
-.mobile-action-buttons:has(.waiting-text) .chat-btn {
-    flex: 2;
-    width: auto;
-}
-
-.preemptive-btn.queued {
-    background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
-    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
-}
-
 /* Chat Sheet */
 .chat-sheet-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.6);
     z-index: 1000;
     display: flex;
     align-items: flex-end;
+    backdrop-filter: blur(4px);
 }
 
 .chat-sheet {
     width: 100%;
     max-height: 70vh;
-    background: #1a1a1a;
-    border-radius: 20px 20px 0 0;
+    background: linear-gradient(
+        180deg,
+        rgba(20, 22, 30, 0.98) 0%,
+        rgba(10, 11, 16, 0.99) 100%
+    );
+    border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
     display: flex;
     flex-direction: column;
-    animation: slideUp 0.3s ease-out;
+    animation: slideUp 0.3s var(--ease-out-expo);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(212, 165, 116, 0.2);
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
 }
 
 @keyframes slideUp {
@@ -645,20 +754,31 @@
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--color-border-default);
 }
 
 .chat-sheet-header h3 {
     margin: 0;
+    font-family: var(--font-display);
     font-size: 16px;
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-gold-light);
+    text-transform: uppercase;
+    letter-spacing: var(--letter-spacing-wide);
 }
 
 .chat-sheet-header button {
     padding: 8px;
     background: transparent;
     border: none;
-    color: white;
+    color: var(--color-text-secondary);
     cursor: pointer;
+    transition: var(--transition-all-fast);
+}
+
+.chat-sheet-header button:active {
+    color: var(--color-text-primary);
+    transform: scale(0.95);
 }
 
 .chat-sheet-messages {
@@ -672,56 +792,76 @@
 
 .chat-msg {
     padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
+    background: var(--color-bg-surface);
+    border-radius: var(--radius-lg);
     font-size: 14px;
+    border: 1px solid var(--color-border-default);
 }
 
 .chat-msg.ai {
-    background: rgba(103, 126, 234, 0.2);
+    background: rgba(103, 126, 234, 0.15);
     border-left: 3px solid #667eea;
+    border-color: rgba(103, 126, 234, 0.3);
 }
 
 .chat-msg.table {
-    background: rgba(255, 193, 7, 0.1);
+    background: var(--color-gold-muted);
     font-style: italic;
-    opacity: 0.8;
+    border-color: rgba(212, 165, 116, 0.2);
+    color: var(--color-text-secondary);
 }
 
 .chat-sender {
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-weight: var(--font-weight-semibold);
     margin-right: 8px;
+    color: var(--color-text-primary);
 }
 
 .chat-sheet-input {
     display: flex;
     gap: 8px;
     padding: 16px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--color-border-default);
 }
 
 .chat-sheet-input input {
     flex: 1;
     padding: 12px 16px;
-    border-radius: 24px;
-    border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
     font-size: 14px;
+    transition: var(--transition-all-fast);
+}
+
+.chat-sheet-input input:focus {
+    outline: none;
+    border-color: var(--color-gold);
+    box-shadow: 0 0 0 2px rgba(212, 165, 116, 0.15);
 }
 
 .chat-sheet-input input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--color-text-muted);
 }
 
 .chat-sheet-input button {
     padding: 12px 20px;
-    border-radius: 24px;
+    border-radius: var(--radius-full);
     border: none;
-    background: #4caf50;
-    color: white;
-    font-weight: 600;
+    background: var(--gradient-gold);
+    color: var(--color-bg-void);
+    font-family: var(--font-display);
+    font-weight: var(--font-weight-semibold);
     cursor: pointer;
+    box-shadow: var(--glow-gold);
+    transition: var(--transition-all-fast);
+}
+
+.chat-sheet-input button:active {
+    transform: scale(0.98);
 }
 
 /* Quick Chat Overlay - matches raise sheet style */
@@ -732,14 +872,23 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
 }
 
 .quick-chat-modal {
   width: 100%;
-  background: #1a1a1a;
-  border-radius: 20px 20px 0 0;
+  background: linear-gradient(
+    180deg,
+    rgba(20, 22, 30, 0.98) 0%,
+    rgba(10, 11, 16, 0.99) 100%
+  );
+  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
   overflow: hidden;
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp 0.3s var(--ease-out-expo);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(212, 165, 116, 0.2);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
 }
 
 .quick-chat-modal-header {
@@ -747,19 +896,29 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  color: white;
-  font-weight: 600;
+  color: var(--color-gold-light);
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-semibold);
   font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
 }
 
 .quick-chat-modal-header button {
   padding: 8px 16px;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: white;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
   font-size: 14px;
   cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+
+.quick-chat-modal-header button:active {
+  background: var(--color-bg-surface-active);
+  transform: scale(0.98);
 }
 
 @keyframes slideUp {
@@ -767,19 +926,76 @@
   to { transform: translateY(0); }
 }
 
-/* Card deal animation - uses CSS variables set inline */
+/* Card deal animation - simulates cards sliding across felt table
+   Uses CSS variables set inline per card:
+   --deal-start-rotation: Initial rotation (tilted into slide direction)
+   --deal-rotation: Final resting rotation
+   --deal-offset-x: Final X offset
+   --deal-offset-y: Final Y offset
+*/
 @keyframes dealCardIn {
   0% {
     opacity: 0;
-    transform: translateY(-30px) rotate(0deg) scale(0.8);
+    transform: translateX(-100px) translateY(var(--deal-offset-y)) rotate(var(--deal-start-rotation)) scale(0.98);
+    filter: blur(0.5px);
   }
-  60% {
+  20% {
     opacity: 1;
-    transform: translateY(5px) rotate(calc(var(--deal-rotation) * 0.5)) scale(1.02);
+    filter: blur(0);
+  }
+  75% {
+    /* Slight overshoot past landing position */
+    transform: translateX(calc(var(--deal-offset-x) + 6px)) translateY(var(--deal-offset-y))
+               rotate(calc(var(--deal-rotation) + 1deg)) scale(1);
   }
   100% {
+    /* Final settled position */
+    transform: translateX(var(--deal-offset-x)) translateY(var(--deal-offset-y))
+               rotate(var(--deal-rotation)) scale(1);
+  }
+}
+
+/* Card exit animation - left card joins right card, both sweep off right
+   Uses CSS variables set inline per card:
+   --exit-start-x: Starting X position
+   --exit-start-y: Starting Y position
+   --exit-start-rotation: Starting rotation
+   --exit-converge-x: X position to converge to (for card 1)
+*/
+@keyframes dealCardOut1 {
+  0% {
     opacity: 1;
-    transform: rotate(var(--deal-rotation)) translateY(var(--deal-offset)) scale(1);
+    transform: translateX(var(--exit-start-x)) translateY(var(--exit-start-y))
+               rotate(var(--exit-start-rotation)) scale(1);
+  }
+  40% {
+    /* Card 1 converges toward card 2 position */
+    opacity: 1;
+    transform: translateX(var(--exit-converge-x)) translateY(var(--exit-start-y))
+               rotate(calc(var(--exit-start-rotation) + 5deg)) scale(1);
+  }
+  100% {
+    /* Sweep off right side */
+    opacity: 0;
+    transform: translateX(150px) translateY(var(--exit-start-y))
+               rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
+    filter: blur(0.5px);
+  }
+}
+
+@keyframes dealCardOut2 {
+  0%, 40% {
+    /* Wait for card 1 to arrive */
+    opacity: 1;
+    transform: translateX(var(--exit-start-x)) translateY(var(--exit-start-y))
+               rotate(var(--exit-start-rotation)) scale(1);
+  }
+  100% {
+    /* Sweep off right side together */
+    opacity: 0;
+    transform: translateX(150px) translateY(var(--exit-start-y))
+               rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
+    filter: blur(0.5px);
   }
 }
 

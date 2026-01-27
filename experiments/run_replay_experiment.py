@@ -261,6 +261,10 @@ class ReplayExperimentRunner:
     ) -> ReplayResult:
         """Replay a single capture with a variant.
 
+        Note: game_mode is not applied in replays. Replays modify raw prompts,
+        not the prompt generation system. Use guidance_injection for replay
+        modifications, or re-run tournaments with game_mode to generate new prompts.
+
         Args:
             capture: The captured prompt data
             variant_dict: The variant configuration

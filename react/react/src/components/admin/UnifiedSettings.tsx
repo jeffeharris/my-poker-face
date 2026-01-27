@@ -225,6 +225,13 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ field: 'user_enabled', enabled: false }),
         });
+      } else if (data.success && visibility === 'users') {
+        // Need to explicitly turn on user_enabled
+        await adminFetch(`/admin/api/models/${modelId}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: 'user_enabled', enabled: true }),
+        });
       }
 
       if (!data.success) {

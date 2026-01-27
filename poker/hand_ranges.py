@@ -21,6 +21,8 @@ from enum import Enum
 from typing import Set, List, Tuple, Optional, Dict, Any
 import logging
 
+from poker.card_utils import normalize_card_string
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class EquityConfig:
     """Configuration for equity calculation behavior."""
     use_in_game_stats: bool = True       # Use observed stats from current game
     min_hands_for_stats: int = 5         # Minimum hands before using observed stats
+    use_enhanced_ranges: bool = True     # Use new range function with PFR/action context
 
 
 @dataclass
@@ -42,6 +45,10 @@ class OpponentInfo:
     vpip: Optional[float] = None         # Voluntarily Put $ In Pot (0-1)
     pfr: Optional[float] = None          # Pre-Flop Raise % (0-1)
     aggression: Optional[float] = None   # Aggression factor
+
+    # Current hand action context (for range narrowing)
+    preflop_action: Optional[str] = None  # 'open_raise', 'call', '3bet', '4bet+', 'limp'
+    postflop_aggression_this_hand: Optional[str] = None  # 'bet', 'raise', 'check_call', 'check'
 
 
 class Position(Enum):
@@ -432,14 +439,293 @@ def adjust_range_for_position(base_range: Set[str], position: Position) -> Set[s
     return base_range
 
 
+# ============================================================================
+# PFR-Based Range Estimation (Standard Poker Theory)
+# Sources: Harrington on Hold'em, The Grinder's Manual, Modern Poker Theory
+# ============================================================================
+
+# Ultra-premium range for very tight raisers and 4-bet+ situations
+ULTRA_PREMIUM_RANGE = (
+    _expand_pairs('A', 'J') |  # AA-JJ
+    {'AKs', 'AKo'}             # AK suited and offsuit
+)  # ~5% of hands
+
+
+def estimate_range_from_pfr(pfr: float) -> Set[str]:
+    """Estimate a raising range based on PFR (pre-flop raise percentage).
+
+    PFR represents the % of hands a player raises preflop.
+    Returns tighter ranges than VPIP since PFR <= VPIP.
+
+    Standard PFR to range mapping from poker theory:
+    - PFR ≤ 8%  → Ultra-premium only (AA-JJ, AK)
+    - PFR ≤ 12% → Early position range (~15%)
+    - PFR ≤ 18% → Middle position range (~22%)
+    - PFR ≤ 25% → Blind defense range (~28%)
+    - PFR > 25% → Late position range (~32%)
+
+    Args:
+        pfr: Pre-flop raise percentage (0.0-1.0)
+
+    Returns:
+        Set of canonical hand notations
+    """
+    if pfr <= 0.08:
+        # Ultra-tight raiser: AA-JJ, AK only
+        return ULTRA_PREMIUM_RANGE
+    elif pfr <= 0.12:
+        # Tight raiser: premium + strong broadway
+        return EARLY_POSITION_RANGE
+    elif pfr <= 0.18:
+        return MIDDLE_POSITION_RANGE
+    elif pfr <= 0.25:
+        return BLIND_DEFENSE_RANGE
+    else:
+        return LATE_POSITION_RANGE
+
+
+def estimate_3bet_range(pfr: float) -> Set[str]:
+    """Estimate 3-bet range (re-raise range).
+
+    Standard 3-bet frequency is ~8-12% of hands faced,
+    which is roughly 25-35% of a player's opening range.
+
+    For a player with 20% PFR, their 3-bet range is ~5-7%.
+
+    Source: Modern Poker Theory by Michael Acevedo
+
+    Args:
+        pfr: Player's overall PFR (0.0-1.0)
+
+    Returns:
+        Set of canonical hand notations for 3-bet range
+    """
+    # 3-bet range is approximately 30% of opening range
+    three_bet_pct = pfr * 0.30
+    return estimate_range_from_pfr(three_bet_pct)
+
+
+def estimate_calling_range(vpip: float, pfr: float) -> Set[str]:
+    """Estimate the range of hands a player calls with (but doesn't raise).
+
+    This is VPIP minus PFR - the hands they enter pots with passively.
+    Excludes hands they would have raised with.
+
+    Source: The Grinder's Manual by Peter Clarke
+
+    Args:
+        vpip: Voluntarily Put $ In Pot (0.0-1.0)
+        pfr: Pre-Flop Raise % (0.0-1.0)
+
+    Returns:
+        Set of hands in the calling range (VPIP range minus PFR range)
+    """
+    full_range = estimate_range_from_vpip(vpip)
+    raising_range = estimate_range_from_pfr(pfr)
+    return full_range - raising_range
+
+
+def _narrow_range_by_strength(hand_range: Set[str], keep_top: float) -> Set[str]:
+    """Keep only the top X% of a range by hand strength.
+
+    Uses a simple hand strength ranking:
+    - Pairs ranked by card rank (AA > KK > ... > 22)
+    - Suited hands ranked by high card, then kicker
+    - Offsuit hands ranked by high card, then kicker
+    - Pairs > Suited > Offsuit for same ranks
+
+    Args:
+        hand_range: Set of canonical hand notations
+        keep_top: Fraction to keep (0.0-1.0)
+
+    Returns:
+        Narrowed range containing strongest hands
+    """
+    def hand_strength_key(hand: str) -> tuple:
+        """Lower tuple = stronger hand."""
+        if len(hand) == 2:  # Pair
+            return (0, _rank_index(hand[0]))  # Pairs are strongest
+        elif hand.endswith('s'):  # Suited
+            return (1, _rank_index(hand[0]), _rank_index(hand[1]))
+        else:  # Offsuit
+            return (2, _rank_index(hand[0]), _rank_index(hand[1]))
+
+    sorted_hands = sorted(hand_range, key=hand_strength_key)
+    keep_count = max(1, int(len(sorted_hands) * keep_top))
+    return set(sorted_hands[:keep_count])
+
+
+# Aggression factor thresholds for range adjustment
+AGGRESSION_PASSIVE_THRESHOLD = 0.8      # AF below this = very passive player
+AGGRESSION_AGGRESSIVE_THRESHOLD = 2.5   # AF above this = very aggressive player
+PASSIVE_PLAYER_RANGE_KEEP_TOP = 0.70    # Keep top 70% when passive player bets
+
+
+def apply_aggression_adjustment(
+    base_range: Set[str],
+    aggression_factor: float,
+    is_aggressive_action: bool
+) -> Set[str]:
+    """Adjust range based on aggression factor when opponent takes aggressive action.
+
+    Passive players (low AF) have stronger ranges when they bet/raise.
+    Aggressive players (high AF) have wider ranges when they bet/raise.
+
+    Standard aggression factor interpretation:
+    - AF < 0.8:  Very passive - betting means very strong
+    - AF 0.8-2.5: Balanced - standard assumptions
+    - AF > 2.5:  Very aggressive - wider betting range
+
+    Args:
+        base_range: Starting range estimate
+        aggression_factor: (bets + raises) / calls ratio
+        is_aggressive_action: True if opponent bet/raised this hand
+
+    Returns:
+        Adjusted range
+    """
+    if not is_aggressive_action:
+        return base_range
+
+    if aggression_factor < AGGRESSION_PASSIVE_THRESHOLD:
+        # Passive player betting = very strong
+        # Remove bottom 30% of range
+        return _narrow_range_by_strength(base_range, keep_top=PASSIVE_PLAYER_RANGE_KEEP_TOP)
+    elif aggression_factor > AGGRESSION_AGGRESSIVE_THRESHOLD:
+        # Very aggressive player - already reflected in base range
+        # No additional narrowing needed
+        return base_range
+    else:
+        # Balanced player - standard range
+        return base_range
+
+
 def get_opponent_range(
     opponent: OpponentInfo,
     config: EquityConfig = None
 ) -> Set[str]:
-    """Get estimated hand range for an opponent using fallback hierarchy.
+    """Enhanced range estimation using all available data.
+
+    Priority hierarchy for range estimation:
+    1. Action-based narrowing (what did they do THIS hand?)
+       - open_raise → use PFR range
+       - 3bet → use 3-bet range (~30% of PFR)
+       - 4bet+ → use ultra-premium range
+       - call → use VPIP - PFR range
+    2. PFR-based estimation (when stats available but no action context)
+    3. VPIP-based estimation (fallback)
+    4. Position-based static ranges (final fallback)
+
+    Also applies aggression adjustment for postflop betting.
+
+    Args:
+        opponent: OpponentInfo with all available data
+        config: EquityConfig for calculation options
+
+    Returns:
+        Set of canonical hand notations
+    """
+    if config is None:
+        config = EquityConfig()
+
+    position = get_position_group(opponent.position)
+    base_range = None
+
+    # Check if we have enough observed data
+    has_enough_data = (
+        config.use_in_game_stats and
+        opponent.hands_observed >= config.min_hands_for_stats
+    )
+
+    # STEP 1: Action-based narrowing (most specific)
+    if opponent.preflop_action and has_enough_data:
+        if opponent.preflop_action == 'open_raise':
+            # Use PFR for open-raisers
+            if opponent.pfr is not None:
+                base_range = estimate_range_from_pfr(opponent.pfr)
+                logger.debug(
+                    f"Using PFR range for {opponent.name} (open_raise): "
+                    f"PFR={opponent.pfr:.2f}, range={len(base_range)} hands"
+                )
+        elif opponent.preflop_action == '3bet':
+            # 3-bet range is much tighter
+            if opponent.pfr is not None:
+                base_range = estimate_3bet_range(opponent.pfr)
+                logger.debug(
+                    f"Using 3-bet range for {opponent.name}: "
+                    f"range={len(base_range)} hands"
+                )
+        elif opponent.preflop_action == '4bet+':
+            # 4-bet+ is typically premium only
+            base_range = ULTRA_PREMIUM_RANGE
+            logger.debug(
+                f"Using ultra-premium range for {opponent.name} (4bet+): "
+                f"range={len(base_range)} hands"
+            )
+        elif opponent.preflop_action == 'call':
+            # Calling range = VPIP - PFR
+            if opponent.vpip is not None and opponent.pfr is not None:
+                base_range = estimate_calling_range(opponent.vpip, opponent.pfr)
+                logger.debug(
+                    f"Using calling range for {opponent.name}: "
+                    f"VPIP={opponent.vpip:.2f}, PFR={opponent.pfr:.2f}, "
+                    f"range={len(base_range)} hands"
+                )
+        elif opponent.preflop_action == 'limp':
+            # Limpers typically have weak-medium hands
+            if opponent.vpip is not None:
+                base_range = estimate_range_from_vpip(opponent.vpip)
+                logger.debug(
+                    f"Using VPIP range for {opponent.name} (limp): "
+                    f"range={len(base_range)} hands"
+                )
+
+    # STEP 2: Fallback to VPIP if no action-based narrowing
+    if base_range is None and has_enough_data and opponent.vpip is not None:
+        base_range = estimate_range_from_vpip(opponent.vpip)
+        logger.debug(
+            f"Using VPIP range for {opponent.name}: "
+            f"VPIP={opponent.vpip:.2f}, range={len(base_range)} hands"
+        )
+
+    # STEP 3: Fallback to position-based range
+    if base_range is None:
+        base_range = get_range_for_position(position)
+        logger.debug(
+            f"Using position-based range for {opponent.name}: "
+            f"position={position.value}, range={len(base_range)} hands"
+        )
+
+    # STEP 4: Apply aggression adjustment for postflop
+    if (opponent.postflop_aggression_this_hand and
+        opponent.aggression is not None and
+        has_enough_data):
+        is_aggressive = opponent.postflop_aggression_this_hand in ('bet', 'raise')
+        base_range = apply_aggression_adjustment(
+            base_range,
+            opponent.aggression,
+            is_aggressive
+        )
+        if is_aggressive:
+            logger.debug(
+                f"Applied aggression adjustment for {opponent.name}: "
+                f"AF={opponent.aggression:.2f}, range={len(base_range)} hands"
+            )
+
+    # Final position adjustment (don't let UTG player have button range)
+    return adjust_range_for_position(base_range, position)
+
+
+def get_opponent_range_og(
+    opponent: OpponentInfo,
+    config: EquityConfig = None
+) -> Set[str]:
+    """Original range estimation using VPIP only.
+
+    DEPRECATED: Use get_opponent_range() for enhanced estimation with PFR and action context.
 
     Priority:
-    1. In-game observed stats (if enough hands observed)
+    1. In-game observed stats (VPIP only)
     2. Position-based static ranges (fallback)
 
     Args:
@@ -498,7 +784,11 @@ def sample_hand_for_opponent(
     if rng is None:
         rng = random.Random()
 
-    hand_range = get_opponent_range(opponent, config)
+    # Choose range function based on config
+    if config and not config.use_enhanced_ranges:
+        hand_range = get_opponent_range_og(opponent, config)
+    else:
+        hand_range = get_opponent_range(opponent, config)
 
     # Build list of valid combos
     valid_combos = []
@@ -554,6 +844,8 @@ def build_opponent_info(
     name: str,
     position: str,
     opponent_model: Optional[Dict[str, Any]] = None,
+    preflop_action: Optional[str] = None,
+    postflop_aggression: Optional[str] = None,
 ) -> OpponentInfo:
     """Build OpponentInfo from available data sources.
 
@@ -561,6 +853,8 @@ def build_opponent_info(
         name: Player name
         position: Table position name
         opponent_model: Dict with observed stats (vpip, pfr, aggression, hands_observed)
+        preflop_action: Action taken preflop this hand ('open_raise', 'call', '3bet', '4bet+', 'limp')
+        postflop_aggression: Postflop action ('bet', 'raise', 'check_call', 'check')
 
     Returns:
         OpponentInfo with all available data populated
@@ -568,6 +862,8 @@ def build_opponent_info(
     info = OpponentInfo(
         name=name,
         position=position,
+        preflop_action=preflop_action,
+        postflop_aggression_this_hand=postflop_aggression,
     )
 
     # Load observed stats from opponent model
@@ -578,3 +874,142 @@ def build_opponent_info(
         info.aggression = opponent_model.get('aggression_factor')
 
     return info
+
+
+def calculate_equity_vs_ranges(
+    player_hand: List[str],
+    community_cards: List[str],
+    opponent_infos: List[OpponentInfo],
+    iterations: int = 500,
+    config: EquityConfig = None,
+) -> Optional[float]:
+    """Calculate equity vs opponent hand ranges using fallback hierarchy.
+
+    Uses the following priority for range estimation (when use_enhanced_ranges=True):
+    1. Action-based narrowing (open_raise, 3bet, etc.)
+    2. PFR-based estimation
+    3. VPIP-based estimation
+    4. Position-based static ranges (fallback)
+
+    When use_enhanced_ranges=False, uses VPIP-only estimation.
+
+    Args:
+        player_hand: Hero's hole cards as strings ['Ah', 'Kd']
+        community_cards: Board cards as strings
+        opponent_infos: List of OpponentInfo objects with position/stats
+        iterations: Monte Carlo iterations (default 500 for speed)
+        config: EquityConfig controlling range estimation behavior
+
+    Returns:
+        Win probability (0.0-1.0) or None if calculation fails
+    """
+    if config is None:
+        config = EquityConfig()
+
+    try:
+        import eval7
+
+        # Parse hero's hand
+        hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+        board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
+
+        # Build set of excluded cards (hero's hand + board)
+        excluded_cards = set(player_hand + (community_cards or []))
+
+        # Build deck excluding known cards
+        all_known = set(hero_hand + board)
+        deck = [c for c in eval7.Deck().cards if c not in all_known]
+
+        wins = 0
+        valid_iterations = 0
+        rng = random.Random()
+
+        for _ in range(iterations):
+            # Sample opponent hands from ranges
+            opponent_hands_raw = sample_hands_for_opponent_infos(
+                opponent_infos, excluded_cards, config, rng
+            )
+
+            # Skip iteration if we couldn't sample valid hands
+            if None in opponent_hands_raw:
+                continue
+
+            valid_iterations += 1
+
+            # Convert to eval7 cards
+            opponent_hands = []
+            opp_cards_set = set()
+            for hand in opponent_hands_raw:
+                opp_hand = [eval7.Card(normalize_card_string(hand[0])), eval7.Card(normalize_card_string(hand[1]))]
+                opponent_hands.append(opp_hand)
+                opp_cards_set.add(opp_hand[0])
+                opp_cards_set.add(opp_hand[1])
+
+            # Build deck excluding all known cards for this iteration
+            iter_deck = [c for c in deck if c not in opp_cards_set]
+            rng.shuffle(iter_deck)
+
+            # Deal remaining board cards
+            cards_needed = 5 - len(board)
+            sim_board = board + iter_deck[:cards_needed]
+
+            # Evaluate hands
+            hero_score = eval7.evaluate(hero_hand + sim_board)
+
+            # Check if hero beats all opponents
+            hero_wins = True
+            for opp_hand in opponent_hands:
+                opp_score = eval7.evaluate(opp_hand + sim_board)
+                if opp_score > hero_score:  # Higher is better in eval7
+                    hero_wins = False
+                    break
+
+            if hero_wins:
+                wins += 1
+
+        return wins / valid_iterations if valid_iterations > 0 else None
+
+    except Exception as e:
+        logger.debug(f"Equity vs ranges calculation failed: {e}")
+        return None
+
+
+def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
+    """Format opponent stats for display in prompt.
+
+    Args:
+        opponent_infos: List of OpponentInfo objects
+
+    Returns:
+        Formatted string like "  BTN: loose (VPIP=35%, PFR=28%)\n  SB: tight (VPIP=18%)"
+    """
+    lines = []
+    for opp in opponent_infos:
+        # Get position abbreviation
+        from .minimal_prompt import get_position_abbrev
+        pos_abbrev = get_position_abbrev(opp.position) if opp.position else "???"
+
+        # Determine tightness label
+        if opp.vpip is not None:
+            vpip_pct = int(opp.vpip * 100)
+            if vpip_pct >= 35:
+                tightness = "loose"
+            elif vpip_pct <= 20:
+                tightness = "tight"
+            else:
+                tightness = "average"
+
+            # Format stats
+            stats_parts = [f"VPIP={vpip_pct}%"]
+            if opp.pfr is not None:
+                stats_parts.append(f"PFR={int(opp.pfr * 100)}%")
+
+            lines.append(f"  {pos_abbrev}: {tightness} ({', '.join(stats_parts)})")
+        else:
+            # No observed stats - use position-based defaults
+            pos_group = get_position_group(opp.position)
+            # get_range_percentage already returns a percentage (e.g., 28.4), not a fraction
+            range_pct = int(get_range_percentage(pos_group))
+            lines.append(f"  {pos_abbrev}: position-based (~{range_pct}% range)")
+
+    return "\n".join(lines) if lines else ""

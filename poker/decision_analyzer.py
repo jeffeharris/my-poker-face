@@ -9,7 +9,7 @@ import json
 import time
 import logging
 from dataclasses import dataclass, asdict
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -20,24 +20,58 @@ except ImportError:
     EVAL7_AVAILABLE = False
     EquityCalculator = None
 
-# Unicode suit symbols to letter codes for eval7 compatibility
-SUIT_MAP = {'♣': 'c', '♦': 'd', '♠': 's', '♥': 'h'}
+from poker.card_utils import normalize_card_string
 
 
-def _convert_card(card_str: str) -> str:
-    """Convert unicode card string to eval7 format.
+def calculate_max_winnable(
+    player_bet: int,
+    player_stack: int,
+    cost_to_call: int,
+    all_players_bets: List[Tuple[int, bool]],
+) -> int:
+    """Calculate max amount player can win, accounting for side pot limits.
 
-    Converts '7♣' -> '7c', 'A♠' -> 'As', '10♥' -> 'Th'
+    When a short-stacked player goes all-in, they can only win a portion of
+    the pot proportional to their contribution. This function calculates
+    the "main pot" amount the player is eligible to win.
+
+    Args:
+        player_bet: Player's current round bet
+        player_stack: Player's remaining stack
+        cost_to_call: Amount needed to call (0 if can check)
+        all_players_bets: List of (bet, is_folded) tuples for ALL players
+                         including the current player
+
+    Returns:
+        Maximum amount player can win from the pot
+
+    Example:
+        Player has 100 chips, opponent bet 500, pot = 600
+        - player_bet=0, player_stack=100, cost_to_call=500
+        - all_players_bets=[(0, False), (500, False)]  # hero, villain
+        - Player can call 100 (all-in), contribution = 100
+        - Opponent's matched contribution = 100
+        - max_winnable = 100 + 100 = 200 (not 600!)
     """
-    # Handle unicode suit symbols
-    for unicode_suit, letter_suit in SUIT_MAP.items():
-        if unicode_suit in card_str:
-            card_str = card_str.replace(unicode_suit, letter_suit)
-            break
-    # Handle '10' -> 'T'
-    if card_str.startswith('10'):
-        card_str = 'T' + card_str[2:]
-    return card_str
+    # Player's total contribution if they call (capped by their stack)
+    effective_call = min(cost_to_call, player_stack)
+    player_contribution = player_bet + effective_call
+
+    # Start with hero's contribution (the money they're putting in)
+    # Hero's existing bet is already in all_players_bets, so we start
+    # with just the new effective_call amount
+    max_winnable = effective_call
+
+    # Add matched contributions from other players
+    # For each player (including hero), add min(bet, player_contribution)
+    # Hero's bet will add back their existing bet, and other players'
+    # bets are capped at hero's contribution level
+    for bet, is_folded in all_players_bets:
+        # All players' bets (including folded players' dead money) are
+        # added to the pot hero is playing for, capped at hero's contribution
+        max_winnable += min(bet, player_contribution)
+
+    return max_winnable
 
 
 @dataclass
@@ -64,12 +98,13 @@ class DecisionAnalysis:
     # Decision
     action_taken: Optional[str] = None
     raise_amount: Optional[int] = None
-    raise_amount_bb: Optional[float] = None  # BB amount when bb_normalized is enabled
+    raise_amount_bb: Optional[float] = None  # BB amount when BB mode is active
 
     # Equity analysis
     equity: Optional[float] = None
     required_equity: float = 0
     ev_call: Optional[float] = None
+    max_winnable: Optional[int] = None  # Max pot player can win (side pot aware)
 
     # Quality
     optimal_action: Optional[str] = None
@@ -156,6 +191,8 @@ class DecisionAnalyzer:
         player_position: Optional[str] = None,
         opponent_positions: Optional[List[str]] = None,
         opponent_infos: Optional[List[Any]] = None,
+        player_bet: int = 0,
+        all_players_bets: Optional[List[Tuple[int, bool]]] = None,
     ) -> DecisionAnalysis:
         """
         Analyze a decision and return analysis result.
@@ -173,7 +210,7 @@ class DecisionAnalyzer:
             num_opponents: Number of opponents still in hand
             action_taken: The action the AI chose
             raise_amount: Amount raised in dollars (if action is raise)
-            raise_amount_bb: Amount raised in BB (if bb_normalized mode)
+            raise_amount_bb: Amount raised in BB (if BB mode active)
             request_id: Link to api_usage table
             capture_id: Link to prompt_captures table
             player_position: Hero's table position (e.g., 'button', 'under_the_gun')
@@ -181,6 +218,9 @@ class DecisionAnalyzer:
                                (e.g., ['button', 'big_blind_player']) - backward compat
             opponent_infos: List of OpponentInfo objects with observed stats and
                            personality data for more accurate range estimation
+            player_bet: Player's current round bet (for max_winnable calculation)
+            all_players_bets: List of (bet, is_folded) tuples for ALL players
+                             to calculate stack-aware EV (for short stack scenarios)
 
         Returns:
             DecisionAnalysis with equity and quality assessment
@@ -211,8 +251,8 @@ class DecisionAnalyzer:
         if player_hand and community_cards:
             try:
                 import eval7
-                hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-                board = [eval7.Card(_convert_card(c)) for c in community_cards]
+                hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+                board = [eval7.Card(normalize_card_string(c)) for c in community_cards]
                 # eval7.evaluate returns higher scores for better hands
                 analysis.hand_rank = eval7.evaluate(hero_hand + board)
                 # Convert to relative strength (0-100 percentile)
@@ -249,13 +289,26 @@ class DecisionAnalyzer:
                 except Exception as e:
                     logger.debug(f"Equity vs ranges calculation failed: {e}")
 
+        # Calculate max winnable considering side pots (for short stacks)
+        if all_players_bets is not None:
+            analysis.max_winnable = calculate_max_winnable(
+                player_bet, player_stack, cost_to_call, all_players_bets
+            )
+
         # Calculate required equity and EV
         if cost_to_call > 0 and pot_total > 0:
             analysis.required_equity = cost_to_call / (pot_total + cost_to_call)
             if analysis.equity is not None:
-                # EV(call) = (equity * pot) - ((1-equity) * call_cost)
-                analysis.ev_call = (analysis.equity * pot_total) - (
-                    (1 - analysis.equity) * cost_to_call
+                # Use max_winnable for accurate short-stack EV calculation
+                # Falls back to pot_total when max_winnable isn't calculated
+                winnable_pot = analysis.max_winnable if analysis.max_winnable is not None else pot_total
+                # Cap winnable at pot_total (max_winnable can't exceed actual pot)
+                winnable_pot = min(winnable_pot, pot_total)
+                # EV(call) = (equity * winnable_pot) - ((1-equity) * call_cost)
+                # Note: cost_to_call is already capped at player_stack by caller
+                effective_call = min(cost_to_call, player_stack)
+                analysis.ev_call = (analysis.equity * winnable_pot) - (
+                    (1 - analysis.equity) * effective_call
                 )
         else:
             # Free check - no cost to see more cards
@@ -289,8 +342,8 @@ class DecisionAnalyzer:
             import random
 
             # Parse hero's hand
-            hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-            board = [eval7.Card(_convert_card(c)) for c in community_cards] if community_cards else []
+            hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+            board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
 
             # Build deck excluding known cards
             all_known = set(hero_hand + board)
@@ -368,8 +421,8 @@ class DecisionAnalyzer:
             )
 
             # Parse hero's hand
-            hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-            board = [eval7.Card(_convert_card(c)) for c in community_cards] if community_cards else []
+            hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+            board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
 
             # Build set of excluded cards (hero's hand + board)
             excluded_cards = set(player_hand + (community_cards or []))
@@ -410,7 +463,7 @@ class DecisionAnalyzer:
                 opponent_hands = []
                 opp_cards_set = set()
                 for hand in opponent_hands_raw:
-                    opp_hand = [eval7.Card(_convert_card(hand[0])), eval7.Card(_convert_card(hand[1]))]
+                    opp_hand = [eval7.Card(normalize_card_string(hand[0])), eval7.Card(normalize_card_string(hand[1]))]
                     opponent_hands.append(opp_hand)
                     opp_cards_set.add(opp_hand[0])
                     opp_cards_set.add(opp_hand[1])

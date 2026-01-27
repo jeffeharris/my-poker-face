@@ -408,7 +408,7 @@ Return as JSON with this format:
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error generating chat suggestions: {str(e)}")
+        logger.warning(f"Error generating chat suggestions: {str(e)}")
         return jsonify({
             "suggestions": [
                 {"text": "Nice play!", "type": "reaction"},
