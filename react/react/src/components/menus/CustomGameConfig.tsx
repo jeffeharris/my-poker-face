@@ -22,7 +22,6 @@ interface LLMConfig {
   provider: string;
   model: string;
   reasoning_effort: string;
-  game_mode?: string;
   starting_stack?: number;
   big_blind?: number;
   blind_growth?: number;
@@ -33,7 +32,8 @@ interface LLMConfig {
 interface CustomGameConfigProps {
   onStartGame: (
     selectedPersonalities: Array<string | { name: string; llm_config: OpponentLLMConfig }>,
-    llmConfig: LLMConfig
+    llmConfig: LLMConfig,
+    gameMode: string
   ) => void;
   onBack: () => void;
 }
@@ -172,14 +172,13 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         provider: defaultProvider,
         model: defaultModel,
         reasoning_effort: defaultReasoning,
-        game_mode: defaultGameMode,
         starting_stack: startingStack,
         big_blind: bigBlind,
         blind_growth: blindGrowth,
         blinds_increase: blindsIncrease,
         max_blind: maxBlind
       };
-      onStartGame(personalities, llmConfig);
+      onStartGame(personalities, llmConfig, defaultGameMode);
     }
   };
 
