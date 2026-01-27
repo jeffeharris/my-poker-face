@@ -22,6 +22,7 @@ interface LLMConfig {
   provider: string;
   model: string;
   reasoning_effort: string;
+  game_mode?: string;
   starting_stack?: number;
   big_blind?: number;
   blind_growth?: number;
@@ -66,6 +67,9 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
   const [blindOptions] = useState([10, 25, 50, 100, 200]);
   const [startingStack, setStartingStack] = useState(10000);
   const [bigBlind, setBigBlind] = useState(50);
+
+  // Game mode
+  const [defaultGameMode, setDefaultGameMode] = useState('casual');
 
   // Blind escalation settings
   const [blindGrowthOptions] = useState([1.25, 1.5, 2]);
@@ -150,11 +154,16 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
 
   const handleStartGame = () => {
     if (selectedPersonalities.length > 0) {
-      // Build personalities array with optional llm_config overrides
+      // Build personalities array with optional llm_config and game_mode overrides
       const personalities = selectedPersonalities.map(name => {
         const customConfig = opponentConfigs[name];
         if (customConfig) {
-          return { name, llm_config: customConfig };
+          const { game_mode, ...llm_config } = customConfig;
+          const entry: { name: string; llm_config: Omit<OpponentLLMConfig, 'game_mode'>; game_mode?: string } = { name, llm_config };
+          if (game_mode) {
+            entry.game_mode = game_mode;
+          }
+          return entry;
         }
         return name;
       });
@@ -163,6 +172,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
         provider: defaultProvider,
         model: defaultModel,
         reasoning_effort: defaultReasoning,
+        game_mode: defaultGameMode,
         starting_stack: startingStack,
         big_blind: bigBlind,
         blind_growth: blindGrowth,
@@ -197,6 +207,7 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
           model: defaultModel,
           reasoning_effort: defaultReasoning,
         }}
+        defaultGameMode={defaultGameMode}
         opponentConfigs={opponentConfigs}
         onConfigChange={handleOpponentConfigChange}
         onBack={() => setShowConfigScreen(false)}
@@ -270,6 +281,18 @@ export function CustomGameConfig({ onStartGame, onBack }: CustomGameConfigProps)
               {maxBlindOptions.map(cap => (
                 <option key={cap} value={cap}>{cap === 0 ? 'No cap' : cap.toLocaleString()}</option>
               ))}
+            </select>
+
+            <span className="setting-label">Game Mode</span>
+            <select
+              className="setting-select"
+              value={defaultGameMode}
+              onChange={(e) => setDefaultGameMode(e.target.value)}
+            >
+              <option value="casual">Casual — Fun, personality-driven</option>
+              <option value="standard">Standard — Balanced + GTO awareness</option>
+              <option value="competitive">Competitive — GTO + trash talk</option>
+              <option value="pro">Pro — Full GTO, analytical</option>
             </select>
           </div>
         </div>

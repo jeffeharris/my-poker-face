@@ -57,4 +57,5 @@ export interface OpponentLLMConfig {
   provider: string;
   model: string;
   reasoning_effort?: string;
+  game_mode?: string;
 }

@@ -8,6 +8,7 @@ interface OpponentConfigScreenProps {
   providers: ProviderInfo[];
   providersLoading: boolean;
   defaultConfig: OpponentLLMConfig;
+  defaultGameMode: string;
   opponentConfigs: Record<string, OpponentLLMConfig>;
   onConfigChange: (name: string, config: OpponentLLMConfig | null) => void;
   onBack: () => void;
@@ -18,6 +19,7 @@ export function OpponentConfigScreen({
   providers,
   providersLoading,
   defaultConfig,
+  defaultGameMode,
   opponentConfigs,
   onConfigChange,
   onBack,
@@ -84,6 +86,24 @@ export function OpponentConfigScreen({
     });
   };
 
+  const handleGameModeChange = (opponentName: string, newMode: string) => {
+    const currentConfig = getEffectiveConfig(opponentName);
+    if (newMode === '') {
+      // "Default" selected — remove game_mode override
+      const { game_mode: _, ...rest } = currentConfig;
+      // If nothing else is customized, reset entirely
+      const isDefault = rest.provider === defaultConfig.provider
+        && rest.model === defaultConfig.model
+        && (rest.reasoning_effort || 'minimal') === (defaultConfig.reasoning_effort || 'minimal');
+      onConfigChange(opponentName, isDefault ? null : rest);
+    } else {
+      onConfigChange(opponentName, {
+        ...currentConfig,
+        game_mode: newMode,
+      });
+    }
+  };
+
   const handleResetToDefault = (opponentName: string) => {
     onConfigChange(opponentName, null);
   };
@@ -126,6 +146,19 @@ export function OpponentConfigScreen({
                 </div>
 
                 <div className="opponent-settings">
+                  <span className="setting-label">Game Mode</span>
+                  <select
+                    className="setting-select"
+                    value={config.game_mode || ''}
+                    onChange={(e) => handleGameModeChange(opponentName, e.target.value)}
+                  >
+                    <option value="">Default ({defaultGameMode})</option>
+                    <option value="casual">Casual</option>
+                    <option value="standard">Standard</option>
+                    <option value="competitive">Competitive</option>
+                    <option value="pro">Pro</option>
+                  </select>
+
                   <span className="setting-label">Provider</span>
                   <select
                     className="setting-select"
