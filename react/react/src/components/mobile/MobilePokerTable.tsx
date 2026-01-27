@@ -329,24 +329,31 @@ export function MobilePokerTable({
       {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
-          {/* Show dealt cards with slide-in animation */}
-          {gameState.community_cards.map((card, i) => {
+          {Array.from({ length: 5 }).map((_, i) => {
+            const card = gameState.community_cards[i];
             const anim = communityCardAnimations[i];
+            const isDealt = !!card;
+            const isAnimating = anim?.shouldAnimate;
             return (
-              <div
-                key={i}
-                style={anim?.shouldAnimate ? {
-                  animation: `communityCardDealIn ${anim.duration}s cubic-bezier(0.16, 1, 0.3, 1) ${anim.delay}s both`,
-                } : undefined}
-              >
-                <Card card={card} faceDown={false} size="medium" />
+              <div key={i} className="community-card-slot">
+                {/* Placeholder fades out when card arrives */}
+                <div className={`community-card-placeholder ${isDealt ? (isAnimating ? 'fade-out-delayed' : 'hidden') : ''}`}
+                  style={isAnimating ? { animationDelay: `${anim.delay + anim.duration * 0.6}s` } : undefined}
+                />
+                {/* Card overlays placeholder */}
+                {isDealt && (
+                  <div
+                    className="community-card-overlay"
+                    style={isAnimating ? {
+                      animation: `communityCardDealIn ${anim.duration}s cubic-bezier(0.16, 1, 0.3, 1) ${anim.delay}s both`,
+                    } : undefined}
+                  >
+                    <Card card={card} faceDown={false} size="medium" />
+                  </div>
+                )}
               </div>
             );
           })}
-          {/* Show placeholders for remaining cards */}
-          {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
-            <div key={`placeholder-${i}`} className="community-card-placeholder" />
-          ))}
         </div>
       </div>
 
