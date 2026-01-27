@@ -1,19 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   FlaskConical, Clapperboard, Medal, Crown, Music, Laugh, Skull, Sparkles, Dices,
-  type LucideIcon
 } from 'lucide-react';
 import { config } from '../../config';
+import { type Theme } from '../../types/theme';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import './ThemedGameSelector.css';
-
-interface Theme {
-  id: string;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-  personalities?: string[];
-}
 
 interface ThemedGameSelectorProps {
   onSelectTheme: (theme: Theme) => Promise<void>;
@@ -75,10 +67,17 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
 
       const data = await response.json();
 
-      // Add the generated personalities to the theme
+      // Add the generated personalities and game settings to the theme
       const themedGame = {
         ...theme,
-        personalities: data.personalities
+        personalities: data.personalities,
+        themeDescription: data.description,
+        game_mode: data.game_mode,
+        starting_stack: data.starting_stack,
+        big_blind: data.big_blind,
+        blind_growth: data.blind_growth,
+        blinds_increase: data.blinds_increase,
+        max_blind: data.max_blind,
       };
 
       await onSelectTheme(themedGame);

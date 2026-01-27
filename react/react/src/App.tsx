@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { type LucideIcon } from 'lucide-react'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
@@ -18,19 +17,12 @@ import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
 import { LoadingOverlay } from './components/shared'
 import { config } from './config'
+import { type Theme } from './types/theme'
 import './App.css'
 
 // Game limit constants
 const MAX_GAMES_GUEST = 3;
 const MAX_GAMES_USER = 10;
-
-interface Theme {
-  id: string;
-  name: string;
-  description: string;
-  icon: LucideIcon;
-  personalities?: string[];
-}
 
 // Route titles for document.title
 const ROUTE_TITLES: Record<string, string> = {
@@ -58,6 +50,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
+  const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
 
   // Update player name when user changes
   useEffect(() => {
@@ -159,6 +152,10 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           starting_stack: startingStack,
           big_blind: bigBlind,
           opponent_count: quickPlayConfig.opponents,
+          game_mode: quickPlayConfig.gameMode,
+          blind_growth: quickPlayConfig.blindGrowth,
+          blinds_increase: quickPlayConfig.blindsIncrease,
+          max_blind: quickPlayConfig.maxBlind,
         }),
       });
 
@@ -199,7 +196,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           big_blind: llmConfig?.big_blind,
           blind_growth: llmConfig?.blind_growth,
           blinds_increase: llmConfig?.blinds_increase,
-          max_blind: llmConfig?.max_blind
+          max_blind: llmConfig?.max_blind,
         }),
       });
 
@@ -223,6 +220,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     setIsCreatingGame(true);
 
     try {
+      if (theme.themeDescription) {
+        setLoadingSubmessage(theme.themeDescription);
+      }
       let response: Response;
       try {
         response = await fetch(`${config.API_URL}/api/new-game`, {
@@ -233,7 +233,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           },
           body: JSON.stringify({
             playerName,
-            personalities: theme.personalities
+            personalities: theme.personalities,
+            game_mode: theme.game_mode,
+            starting_stack: theme.starting_stack,
+            big_blind: theme.big_blind,
+            blind_growth: theme.blind_growth,
+            blinds_increase: theme.blinds_increase,
+            max_blind: theme.max_blind,
           }),
         });
       } catch {
@@ -257,6 +263,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       navigate(`/game/${data.game_id}`);
     } finally {
       setIsCreatingGame(false);
+      setLoadingSubmessage('Preparing the table and seating your opponents');
     }
   };
 
@@ -367,7 +374,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       {isCreatingGame && (
         <LoadingOverlay
           message="Setting up your game..."
-          submessage="Preparing the table and seating your opponents"
+          submessage={loadingSubmessage}
         />
       )}
 
