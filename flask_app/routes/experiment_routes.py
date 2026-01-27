@@ -811,8 +811,8 @@ Test if showing equity calculations and verdicts improves decision quality:
   "control": {
     "label": "No GTO Guidance",
     "prompt_config": {
-      "show_equity_always": false,
-      "show_equity_verdict": false,
+      "gto_equity": false,
+      "gto_verdict": false,
       "situational_guidance": true
     }
   },
@@ -820,8 +820,8 @@ Test if showing equity calculations and verdicts improves decision quality:
     {
       "label": "With GTO Guidance",
       "prompt_config": {
-        "show_equity_always": true,
-        "show_equity_verdict": true,
+        "gto_equity": true,
+        "gto_verdict": true,
         "situational_guidance": true
       }
     }
@@ -844,16 +844,16 @@ Compare stripped-down prompts to full prompts with all features:
   "control": {
     "label": "Full Prompts",
     "prompt_config": {
-      "use_minimal_prompt": false,
-      "show_equity_always": true,
-      "show_equity_verdict": true
+      "gto_equity": true,
+      "gto_verdict": true
     }
   },
   "variants": [
     {
       "label": "Minimal Prompts",
       "prompt_config": {
-        "use_minimal_prompt": true
+        "include_personality": false,
+        "use_simple_response_format": true
       }
     }
   ]
@@ -866,9 +866,9 @@ Instead of manually specifying prompt_config fields, you can use the `game_mode`
 | Mode | Effect |
 |------|--------|
 | `casual` | Default PromptConfig (personality-driven fun poker) |
-| `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
-| `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
-| `competitive` | `show_equity_always=true, show_equity_verdict=true` (full GTO guidance with personality and trash talk) |
+| `standard` | `gto_equity=true` (balanced personality + GTO awareness) |
+| `pro` | `gto_equity=true, gto_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `competitive` | `gto_equity=true, gto_verdict=true` (full GTO guidance with personality and trash talk) |
 
 **Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
 
@@ -902,10 +902,11 @@ All boolean options (default true unless specified):
 - memory_keep_exchanges: Number of conversation exchanges to retain (integer, default 0)
 
 **GTO Foundation Options** (math-based decision support, default false):
-- show_equity_always: Show equity comparison (vs random + vs opponent ranges) for all decisions
-- show_equity_verdict: Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct")
+- gto_equity: Show equity comparison (vs random + vs opponent ranges) for all decisions
+- gto_verdict: Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct")
 - use_enhanced_ranges: Use PFR/action-based range estimation vs VPIP-only (default true)
-- use_minimal_prompt: Strip to bare game state only - no personality, psychology, or guidance (default false)
+- include_personality: Include personality system prompt (default true). Set to false for baseline testing.
+- use_simple_response_format: Use simple JSON response format instead of rich format (default false)
 
 ## Guidelines
 
@@ -945,7 +946,7 @@ Common experiment scenarios:
 7. Commentary impact: Test if enable_commentary affects player behavior
 8. Fixed hand count experiments: Use reset_on_elimination: true for equal hand counts across variants (fair A/B comparisons)
 9. Natural tournaments: Use reset_on_elimination: false (default) for tournaments that end when one player wins all chips
-10. GTO guidance impact: Test if show_equity_always/show_equity_verdict reduces fold mistakes and bad calls
+10. GTO guidance impact: Test if gto_equity/gto_verdict reduces fold mistakes and bad calls
 11. Range estimation comparison: Test use_enhanced_ranges (PFR/action-based) vs VPIP-only ranges
 12. Game mode comparison: Test casual vs standard vs pro vs competitive modes using game_mode preset
 

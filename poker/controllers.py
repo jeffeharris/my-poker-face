@@ -30,9 +30,6 @@ from .ai_resilience import (
 from .player_psychology import PlayerPsychology
 from .memory.commentary_generator import DecisionPlan
 from .minimal_prompt import (
-    convert_game_to_minimal_prompt,
-    parse_minimal_response,
-    convert_minimal_response_to_game_action,
     get_position_abbrev,
     to_bb,
 )
@@ -195,6 +192,42 @@ def _classify_aggression(line_lower: str) -> Optional[str]:
 # =============================================================================
 # Hand Evaluation
 # =============================================================================
+
+
+def _format_money(amount: int, big_blind: int, as_bb: bool) -> str:
+    """Format money as dollars or BB based on mode.
+
+    Args:
+        amount: Dollar amount
+        big_blind: Big blind size in dollars
+        as_bb: If True, format as BB; if False, format as dollars
+
+    Returns:
+        Formatted string like "$500" or "10.00 BB"
+    """
+    if not as_bb:
+        return f"${amount}"
+
+    if big_blind == 0:
+        return f"${amount}"  # Fallback if BB not set
+
+    bb_value = amount / big_blind
+    return f"{bb_value:.2f} BB"
+
+
+def _convert_messages_to_bb(messages: str, big_blind: int) -> str:
+    """Convert dollar amounts in messages to BB format for AI prompts."""
+    if big_blind == 0:
+        return messages  # Fallback if BB not set
+
+    import re
+
+    def replace_dollar(match):
+        amount = int(match.group(1))
+        bb_value = amount / big_blind
+        return f"{bb_value:.2f} BB"
+
+    return re.sub(r'\$(\d+)', replace_dollar, messages)
 
 
 def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
@@ -615,16 +648,16 @@ class AIPlayerController:
                 # Clear all memory (default behavior)
                 self.assistant.memory.clear()
 
-        # MINIMAL PROMPT PATH: Skip all personality/psychology and use pure game state
-        if self.prompt_config.use_minimal_prompt:
-            return self._decide_action_minimal(game_state, game_messages)
-
         # Save original messages before summarizing (for address detection)
         original_messages = game_messages
 
         game_messages = summarize_messages(
             game_messages,
             self.player_name)
+
+        # Always convert messages to BB format
+        big_blind = game_state.current_ante or 100
+        game_messages = _convert_messages_to_bb(game_messages, big_blind)
 
         # Get current chattiness and determine if should speak
         current_traits = self.get_current_personality_traits()
@@ -636,14 +669,13 @@ class AIPlayerController:
             self.player_name, chattiness, game_context
         )
         speaking_context = self.chattiness_manager.get_speaking_context(self.player_name)
-        
-        # Build message with game state (respecting prompt_config toggles)
-        message = convert_game_to_hand_state(
+
+        # Build message with game state — always BB-normalized, pot odds handled by YAML template
+        message = build_base_game_state(
             game_state,
             game_state.current_player,
             self.state_machine.phase,
             game_messages,
-            include_pot_odds=self.prompt_config.pot_odds,
             include_hand_strength=self.prompt_config.hand_strength)
 
         # Get valid actions early so we can include in guidance
@@ -764,7 +796,7 @@ class AIPlayerController:
                 pot_total = game_state.pot.get('total', 0)
                 player_stack = player.stack
                 already_bet = player.bet
-                big_blind = game_state.current_ante or 250
+                big_blind = game_state.current_ante or 100
 
                 stack_bb = player_stack / big_blind if big_blind > 0 else None
                 already_bet_bb = already_bet / big_blind if big_blind > 0 else None
@@ -811,165 +843,179 @@ class AIPlayerController:
                 return capture_data
             return enrich_capture
 
+        # ========== Personality toggle ==========
+        original_system_message = None
+        if not self.prompt_config.include_personality:
+            original_system_message = self.assistant.system_message
+            self.assistant.system_message = (
+                "You are a poker player. Analyze the situation and "
+                "respond with your action in JSON format."
+            )
+
         # ========== ATTEMPT 1: Initial AI call ==========
         response_dict = None
         error_type = None
         original_response_json = None
 
         try:
-            llm_response = self.assistant.chat_full(
-                decision_prompt,
-                json_format=True,
-                hand_number=self.current_hand_number,
-                prompt_template='decision',
-                capture_enricher=make_enricher(drama_context=drama_context),
-            )
-            original_response_json = llm_response.content
-            parent_capture_id[0] = final_capture_id[0]
-            self._last_llm_response = llm_response
-
-            response_dict = parse_json_response(original_response_json)
-            response_dict = self._normalize_response(response_dict)
-
-            # Classify any errors
-            error_type = classify_response_error(response_dict, valid_actions)
-
-        except AIResponseError as e:
-            # JSON parse failure
-            logger.warning(f"[RESILIENCE] {self.player_name}: Malformed JSON - {e}")
-            error_type = DecisionErrorType.MALFORMED_JSON
-            response_dict = {}
-
-        except Exception as e:
-            logger.error(f"[RESILIENCE] {self.player_name}: Unexpected error - {e}")
-            error_type = DecisionErrorType.MALFORMED_JSON
-            response_dict = {}
-
-        # ========== ATTEMPT 2: Recovery if needed ==========
-        if error_type is not None:
-            logger.warning(f"[RESILIENCE] {self.player_name}: Error detected ({error_type.value}), attempting recovery")
-
-            # Generate error description for logging and correction prompt
-            if error_type == DecisionErrorType.MALFORMED_JSON:
-                error_description = "Could not parse JSON response. Please respond with valid JSON."
-            else:
-                error_description = describe_response_error(error_type, response_dict, valid_actions)
-
-            # Mark original capture with error
-            if parent_capture_id[0]:
-                update_prompt_capture(
-                    parent_capture_id[0],
-                    error_type=error_type.value,
-                    error_description=error_description
-                )
-
             try:
-                # Determine recovery prompt
-                if error_type == DecisionErrorType.MALFORMED_JSON:
-                    # Full retry with same prompt
-                    recovery_prompt = decision_prompt
-                    logger.info(f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON")
-                else:
-                    # Targeted correction prompt
-                    recovery_prompt = self.prompt_manager.render_correction_prompt(
-                        original_response=original_response_json or str(response_dict),
-                        error_description=error_description,
-                        valid_actions=valid_actions,
-                        context=context,
-                    )
-                    logger.info(f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}")
-
-                # Make recovery call
-                correction_response = self.assistant.chat_full(
-                    recovery_prompt,
+                llm_response = self.assistant.chat_full(
+                    decision_prompt,
                     json_format=True,
                     hand_number=self.current_hand_number,
-                    prompt_template='decision_correction',
-                    capture_enricher=make_enricher(
-                        parent_id=parent_capture_id[0],
-                        error_type=error_type.value,
-                        correction_attempt=1,
-                        drama_context=drama_context
-                    ),
+                    prompt_template='decision',
+                    capture_enricher=make_enricher(drama_context=drama_context),
                 )
-                self._last_llm_response = correction_response
+                original_response_json = llm_response.content
+                parent_capture_id[0] = final_capture_id[0]
+                self._last_llm_response = llm_response
 
-                corrected_dict = parse_json_response(correction_response.content)
-                corrected_dict = self._normalize_response(corrected_dict)
+                response_dict = parse_json_response(original_response_json)
+                response_dict = self._normalize_response(response_dict)
 
-                # Check if correction succeeded
-                correction_error = classify_response_error(corrected_dict, valid_actions)
-                if correction_error is None:
-                    logger.info(f"[RESILIENCE] {self.player_name}: Recovery successful!")
-                    response_dict = corrected_dict
-                    error_type = None
-                    # Clear error from parent since recovery succeeded
-                    if parent_capture_id[0]:
-                        update_prompt_capture(
-                            parent_capture_id[0],
-                            error_type=None,
-                            error_description=None
-                        )
-                else:
-                    logger.warning(f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})")
-                    # Record the correction's actual error details
-                    if final_capture_id[0]:
-                        if correction_error == DecisionErrorType.MALFORMED_JSON:
-                            correction_error_description = "Could not parse JSON response."
-                        else:
-                            correction_error_description = describe_response_error(
-                                correction_error, corrected_dict, valid_actions
-                            )
-                        update_prompt_capture(
-                            final_capture_id[0],
-                            error_type=correction_error.value,
-                            error_description=correction_error_description
-                        )
+                # Classify any errors
+                error_type = classify_response_error(response_dict, valid_actions)
+
+            except AIResponseError as e:
+                # JSON parse failure
+                logger.warning(f"[RESILIENCE] {self.player_name}: Malformed JSON - {e}")
+                error_type = DecisionErrorType.MALFORMED_JSON
+                response_dict = {}
 
             except Exception as e:
-                logger.error(f"[RESILIENCE] {self.player_name}: Recovery attempt failed - {e}")
+                logger.error(f"[RESILIENCE] {self.player_name}: Unexpected error - {e}")
+                error_type = DecisionErrorType.MALFORMED_JSON
+                response_dict = {}
 
-        # ========== FALLBACK if still invalid ==========
-        if error_type is not None:
-            logger.warning(f"[RESILIENCE] {self.player_name}: Using fallback action")
-            response_dict = FallbackActionSelector.select_action(
-                valid_actions=valid_actions,
-                strategy=AIFallbackStrategy.MIMIC_PERSONALITY,
-                personality_traits=self.personality_traits,
-                call_amount=context.get('call_amount', 0),
-                min_raise=context.get('min_raise', MIN_RAISE),
-                max_raise=context.get('max_raise', MIN_RAISE * 10),
+            # ========== ATTEMPT 2: Recovery if needed ==========
+            if error_type is not None:
+                logger.warning(f"[RESILIENCE] {self.player_name}: Error detected ({error_type.value}), attempting recovery")
+
+                # Generate error description for logging and correction prompt
+                if error_type == DecisionErrorType.MALFORMED_JSON:
+                    error_description = "Could not parse JSON response. Please respond with valid JSON."
+                else:
+                    error_description = describe_response_error(error_type, response_dict, valid_actions)
+
+                # Mark original capture with error
+                if parent_capture_id[0]:
+                    update_prompt_capture(
+                        parent_capture_id[0],
+                        error_type=error_type.value,
+                        error_description=error_description
+                    )
+
+                try:
+                    # Determine recovery prompt
+                    if error_type == DecisionErrorType.MALFORMED_JSON:
+                        # Full retry with same prompt
+                        recovery_prompt = decision_prompt
+                        logger.info(f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON")
+                    else:
+                        # Targeted correction prompt
+                        recovery_prompt = self.prompt_manager.render_correction_prompt(
+                            original_response=original_response_json or str(response_dict),
+                            error_description=error_description,
+                            valid_actions=valid_actions,
+                            context=context,
+                        )
+                        logger.info(f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}")
+
+                    # Make recovery call
+                    correction_response = self.assistant.chat_full(
+                        recovery_prompt,
+                        json_format=True,
+                        hand_number=self.current_hand_number,
+                        prompt_template='decision_correction',
+                        capture_enricher=make_enricher(
+                            parent_id=parent_capture_id[0],
+                            error_type=error_type.value,
+                            correction_attempt=1,
+                            drama_context=drama_context
+                        ),
+                    )
+                    self._last_llm_response = correction_response
+
+                    corrected_dict = parse_json_response(correction_response.content)
+                    corrected_dict = self._normalize_response(corrected_dict)
+
+                    # Check if correction succeeded
+                    correction_error = classify_response_error(corrected_dict, valid_actions)
+                    if correction_error is None:
+                        logger.info(f"[RESILIENCE] {self.player_name}: Recovery successful!")
+                        response_dict = corrected_dict
+                        error_type = None
+                        # Clear error from parent since recovery succeeded
+                        if parent_capture_id[0]:
+                            update_prompt_capture(
+                                parent_capture_id[0],
+                                error_type=None,
+                                error_description=None
+                            )
+                    else:
+                        logger.warning(f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})")
+                        # Record the correction's actual error details
+                        if final_capture_id[0]:
+                            if correction_error == DecisionErrorType.MALFORMED_JSON:
+                                correction_error_description = "Could not parse JSON response."
+                            else:
+                                correction_error_description = describe_response_error(
+                                    correction_error, corrected_dict, valid_actions
+                                )
+                            update_prompt_capture(
+                                final_capture_id[0],
+                                error_type=correction_error.value,
+                                error_description=correction_error_description
+                            )
+
+                except Exception as e:
+                    logger.error(f"[RESILIENCE] {self.player_name}: Recovery attempt failed - {e}")
+
+            # ========== FALLBACK if still invalid ==========
+            if error_type is not None:
+                logger.warning(f"[RESILIENCE] {self.player_name}: Using fallback action")
+                response_dict = FallbackActionSelector.select_action(
+                    valid_actions=valid_actions,
+                    strategy=AIFallbackStrategy.MIMIC_PERSONALITY,
+                    personality_traits=self.personality_traits,
+                    call_amount=context.get('call_amount', 0),
+                    min_raise=context.get('min_raise', MIN_RAISE),
+                    max_raise=context.get('max_raise', MIN_RAISE * 10),
+                )
+                response_dict['_used_fallback'] = True
+
+            # ========== Final validation and analysis ==========
+            # Apply any remaining fixes (raise amount extraction, etc.)
+            response_dict = self._apply_final_fixes(response_dict, context, game_state)
+
+            # Analyze decision quality (only for the final decision)
+            # Pass player bet info for max_winnable calculation in analyzer
+            player = game_state.current_player
+            self._analyze_decision(
+                response_dict,
+                context,
+                final_capture_id[0],
+                player_bet=player.bet,
+                all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
             )
-            response_dict['_used_fallback'] = True
 
-        # ========== Final validation and analysis ==========
-        # Apply any remaining fixes (raise amount extraction, etc.)
-        response_dict = self._apply_final_fixes(response_dict, context, game_state)
+            # Update capture with final action
+            if final_capture_id[0]:
+                action = response_dict.get('action')
+                raise_amount = response_dict.get('raise_to') if action == 'raise' else None
+                update_prompt_capture(final_capture_id[0], action_taken=action, raise_amount=raise_amount)
 
-        # Analyze decision quality (only for the final decision)
-        # Pass player bet info for max_winnable calculation in analyzer
-        player = game_state.current_player
-        self._analyze_decision(
-            response_dict,
-            context,
-            final_capture_id[0],
-            player_bet=player.bet,
-            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
-        )
+                # Compute and store auto-labels
+                if self._persistence and capture_enrichment[0]:
+                    label_data = capture_enrichment[0].copy()
+                    label_data['action_taken'] = action
+                    self._persistence.compute_and_store_auto_labels(final_capture_id[0], label_data)
 
-        # Update capture with final action
-        if final_capture_id[0]:
-            action = response_dict.get('action')
-            raise_amount = response_dict.get('raise_to') if action == 'raise' else None
-            update_prompt_capture(final_capture_id[0], action_taken=action, raise_amount=raise_amount)
+            return response_dict
 
-            # Compute and store auto-labels
-            if self._persistence and capture_enrichment[0]:
-                label_data = capture_enrichment[0].copy()
-                label_data['action_taken'] = action
-                self._persistence.compute_and_store_auto_labels(final_capture_id[0], label_data)
-
-        return response_dict
+        finally:
+            if original_system_message is not None:
+                self.assistant.system_message = original_system_message
 
     def _build_decision_prompt(self, message: str, context: Dict) -> tuple:
         """Build the decision prompt with situational guidance.
@@ -991,7 +1037,7 @@ class AIPlayerController:
             pot_total = game_state.pot.get('total', 0)
             already_bet = player.bet
             player_stack = player.stack
-            big_blind = game_state.current_ante or 250
+            big_blind = game_state.current_ante or 100
 
             already_bet_bb = already_bet / big_blind if big_blind > 0 else 0
             stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
@@ -1068,9 +1114,9 @@ class AIPlayerController:
 
         # Calculate equity verdict if enabled (GTO foundation - always show the math)
         cost_to_call_for_equity = context.get('call_amount', 0)
-        if self.prompt_config.show_equity_always and cost_to_call_for_equity > 0:
+        if self.prompt_config.gto_equity and cost_to_call_for_equity > 0:
             pot_total = game_state.pot.get('total', 0)
-            pot_odds = pot_total / cost_to_call_for_equity if cost_to_call_for_equity > 0 else 0
+            pot_odds = pot_total / cost_to_call_for_equity
             required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
 
             # Convert cards for equity calculation
@@ -1153,7 +1199,7 @@ class AIPlayerController:
 
                 # Determine verdict (consider both equities)
                 # Range-based equity is more accurate than vs-random, so weight it heavily
-                if self.prompt_config.show_equity_verdict:
+                if self.prompt_config.gto_verdict:
                     if equity_ranges_pct is not None:
                         # When we have range-based equity, use it as primary signal
                         if equity_ranges_pct >= required_equity:
@@ -1186,6 +1232,36 @@ class AIPlayerController:
                     'opponent_stats': opponent_stats_str,
                 }
 
+        # Build pot odds info for YAML template rendering
+        pot_odds_info = None
+        if self.prompt_config.pot_odds:
+            cost_to_call_for_pot_odds = context.get('call_amount', 0)
+            pot_total_for_pot_odds = game_state.pot.get('total', 0)
+            big_blind_for_pot_odds = game_state.current_ante or 100
+
+            if cost_to_call_for_pot_odds > 0:
+                po = pot_total_for_pot_odds / cost_to_call_for_pot_odds
+                eq_needed = 100 / (po + 1)
+                pot_fmt = _format_money(pot_total_for_pot_odds, big_blind_for_pot_odds, True)
+                call_fmt = _format_money(cost_to_call_for_pot_odds, big_blind_for_pot_odds, True)
+
+                if po >= 10:
+                    pot_odds_extra = f"With {po:.0f}:1 odds, you should rarely fold - you only need to win 1 in {po+1:.0f} times."
+                elif po >= 4:
+                    pot_odds_extra = "These are favorable odds for calling with reasonable hands."
+                else:
+                    pot_odds_extra = ""
+
+                pot_odds_info = {
+                    'pot_odds': po,
+                    'equity_needed': eq_needed,
+                    'pot_fmt': pot_fmt,
+                    'call_fmt': call_fmt,
+                    'pot_odds_extra': pot_odds_extra,
+                }
+            else:
+                pot_odds_info = {'free': True}
+
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
@@ -1195,13 +1271,21 @@ class AIPlayerController:
             short_stack_info=short_stack_info,
             made_hand_info=made_hand_info,
             equity_verdict_info=equity_verdict_info,
-            drama_context=drama_context
+            drama_context=drama_context,
+            include_pot_odds=self.prompt_config.pot_odds,
+            pot_odds_info=pot_odds_info,
+            use_simple_response_format=self.prompt_config.use_simple_response_format,
         )
 
         return (prompt, drama_context)
 
     def _normalize_response(self, response_dict: Dict) -> Dict:
-        """Normalize response: lowercase action, convert raise_to to int."""
+        """Normalize response: lowercase action, keep raise_to as float (BB).
+
+        raise_to is always kept as float to preserve decimal BB values
+        (e.g., 8.5 BB) until _apply_final_fixes converts to dollars.
+        When use_simple_response_format is True, missing rich fields get defaults.
+        """
         if 'action' in response_dict and response_dict['action']:
             response_dict['action'] = response_dict['action'].lower()
 
@@ -1209,34 +1293,45 @@ class AIPlayerController:
             response_dict['raise_to'] = 0
         else:
             try:
-                response_dict['raise_to'] = int(response_dict['raise_to'])
+                response_dict['raise_to'] = float(response_dict['raise_to'])
             except (ValueError, TypeError):
                 response_dict['raise_to'] = 0
+
+        # Set defaults for missing rich fields when using simple response format
+        if self.prompt_config.use_simple_response_format:
+            response_dict.setdefault('inner_monologue', '')
+            response_dict.setdefault('hand_strategy', '')
+            response_dict.setdefault('dramatic_sequence', [])
 
         return response_dict
 
     def _apply_final_fixes(self, response_dict: Dict, context: Dict, game_state) -> Dict:
-        """Apply final fixes like extracting raise amount from persona_response."""
-        import re
-        valid_actions = context.get('valid_actions', [])
+        """Apply final fixes to AI response.
 
-        # Fix raise with 0 amount by extracting from persona_response
+        Always converts raise_to from BB to dollars (prompts are always BB-normalized).
+        Falls back to min_raise if raise action has no amount set.
+        """
+        valid_actions = context.get('valid_actions', [])
+        big_blind = game_state.current_ante or 100
+
+        # Always convert BB raise_to to dollars
+        if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) > 0:
+            bb_value = response_dict['raise_to']
+            dollar_value = round(bb_value * big_blind)
+            response_dict['_raise_to_bb'] = bb_value  # Store original BB for tracking
+            response_dict['raise_to'] = dollar_value
+            logger.debug(f"[BB_CONVERSION] {self.player_name} raise_to: {bb_value} BB → ${dollar_value}")
+
+        # Fix raise with 0 amount - fallback to min raise
+        # Note: The resilience layer should have already asked the AI to fix this,
+        # so this is a last-resort fallback if the AI still didn't provide an amount.
         if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) == 0:
-            persona_response = response_dict.get('persona_response', '')
             highest_bet = game_state.highest_bet
             min_raise = context.get('min_raise', MIN_RAISE)
-
-            raise_match = re.search(r'raise.*?\$(\d+)', persona_response, re.IGNORECASE)
-            if raise_match:
-                mentioned_amount = int(raise_match.group(1))
-                response_dict['raise_to'] = mentioned_amount
-                response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} said 'raise to ${mentioned_amount}'")
-            else:
-                min_raise_to = highest_bet + min_raise
-                response_dict['raise_to'] = min_raise_to
-                response_dict['raise_amount_corrected'] = True
-                logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
+            min_raise_to = highest_bet + min_raise
+            response_dict['raise_to'] = min_raise_to
+            response_dict['raise_amount_corrected'] = True
+            logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
 
         # Validate action is in valid_actions
         if valid_actions and response_dict.get('action') not in valid_actions:
@@ -1351,6 +1446,7 @@ class AIPlayerController:
                 num_opponents=num_opponents,
                 action_taken=response_dict.get('action'),
                 raise_amount=response_dict.get('raise_to'),
+                raise_amount_bb=response_dict.get('_raise_to_bb'),  # BB amount if BB mode
                 request_id=request_id,
                 capture_id=capture_id,
                 player_position=player_position,
@@ -1368,196 +1464,6 @@ class AIPlayerController:
             )
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
-
-    def _decide_action_minimal(self, game_state, game_messages) -> Dict:
-        """
-        Minimal prompt path for pure poker decisions.
-
-        Bypasses all personality, psychology, and guidance systems.
-        Uses BB-normalized game state and simple JSON response format.
-        """
-        player = game_state.current_player
-        big_blind = game_state.current_ante
-
-        # Build action history from game messages
-        # Parse the messages to extract position, action, amount
-        action_history = self._parse_action_history_for_minimal(game_state, game_messages)
-
-        # Generate the minimal prompt
-        prompt = convert_game_to_minimal_prompt(
-            game_state,
-            player,
-            self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase),
-            action_history
-        )
-
-        logger.debug(f"[MINIMAL PROMPT]\n{prompt}\n")
-
-        # Call LLM with minimal system prompt
-        minimal_system = "You are a poker player. Analyze the situation and respond with your action in JSON format."
-
-        # Use a fresh assistant call without personality
-        from core.llm import LLMClient, CallType
-
-        llm_client = LLMClient(
-            model=self.assistant.model if hasattr(self.assistant, 'model') else None,
-            provider=self.assistant.provider if hasattr(self.assistant, 'provider') else None,
-            reasoning_effort=None,  # Disable thinking mode for compatibility with all models
-        )
-
-        llm_response = llm_client.complete(
-            messages=[
-                {"role": "system", "content": minimal_system},
-                {"role": "user", "content": prompt}
-            ],
-            json_format=True,
-            call_type=CallType.PLAYER_DECISION,
-            game_id=getattr(self, 'game_id', None),
-            player_name=self.player_name,
-            hand_number=self.current_hand_number,
-            prompt_template="minimal",  # Tag for analysis
-        )
-
-        # Extract content from response object
-        response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
-        logger.debug(f"[MINIMAL RAW RESPONSE] {response_text}")
-
-        # Parse the minimal response
-        parsed = parse_minimal_response(response_text)
-
-        # Capture prompt for replay/debugging (after parsing so we have action)
-        captured_id = getattr(llm_response, 'captured_id', None)
-        if captured_id:
-            try:
-                from core.llm.tracking import update_prompt_capture
-                action = parsed.action if parsed else 'unknown'
-                raise_amount = parsed.raise_to if parsed and parsed.raise_to else None
-                update_prompt_capture(captured_id, action_taken=action, raise_amount=raise_amount)
-            except Exception as e:
-                logger.debug(f"[MINIMAL] Failed to update prompt capture: {e}")
-
-        if parsed.parse_error:
-            logger.warning(f"[MINIMAL] Parse error: {parsed.parse_error}")
-
-        # Convert to game action format
-        game_action = convert_minimal_response_to_game_action(
-            parsed,
-            big_blind,
-            player.bet
-        )
-
-        # Add required fields for compatibility with rest of system
-        game_action.setdefault('inner_monologue', '')
-        game_action.setdefault('persona_response', '')
-        game_action.setdefault('physical', [])
-
-        logger.debug(f"[MINIMAL RESPONSE] {game_action}")
-
-        # Analyze decision for quality metrics
-        phase = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)
-
-        # Calculate call amount for decision analysis
-        raw_cost_to_call = game_state.highest_bet - player.bet
-        cost_to_call = min(raw_cost_to_call, player.stack)
-
-        context = {
-            'game_state': game_state,
-            'phase': phase,
-            'player': player,
-            'prompt': prompt,
-            'call_amount': cost_to_call,
-        }
-        self._analyze_decision(
-            game_action,
-            context,
-            capture_id=captured_id,
-            player_bet=player.bet,
-            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
-        )
-
-        return game_action
-
-    def _parse_action_history_for_minimal(self, game_state, game_messages) -> list:
-        """
-        Parse game messages into action history format for minimal prompt.
-
-        Returns list of dicts with: position, action, amount_bb, stack_bb
-        """
-        big_blind = game_state.current_ante
-        table_positions = game_state.table_positions
-
-        # Reverse lookup: player name -> position abbreviation
-        name_to_position = {
-            name: get_position_abbrev(pos)
-            for pos, name in table_positions.items()
-        }
-
-        # Build player stacks lookup
-        name_to_stack = {p.name: p.stack for p in game_state.players}
-
-        actions = []
-
-        # Parse messages - they're typically in format:
-        # "PlayerName folds" or "PlayerName raises to $500" etc.
-        if isinstance(game_messages, str):
-            lines = game_messages.strip().split('\n')
-        elif isinstance(game_messages, list):
-            lines = game_messages
-        else:
-            return []
-
-        import re
-        for line in lines:
-            if not line.strip():
-                continue
-
-            # Try to extract player name and action
-            # Patterns: "Name folds", "Name calls $X", "Name raises to $X", "Name checks", "Name bets $X"
-            match = re.match(r'^([^:]+?)?\s*(folds?|checks?|calls?|raises?|bets?|all[- ]?in)', line.lower())
-            if not match:
-                continue
-
-            # Extract player name from start of line
-            name_match = re.match(r'^([A-Za-z][A-Za-z\s]+?)(?:\s+(?:folds?|checks?|calls?|raises?|bets?|all))', line, re.IGNORECASE)
-            if not name_match:
-                continue
-
-            player_name = name_match.group(1).strip()
-            position = name_to_position.get(player_name, '?')
-
-            # Determine action type
-            action = 'fold'
-            if 'check' in line.lower():
-                action = 'check'
-            elif 'call' in line.lower():
-                action = 'call'
-            elif 'raise' in line.lower():
-                action = 'raise'
-            elif 'bet' in line.lower():
-                action = 'bet'
-            elif 'all' in line.lower():
-                action = 'all-in'
-            elif 'fold' in line.lower():
-                action = 'fold'
-
-            # Extract amount if present
-            amount_bb = None
-            amount_match = re.search(r'\$(\d+)', line)
-            if amount_match and action in ('call', 'raise', 'bet', 'all-in'):
-                amount = int(amount_match.group(1))
-                amount_bb = to_bb(amount, big_blind)
-
-            # Get player's remaining stack
-            stack_bb = to_bb(name_to_stack.get(player_name, 0), big_blind)
-
-            actions.append({
-                'position': position,
-                'action': action,
-                'amount_bb': amount_bb,
-                'stack_bb': stack_bb if action != 'fold' else None
-            })
-
-        return actions
 
     def _extract_opponent_preflop_action(
         self,
@@ -1802,50 +1708,40 @@ def _ensure_card(c):
     return c if isinstance(c, Card) else Card(c['rank'], c['suit'])
 
 
-def convert_game_to_hand_state(game_state, player: Player, phase, messages,
-                               include_pot_odds: bool = True,
-                               include_hand_strength: bool = True):
+def build_base_game_state(
+    game_state, player: Player, phase, messages,
+    include_hand_strength: bool = True,
+) -> str:
     """
-    Convert game state to a human-readable prompt message.
+    Build BB-normalized game state prompt for AI decisions.
+
+    This is the unified base prompt builder that always uses BB normalization.
+    Pot odds are NOT included here — they are handled by the decision YAML template.
+    Messages should already be BB-converted by the caller.
 
     Args:
         game_state: Current game state
         player: Current player
         phase: Current betting phase
-        messages: Recent actions/chat
-        include_pot_odds: Whether to include pot odds guidance
+        messages: Recent actions/chat (should already be BB-converted)
         include_hand_strength: Whether to include hand strength evaluation
     """
-    # Currently used values
     persona = player.name
-    # attitude = player.attitude
-    # confidence = player.confidence
     table_positions = game_state.table_positions
-    opponent_status = game_state.opponent_status
     current_round = phase
     community_cards = [str(_ensure_card(c)) for c in game_state.community_cards]
-    # opponents = [p.name for p in game_state.players if p.name != player.name]
-    # number_of_opponents = len(opponents)
     player_money = player.stack
     player_positions = [position for position, name in table_positions.items() if name == player.name]
-    current_situation = f"The {current_round} cards have just been dealt"
     hole_cards = [str(_ensure_card(c)) for c in player.hand]
     current_pot = game_state.pot['total']
     current_bet = game_state.current_player.bet
     raw_cost_to_call = game_state.highest_bet - game_state.current_player.bet
-    # Effective cost is capped at player's stack (they can only risk what they have)
     cost_to_call = min(raw_cost_to_call, player_money)
     player_options = game_state.current_player_options
 
-    # create a list of the action comments and then send them to the table manager to summarize
-    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-    # action_summary = "We're just getting started! You're first to go."
-    # if len(action_comment_list) > 0:
-    #     action_summary = hand_state["table_manager"].summarize_actions_for_player(
-    #         action_comment_list[-number_of_opponents:], self.name)
-    action_summary = messages
+    big_blind = game_state.current_ante or 100
 
-    # Evaluate hand strength - preflop uses classification, post-flop uses eval7
+    # Hand strength evaluation
     hand_strength_line = ""
     if include_hand_strength:
         if community_cards:
@@ -1856,54 +1752,39 @@ def convert_game_to_hand_state(game_state, player: Player, phase, messages,
 
     persona_state = (
         f"Persona: {persona}\n"
-        # f"Attitude: {attitude}\n"
-        # f"Confidence: {confidence}\n"
         f"Your Cards: {hole_cards}\n"
         f"{hand_strength_line}"
-        f"Your Money: {player_money}\n"
+        f"Your Stack: {_format_money(player_money, big_blind, True)}\n"
     )
 
+    # Format opponent status in BB
+    opponent_status = ''.join([
+        f'{p.name} has {_format_money(p.stack, big_blind, True)}'
+        + (' and they have folded' if p.is_folded else '')
+        + '.\n'
+        for p in game_state.players
+    ])
+
     hand_state = (
-        # f"{current_situation}\n"
         f"Current Round: {current_round}\n"
         f"Community Cards: {community_cards}\n"
         f"Table Positions: {table_positions}\n"
         f"Opponent Status:\n{opponent_status}\n"
-        f"Recent Actions:\n{action_summary}\n"
+        f"Recent Actions:\n{messages}\n"
     )
-
-    # Blind levels
-    big_blind = game_state.current_ante
-    small_blind = big_blind // 2
-    blinds_remaining = player_money / big_blind if big_blind > 0 else float('inf')
 
     pot_state = (
-        f"Pot Total: ${current_pot}\n"
-        f"How much you've bet: ${current_bet}\n"
-        f"Your cost to call: ${cost_to_call}\n"
-        f"Blinds: ${small_blind}/${big_blind}\n"
-        f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
+        f"Pot Total: {_format_money(current_pot, big_blind, True)}\n"
+        f"How much you've bet: {_format_money(current_bet, big_blind, True)}\n"
+        f"Your cost to call: {_format_money(cost_to_call, big_blind, True)}\n"
+        f"Blinds: 0.5/1 BB\n"
     )
 
-    # Calculate pot odds for clearer decision making (if enabled)
-    pot_odds_guidance = ""
-    if include_pot_odds:
-        if cost_to_call > 0:
-            pot_odds = current_pot / cost_to_call
-            equity_needed = 100 / (pot_odds + 1)
-            pot_odds_guidance = (
-                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds (${current_pot} pot / ${cost_to_call} to call). "
-                f"You only need {equity_needed:.0f}% equity to break even on a call. "
-            )
-            if pot_odds >= 10:
-                pot_odds_guidance += f"With {pot_odds:.0f}:1 odds, you should rarely fold - you only need to win 1 in {pot_odds+1:.0f} times."
-            elif pot_odds >= 4:
-                pot_odds_guidance += "These are favorable odds for calling with reasonable hands."
-        else:
-            pot_odds_guidance = "You can check for free - no cost to see more cards."
+    stack_limit = _format_money(player_money, big_blind, True)
 
-    hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
-        f"You cannot bet more than you have, ${player_money}.\n"
+    hand_update_message = persona_state + hand_state + pot_state + "\n" + (
+        f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
+        f"You cannot bet more than you have, {stack_limit}.\n"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"
         f"What is your move, {persona}?\n\n"

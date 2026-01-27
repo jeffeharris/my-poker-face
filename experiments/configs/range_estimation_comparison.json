@@ -18,11 +18,11 @@
     "label": "Enhanced-Ranges",
     "description": "Uses PFR, action context (open-raise, 3bet, etc.), and aggression adjustment",
     "prompt_config": {
-      "use_minimal_prompt": false,
+
       "pot_odds": true,
       "hand_strength": true,
-      "show_equity_always": true,
-      "show_equity_verdict": true,
+      "gto_equity": true,
+      "gto_verdict": true,
       "situational_guidance": true,
       "use_enhanced_ranges": true,
       "session_memory": false,
@@ -40,11 +40,11 @@
       "label": "VPIP-Only-Ranges",
       "description": "Original estimation using only VPIP and position-based ranges",
       "prompt_config": {
-        "use_minimal_prompt": false,
+  
         "pot_odds": true,
         "hand_strength": true,
-        "show_equity_always": true,
-        "show_equity_verdict": true,
+        "gto_equity": true,
+        "gto_verdict": true,
         "situational_guidance": true,
         "use_enhanced_ranges": false,
         "session_memory": false,

@@ -30,9 +30,15 @@ class TestPressureSystem(unittest.TestCase):
         # Set up a game state where pot is big (> 1.5x average stack)
         # Average stack = 1000, so big pot = 1500+
         game_state = self.game_state.update(pot={'total': 2000})
-        
-        # Create winner info as returned by determine_winner
+
+        # Create winner info using pot_breakdown format (current code format)
         winner_info = {
+            'pot_breakdown': [
+                {
+                    'winners': [{'name': 'Gordon Ramsay', 'amount': 2000}],
+                    'hand_name': "Pair of Aces"
+                }
+            ],
             'winnings': {'Gordon Ramsay': 2000},
             'winning_hand': [14, 14, 13, 12, 11],  # Pair of aces
             'hand_name': "Pair of Aces"
@@ -40,19 +46,26 @@ class TestPressureSystem(unittest.TestCase):
         
         # Detect showdown events
         events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
-        
+
         # Verify big_win event was detected
         event_types = [event[0] for event in events]
         self.assertIn("big_win", event_types, "Big win event should be detected")
-        
+        # Also verify "win" event was emitted (always fires before big_win)
+        self.assertIn("win", event_types, "Win event should be detected")
+
         # Find the big_win event
         big_win_event = next(e for e in events if e[0] == "big_win")
         self.assertEqual(big_win_event[1], ["Gordon Ramsay"], "Winner should be Gordon Ramsay")
-        
-        # Now track this in stats
+
+        # Track events in stats (both win and big_win, as the detector emits)
         self.stats_tracker.record_event(
-            "big_win", 
-            ["Gordon Ramsay"], 
+            "win",
+            ["Gordon Ramsay"],
+            {'pot_size': 2000}
+        )
+        self.stats_tracker.record_event(
+            "big_win",
+            ["Gordon Ramsay"],
             {'pot_size': 2000}
         )
         
@@ -75,6 +88,12 @@ class TestPressureSystem(unittest.TestCase):
         game_state = self.game_state.update(pot={'total': 500})
         
         winner_info = {
+            'pot_breakdown': [
+                {
+                    'winners': [{'name': 'Bob Ross', 'amount': 500}],
+                    'hand_name': "Pair of Kings"
+                }
+            ],
             'winnings': {'Bob Ross': 500},
             'winning_hand': [13, 13, 12, 11, 10],
             'hand_name': "Pair of Kings"
@@ -88,26 +107,17 @@ class TestPressureSystem(unittest.TestCase):
         
     def test_multiple_events_tracking(self):
         """Test tracking multiple events and stats accumulation."""
-        # Gordon wins big
-        self.stats_tracker.record_event(
-            "big_win", 
-            ["Gordon Ramsay"], 
-            {'pot_size': 2000}
-        )
-        
+        # Gordon wins big (detector emits both "win" and "big_win")
+        self.stats_tracker.record_event("win", ["Gordon Ramsay"], {'pot_size': 2000})
+        self.stats_tracker.record_event("big_win", ["Gordon Ramsay"], {'pot_size': 2000})
+
         # Gordon wins again
-        self.stats_tracker.record_event(
-            "big_win", 
-            ["Gordon Ramsay"], 
-            {'pot_size': 3000}
-        )
-        
+        self.stats_tracker.record_event("win", ["Gordon Ramsay"], {'pot_size': 3000})
+        self.stats_tracker.record_event("big_win", ["Gordon Ramsay"], {'pot_size': 3000})
+
         # Trump wins once
-        self.stats_tracker.record_event(
-            "big_win", 
-            ["Donald Trump"], 
-            {'pot_size': 1500}
-        )
+        self.stats_tracker.record_event("win", ["Donald Trump"], {'pot_size': 1500})
+        self.stats_tracker.record_event("big_win", ["Donald Trump"], {'pot_size': 1500})
         
         # Gordon gets bluffed
         self.stats_tracker.record_event(
@@ -170,6 +180,12 @@ class TestPressureSystem(unittest.TestCase):
         )
         
         winner_info = {
+            'pot_breakdown': [
+                {
+                    'winners': [{'name': 'Gordon Ramsay', 'amount': 3000}],
+                    'hand_name': "Straight"
+                }
+            ],
             'winnings': {'Gordon Ramsay': 3000},
             'winning_hand': [10, 9, 8, 7, 6],  # Straight
             'hand_name': "Straight"

@@ -14,7 +14,8 @@
   "control": {
     "label": "Minimal Prompt",
     "prompt_config": {
-      "use_minimal_prompt": true,
+      "include_personality": false,
+      "use_simple_response_format": true,
       "pot_odds": false,
       "hand_strength": false,
       "session_memory": false,

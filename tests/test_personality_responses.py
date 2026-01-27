@@ -18,8 +18,7 @@ class TestPersonalityResponses(unittest.TestCase):
         # Load actual personality config
         ai_player = AIPokerPlayer(
             name=personality_name,
-            money=10000,
-            cards=[{'rank': '7', 'suit': '♥'}, {'rank': '7', 'suit': '♦'}]
+            starting_money=10000
         )
         
         traits = ai_player.personality_config['personality_traits']
@@ -27,7 +26,7 @@ class TestPersonalityResponses(unittest.TestCase):
         # Decision logic based on personality traits
         if scenario == "facing_bet":
             # Facing a bet with medium hand (pocket 7s vs high board)
-            if traits['aggression'] > 0.8 and traits['bluff_tendency'] > 0.7:
+            if traits['aggression'] > 0.8:
                 action = "raise"
                 amount = 2000
             elif traits['aggression'] < 0.3:
@@ -204,8 +203,7 @@ class TestPersonalityResponses(unittest.TestCase):
             # Create AI player
             ai_player = AIPokerPlayer(
                 name=player_name,
-                money=10000,
-                cards=[{'rank': '7', 'suit': '♥'}, {'rank': '7', 'suit': '♦'}]
+                starting_money=10000
             )
             
             # Mock the response based on personality
@@ -236,7 +234,7 @@ class TestPersonalityResponses(unittest.TestCase):
         self.assertEqual(results["Gordon Ramsay"]["action"], "raise")  # Highest aggression
         self.assertEqual(results["Bob Ross"]["action"], "fold")  # Lowest aggression
         
-    @patch('poker.poker_player.AssistantPlayer')
+    @patch('poker.poker_player.Assistant')
     def test_no_bet_scenario(self, mock_assistant):
         """Test responses when no one has bet yet (checking scenario)."""
         print("\n" + "="*80)
@@ -246,8 +244,7 @@ class TestPersonalityResponses(unittest.TestCase):
         for player_name in ["Eeyore", "Donald Trump", "Gordon Ramsay", "Bob Ross"]:
             ai_player = AIPokerPlayer(
                 name=player_name,
-                money=10000,
-                cards=[{'rank': 'A', 'suit': '♥'}, {'rank': 'A', 'suit': '♦'}]
+                starting_money=10000
             )
             
             mock_response = self.create_mock_response(player_name, "no_bet")

@@ -14,20 +14,22 @@
   "control": {
     "label": "Minimal-Only",
     "prompt_config": {
-      "use_minimal_prompt": true,
-      "show_equity_always": false,
-      "show_equity_verdict": false
+      "include_personality": false,
+      "use_simple_response_format": true,
+      "gto_equity": false,
+      "gto_verdict": false
     }
   },
   "variants": [
     {
       "label": "Minimal+Equity",
       "prompt_config": {
-        "use_minimal_prompt": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
         "pot_odds": true,
         "hand_strength": true,
-        "show_equity_always": true,
-        "show_equity_verdict": false,
+        "gto_equity": true,
+        "gto_verdict": false,
         "situational_guidance": false,
         "session_memory": false,
         "opponent_intel": false,
@@ -42,11 +44,12 @@
     {
       "label": "Minimal+Equity+Verdict",
       "prompt_config": {
-        "use_minimal_prompt": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
         "pot_odds": true,
         "hand_strength": true,
-        "show_equity_always": true,
-        "show_equity_verdict": true,
+        "gto_equity": true,
+        "gto_verdict": true,
         "situational_guidance": false,
         "session_memory": false,
         "opponent_intel": false,

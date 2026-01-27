@@ -171,7 +171,14 @@ class TestHandHistoryRecorder(unittest.TestCase):
         recorder.record_community_cards("FLOP", ["Ah", "Kh", "Qh"])
 
         # Complete the hand
-        winner_info = {"winnings": {"Alice": 100}, "hand_name": "High Card", "hand_rank": 10}
+        winner_info = {
+            "pot_breakdown": [
+                {"winners": [{"name": "Alice", "amount": 100}], "hand_name": "High Card"}
+            ],
+            "winnings": {"Alice": 100},
+            "hand_name": "High Card",
+            "hand_rank": 10
+        }
         recorded = recorder.complete_hand(winner_info, mock_state)
 
         self.assertIsInstance(recorded, RecordedHand)
@@ -713,7 +720,14 @@ class TestIntegrationScenario(unittest.TestCase):
 
             # Complete hand (alternating winners)
             winner = "Alice" if hand_num % 2 == 1 else "Bob"
-            winner_info = {"winnings": {winner: 100}, "hand_name": "Pair", "hand_rank": 9}
+            winner_info = {
+                "pot_breakdown": [
+                    {"winners": [{"name": winner, "amount": 100}], "hand_name": "Pair"}
+                ],
+                "winnings": {winner: 100},
+                "hand_name": "Pair",
+                "hand_rank": 9
+            }
 
             manager.on_hand_complete(winner_info, mock_state, skip_commentary=True)
 

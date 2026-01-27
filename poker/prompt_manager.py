@@ -441,7 +441,10 @@ class PromptManager:
         short_stack_info: dict | None = None,
         made_hand_info: dict | None = None,
         equity_verdict_info: dict | None = None,
-        drama_context: dict | None = None
+        drama_context: dict | None = None,
+        include_pot_odds: bool = True,
+        pot_odds_info: dict | None = None,
+        use_simple_response_format: bool = False,
     ) -> str:
         """Render the decision prompt with toggleable components from YAML.
 
@@ -456,6 +459,10 @@ class PromptManager:
             made_hand_info: Dict with {hand_name, equity, is_tilted, tier} for made hand guidance
             equity_verdict_info: Dict with {equity, required_equity, verdict, pot_odds} for GTO foundation
             drama_context: Dict with {level, factors} for response intensity calibration
+            include_pot_odds: Whether to include pot odds guidance section
+            pot_odds_info: Dict with {pot_odds, equity_needed, pot_fmt, call_fmt, pot_odds_extra}
+                           or {'free': True} for free check. None means no pot odds section.
+            use_simple_response_format: If True, use simple JSON response format instead of persona_response
 
         Returns:
             Rendered decision prompt
@@ -524,10 +531,26 @@ class PromptManager:
                     opponent_stats=opponent_stats,
                 ))
 
+        # Include pot odds guidance from YAML template (if enabled and info provided)
+        if include_pot_odds and pot_odds_info:
+            if pot_odds_info.get('free') and 'pot_odds_free' in template.sections:
+                sections_to_render.append(template.sections['pot_odds_free'])
+            elif not pot_odds_info.get('free') and 'pot_odds_guidance' in template.sections:
+                sections_to_render.append(template.sections['pot_odds_guidance'].format(
+                    pot_odds=pot_odds_info.get('pot_odds', 0),
+                    equity_needed=pot_odds_info.get('equity_needed', 0),
+                    pot_fmt=pot_odds_info.get('pot_fmt', ''),
+                    call_fmt=pot_odds_info.get('call_fmt', ''),
+                    pot_odds_extra=pot_odds_info.get('pot_odds_extra', ''),
+                ))
+
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])
 
-        if include_persona_response and 'persona_response' in template.sections:
+        # Response format: simple JSON or full persona response
+        if use_simple_response_format and 'response_format_simple' in template.sections:
+            sections_to_render.append(template.sections['response_format_simple'])
+        elif include_persona_response and 'persona_response' in template.sections:
             sections_to_render.append(template.sections['persona_response'])
 
         # Join all sections

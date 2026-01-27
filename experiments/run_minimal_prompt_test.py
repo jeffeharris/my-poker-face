@@ -89,13 +89,14 @@ def run_minimal_prompt_test(
             control={
                 "label": "Minimal",
                 "prompt_config": {
-                    "use_minimal_prompt": True,
+                    "include_personality": False,
+                    "use_simple_response_format": True,
                 }
             },
             variants=[{
                 "label": "Full",
                 "prompt_config": {
-                    "use_minimal_prompt": False,
+                    "include_personality": True,
                     # Keep other features enabled for comparison
                     "pot_odds": True,
                     "hand_strength": True,
@@ -130,7 +131,8 @@ def run_minimal_prompt_test(
             control={
                 "label": "Minimal",
                 "prompt_config": {
-                    "use_minimal_prompt": True,
+                    "include_personality": False,
+                    "use_simple_response_format": True,
                 }
             }
         )

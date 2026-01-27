@@ -157,10 +157,11 @@ Control which information is included in AI decision prompts:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `show_equity_always` | false | Show equity comparison (vs random + vs opponent ranges) for all decisions |
-| `show_equity_verdict` | false | Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct") |
+| `gto_equity` | false | Show equity comparison (vs random + vs opponent ranges) for all decisions |
+| `gto_verdict` | false | Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct") |
 | `use_enhanced_ranges` | true | Use PFR/action-based range estimation (vs simpler VPIP-only) |
-| `use_minimal_prompt` | false | Strip to bare game state only (no personality, psychology, or guidance) |
+| `include_personality` | true | Include personality system prompt (set to false for baseline testing) |
+| `use_simple_response_format` | false | Use simple JSON response format instead of rich format |
 
 ---
 
@@ -306,16 +307,16 @@ Test if showing equity calculations and verdicts reduces fold mistakes:
   "control": {
     "label": "No GTO Guidance",
     "prompt_config": {
-      "show_equity_always": false,
-      "show_equity_verdict": false
+      "gto_equity": false,
+      "gto_verdict": false
     }
   },
   "variants": [
     {
       "label": "With GTO Guidance",
       "prompt_config": {
-        "show_equity_always": true,
-        "show_equity_verdict": true
+        "gto_equity": true,
+        "gto_verdict": true
       }
     }
   ]
@@ -329,9 +330,9 @@ Instead of manually specifying `prompt_config` fields, you can use the `game_mod
 | Mode | Effect |
 |------|--------|
 | `casual` | Default PromptConfig (personality-driven fun poker) |
-| `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
-| `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
-| `competitive` | `show_equity_always=true, show_equity_verdict=true` (full GTO guidance with personality and trash talk) |
+| `standard` | `gto_equity=true` (balanced personality + GTO awareness) |
+| `pro` | `gto_equity=true, gto_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `competitive` | `gto_equity=true, gto_verdict=true` (full GTO guidance with personality and trash talk) |
 
 **Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
 
