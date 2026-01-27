@@ -76,6 +76,7 @@
       ]
     },
     "A Mime": {
+      "nickname": "Mime",
       "play_style": "mysterious and deceptive",
       "default_confidence": "enigmatic",
       "default_attitude": "playful",
@@ -138,6 +139,7 @@
       ]
     },
     "King Henry VIII": {
+      "nickname": "Henry VIII",
       "play_style": "strategic and imposing, often using calculated risks to assert dominance",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
@@ -159,6 +161,7 @@
       ]
     },
     "The Hulk": {
+      "nickname": "Hulk",
       "play_style": "aggressive and intimidating",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
@@ -180,6 +183,7 @@
       ]
     },
     "The Rock": {
+      "nickname": "Rock",
       "play_style": "steady and methodical, with occasional bursts of aggression to keep opponents off balance",
       "default_confidence": "steady",
       "default_attitude": "intimidating",
@@ -433,6 +437,7 @@
       ]
     },
     "Someone who is very, very mean to people": {
+      "nickname": "Mean Guy",
       "play_style": "brutally aggressive and mercilessly unpredictable",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
@@ -455,6 +460,7 @@
       ]
     },
     "A guy who tells too many dad jokes": {
+      "nickname": "Dad Jokes",
       "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
       "default_confidence": "steady",
       "default_attitude": "friendly",
@@ -476,6 +482,7 @@
       ]
     },
     "Dr. Oz": {
+      "nickname": "Dr. Oz",
       "play_style": "calculated and analytical, often using psychological insights to read opponents",
       "default_confidence": "steady",
       "default_attitude": "authoritative",
@@ -496,6 +503,7 @@
       ]
     },
     "Dr. Seuss": {
+      "nickname": "Dr. Seuss",
       "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
       "default_confidence": "overconfident",
       "default_attitude": "friendly",
@@ -685,6 +693,7 @@
       ]
     },
     "Triumph the Insult Comic Dog": {
+      "nickname": "Triumph",
       "play_style": "snarky and unpredictable, often making bold moves just to catch others off guard",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating yet humorous",
@@ -797,6 +806,7 @@
       ]
     },
     "Marjorie Taylor Greene": {
+      "nickname": "MTG",
       "play_style": "bold and provocative, often taking risks to shake up the table dynamics",
       "default_confidence": "overconfident",
       "default_attitude": "intimidating",
@@ -922,6 +932,7 @@
       "avatar_description": "a male rock singer character with backwards red cap, goatee, nu-metal aesthetic"
     },
     "Khloe and Kim Khardashian": {
+      "nickname": "Kardashians",
       "play_style": "flashy and theatrical, often making bold moves to keep opponents guessing",
       "default_confidence": "overconfident",
       "default_attitude": "charismatic",
@@ -1072,6 +1083,7 @@
       ]
     },
     "Ruth Bader Ginsburg": {
+      "nickname": "RBG",
       "play_style": "calm, methodical, and strategically disruptive when the situation demands; favors reading tells and exploiting structure over brute force",
       "default_confidence": "steady",
       "default_attitude": "dignified and principled",

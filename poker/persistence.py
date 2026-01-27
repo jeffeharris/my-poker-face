@@ -33,8 +33,10 @@ logger = logging.getLogger(__name__)
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
 # v54: Squashed features - heartbeat tracking, outcome columns, system presets
-# v55: Add raise_amount_bb to player_decision_analysis for BB-normalized mode
-SCHEMA_VERSION = 55
+# v55: Add last_game_created_at column to users table for duplicate game prevention
+# v56: Add exploitative guidance to pro and competitive presets
+# v57: Add raise_amount_bb to player_decision_analysis for BB-normalized mode
+SCHEMA_VERSION = 57
 
 
 @dataclass
@@ -750,7 +752,8 @@ class GamePersistence:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP,
                     linked_guest_id TEXT,
-                    is_guest BOOLEAN DEFAULT 0
+                    is_guest BOOLEAN DEFAULT 0,
+                    last_game_created_at REAL
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
@@ -958,7 +961,9 @@ class GamePersistence:
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
             53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
             54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
-            55: (self._migrate_v55_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
+            55: (self._migrate_v55_add_last_game_created_at, "Add last_game_created_at to users for duplicate prevention"),
+            56: (self._migrate_v56_add_exploitative_guidance, "Add exploitative guidance to pro and competitive presets"),
+            57: (self._migrate_v57_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2701,8 +2706,28 @@ class GamePersistence:
 
         logger.info("Migration v54 complete: squashed features added")
 
-    def _migrate_v55_add_raise_amount_bb(self, conn: sqlite3.Connection) -> None:
-        """Migration v55: Add raise_amount_bb to player_decision_analysis.
+    def _migrate_v55_add_last_game_created_at(self, conn: sqlite3.Connection) -> None:
+        """Migration v55: Add last_game_created_at column to users table for duplicate game prevention."""
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN last_game_created_at REAL")
+            logger.info("Added last_game_created_at column to users table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                logger.debug("Column last_game_created_at already exists in users")
+            else:
+                raise
+        logger.info("Migration v55 complete: last_game_created_at added to users")
+
+    def _migrate_v56_add_exploitative_guidance(self, conn: sqlite3.Connection) -> None:
+        """Migration v56: Add exploitative guidance to pro and competitive presets.
+
+        No-op — system presets are now managed by config/game_modes.yaml
+        and synced on every app startup via sync_game_modes_from_yaml().
+        """
+        logger.info("Migration v56: no-op, YAML sync handles system preset updates")
+
+    def _migrate_v57_add_raise_amount_bb(self, conn: sqlite3.Connection) -> None:
+        """Migration v57: Add raise_amount_bb to player_decision_analysis.
 
         This column stores the BB-normalized raise amount when BB mode
         is enabled, allowing analysis of AI betting patterns in BB terms.
@@ -2713,7 +2738,7 @@ class GamePersistence:
             conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN raise_amount_bb REAL")
             logger.info("Added raise_amount_bb column to player_decision_analysis")
 
-        logger.info("Migration v55 complete: raise_amount_bb added to player_decision_analysis")
+        logger.info("Migration v57 complete: raise_amount_bb added to player_decision_analysis")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -2903,6 +2928,24 @@ class GamePersistence:
                 SELECT COUNT(*) FROM games WHERE owner_id = ?
             """, (owner_id,))
             return cursor.fetchone()[0]
+
+    def get_last_game_creation_time(self, owner_id: str) -> Optional[float]:
+        """Get the timestamp of the user's last game creation."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT last_game_created_at FROM users WHERE id = ?",
+                (owner_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row and row[0] is not None else None
+
+    def update_last_game_creation_time(self, owner_id: str, timestamp: float) -> None:
+        """Update the user's last game creation timestamp."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE users SET last_game_created_at = ? WHERE id = ?",
+                (timestamp, owner_id)
+            )
 
     # ==================== User Management Methods ====================
 

@@ -273,7 +273,7 @@ export function QuickChatSuggestions({
                 )}
               </span>
               <span className="target-name">
-                {player.name.split(' ')[0]}
+                {player.nickname || player.name}
               </span>
             </button>
           ))}

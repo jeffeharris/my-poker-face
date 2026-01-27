@@ -19,6 +19,7 @@ interface PromptPreset {
   prompt_config: PromptConfig | null;
   guidance_injection: string | null;
   owner_id: string | null;
+  is_system: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -341,22 +342,29 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
                   )}
                 </div>
                 <div className="ppm-preset__actions">
-                  <button
-                    className="ppm-preset__action"
-                    onClick={(e) => { e.stopPropagation(); startEdit(preset); }}
-                    title="Edit"
-                    disabled={editingPreset !== null}
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    className="ppm-preset__action ppm-preset__action--danger"
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(preset.id); }}
-                    title="Delete"
-                    disabled={editingPreset !== null}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {preset.is_system && (
+                    <span className="ppm-tag ppm-tag--system" title="Managed by config/game_modes.yaml">System</span>
+                  )}
+                  {!preset.is_system && (
+                    <>
+                      <button
+                        className="ppm-preset__action"
+                        onClick={(e) => { e.stopPropagation(); startEdit(preset); }}
+                        title="Edit"
+                        disabled={editingPreset !== null}
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        className="ppm-preset__action ppm-preset__action--danger"
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(preset.id); }}
+                        title="Delete"
+                        disabled={editingPreset !== null}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
                   <span className="ppm-preset__chevron">
                     {expandedId === preset.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                   </span>

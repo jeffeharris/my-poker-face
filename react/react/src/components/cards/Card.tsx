@@ -10,7 +10,7 @@ interface BackendCard {
 interface CardProps {
   card?: CardType | BackendCard | string | null;
   faceDown?: boolean;
-  size?: 'xsmall' | 'small' | 'medium' | 'large';
+  size?: 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge';
   className?: string;
 }
 
@@ -75,7 +75,7 @@ export function CommunityCard({ card, revealed = false }: { card?: CardType | Ba
   return <Card card={card} faceDown={!revealed} size="large" className="community-card" />;
 }
 
-export function HoleCard({ card, visible = false, size = 'large' }: { card?: CardType | BackendCard | string | null, visible?: boolean, size?: 'xsmall' | 'small' | 'medium' | 'large' }) {
+export function HoleCard({ card, visible = false, size = 'large' }: { card?: CardType | BackendCard | string | null, visible?: boolean, size?: 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge' }) {
   return <Card card={card} faceDown={!visible} size={size} className="hole-card" />;
 }
 

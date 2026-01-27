@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass, fields
 from typing import Dict, Any
 
+from poker.game_modes_loader import get_preset_configs
+
 logger = logging.getLogger(__name__)
 
 
@@ -172,6 +174,9 @@ class PromptConfig:
         return f"PromptConfig({', '.join(parts)})"
 
     # Game mode factory methods
+    # NOTE: YAML (config/game_modes.yaml) is the source of truth for game mode presets.
+    # These factory methods are kept as fallbacks for migrations, tests, and
+    # environments without YAML/DB (e.g., experiments run outside Flask).
     @classmethod
     def casual(cls) -> 'PromptConfig':
         """Casual mode - personality-driven fun poker."""
@@ -185,14 +190,23 @@ class PromptConfig:
             gto_verdict=False,
         )
 
+    EXPLOITATIVE_GUIDANCE = (
+        "EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently, "
+        "adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting, "
+        "(2) Call wider - their raising range is weaker than normal, "
+        "(3) Don't bluff them - they won't fold, value bet relentlessly instead, "
+        "(4) Let them hang themselves with aggression."
+    )
+
     @classmethod
     def pro(cls) -> 'PromptConfig':
-        """Pro mode - GTO-focused analytical poker."""
+        """Pro mode - GTO-focused analytical poker with exploitative adjustments."""
         return cls(
             gto_equity=True,
             gto_verdict=True,
             chattiness=False,
             persona_response=False,
+            guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 
     @classmethod
@@ -201,12 +215,26 @@ class PromptConfig:
         return cls(
             gto_equity=True,
             gto_verdict=True,
+            guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 
     @classmethod
     def from_mode_name(cls, mode: str) -> 'PromptConfig':
-        """Resolve a game mode by name string."""
+        """Resolve a game mode by name string.
+
+        Tries YAML config first, falls back to factory methods.
+        """
         mode = mode.lower()
+
+        # Try YAML-based config first
+        try:
+            yaml_presets = get_preset_configs()
+            if mode in yaml_presets:
+                return cls.from_dict(yaml_presets[mode])
+        except Exception as e:
+            logger.debug(f"YAML preset lookup failed for '{mode}', using factory fallback: {e}")
+
+        # Fallback to factory methods
         modes = {
             'casual': cls.casual,
             'standard': cls.standard,

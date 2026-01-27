@@ -36,6 +36,7 @@ export interface GameState {
   hand_number: number;
   messages: ChatMessage[];
   betting_context?: BettingContext;
+  newly_dealt_count?: number;
 }
 
 // Used by WinnerAnnouncement component

@@ -19,6 +19,7 @@ from poker.repositories.sqlite_repositories import PressureEventRepository
 from poker.personality_generator import PersonalityGenerator
 from poker.character_images import init_character_image_service
 from poker.pricing_loader import sync_pricing_from_yaml, sync_enabled_models
+from poker.game_modes_loader import sync_game_modes_from_yaml
 from poker.authorization import init_authorization
 
 from . import config
@@ -181,6 +182,9 @@ def init_extensions(app: Flask) -> None:
 
     # Sync enabled_models with PROVIDER_MODELS (idempotent - only adds missing models)
     sync_enabled_models()
+
+    # Sync game mode presets from YAML (overwrites system presets each startup)
+    sync_game_modes_from_yaml()
 
     # Initialize OAuth (must be before auth)
     init_oauth(app)
