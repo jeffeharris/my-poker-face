@@ -175,8 +175,17 @@
     min-height: 33dvh;
     max-height: 33dvh;
     align-items: center;
-    justify-content: center; /* Center opponents when they fit */
+    /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
+    justify-content: flex-start;
     box-sizing: border-box;
+}
+
+/* Spacers that auto-expand to center content when it fits, collapse when it overflows */
+.mobile-opponents::before,
+.mobile-opponents::after {
+    content: '';
+    flex: 1 0 0;
+    min-width: 0;
 }
 
 .mobile-opponents::-webkit-scrollbar {
