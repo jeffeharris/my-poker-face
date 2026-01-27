@@ -142,6 +142,9 @@ class PromptConfig:
         return f"PromptConfig({', '.join(parts)})"
 
     # Game mode factory methods
+    # NOTE: YAML (config/game_modes.yaml) is the source of truth for game mode presets.
+    # These factory methods are kept as fallbacks for migrations, tests, and
+    # environments without YAML/DB (e.g., experiments run outside Flask).
     @classmethod
     def casual(cls) -> 'PromptConfig':
         """Casual mode - personality-driven fun poker."""
@@ -185,8 +188,22 @@ class PromptConfig:
 
     @classmethod
     def from_mode_name(cls, mode: str) -> 'PromptConfig':
-        """Resolve a game mode by name string."""
+        """Resolve a game mode by name string.
+
+        Tries YAML config first, falls back to factory methods.
+        """
         mode = mode.lower()
+
+        # Try YAML-based config first
+        try:
+            from poker.game_modes_loader import get_preset_configs
+            yaml_presets = get_preset_configs()
+            if mode in yaml_presets:
+                return cls.from_dict(yaml_presets[mode])
+        except Exception as e:
+            logger.debug(f"YAML preset lookup failed for '{mode}', using factory fallback: {e}")
+
+        # Fallback to factory methods
         modes = {
             'casual': cls.casual,
             'standard': cls.standard,
