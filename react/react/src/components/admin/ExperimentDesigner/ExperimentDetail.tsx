@@ -641,11 +641,12 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             )}
 
             {/* Surprises (new) or Key Findings (legacy) - only show if non-empty */}
-            {((summary.ai_interpretation.surprises?.length ?? 0) > 0 || (summary.ai_interpretation.key_findings?.length ?? 0) > 0) && (
+            {((Array.isArray(summary.ai_interpretation.surprises) && summary.ai_interpretation.surprises.length > 0) ||
+              (Array.isArray(summary.ai_interpretation.key_findings) && summary.ai_interpretation.key_findings.length > 0)) && (
               <div className="experiment-detail__ai-block">
                 <h4>
                   <Lightbulb size={14} />
-                  {summary.ai_interpretation.surprises ? 'Surprises' : 'Key Findings'}
+                  {Array.isArray(summary.ai_interpretation.surprises) && summary.ai_interpretation.surprises.length > 0 ? 'Surprises' : 'Key Findings'}
                 </h4>
                 <ul className="experiment-detail__ai-list">
                   {(summary.ai_interpretation.surprises || summary.ai_interpretation.key_findings || []).map((item, idx) => (
@@ -656,7 +657,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             )}
 
             {/* Next Steps (new) or Suggested Follow-ups (legacy) */}
-            {((summary.ai_interpretation.next_steps?.length ?? 0) > 0 || (summary.ai_interpretation.suggested_followups?.length ?? 0) > 0) && (
+            {((Array.isArray(summary.ai_interpretation.next_steps) && summary.ai_interpretation.next_steps.length > 0) ||
+              (Array.isArray(summary.ai_interpretation.suggested_followups) && summary.ai_interpretation.suggested_followups.length > 0)) && (
               <div className="experiment-detail__ai-block">
                 <h4>
                   <Target size={14} />

@@ -686,7 +686,8 @@ def _get_enabled_models_map():
                 (row[0], row[1]): bool(row[2]) and bool(row[3] if row[3] is not None else True)
                 for row in cursor.fetchall()
             }
-    except Exception:
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in _get_enabled_models_map: {e}")
         return {}
 
 
@@ -721,7 +722,8 @@ def _get_system_enabled_models_map():
                 (row[0], row[1]): bool(row[2])
                 for row in cursor.fetchall()
             }
-    except Exception:
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in _get_system_enabled_models_map: {e}")
         return {}
 
 
@@ -758,7 +760,8 @@ def _get_model_capabilities_map():
                 }
                 for row in cursor.fetchall()
             }
-    except Exception:
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in _get_model_capabilities_map: {e}")
         return {}
 
 
