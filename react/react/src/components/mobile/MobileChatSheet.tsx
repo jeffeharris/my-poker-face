@@ -180,11 +180,12 @@ export function MobileChatSheet({
                 );
               }
 
+              const isCardDeal = msg.type === 'table' && msg.phase && msg.cards;
               return (
-                <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}`}>
-                  {msg.type === 'table' && msg.phase && msg.cards ? (
+                <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}`}>
+                  {isCardDeal ? (
                     <span className="mcs-msg-text">
-                      {renderCardDeal(msg.phase, msg.cards)}
+                      {renderCardDeal(msg.phase!, msg.cards!)}
                     </span>
                   ) : msg.type === 'table' ? (
                     <span className="mcs-msg-text">{msg.message}</span>

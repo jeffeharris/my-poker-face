@@ -246,9 +246,9 @@
   border: none;
   border-radius: 0;
   padding: 4px 0;
-  align-self: center;
-  max-width: 90%;
-  text-align: center;
+  align-self: stretch;
+  padding-left: 25%;
+  text-align: left;
 }
 
 .mcs-msg-table .mcs-msg-text {
@@ -264,6 +264,16 @@
   align-items: center;
   gap: 8px;
   font-style: normal;
+}
+
+.mcs-card-phase {
+  width: 3.2em;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.mcs-msg-card-deal.mcs-msg-table {
+  padding-left: calc(25% - 3.2em - 8px);
 }
 
 .mcs-card-phase {
