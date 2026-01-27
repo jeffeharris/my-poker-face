@@ -155,14 +155,23 @@ class PromptConfig:
             show_equity_verdict=False,
         )
 
+    EXPLOITATIVE_GUIDANCE = (
+        "EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently, "
+        "adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting, "
+        "(2) Call wider - their raising range is weaker than normal, "
+        "(3) Don't bluff them - they won't fold, value bet relentlessly instead, "
+        "(4) Let them hang themselves with aggression."
+    )
+
     @classmethod
     def pro(cls) -> 'PromptConfig':
-        """Pro mode - GTO-focused analytical poker."""
+        """Pro mode - GTO-focused analytical poker with exploitative adjustments."""
         return cls(
             show_equity_always=True,
             show_equity_verdict=True,
             chattiness=False,
             persona_response=False,
+            guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 
     @classmethod
@@ -171,6 +180,7 @@ class PromptConfig:
         return cls(
             show_equity_always=True,
             show_equity_verdict=True,
+            guidance_injection=cls.EXPLOITATIVE_GUIDANCE,
         )
 
     @classmethod
