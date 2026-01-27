@@ -1116,7 +1116,7 @@ class AIPlayerController:
         cost_to_call_for_equity = context.get('call_amount', 0)
         if self.prompt_config.gto_equity and cost_to_call_for_equity > 0:
             pot_total = game_state.pot.get('total', 0)
-            pot_odds = pot_total / cost_to_call_for_equity if cost_to_call_for_equity > 0 else 0
+            pot_odds = pot_total / cost_to_call_for_equity
             required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
 
             # Convert cards for equity calculation

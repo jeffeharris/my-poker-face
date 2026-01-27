@@ -117,8 +117,8 @@ class PromptConfig:
         # Migrate use_minimal_prompt -> include_personality + use_simple_response_format
         if 'use_minimal_prompt' in data:
             if data.pop('use_minimal_prompt'):
-                data.setdefault('include_personality', False)
-                data.setdefault('use_simple_response_format', True)
+                data['include_personality'] = False
+                data['use_simple_response_format'] = True
 
         # Get known field names
         known_fields = {f.name for f in fields(cls)}
