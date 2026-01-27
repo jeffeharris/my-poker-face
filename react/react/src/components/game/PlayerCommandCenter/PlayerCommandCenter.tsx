@@ -56,8 +56,8 @@ export function PlayerCommandCenter({
         <div className="command-center__cards">
           {player.hand && player.hand.length >= 2 ? (
             <>
-              <Card card={player.hand[0]} faceDown={false} size="large" className="command-card" />
-              <Card card={player.hand[1]} faceDown={false} size="large" className="command-card" />
+              <Card card={player.hand[0]} faceDown={false} size="xlarge" className="command-card" />
+              <Card card={player.hand[1]} faceDown={false} size="xlarge" className="command-card" />
             </>
           ) : (
             <>

@@ -13,6 +13,7 @@ import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
+import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { config } from '../../config';
 import './MobilePokerTable.css';
 import './MobileActionButtons.css';
@@ -57,6 +58,7 @@ export function MobilePokerTable({
     messages,
     aiThinking,
     winnerInfo,
+    revealedCards,
     tournamentResult,
     isConnected,
     queuedAction,
@@ -121,6 +123,12 @@ export function MobilePokerTable({
     hand: humanPlayer?.hand,
   });
 
+  // Community card animation hook - handles slide-in with cascade delays
+  const communityCardAnimations = useCommunityCardAnimation(
+    gameState?.newly_dealt_count,
+    gameState?.community_cards?.length ?? 0,
+  );
+
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
     if (!gameState || !currentPlayer || currentPlayer.is_human) return;
@@ -172,6 +180,9 @@ export function MobilePokerTable({
   // Heads-up mode: only 1 AI opponent remains
   const isHeadsUp = opponents.length === 1;
   const headsUpOpponent = isHeadsUp ? opponents[0] : null;
+
+  // Two opponents mode: 2 AI opponents (3 players total)
+  const isTwoOpponents = opponents.length === 2;
 
   const showActionButtons = currentPlayer?.is_human &&
                            !currentPlayer.is_folded &&
@@ -232,7 +243,7 @@ export function MobilePokerTable({
       <div className="menu-bar-spacer" />
 
       {/* Opponents Strip */}
-      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''}`} ref={opponentsContainerRef}>
+      <div className={`mobile-opponents ${isHeadsUp ? 'heads-up-mode' : ''} ${isTwoOpponents ? 'two-opponents-mode' : ''}`} ref={opponentsContainerRef}>
         {opponents.map((opponent) => {
           const opponentIdx = gameState.players.findIndex(p => p.name === opponent.name);
           const isCurrentPlayer = opponentIdx === gameState.current_player_idx;
@@ -248,7 +259,7 @@ export function MobilePokerTable({
                   opponentRefs.current.delete(opponent.name);
                 }
               }}
-              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''}`}
+              className={`mobile-opponent ${opponent.is_folded ? 'folded' : ''} ${opponent.is_all_in ? 'all-in' : ''} ${isCurrentPlayer ? 'thinking' : ''} ${isHeadsUp ? 'heads-up-avatar' : ''} ${isTwoOpponents ? 'two-opponents-avatar' : ''}`}
             >
               <div
                 className={`opponent-avatar ${config.ENABLE_AI_DEBUG && opponent.llm_debug ? 'debug-enabled' : ''}`}
@@ -286,6 +297,14 @@ export function MobilePokerTable({
               {opponent.bet > 0 && (
                 <div className="opponent-bet">${opponent.bet}</div>
               )}
+              {/* Revealed hole cards during run-it-out showdown */}
+              {revealedCards?.players_cards[opponent.name] && (
+                <div className="opponent-revealed-cards">
+                  {revealedCards.players_cards[opponent.name].map((card, i) => (
+                    <Card key={i} card={card} faceDown={false} size="large" />
+                  ))}
+                </div>
+              )}
               {opponent.is_folded && <div className="status-badge folded">FOLD</div>}
               {opponent.is_all_in && <div className="status-badge all-in">ALL-IN</div>}
             </div>
@@ -310,14 +329,31 @@ export function MobilePokerTable({
       {/* Community Cards - Always show 5 slots */}
       <div className="mobile-community">
         <div className="community-cards-row">
-          {/* Show dealt cards */}
-          {gameState.community_cards.map((card, i) => (
-            <Card key={i} card={card} faceDown={false} size="medium" />
-          ))}
-          {/* Show placeholders for remaining cards */}
-          {Array.from({ length: 5 - gameState.community_cards.length }).map((_, i) => (
-            <div key={`placeholder-${i}`} className="community-card-placeholder" />
-          ))}
+          {Array.from({ length: 5 }).map((_, i) => {
+            const card = gameState.community_cards[i];
+            const anim = communityCardAnimations[i];
+            const isDealt = !!card;
+            const isAnimating = anim?.shouldAnimate;
+            return (
+              <div key={i} className="community-card-slot">
+                {/* Placeholder fades out when card arrives */}
+                <div className={`community-card-placeholder ${isDealt ? (isAnimating ? 'fade-out-delayed' : 'hidden') : ''}`}
+                  style={isAnimating ? { animationDelay: `${anim.delay + anim.duration * 0.6}s` } : undefined}
+                />
+                {/* Card overlays placeholder */}
+                {isDealt && (
+                  <div
+                    className="community-card-overlay"
+                    style={isAnimating ? {
+                      animation: `communityCardDealIn ${anim.duration}s cubic-bezier(0.16, 1, 0.3, 1) ${anim.delay}s both`,
+                    } : undefined}
+                  >
+                    <Card card={card} faceDown={false} size="medium" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -355,7 +391,7 @@ export function MobilePokerTable({
                   '--exit-converge-x': `${cardTransforms.card2.offsetX + cardTransforms.gap}px`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
               <div
                 onAnimationEnd={handleExitAnimationEnd}
@@ -366,7 +402,7 @@ export function MobilePokerTable({
                   '--exit-start-rotation': `${cardTransforms.card2.rotation}deg`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
             </>
           ) : displayCards?.[0] && displayCards?.[1] ? (
@@ -385,7 +421,7 @@ export function MobilePokerTable({
                   '--deal-offset-y': `${cardTransforms.card1.offsetY}px`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
               <div
                 onClick={toggleCardsNeat}
@@ -401,7 +437,7 @@ export function MobilePokerTable({
                   '--deal-offset-y': `${cardTransforms.card2.offsetY}px`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
             </>
           ) : (

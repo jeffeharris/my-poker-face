@@ -281,6 +281,32 @@ def update_and_emit_game_state(game_id: str) -> None:
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
 
+def emit_hole_cards_reveal(game_id: str, game_state) -> None:
+    """Emit hole cards for all active players during run-it-out showdown."""
+    active_players = [p for p in game_state.players if not p.is_folded]
+    if len(active_players) < 2:
+        logger.warning(f"Skipping hole card reveal with only {len(active_players)} active player(s)")
+        return
+    players_cards = {}
+
+    for player in active_players:
+        if player.hand:
+            players_cards[player.name] = [
+                card.to_dict() if hasattr(card, 'to_dict') else card
+                for card in player.hand
+            ]
+
+    reveal_data = {
+        'players_cards': players_cards,
+        'community_cards': [
+            card.to_dict() if hasattr(card, 'to_dict') else card
+            for card in game_state.community_cards
+        ]
+    }
+
+    socketio.emit('reveal_hole_cards', reveal_data, to=game_id)
+
+
 def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data: dict = None) -> None:
     """Send message about newly dealt community cards and record to hand history.
 
@@ -936,7 +962,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Reset card announcement tracking for new hand
     game_data['last_announced_phase'] = None
-
     # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
     state_machine.current_phase = PokerPhase.HAND_OVER
@@ -1024,7 +1049,17 @@ def progress_game(game_id: str) -> None:
 
             # Handle "run it out" scenario - auto-advance with delays
             if game_state.run_it_out:
-                # Delay 2 seconds to let player see the cards
+                # Reveal hole cards once before first run-out (dramatic showdown reveal)
+                if not game_state.has_revealed_cards:
+                    emit_hole_cards_reveal(game_id, game_state)
+                    game_state = game_state.update(has_revealed_cards=True)
+                    state_machine._state_machine = state_machine._state_machine.with_game_state(game_state)
+                    current_game_data['state_machine'] = state_machine
+                    game_state_service.set_game(game_id, current_game_data)
+                    # Extra pause (4 seconds) for players to see the cards
+                    socketio.sleep(4)
+
+                # Delay 2 seconds to let player see the community cards being dealt
                 socketio.sleep(2)
                 # Check if game was deleted during sleep
                 if not game_state_service.get_game(game_id):
