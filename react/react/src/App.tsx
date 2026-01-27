@@ -177,8 +177,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   };
 
   const handleStartCustomGame = async (
-    selectedPersonalities: Array<string | { name: string; llm_config: { provider: string; model: string; reasoning_effort?: string } }>,
-    llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number }
+    selectedPersonalities: Array<string | { name: string; llm_config: { provider: string; model: string; reasoning_effort?: string }; game_mode?: string }>,
+    llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number },
+    gameMode?: string
   ) => {
     if (isCreatingGame) return;
     setIsCreatingGame(true);
@@ -193,6 +194,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           playerName,
           personalities: selectedPersonalities,
           llm_config: llmConfig,
+          game_mode: gameMode,
           starting_stack: llmConfig?.starting_stack,
           big_blind: llmConfig?.big_blind,
           blind_growth: llmConfig?.blind_growth,

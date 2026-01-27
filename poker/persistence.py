@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
 # v54: Squashed features - heartbeat tracking, outcome columns, system presets
 # v55: Add last_game_created_at column to users table for duplicate game prevention
-SCHEMA_VERSION = 55
+SCHEMA_VERSION = 56
 
 
 @dataclass
@@ -959,6 +959,7 @@ class GamePersistence:
             53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
             54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
             55: (self._migrate_v55_add_last_game_created_at, "Add last_game_created_at to users for duplicate prevention"),
+            56: (self._migrate_v56_add_exploitative_guidance, "Add exploitative guidance to pro and competitive presets"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2712,6 +2713,14 @@ class GamePersistence:
             else:
                 raise
         logger.info("Migration v55 complete: last_game_created_at added to users")
+
+    def _migrate_v56_add_exploitative_guidance(self, conn: sqlite3.Connection) -> None:
+        """Migration v56: Add exploitative guidance to pro and competitive presets.
+
+        No-op — system presets are now managed by config/game_modes.yaml
+        and synced on every app startup via sync_game_modes_from_yaml().
+        """
+        logger.info("Migration v56: no-op, YAML sync handles system preset updates")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,

@@ -1,0 +1,43 @@
+# Game Mode Presets
+# System presets that define prompt configuration for each game mode.
+# These are synced to the prompt_presets table on every app startup,
+# overwriting any prior system preset values (YAML is source of truth).
+# User-created presets (is_system=FALSE) are never touched.
+
+version: "2026-01"
+
+presets:
+  casual:
+    description: "Fun, personality-driven poker with full character interactions"
+    prompt_config: {}
+
+  standard:
+    description: "Balanced play with GTO awareness and personality"
+    prompt_config:
+      show_equity_always: true
+
+  pro:
+    description: "GTO-focused analytical poker with exploitative adjustments"
+    prompt_config:
+      show_equity_always: true
+      show_equity_verdict: true
+      chattiness: false
+      persona_response: false
+      guidance_injection: >-
+        EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently,
+        adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting,
+        (2) Call wider - their raising range is weaker than normal,
+        (3) Don't bluff them - they won't fold, value bet relentlessly instead,
+        (4) Let them hang themselves with aggression.
+
+  competitive:
+    description: "Full GTO guidance with personality and trash talk"
+    prompt_config:
+      show_equity_always: true
+      show_equity_verdict: true
+      guidance_injection: >-
+        EXPLOIT AGGRESSIVE OPPONENTS: When facing players who rarely fold and raise frequently,
+        adjust your strategy: (1) Trap with strong hands - check to induce bluffs rather than betting,
+        (2) Call wider - their raising range is weaker than normal,
+        (3) Don't bluff them - they won't fold, value bet relentlessly instead,
+        (4) Let them hang themselves with aggression.

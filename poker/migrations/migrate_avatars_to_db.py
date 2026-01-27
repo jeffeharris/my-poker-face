@@ -28,13 +28,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from poker.persistence import GamePersistence
-
-
-def get_default_db_path() -> str:
-    """Get the default database path."""
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    return str(project_root / 'poker_games.db')
+from poker.db_utils import get_default_db_path
 
 
 def get_default_images_dir() -> Path:
