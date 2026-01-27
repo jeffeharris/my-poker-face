@@ -1,16 +1,17 @@
 """
-Minimal Poker Prompt Utilities.
+Poker Prompt Utilities.
 
-DEPRECATED: The full prompt functions (convert_game_to_minimal_prompt, render_minimal_prompt,
-parse_minimal_response, convert_minimal_response_to_game_action) have been removed.
-The unified prompt architecture in controllers.py now handles all prompt modes through
-PromptConfig toggles (include_personality, use_simple_response_format).
+Shared utility functions for BB normalization and formatting.
+Full prompt generation is handled by the unified architecture in controllers.py.
 
-This module retains utility functions used across the codebase:
+Functions:
 - to_bb(): Convert chip amounts to big blinds
 - get_position_abbrev(): Standard position abbreviations
 - format_cards(): Format card lists to string notation
-- POSITION_ABBREV / STREET_NAMES: Reference dictionaries
+
+Constants:
+- POSITION_ABBREV: Position abbreviation mapping
+- STREET_NAMES: Betting round name mapping
 """
 import logging
 

@@ -217,6 +217,9 @@ def _format_money(amount: int, big_blind: int, as_bb: bool) -> str:
 
 def _convert_messages_to_bb(messages: str, big_blind: int) -> str:
     """Convert dollar amounts in messages to BB format for AI prompts."""
+    if big_blind == 0:
+        return messages  # Fallback if BB not set
+
     import re
 
     def replace_dollar(match):
@@ -1781,145 +1784,6 @@ def build_base_game_state(
 
     hand_update_message = persona_state + hand_state + pot_state + "\n" + (
         f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
-        f"You cannot bet more than you have, {stack_limit}.\n"
-        f"You must select from these options: {player_options}\n"
-        f"Your table position: {player_positions}\n"
-        f"What is your move, {persona}?\n\n"
-    )
-
-    return hand_update_message
-
-
-def convert_game_to_hand_state(game_state, player: Player, phase, messages,
-                               include_pot_odds: bool = True,
-                               include_hand_strength: bool = True,
-                               bb_normalized: bool = False):
-    """
-    Convert game state to a human-readable prompt message.
-
-    Args:
-        game_state: Current game state
-        player: Current player
-        phase: Current betting phase
-        messages: Recent actions/chat
-        include_pot_odds: Whether to include pot odds guidance
-        include_hand_strength: Whether to include hand strength evaluation
-        bb_normalized: If True, show amounts in BB instead of dollars
-    """
-    # Currently used values
-    persona = player.name
-    # attitude = player.attitude
-    # confidence = player.confidence
-    table_positions = game_state.table_positions
-    current_round = phase
-    community_cards = [str(_ensure_card(c)) for c in game_state.community_cards]
-    # opponents = [p.name for p in game_state.players if p.name != player.name]
-    # number_of_opponents = len(opponents)
-    player_money = player.stack
-    player_positions = [position for position, name in table_positions.items() if name == player.name]
-    current_situation = f"The {current_round} cards have just been dealt"
-    hole_cards = [str(_ensure_card(c)) for c in player.hand]
-    current_pot = game_state.pot['total']
-    current_bet = game_state.current_player.bet
-    raw_cost_to_call = game_state.highest_bet - game_state.current_player.bet
-    # Effective cost is capped at player's stack (they can only risk what they have)
-    cost_to_call = min(raw_cost_to_call, player_money)
-    player_options = game_state.current_player_options
-
-    # create a list of the action comments and then send them to the table manager to summarize
-    # action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
-    # action_summary = "We're just getting started! You're first to go."
-    # if len(action_comment_list) > 0:
-    #     action_summary = hand_state["table_manager"].summarize_actions_for_player(
-    #         action_comment_list[-number_of_opponents:], self.name)
-    # Evaluate hand strength - preflop uses classification, post-flop uses eval7
-    hand_strength_line = ""
-    if include_hand_strength:
-        if community_cards:
-            hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-        else:
-            hand_strength = classify_preflop_hand(hole_cards)
-        hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
-
-    # Get big_blind early for BB formatting (with defensive fallback)
-    big_blind = game_state.current_ante or 100
-
-    # Convert dollar amounts in messages to BB if bb_normalized mode is active
-    action_summary = _convert_messages_to_bb(messages, big_blind) if bb_normalized else messages
-
-    persona_state = (
-        f"Persona: {persona}\n"
-        # f"Attitude: {attitude}\n"
-        # f"Confidence: {confidence}\n"
-        f"Your Cards: {hole_cards}\n"
-        f"{hand_strength_line}"
-        f"Your Stack: {_format_money(player_money, big_blind, bb_normalized)}\n"
-    )
-
-    # Format opponent status with BB or dollars (joined to avoid list brackets in prompt)
-    opponent_status = ''.join([
-        f'{p.name} has {_format_money(p.stack, big_blind, bb_normalized)}'
-        + (' and they have folded' if p.is_folded else '')
-        + '.\n'
-        for p in game_state.players
-    ])
-
-    hand_state = (
-        # f"{current_situation}\n"
-        f"Current Round: {current_round}\n"
-        f"Community Cards: {community_cards}\n"
-        f"Table Positions: {table_positions}\n"
-        f"Opponent Status:\n{opponent_status}\n"
-        f"Recent Actions:\n{action_summary}\n"
-    )
-
-    # Blind levels
-    small_blind = big_blind // 2
-    blinds_remaining = player_money / big_blind if big_blind > 0 else float('inf')
-
-    if bb_normalized:
-        pot_state = (
-            f"Pot Total: {_format_money(current_pot, big_blind, True)}\n"
-            f"How much you've bet: {_format_money(current_bet, big_blind, True)}\n"
-            f"Your cost to call: {_format_money(cost_to_call, big_blind, True)}\n"
-            f"Blinds: 0.5/1 BB\n"
-        )
-    else:
-        pot_state = (
-            f"Pot Total: ${current_pot}\n"
-            f"How much you've bet: ${current_bet}\n"
-            f"Your cost to call: ${cost_to_call}\n"
-            f"Blinds: ${small_blind}/${big_blind}\n"
-            f"Your stack in big blinds: {blinds_remaining:.1f} BB\n"
-        )
-
-    # Calculate pot odds for clearer decision making (if enabled)
-    pot_odds_guidance = ""
-    if include_pot_odds:
-        if cost_to_call > 0:
-            pot_odds = current_pot / cost_to_call
-            equity_needed = 100 / (pot_odds + 1)
-            pot_fmt = _format_money(current_pot, big_blind, bb_normalized)
-            call_fmt = _format_money(cost_to_call, big_blind, bb_normalized)
-            pot_odds_guidance = (
-                f"POT ODDS: You're getting {pot_odds:.1f}:1 odds ({pot_fmt} pot / {call_fmt} to call). "
-                f"You only need {equity_needed:.0f}% equity to break even on a call. "
-            )
-            if pot_odds >= 10:
-                pot_odds_guidance += f"With {pot_odds:.0f}:1 odds, you should rarely fold - you only need to win 1 in {pot_odds+1:.0f} times."
-            elif pot_odds >= 4:
-                pot_odds_guidance += "These are favorable odds for calling with reasonable hands."
-        else:
-            pot_odds_guidance = "You can check for free - no cost to see more cards."
-
-    # Build final message with BB guidance if needed
-    stack_limit = _format_money(player_money, big_blind, bb_normalized)
-    bb_note = ""
-    if bb_normalized:
-        bb_note = "NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
-
-    hand_update_message = persona_state + hand_state + pot_state + pot_odds_guidance + "\n" + (
-        f"{bb_note}"
         f"You cannot bet more than you have, {stack_limit}.\n"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"

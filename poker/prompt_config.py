@@ -22,7 +22,6 @@ class PromptConfig:
     Components:
         pot_odds: Pot odds guidance and equity calculations
         hand_strength: Hand strength evaluation (preflop ranking, postflop eval)
-        use_dollar_amounts: Show monetary amounts in dollars instead of BB (default False = BB mode)
         session_memory: Session stats (win rate, streaks, observations)
         opponent_intel: Opponent tendencies and playing style summaries
         strategic_reflection: Include past strategic reflections in prompts
@@ -43,7 +42,6 @@ class PromptConfig:
     # Game state components
     pot_odds: bool = True
     hand_strength: bool = True
-    use_dollar_amounts: bool = False  # False = BB mode (default), True = dollar amounts
 
     # Memory components
     session_memory: bool = True
@@ -91,7 +89,6 @@ class PromptConfig:
         caught and logged with fallback to defaults.
 
         Supports legacy field names for backward compatibility:
-        - bb_normalized -> use_dollar_amounts (inverted)
         - show_equity_always -> gto_equity
         - show_equity_verdict -> gto_verdict
         """
@@ -101,11 +98,9 @@ class PromptConfig:
 
         # Migrate legacy field names
         data = dict(data)  # Don't mutate caller's dict
-        if 'bb_normalized' in data and 'use_dollar_amounts' not in data:
-            # Inverted: bb_normalized=True meant BB mode, use_dollar_amounts=False means BB mode
-            data['use_dollar_amounts'] = not data.pop('bb_normalized')
-        elif 'bb_normalized' in data:
-            data.pop('bb_normalized')
+        # Drop removed fields silently
+        data.pop('bb_normalized', None)
+        data.pop('use_dollar_amounts', None)
 
         if 'show_equity_always' in data and 'gto_equity' not in data:
             data['gto_equity'] = data.pop('show_equity_always')

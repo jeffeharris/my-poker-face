@@ -129,60 +129,8 @@ The UI displays version and hash for each template.
 
 ## Personality and Response Format Toggles
 
-The unified prompt system supports baseline testing through `PromptConfig` toggles, without separate code paths.
+The unified prompt system supports baseline testing through `PromptConfig` toggles. See [CLAUDE.md](CLAUDE.md#personality-and-response-format-toggles) for full documentation.
 
-### Purpose
-
-Baseline testing serves to:
-1. Test pure model poker ability without personality/psychology overhead
-2. A/B test the impact of prompt additions
-3. Compare different LLM models on identical prompts
-
-### Enabling
-
-Set `include_personality` and `use_simple_response_format` in PromptConfig:
-
-```python
-# Baseline mode (no personality, simple JSON response)
-prompt_config = PromptConfig(include_personality=False, use_simple_response_format=True)
-```
-
-Or in experiment config JSON:
-```json
-{
-  "prompt_config": {
-    "include_personality": false,
-    "use_simple_response_format": true
-  }
-}
-```
-
-### How It Works
-
-All prompt modes use the same `decide_action()` code path:
-- `build_base_game_state()` always produces BB-normalized game state
-- `_build_decision_prompt()` conditionally includes pot odds, coaching, GTO via YAML templates
-- `_get_ai_decision()` swaps system prompt if `include_personality=False`
-- `_normalize_response()` sets defaults for missing rich fields when `use_simple_response_format=True`
-
-### Response Format (Simple)
-
-When `use_simple_response_format=True`:
-```json
-{"action": "raise", "raise_to": 12}
-```
-
-### What's Controlled
-
-| Toggle | What it disables |
-|--------|-----------------|
-| `include_personality=False` | Personality system prompt, replaced with generic poker player prompt |
-| `use_simple_response_format=True` | Rich response format (dramatic_sequence, inner_monologue, etc.) |
-| Other `PromptConfig` flags | Pot odds, hand strength, memory, psychology, coaching, etc. |
-
-### Files
-
-- `poker/controllers.py` - `build_base_game_state()`, personality toggle in `_get_ai_decision()`
-- `poker/prompt_config.py` - `include_personality`, `use_simple_response_format` toggles
-- `poker/minimal_prompt.py` - Utility functions (position mapping, BB conversion)
-- `experiments/configs/minimal_prompt_test.json` - Example baseline config
+Quick reference:
+- `include_personality=False` - Generic poker player prompt (no personality)
+- `use_simple_response_format=True` - Simple `{"action", "raise_to"}` JSON only

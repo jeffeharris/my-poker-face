@@ -2,7 +2,7 @@
 Tests for BB (Big Blind) normalization functionality.
 
 Tests the _format_money helper, message conversion, and BB-to-dollar
-conversion logic used when BB mode is active (PromptConfig.use_dollar_amounts=False).
+conversion logic. BB mode is always active for AI prompts.
 """
 import unittest
 from poker.controllers import _format_money, _convert_messages_to_bb
@@ -46,44 +46,6 @@ class TestFormatMoney(unittest.TestCase):
         result = _format_money(500, big_blind=0, as_bb=True)
         self.assertEqual(result, "$500")
 
-    def test_bb_none_equivalent(self):
-        """When big_blind would cause issues, dollar fallback is used."""
-        # This tests the defensive behavior
-        result = _format_money(500, big_blind=0, as_bb=True)
-        self.assertEqual(result, "$500")
-
-
-class TestBBConversionMath(unittest.TestCase):
-    """Tests for BB-to-dollar conversion calculations."""
-
-    def test_integer_bb_to_dollars(self):
-        """8 BB * $50 = $400."""
-        bb_value = 8
-        big_blind = 50
-        dollar_value = round(bb_value * big_blind)
-        self.assertEqual(dollar_value, 400)
-
-    def test_decimal_bb_to_dollars(self):
-        """8.5 BB * $50 = $425."""
-        bb_value = 8.5
-        big_blind = 50
-        dollar_value = round(bb_value * big_blind)
-        self.assertEqual(dollar_value, 425)
-
-    def test_small_decimal_bb_to_dollars(self):
-        """2.5 BB * $100 = $250."""
-        bb_value = 2.5
-        big_blind = 100
-        dollar_value = round(bb_value * big_blind)
-        self.assertEqual(dollar_value, 250)
-
-    def test_fractional_bb_rounds_correctly(self):
-        """3.33 BB * $100 = $333 (rounds to nearest)."""
-        bb_value = 3.33
-        big_blind = 100
-        dollar_value = round(bb_value * big_blind)
-        self.assertEqual(dollar_value, 333)
-
 
 class TestConvertMessagesToBB(unittest.TestCase):
     """Tests for converting dollar amounts in messages to BB format."""
@@ -123,6 +85,12 @@ class TestConvertMessagesToBB(unittest.TestCase):
         msg = "Batman raises to $75."
         result = _convert_messages_to_bb(msg, big_blind=100)
         self.assertEqual(result, "Batman raises to 0.75 BB.")
+
+    def test_zero_big_blind_fallback(self):
+        """When big_blind is 0, should return messages unchanged."""
+        msg = "Batman raises to $500."
+        result = _convert_messages_to_bb(msg, big_blind=0)
+        self.assertEqual(result, "Batman raises to $500.")
 
 
 if __name__ == '__main__':

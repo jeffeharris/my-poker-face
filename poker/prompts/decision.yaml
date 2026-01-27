@@ -5,9 +5,6 @@ sections:
     {message}
     Please only respond with the JSON, not the text with back quotes.
     CRITICAL: When raising, 'raise_to' is the TOTAL amount you want to bet (not an increment).
-    Example: If highest_bet is $100 and you want to raise to $300, set raise_to=300.
-    Example: If you say 'I raise to $500', set raise_to=500.
-    Note: If you say 'I raise BY $200' when highest_bet is $100, you mean raise_to=300.
 
     BETTING DISCIPLINE (ALL STREETS):
     - Your equity % tells you your chance of winning. 0-10% equity = you cannot win. FOLD.

@@ -136,7 +136,7 @@ The prompt system supports toggleable personality and response format through `P
 | Toggle | Default | Effect |
 |--------|---------|--------|
 | `include_personality` | `true` | When `false`, replaces personality system prompt with generic poker player prompt |
-| `use_simple_response_format` | `true` | When `true`, uses simple `{"action": "...", "raise_to": ...}` JSON format instead of rich response with dramatic_sequence |
+| `use_simple_response_format` | `false` | When `true`, uses simple `{"action": "...", "raise_to": ...}` JSON format instead of rich response with dramatic_sequence |
 
 ### Usage
 

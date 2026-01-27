@@ -9,11 +9,10 @@ class TestPromptConfig(unittest.TestCase):
     """Tests for PromptConfig dataclass."""
 
     def test_default_all_enabled(self):
-        """All components should be enabled by default (except use_dollar_amounts)."""
+        """All components should be enabled by default."""
         config = PromptConfig()
         self.assertTrue(config.pot_odds)
         self.assertTrue(config.hand_strength)
-        self.assertFalse(config.use_dollar_amounts)  # Defaults to False (BB mode is default)
         self.assertTrue(config.session_memory)
         self.assertTrue(config.opponent_intel)
         self.assertTrue(config.strategic_reflection)
@@ -30,7 +29,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 19)  # 17 bool + 1 int + 1 str
+        self.assertEqual(len(d), 18)  # 16 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
@@ -168,7 +167,6 @@ class TestPromptConfig(unittest.TestCase):
         """repr should show 'all enabled' when all booleans are True."""
         # Must explicitly set fields that default to False
         config = PromptConfig(
-            use_dollar_amounts=True,
             gto_equity=True,
             gto_verdict=True,
             use_simple_response_format=True,
