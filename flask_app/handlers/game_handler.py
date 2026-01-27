@@ -876,11 +876,33 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             f"{winning_players_string} won the pot of ${total_pot} with {winner_info['hand_name']}. "
             f"Winning hand: {winner_info['winning_hand']}"
         )
+        # Build structured win_result for rich chat rendering
+        # Get winner's hole cards (use first winner for display)
+        winner_player = next(
+            (p for p in game_state.players if p.name == winning_player_names[0]),
+            None
+        )
+        winner_hole_cards = [str(c) for c in winner_player.hand] if winner_player and winner_player.hand else []
+        community_card_strings = [str(c) for c in game_state.community_cards]
+        win_result = {
+            'winners': winning_players_string,
+            'pot': total_pot,
+            'hand_name': winner_info['hand_name'],
+            'winner_cards': winner_hole_cards,
+            'community_cards': community_card_strings,
+            'winning_combo': winner_info['winning_hand'],
+            'is_showdown': True,
+        }
     else:
-        message_content = f"{winning_players_string} won the pot of ${total_pot}."
+        message_content = f"{winning_players_string} took the pot of ${total_pot}."
+        win_result = {
+            'winners': winning_players_string,
+            'pot': total_pot,
+            'is_showdown': False,
+        }
 
     # EMIT WINNER ANNOUNCEMENT IMMEDIATELY
-    send_message(game_id, "Table", message_content, "table", 1)
+    send_message(game_id, "Table", message_content, "table", 1, win_result=win_result)
     socketio.emit('winner_announcement', winner_data, to=game_id)
 
     # Create event to track when async commentary tasks complete

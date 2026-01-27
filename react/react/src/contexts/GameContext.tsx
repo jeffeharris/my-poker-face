@@ -100,6 +100,7 @@ export function GameProvider({ children }: GameProviderProps) {
         ...(msg.action && { action: msg.action }),
         ...(msg.phase && { phase: msg.phase }),
         ...(msg.cards && { cards: msg.cards }),
+        ...(msg.win_result && { win_result: msg.win_result }),
       };
 
       appendNewMessages([transformedMessage]);

@@ -329,6 +329,69 @@
   color: #d94848;
 }
 
+/* Win result messages */
+.mcs-msg-win-result.mcs-msg-table {
+  padding-left: 0;
+  align-self: stretch;
+  background: rgba(212, 165, 116, 0.06);
+  border: 1px solid rgba(212, 165, 116, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 4px 0;
+}
+
+.mcs-msg-win-result .mcs-msg-text {
+  font-style: normal;
+  color: var(--color-text-primary);
+  font-size: clamp(14px, 3.4vw, 16px);
+}
+
+.mcs-win-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcs-win-headline {
+  font-size: clamp(14px, 3.4vw, 16px);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.mcs-win-player {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-gold-light);
+}
+
+.mcs-win-pot {
+  font-weight: 700;
+  color: rgba(52, 211, 153, 0.9);
+}
+
+.mcs-win-hand-name {
+  font-weight: 600;
+  color: rgba(212, 165, 116, 0.85);
+  font-style: italic;
+}
+
+.mcs-win-cards-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcs-win-label {
+  font-family: var(--font-display);
+  font-size: clamp(11px, 2.8vw, 13px);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(212, 165, 116, 0.45);
+  width: 3.2em;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 /* System messages are filtered out in MobileChatSheet.tsx */
 
 /* Hand separator */

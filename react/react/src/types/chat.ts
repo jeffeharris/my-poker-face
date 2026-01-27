@@ -7,6 +7,18 @@ export interface ChatMessage {
   action?: string;  // Optional action text (e.g., "raised to $50") for AI messages
   phase?: string;   // Optional game phase for card-deal messages (e.g., "flop")
   cards?: string[]; // Optional card strings for card-deal messages (e.g., ["A♠", "K♦"])
+  win_result?: WinResult; // Optional structured winning hand data
+}
+
+/** Structured data for winning hand display in chat */
+export interface WinResult {
+  winners: string;
+  pot: number;
+  is_showdown: boolean;
+  hand_name?: string;          // Only for showdown
+  winner_cards?: string[];     // Hole cards, e.g. ["A♠", "K♠"]
+  community_cards?: string[];  // Board, e.g. ["Q♠", "J♠", "10♠", "5♥", "2♦"]
+  winning_combo?: string[];    // Best 5-card combo rank names, e.g. ["A", "K", "Q", "J", "10"]
 }
 
 /**
@@ -22,6 +34,7 @@ export interface BackendChatMessage {
   action?: string;  // Optional action text for AI messages
   phase?: string;   // Optional game phase for card-deal messages
   cards?: string[]; // Optional card strings for card-deal messages
+  win_result?: WinResult; // Optional structured winning hand data
 }
 
 /**

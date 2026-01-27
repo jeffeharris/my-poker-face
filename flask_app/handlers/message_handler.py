@@ -81,7 +81,8 @@ def record_action_in_memory(game_data: dict, player_name: str, action: str,
 
 def send_message(game_id: str, sender: str, content: str, message_type: str,
                  sleep: Optional[int] = None, action: Optional[str] = None,
-                 phase: Optional[str] = None, cards: Optional[list] = None) -> None:
+                 phase: Optional[str] = None, cards: Optional[list] = None,
+                 win_result: Optional[dict] = None) -> None:
     """Send a message to the specified game chat.
 
     Args:
@@ -93,6 +94,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         action: Optional action text to include with AI messages (e.g., "raised to $50").
         phase: Optional game phase name for card-deal messages (e.g., "flop").
         cards: Optional list of card strings for card-deal messages (e.g., ["A♠", "K♦"]).
+        win_result: Optional structured data for winning hand display.
     """
     game_data = game_state_service.get_game(game_id)
     if not game_data:
@@ -117,6 +119,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         new_message["phase"] = phase
     if cards:
         new_message["cards"] = cards
+    if win_result:
+        new_message["win_result"] = win_result
 
     game_messages.append(new_message)
 
@@ -159,5 +163,7 @@ def format_messages_for_api(messages: list) -> list:
             entry['cards'] = msg['cards']
         if 'action' in msg:
             entry['action'] = msg['action']
+        if 'win_result' in msg:
+            entry['win_result'] = msg['win_result']
         formatted.append(entry)
     return formatted

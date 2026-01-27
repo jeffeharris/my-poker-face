@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Keyboard, Zap, Send } from 'lucide-react';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, WinResult } from '../../types';
 import type { Player } from '../../types/player';
 import { QuickChatSuggestions } from '../chat/QuickChatSuggestions';
 import { parseMessageBlock } from '../../utils/messages';
@@ -31,6 +31,66 @@ function renderCardDeal(phase: string, cards: string[]): React.ReactNode {
           </span>
         ))}
       </span>
+    </span>
+  );
+}
+
+/** Render a row of card chips from card strings */
+function renderCardRow(cards: string[]): React.ReactNode {
+  const parsed = cards.map(c => parseCard(c)).filter(Boolean) as { rank: string; suit: string; color: 'red' | 'white' }[];
+  return (
+    <span className="mcs-card-row">
+      {parsed.map((card, i) => (
+        <span key={i} className={`mcs-card mcs-card-${card.color}`}>
+          <span className="mcs-card-rank">{card.rank}</span>
+          <span className="mcs-card-suit">{card.suit}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Render structured win result as formatted display */
+function renderWinResult(wr: WinResult): React.ReactNode {
+  if (!wr.is_showdown) {
+    // Fold-out: simple text
+    return (
+      <span className="mcs-win-result mcs-win-foldout">
+        <span className="mcs-win-headline">
+          <span className="mcs-win-player">{wr.winners}</span>
+          {' took the pot of '}
+          <span className="mcs-win-pot">${wr.pot}</span>
+        </span>
+      </span>
+    );
+  }
+
+  // Showdown: rich display with cards
+  return (
+    <span className="mcs-win-result mcs-win-showdown">
+      <span className="mcs-win-headline">
+        <span className="mcs-win-player">{wr.winners}</span>
+        {' won '}
+        <span className="mcs-win-pot">${wr.pot}</span>
+        {wr.hand_name && (
+          <>
+            {' with '}
+            <span className="mcs-win-hand-name">{wr.hand_name}</span>
+          </>
+        )}
+      </span>
+      {wr.winner_cards && wr.winner_cards.length > 0 && (
+        <span className="mcs-win-cards-row">
+          <span className="mcs-win-label">Hand</span>
+          {renderCardRow(wr.winner_cards)}
+        </span>
+      )}
+      {wr.community_cards && wr.community_cards.length > 0 && (
+        <span className="mcs-win-cards-row">
+          <span className="mcs-win-label">Board</span>
+          {renderCardRow(wr.community_cards)}
+        </span>
+      )}
     </span>
   );
 }
@@ -238,9 +298,14 @@ export function MobileChatSheet({
               }
 
               const isCardDeal = msg.type === 'table' && msg.phase && msg.cards;
+              const isWinResult = msg.type === 'table' && msg.win_result;
               return (
-                <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}`}>
-                  {isCardDeal ? (
+                <div key={msg.id || i} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}`}>
+                  {isWinResult ? (
+                    <span className="mcs-msg-text">
+                      {renderWinResult(msg.win_result!)}
+                    </span>
+                  ) : isCardDeal ? (
                     <span className="mcs-msg-text">
                       {renderCardDeal(msg.phase!, msg.cards!)}
                     </span>
