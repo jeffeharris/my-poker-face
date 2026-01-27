@@ -64,6 +64,12 @@ export function MobileChatSheet({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const tabContentRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Drag-to-dismiss state (refs to avoid re-renders during drag)
+  const dragStartY = useRef(0);
+  const dragCurrentY = useRef(0);
+  const isDragging = useRef(false);
 
   // Track whether the sheet just opened vs already open
   const wasOpenRef = useRef(false);
@@ -100,6 +106,51 @@ export function MobileChatSheet({
       });
     }, 50);
   }, []);
+
+  const handleDragStart = useCallback((e: React.TouchEvent) => {
+    isDragging.current = true;
+    dragStartY.current = e.touches[0].clientY;
+    dragCurrentY.current = 0;
+    if (sheetRef.current) {
+      sheetRef.current.style.transition = 'none';
+    }
+  }, []);
+
+  const handleDragMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging.current) return;
+    const delta = e.touches[0].clientY - dragStartY.current;
+    // Only allow dragging downward
+    dragCurrentY.current = Math.max(0, delta);
+    if (sheetRef.current) {
+      sheetRef.current.style.transform = `translateY(${dragCurrentY.current}px)`;
+    }
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    const threshold = sheet.offsetHeight * 0.3;
+    if (dragCurrentY.current > threshold) {
+      // Dismiss — animate out from current position
+      sheet.style.transition = 'transform 0.25s ease-in';
+      sheet.style.transform = 'translateY(100%)';
+      setTimeout(() => {
+        sheet.style.transition = '';
+        sheet.style.transform = '';
+        onClose();
+      }, 250);
+    } else {
+      // Snap back
+      sheet.style.transition = 'transform 0.2s ease-out';
+      sheet.style.transform = 'translateY(0)';
+      setTimeout(() => {
+        sheet.style.transition = '';
+      }, 200);
+    }
+  }, [onClose]);
 
   const handleClose = () => {
     setIsClosing(true);
@@ -142,14 +193,20 @@ export function MobileChatSheet({
       onClick={handleClose}
     >
       <div
+        ref={sheetRef}
         className={`mcs-sheet ${isClosing ? 'mcs-sheet-closing' : ''}`}
         onClick={e => e.stopPropagation()}
       >
-        {/* Header with drag handle centered in row */}
-        <div className="mcs-header">
+        {/* Header with drag handle at very top */}
+        <div
+          className="mcs-header"
+          onTouchStart={handleDragStart}
+          onTouchMove={handleDragMove}
+          onTouchEnd={handleDragEnd}
+        >
+          <div className="mcs-drag-handle" />
           <div className="mcs-header-row">
             <h3 className="mcs-title">Chat</h3>
-            <div className="mcs-drag-handle" />
             <button className="mcs-close-btn" onClick={handleClose} aria-label="Close chat">
               <X size={20} />
             </button>
