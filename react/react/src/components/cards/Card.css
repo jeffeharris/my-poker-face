@@ -66,6 +66,11 @@
     height: 127px;
 }
 
+.playing-card.image-card.xlarge {
+    width: 110px;
+    height: 160px;
+}
+
 /* Card Sizes */
 .playing-card.small {
     width: 52px;
@@ -176,6 +181,12 @@
 .playing-card.card-back.large {
     width: 88px;
     height: 127px;
+    padding-bottom: 0;
+}
+
+.playing-card.card-back.xlarge {
+    width: 110px;
+    height: 160px;
     padding-bottom: 0;
 }
 
@@ -357,26 +368,35 @@
         font-size: 11px;
     }
 
-    /* Image card responsive sizes - sized to fit 5 community cards on mobile */
+    /* Image card responsive sizes - relative widths for consistent scaling
+       Hierarchy: small (10vw) < medium (14vw) < large (18vw) < xlarge (22vw)
+       Community cards use medium, showdown cards use large, player hole cards use xlarge */
     .playing-card.image-card.xsmall {
-        width: 38px;
-        height: 55px;
+        width: 8vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
     }
 
     .playing-card.image-card.small {
-        width: 50px;
-        height: 72px;
+        width: 10vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
     }
 
     .playing-card.image-card.medium {
-        width: 60px;
-        height: 87px;
+        width: 14vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
     }
 
-    /* Large cards (community cards) - calc to fit 5 cards with gaps on mobile */
-    /* Formula: (100vw - 32px padding - 24px gaps) / 5 = ~15vw per card */
     .playing-card.image-card.large {
-        width: min(17vw, 80px);
+        width: 18vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
+    }
+
+    .playing-card.image-card.xlarge {
+        width: 22vw;
         height: auto;
         aspect-ratio: 500 / 726;
     }
@@ -412,25 +432,35 @@
 
     /* Card back responsive sizes - match image card sizes */
     .playing-card.card-back.xsmall {
-        width: 38px;
-        height: 55px;
+        width: 8vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
         padding-bottom: 0;
     }
 
     .playing-card.card-back.small {
-        width: 50px;
-        height: 72px;
+        width: 10vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
         padding-bottom: 0;
     }
 
     .playing-card.card-back.medium {
-        width: 60px;
-        height: 87px;
+        width: 14vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
         padding-bottom: 0;
     }
 
     .playing-card.card-back.large {
-        width: min(17vw, 80px);
+        width: 18vw;
+        height: auto;
+        aspect-ratio: 500 / 726;
+        padding-bottom: 0;
+    }
+
+    .playing-card.card-back.xlarge {
+        width: 22vw;
         height: auto;
         aspect-ratio: 500 / 726;
         padding-bottom: 0;

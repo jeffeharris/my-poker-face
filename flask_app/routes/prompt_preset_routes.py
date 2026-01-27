@@ -159,6 +159,13 @@ def update_prompt_preset(preset_id: int):
                 'error': f'Preset with ID {preset_id} not found'
             }), 404
 
+        # System presets are managed by YAML config and cannot be edited
+        if existing.get('is_system'):
+            return jsonify({
+                'success': False,
+                'error': 'System presets cannot be edited (managed by config/game_modes.yaml)'
+            }), 403
+
         # Build update kwargs from provided fields
         update_kwargs = {}
         if 'name' in data:
@@ -217,6 +224,13 @@ def delete_prompt_preset(preset_id: int):
                 'success': False,
                 'error': f'Preset with ID {preset_id} not found'
             }), 404
+
+        # System presets are managed by YAML config and cannot be deleted
+        if existing.get('is_system'):
+            return jsonify({
+                'success': False,
+                'error': 'System presets cannot be deleted (managed by config/game_modes.yaml)'
+            }), 403
 
         deleted = persistence.delete_prompt_preset(preset_id)
 

@@ -98,6 +98,7 @@ class DecisionAnalysis:
     # Decision
     action_taken: Optional[str] = None
     raise_amount: Optional[int] = None
+    raise_amount_bb: Optional[float] = None  # BB amount when BB mode is active
 
     # Equity analysis
     equity: Optional[float] = None
@@ -184,6 +185,7 @@ class DecisionAnalyzer:
         num_opponents: int,
         action_taken: str,
         raise_amount: Optional[int] = None,
+        raise_amount_bb: Optional[float] = None,
         request_id: Optional[str] = None,
         capture_id: Optional[int] = None,
         player_position: Optional[str] = None,
@@ -207,7 +209,8 @@ class DecisionAnalyzer:
             player_stack: Player's remaining chips
             num_opponents: Number of opponents still in hand
             action_taken: The action the AI chose
-            raise_amount: Amount raised (if action is raise)
+            raise_amount: Amount raised in dollars (if action is raise)
+            raise_amount_bb: Amount raised in BB (if BB mode active)
             request_id: Link to api_usage table
             capture_id: Link to prompt_captures table
             player_position: Hero's table position (e.g., 'button', 'under_the_gun')
@@ -240,6 +243,7 @@ class DecisionAnalyzer:
             community_cards=json.dumps(community_cards) if community_cards else None,
             action_taken=action_taken,
             raise_amount=raise_amount,
+            raise_amount_bb=raise_amount_bb,
             analyzer_version=self.VERSION,
         )
 

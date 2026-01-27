@@ -1,6 +1,7 @@
 import { Settings } from 'lucide-react';
 import { PageLayout, PageHeader } from '../shared';
-import type { ProviderInfo, OpponentLLMConfig } from '../../types/llm';
+import type { ProviderInfo, OpponentLLMConfig, OpponentConfig } from '../../types/llm';
+import { GAME_MODES } from '../../constants/gameModes';
 import './OpponentConfigScreen.css';
 
 interface OpponentConfigScreenProps {
@@ -8,8 +9,9 @@ interface OpponentConfigScreenProps {
   providers: ProviderInfo[];
   providersLoading: boolean;
   defaultConfig: OpponentLLMConfig;
-  opponentConfigs: Record<string, OpponentLLMConfig>;
-  onConfigChange: (name: string, config: OpponentLLMConfig | null) => void;
+  defaultGameMode: string;
+  opponentConfigs: Record<string, OpponentConfig>;
+  onConfigChange: (name: string, config: OpponentConfig | null) => void;
   onBack: () => void;
 }
 
@@ -18,6 +20,7 @@ export function OpponentConfigScreen({
   providers,
   providersLoading,
   defaultConfig,
+  defaultGameMode,
   opponentConfigs,
   onConfigChange,
   onBack,
@@ -38,7 +41,7 @@ export function OpponentConfigScreen({
     return tier ? `${model} (${tier})` : model;
   };
 
-  const getEffectiveConfig = (opponentName: string): OpponentLLMConfig => {
+  const getEffectiveConfig = (opponentName: string): OpponentConfig => {
     return opponentConfigs[opponentName] || defaultConfig;
   };
 
@@ -55,7 +58,7 @@ export function OpponentConfigScreen({
         ? currentConfig.model
         : provider.default_model;
 
-      const newConfig: OpponentLLMConfig = {
+      const newConfig: OpponentConfig = {
         provider: newProvider,
         model: newModel,
       };
@@ -82,6 +85,24 @@ export function OpponentConfigScreen({
       ...currentConfig,
       reasoning_effort: newReasoning,
     });
+  };
+
+  const handleGameModeChange = (opponentName: string, newMode: string) => {
+    const currentConfig = getEffectiveConfig(opponentName);
+    if (newMode === '') {
+      // "Default" selected — remove game_mode override
+      const { game_mode: _, ...rest } = currentConfig;
+      // If nothing else is customized, reset entirely
+      const isDefault = rest.provider === defaultConfig.provider
+        && rest.model === defaultConfig.model
+        && (rest.reasoning_effort || 'minimal') === (defaultConfig.reasoning_effort || 'minimal');
+      onConfigChange(opponentName, isDefault ? null : rest);
+    } else {
+      onConfigChange(opponentName, {
+        ...currentConfig,
+        game_mode: newMode,
+      });
+    }
   };
 
   const handleResetToDefault = (opponentName: string) => {
@@ -126,6 +147,18 @@ export function OpponentConfigScreen({
                 </div>
 
                 <div className="opponent-settings">
+                  <span className="setting-label">Game Mode</span>
+                  <select
+                    className="setting-select"
+                    value={config.game_mode || ''}
+                    onChange={(e) => handleGameModeChange(opponentName, e.target.value)}
+                  >
+                    <option value="">Default ({defaultGameMode.charAt(0).toUpperCase() + defaultGameMode.slice(1)})</option>
+                    {GAME_MODES.map(gm => (
+                      <option key={gm.value} value={gm.value}>{gm.label}</option>
+                    ))}
+                  </select>
+
                   <span className="setting-label">Provider</span>
                   <select
                     className="setting-select"

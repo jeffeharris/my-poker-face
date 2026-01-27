@@ -14,14 +14,14 @@
   "control": {
     "label": "Minimal",
     "prompt_config": {
-      "use_minimal_prompt": true
+      "include_personality": false,
+      "use_simple_response_format": true
     }
   },
   "variants": [
     {
       "label": "Full-NoMind",
       "prompt_config": {
-        "use_minimal_prompt": false,
         "pot_odds": true,
         "hand_strength": true,
         "situational_guidance": true,
@@ -38,7 +38,6 @@
     {
       "label": "Full-WithMind",
       "prompt_config": {
-        "use_minimal_prompt": false,
         "pot_odds": true,
         "hand_strength": true,
         "situational_guidance": true,

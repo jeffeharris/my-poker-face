@@ -523,6 +523,13 @@
   color: var(--color-text-muted);
 }
 
+.ppm-tag--system {
+  background: rgba(99, 102, 241, 0.15);
+  color: rgb(165, 168, 255);
+  font-weight: 500;
+  cursor: default;
+}
+
 .ppm-preset__guidance {
   margin: 0;
   padding: var(--space-3);

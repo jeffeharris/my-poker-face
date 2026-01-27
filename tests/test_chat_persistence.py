@@ -363,6 +363,7 @@ class TestChatEndpoints(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.content = '''I've set up your experiment.
 <config_updates>{"name": "test_exp", "num_tournaments": 5}</config_updates>'''
+        mock_response.reasoning_content = None
         mock_llm_client.return_value.complete.return_value = mock_response
 
         with patch('flask_app.routes.experiment_routes.persistence', self.persistence):
@@ -388,6 +389,7 @@ class TestChatEndpoints(unittest.TestCase):
         """Test that chat endpoint persists session to database."""
         mock_response = MagicMock()
         mock_response.content = 'Here is my response.'
+        mock_response.reasoning_content = None
         mock_llm_client.return_value.complete.return_value = mock_response
 
         with patch('flask_app.routes.experiment_routes.persistence', self.persistence):

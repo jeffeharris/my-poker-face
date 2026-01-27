@@ -59,6 +59,17 @@
   white-space: nowrap;
 }
 
+.setting-label--warn {
+  color: var(--color-warning, #e5a54b);
+}
+
+.setting-warn {
+  font-family: var(--font-body);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning, #e5a54b);
+  padding: var(--space-1) 0;
+}
+
 .setting-select {
   width: 100%;
   min-height: 40px;

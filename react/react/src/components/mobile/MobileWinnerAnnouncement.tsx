@@ -78,14 +78,12 @@ const LOSER_TONES: ToneOption[] = [
 
 export function MobileWinnerAnnouncement({
     winnerInfo,
-    commentary = [],
     onComplete,
     gameId,
     playerName,
     onSendMessage,
 }: MobileWinnerAnnouncementProps) {
     const [showCards, setShowCards] = useState(false);
-    const [, setVisibleComments] = useState<CommentaryItem[]>([]);
 
     // Post-round chat state
     const [suggestions, setSuggestions] = useState<PostRoundSuggestion[]>([]);
@@ -155,32 +153,9 @@ export function MobileWinnerAnnouncement({
         // Stay in interacting mode - they might pick another tone
     };
 
-    // Handle comment TTL expiration
-    useEffect(() => {
-        if (commentary.length === 0) return;
-
-        setVisibleComments(prev => {
-            const existingIds = new Set(prev.map(c => c.id));
-            const newComments = commentary.filter(c => !existingIds.has(c.id));
-            return [...prev, ...newComments];
-        });
-
-        const timers = commentary.map(comment => {
-            const elapsed = Date.now() - comment.timestamp;
-            const remaining = Math.max(0, comment.ttl - elapsed);
-
-            return setTimeout(() => {
-                setVisibleComments(prev => prev.filter(c => c.id !== comment.id));
-            }, remaining);
-        });
-
-        return () => timers.forEach(t => clearTimeout(t));
-    }, [commentary]);
-
     useEffect(() => {
         if (winnerInfo) {
             setShowCards(false);
-            setVisibleComments([]);
             setSuggestions([]);
             setMessageSent(false);
             setIsInteracting(false);
@@ -327,7 +302,7 @@ export function MobileWinnerAnnouncement({
                                                             key={i}
                                                             card={card}
                                                             faceDown={false}
-                                                            size="small"
+                                                            size="large"
                                                         />
                                                     ))}
                                                 </div>

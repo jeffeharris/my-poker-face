@@ -4,7 +4,8 @@ import { config } from '../../config';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { OpponentConfigScreen } from './OpponentConfigScreen';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
-import type { OpponentLLMConfig } from '../../types/llm';
+import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
+import { GAME_MODES } from '../../constants/gameModes';
 import './CustomGameConfig.css';
 
 interface Personality {
@@ -32,7 +33,8 @@ interface LLMConfig {
 interface CustomGameConfigProps {
   onStartGame: (
     selectedPersonalities: Array<string | { name: string; llm_config: OpponentLLMConfig }>,
-    llmConfig: LLMConfig
+    llmConfig: LLMConfig,
+    gameMode: string
   ) => void;
   onBack: () => void;
   isCreatingGame?: boolean;
@@ -59,14 +61,17 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const [defaultReasoning, setDefaultReasoning] = useState('minimal');
 
   // Per-opponent LLM configuration
-  const [opponentConfigs, setOpponentConfigs] = useState<Record<string, OpponentLLMConfig>>({});
+  const [opponentConfigs, setOpponentConfigs] = useState<Record<string, OpponentConfig>>({});
   const [showConfigScreen, setShowConfigScreen] = useState(false);
 
   // Game configuration state
   const [stackOptions] = useState([1000, 2500, 5000, 10000, 20000]);
   const [blindOptions] = useState([10, 25, 50, 100, 200]);
-  const [startingStack, setStartingStack] = useState(10000);
-  const [bigBlind, setBigBlind] = useState(50);
+  const [startingStack, setStartingStack] = useState(5000);
+  const [bigBlind, setBigBlind] = useState(100);
+
+  // Game mode
+  const [defaultGameMode, setDefaultGameMode] = useState('casual');
 
   // Blind escalation settings
   const [blindGrowthOptions] = useState([1.25, 1.5, 2]);
@@ -74,7 +79,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const [maxBlindOptions] = useState([200, 500, 1000, 2000, 5000, 0]); // 0 = no limit
   const [blindGrowth, setBlindGrowth] = useState(1.5);
   const [blindsIncrease, setBlindsIncrease] = useState(6);
-  const [maxBlind, setMaxBlind] = useState(0); // no limit by default
+  const [maxBlind, setMaxBlind] = useState(1000);
 
   useEffect(() => {
     fetchPersonalities();
@@ -116,7 +121,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     }
   };
 
-  const handleOpponentConfigChange = (name: string, newConfig: OpponentLLMConfig | null) => {
+  const handleOpponentConfigChange = (name: string, newConfig: OpponentConfig | null) => {
     setOpponentConfigs(prev => {
       const next = { ...prev };
       if (newConfig === null) {
@@ -151,11 +156,16 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   const handleStartGame = () => {
     if (selectedPersonalities.length > 0) {
-      // Build personalities array with optional llm_config overrides
+      // Build personalities array with optional llm_config and game_mode overrides
       const personalities = selectedPersonalities.map(name => {
         const customConfig = opponentConfigs[name];
         if (customConfig) {
-          return { name, llm_config: customConfig };
+          const { game_mode, ...llm_config } = customConfig;
+          const entry: { name: string; llm_config: OpponentLLMConfig; game_mode?: string } = { name, llm_config };
+          if (game_mode) {
+            entry.game_mode = game_mode;
+          }
+          return entry;
         }
         return name;
       });
@@ -170,7 +180,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
         blinds_increase: blindsIncrease,
         max_blind: maxBlind
       };
-      onStartGame(personalities, llmConfig);
+      onStartGame(personalities, llmConfig, defaultGameMode);
     }
   };
 
@@ -198,6 +208,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
           model: defaultModel,
           reasoning_effort: defaultReasoning,
         }}
+        defaultGameMode={defaultGameMode}
         opponentConfigs={opponentConfigs}
         onConfigChange={handleOpponentConfigChange}
         onBack={() => setShowConfigScreen(false)}
@@ -270,6 +281,26 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
             >
               {maxBlindOptions.map(cap => (
                 <option key={cap} value={cap}>{cap === 0 ? 'No cap' : cap.toLocaleString()}</option>
+              ))}
+            </select>
+
+            {startingStack < bigBlind * 10 && (
+              <>
+                <span className="setting-label setting-label--warn">Note</span>
+                <span className="setting-warn">
+                  Short stack — less than 10× big blind. Games may end quickly.
+                </span>
+              </>
+            )}
+
+            <span className="setting-label">Game Mode</span>
+            <select
+              className="setting-select"
+              value={defaultGameMode}
+              onChange={(e) => setDefaultGameMode(e.target.value)}
+            >
+              {GAME_MODES.map(gm => (
+                <option key={gm.value} value={gm.value}>{gm.label} — {gm.description}</option>
               ))}
             </select>
           </div>

@@ -18,15 +18,9 @@ from typing import Optional
 
 import yaml
 
+from poker.db_utils import get_default_db_path
+
 logger = logging.getLogger(__name__)
-
-
-def get_default_db_path() -> str:
-    """Get the default database path based on environment."""
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    # Local development
-    return str(Path(__file__).parent.parent / 'poker_games.db')
 
 
 def get_default_config_path() -> str:

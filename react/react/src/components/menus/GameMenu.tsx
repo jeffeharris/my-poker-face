@@ -155,6 +155,10 @@ export interface QuickPlayConfig {
   mode: 'lightning' | '1v1' | 'random';
   opponents: number;
   startingBB: number;
+  gameMode: string;
+  blindGrowth: number;
+  blindsIncrease: number;
+  maxBlind: number;
 }
 
 interface GameMenuProps {
@@ -212,7 +216,7 @@ export function GameMenu({
             <div className="quick-play-section__buttons">
               <button
                 className="quick-play-btn quick-play-btn--lightning"
-                onClick={() => onQuickPlay({ mode: 'lightning', opponents: 5, startingBB: 10 })}
+                onClick={() => onQuickPlay({ mode: 'lightning', opponents: 5, startingBB: 10, gameMode: 'competitive', blindGrowth: 2, blindsIncrease: 4, maxBlind: 800 })}
                 disabled={isCreatingGame}
                 {...getHoverHandlers('lightning')}
               >
@@ -223,7 +227,7 @@ export function GameMenu({
 
               <button
                 className="quick-play-btn quick-play-btn--1v1"
-                onClick={() => onQuickPlay({ mode: '1v1', opponents: 1, startingBB: 20 })}
+                onClick={() => onQuickPlay({ mode: '1v1', opponents: 1, startingBB: 20, gameMode: 'competitive', blindGrowth: 1.5, blindsIncrease: 6, maxBlind: 0 })}
                 disabled={isCreatingGame}
                 {...getHoverHandlers('1v1')}
               >
@@ -234,7 +238,7 @@ export function GameMenu({
 
               <button
                 className="quick-play-btn quick-play-btn--random"
-                onClick={() => onQuickPlay({ mode: 'random', opponents: 4, startingBB: 20 })}
+                onClick={() => onQuickPlay({ mode: 'random', opponents: 4, startingBB: 20, gameMode: 'casual', blindGrowth: 1.25, blindsIncrease: 8, maxBlind: 0 })}
                 disabled={isCreatingGame}
                 {...getHoverHandlers('random')}
               >

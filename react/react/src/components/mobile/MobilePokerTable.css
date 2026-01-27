@@ -175,8 +175,17 @@
     min-height: 33dvh;
     max-height: 33dvh;
     align-items: center;
-    justify-content: center; /* Center opponents when they fit */
+    /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
+    justify-content: flex-start;
     box-sizing: border-box;
+}
+
+/* Spacers that auto-expand to center content when it fits, collapse when it overflows */
+.mobile-opponents::before,
+.mobile-opponents::after {
+    content: '';
+    flex: 1 0 0;
+    min-width: 0;
 }
 
 .mobile-opponents::-webkit-scrollbar {
@@ -508,7 +517,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 0 16px;
+    padding: 0 8px;
     height: 23dvh;
     min-height: 23dvh;
     max-height: 23dvh;
@@ -520,13 +529,14 @@
     grid-template-columns: repeat(5, 1fr);
     gap: 6px;
     width: 100%;
-    padding: 0 8px;
+    padding: 0 4px;
     box-sizing: border-box;
 }
 
 /* Community cards fill grid cell, constrained by section height */
 .community-cards-row .playing-card.image-card,
 .community-cards-row .playing-card.card-back {
+    box-sizing: border-box !important;
     width: 100% !important;
     height: auto !important;
     max-height: 26dvh;
@@ -539,14 +549,44 @@
     object-fit: contain;
 }
 
+/* Community card slot - stacks placeholder and card */
+.community-card-slot {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 500 / 726;
+}
+
 /* Community card placeholder - fills grid cell */
 .community-card-placeholder {
     width: 100%;
-    max-height: 26dvh;
-    aspect-ratio: 500 / 726;
+    height: 100%;
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed rgba(255, 255, 255, 0.2);
     border-radius: 6px;
+    box-sizing: border-box;
+    transition: opacity 0.3s ease-out;
+}
+
+.community-card-placeholder.hidden {
+    opacity: 0;
+}
+
+.community-card-placeholder.fade-out-delayed {
+    animation: placeholderFadeOut 0.4s ease-out both;
+}
+
+@keyframes placeholderFadeOut {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* Card overlay - positioned on top of placeholder */
+.community-card-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
 }
 
 
@@ -850,6 +890,44 @@
 }
 
 /* =================================
+   TWO OPPONENTS MODE
+   When 2 AI opponents remain (3 players)
+   ================================= */
+
+.mobile-opponents.two-opponents-mode {
+  justify-content: center;
+  gap: 12px;
+  overflow-x: hidden; /* No scrolling needed with 2 opponents */
+  /* Constrain total width so opponents share fixed space */
+  max-width: 88vw;
+  margin: 0 auto;
+  padding-left: 6vw;
+  padding-right: 6vw;
+}
+
+/* Disable centering spacers in two-opponents mode */
+.mobile-opponents.two-opponents-mode::before,
+.mobile-opponents.two-opponents-mode::after {
+  display: none;
+}
+
+/* Flexible avatars that share the space */
+.mobile-opponent.two-opponents-avatar {
+  /* Remove fixed width, use flex to share space */
+  width: auto;
+  min-width: 0;
+  flex: 1 1 40%;
+  max-width: 48%;
+  transition: flex 0.4s ease-out, max-width 0.4s ease-out;
+}
+
+/* When thinking, take more space (other shrinks to accommodate) */
+.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar.thinking {
+  flex: 1.5 1 50%;
+  max-width: 58%;
+}
+
+/* =================================
    HEADS-UP MODE
    When only 1 AI opponent remains
    ================================= */
@@ -861,16 +939,86 @@
   overflow-x: hidden; /* No scrolling needed in heads-up */
 }
 
-/* Wider avatar in heads-up mode */
-.mobile-opponent.heads-up-avatar {
-  width: 55vw;
-  min-width: 55vw;
-  transition: width 0.4s ease-out, min-width 0.4s ease-out;
+/* Disable centering spacers in heads-up mode - panel takes the space instead */
+.mobile-opponents.heads-up-mode::before,
+.mobile-opponents.heads-up-mode::after {
+  display: none;
 }
 
-/* When thinking in heads-up, don't expand further */
+/* Avatar and panel share space via flex */
+.mobile-opponent.heads-up-avatar {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 45%;
+  max-width: 45%;
+  transition: flex 0.3s ease-out, max-width 0.3s ease-out;
+}
+
+/* When thinking, grow slightly but leave room for panel */
 .mobile-opponents.heads-up-mode .mobile-opponent.heads-up-avatar.thinking {
-  width: 55vw;
-  min-width: 55vw;
+  flex: 0 0 50%;
+  max-width: 50%;
+}
+
+/* =================================
+   REVEALED CARDS DURING RUN-IT-OUT
+   Cards slide out below opponent
+   ================================= */
+
+.opponent-revealed-cards {
+  position: absolute;
+  bottom: -2.5dvh; /* Position below the opponent card */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  z-index: 20;
+  animation: revealCardsSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Stack cards with heavy overlap */
+.opponent-revealed-cards .playing-card {
+  margin-left: -10vw;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(212, 165, 116, 0.3);
+  border: 1px solid rgba(212, 165, 116, 0.4);
+}
+
+.opponent-revealed-cards .playing-card:first-child {
+  margin-left: 0;
+}
+
+/* Cards inherit size from Card.css - using 'large' (18vw) which is bigger than community cards (14vw) */
+
+@keyframes revealCardsSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+/* Community card deal-in animation - slides from off-screen left across the felt.
+   Duration set inline per card for proportional velocity (further cards take longer). */
+@keyframes communityCardDealIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-100vw) translateY(-8vw) rotate(-3deg) scale(0.95);
+    filter: blur(0.5px);
+  }
+  20% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  75% {
+    /* Slight overshoot past landing position for natural feel */
+    transform: translateX(4px) translateY(0) rotate(0deg) scale(1);
+  }
+  100% {
+    transform: translateX(0) translateY(0) rotate(0deg) scale(1);
+  }
 }
 

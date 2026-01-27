@@ -173,6 +173,7 @@ class TestExperimentRoutes(unittest.TestCase):
         # Mock LLM response
         mock_response = MagicMock()
         mock_response.content = "I can help you design an experiment. What would you like to test?"
+        mock_response.reasoning_content = None
         mock_llm_client.return_value.complete.return_value = mock_response
 
         response = self.client.post(
@@ -199,6 +200,7 @@ class TestExperimentRoutes(unittest.TestCase):
         mock_response.content = '''Here's a suggested config for your experiment.
 <config_updates>{"name": "model_comparison", "num_tournaments": 5}</config_updates>
 This will compare model performance over 5 tournaments.'''
+        mock_response.reasoning_content = None
         mock_llm_client.return_value.complete.return_value = mock_response
 
         response = self.client.post(
