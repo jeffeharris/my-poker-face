@@ -12,7 +12,14 @@ interface Theme {
   name: string;
   description: string;
   icon: LucideIcon;
-  personalities?: string[];
+  personalities?: Array<string | { name: string; game_mode?: string }>;
+  themeDescription?: string;
+  game_mode?: string;
+  starting_stack?: number;
+  big_blind?: number;
+  blind_growth?: number;
+  blinds_increase?: number;
+  max_blind?: number;
 }
 
 interface ThemedGameSelectorProps {
@@ -75,10 +82,17 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
 
       const data = await response.json();
 
-      // Add the generated personalities to the theme
+      // Add the generated personalities and game settings to the theme
       const themedGame = {
         ...theme,
-        personalities: data.personalities
+        personalities: data.personalities,
+        themeDescription: data.description,
+        game_mode: data.game_mode,
+        starting_stack: data.starting_stack,
+        big_blind: data.big_blind,
+        blind_growth: data.blind_growth,
+        blinds_increase: data.blinds_increase,
+        max_blind: data.max_blind,
       };
 
       await onSelectTheme(themedGame);

@@ -29,7 +29,14 @@ interface Theme {
   name: string;
   description: string;
   icon: LucideIcon;
-  personalities?: string[];
+  personalities?: Array<string | { name: string; game_mode?: string }>;
+  themeDescription?: string;
+  game_mode?: string;
+  starting_stack?: number;
+  big_blind?: number;
+  blind_growth?: number;
+  blinds_increase?: number;
+  max_blind?: number;
 }
 
 // Route titles for document.title
@@ -58,6 +65,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
+  const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
 
   // Update player name when user changes
   useEffect(() => {
@@ -225,6 +233,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     if (!theme.personalities) return;
     if (isCreatingGame) return;
     setIsCreatingGame(true);
+    if (theme.themeDescription) {
+      setLoadingSubmessage(theme.themeDescription);
+    }
 
     try {
       let response: Response;
@@ -237,7 +248,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           },
           body: JSON.stringify({
             playerName,
-            personalities: theme.personalities
+            personalities: theme.personalities,
+            game_mode: theme.game_mode,
+            starting_stack: theme.starting_stack,
+            big_blind: theme.big_blind,
+            blind_growth: theme.blind_growth,
+            blinds_increase: theme.blinds_increase,
+            max_blind: theme.max_blind,
           }),
         });
       } catch {
@@ -261,6 +278,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       navigate(`/game/${data.game_id}`);
     } finally {
       setIsCreatingGame(false);
+      setLoadingSubmessage('Preparing the table and seating your opponents');
     }
   };
 
@@ -371,7 +389,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       {isCreatingGame && (
         <LoadingOverlay
           message="Setting up your game..."
-          submessage="Preparing the table and seating your opponents"
+          submessage={loadingSubmessage}
         />
       )}
 

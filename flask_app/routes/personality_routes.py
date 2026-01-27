@@ -281,9 +281,56 @@ def update_reference_image(name):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _validate_theme_game_settings(settings: dict) -> dict:
+    """Clamp LLM-generated game settings to valid ranges."""
+    validated = {}
+    if 'description' in settings and isinstance(settings['description'], str):
+        validated['description'] = settings['description'][:200]
+    if 'game_mode' in settings:
+        mode = str(settings['game_mode']).lower()
+        # Never allow pro mode from themed games
+        if mode in ('casual', 'standard', 'competitive'):
+            validated['game_mode'] = mode
+    if 'starting_stack' in settings:
+        validated['starting_stack'] = max(500, min(20000, int(settings['starting_stack'])))
+    if 'big_blind' in settings:
+        validated['big_blind'] = max(10, min(200, int(settings['big_blind'])))
+    if 'blind_growth' in settings:
+        growth = float(settings['blind_growth'])
+        valid_growths = [1.25, 1.5, 2]
+        validated['blind_growth'] = min(valid_growths, key=lambda x: abs(x - growth))
+    if 'blinds_increase' in settings:
+        increase = int(settings['blinds_increase'])
+        valid_increases = [4, 6, 8, 10]
+        validated['blinds_increase'] = min(valid_increases, key=lambda x: abs(x - increase))
+    if 'max_blind' in settings:
+        validated['max_blind'] = max(0, min(5000, int(settings['max_blind'])))
+    return validated
+
+
+def _validate_theme_personalities(personalities_list: list, personality_sample: list) -> list:
+    """Validate LLM-returned personalities, supporting both string and object formats."""
+    ALLOWED_PLAYER_MODES = {'casual', 'standard', 'competitive'}
+    valid = []
+    personality_set = set(personality_sample)
+    for p in personalities_list:
+        if isinstance(p, str):
+            if p in personality_set:
+                valid.append(p)
+        elif isinstance(p, dict):
+            name = p.get('name', '')
+            if name in personality_set:
+                entry = {'name': name}
+                mode = str(p.get('game_mode', '')).lower()
+                if mode in ALLOWED_PLAYER_MODES:
+                    entry['game_mode'] = mode
+                valid.append(entry)
+    return valid
+
+
 @personality_bp.route('/api/generate-theme', methods=['POST'])
 def generate_theme():
-    """Generate a themed game with appropriate personalities."""
+    """Generate a themed game with appropriate personalities and game settings."""
     try:
         data = request.json
         theme = data.get('theme')
@@ -293,30 +340,75 @@ def generate_theme():
         if not theme:
             return jsonify({'error': 'Theme is required'}), 400
 
-        all_personalities = list(get_celebrities())
+        # Load personality names from database (source of truth), fall back to hardcoded list
+        db_personalities = persistence.list_personalities(limit=200)
+        if db_personalities:
+            all_personalities = [p['name'] for p in db_personalities]
+        else:
+            all_personalities = list(get_celebrities())
         sample_size = min(100, len(all_personalities))
         personality_sample = random.sample(all_personalities, sample_size)
 
-        prompt = f"""Given these available personalities: {', '.join(personality_sample)}
+        prompt = f"""You are designing a themed poker game: "{theme_name}" - {description}
 
-Please select 3-5 personalities that would fit the theme: "{theme_name}" - {description}
+Available personalities: {', '.join(personality_sample)}
 
-Selection criteria:
-- Choose personalities that match the theme
-- Create an interesting mix of personalities that would have fun dynamics
-- For "surprise" theme, pick an eclectic, unexpected mix
-- Ensure good variety in play styles
+Design a complete game setup. First, write a short punchy description of the game. Then pick 3-5 personalities and choose game settings that fit the theme.
 
-Return ONLY a JSON array of personality names, like:
-["Name1", "Name2", "Name3", "Name4"]
+Return a JSON object with this structure:
+{{
+  "description": "Short, punchy description of this game — one sentence, conversational tone",
+  "personalities": [
+    {{"name": "Name1", "game_mode": "casual|standard|competitive"}},
+    {{"name": "Name2", "game_mode": "casual|standard|competitive"}},
+    {{"name": "Name3"}}
+  ],
+  "game_mode": "casual|standard|competitive",
+  "starting_stack": <500-20000>,
+  "big_blind": <10-200>,
+  "blind_growth": <1.25|1.5|2>,
+  "blinds_increase": <4|6|8|10>,
+  "max_blind": <0-5000, 0 means no cap>
+}}
 
-No other text or explanation."""
+Example descriptions (match this tone — short, fun, direct):
+- "Mad scientists with deep pockets and slow blinds. Expect long, calculated battles."
+- "Trash-talking legends in a fast, brutal shootout. Don't blink."
+- "A chill game with history's biggest personalities. Sit back and enjoy the banter."
+- "Total chaos. Random cast, random settings. Good luck."
+
+Each personality can optionally have its own game_mode override. If omitted, the table-level game_mode applies.
+Mixing modes creates interesting dynamics — e.g., a competitive villain at a casual table.
+
+Example presets for reference:
+- Lightning (fast & intense): 500 stack, 50 blind, competitive, 2x growth, every 4 hands, 800 cap
+- 1v1 (heads-up duel): 1000 stack, 50 blind, competitive, 1.5x growth, every 6 hands, no cap
+- Classic (relaxed): 1000 stack, 50 blind, casual, 1.25x growth, every 8 hands, no cap
+
+Difficulty guidance:
+- Lower starting_stack relative to big_blind = harder, faster games
+- Higher blind_growth and lower blinds_increase = more pressure, quicker escalation
+- competitive mode = tougher AI opponents; casual = more personality-driven, forgiving play
+- standard mode = balanced middle ground
+
+Guidelines:
+- Choose personalities that match the theme and create interesting dynamics
+- For "surprise" theme, pick an eclectic, unexpected mix AND randomize the game settings too — make it unpredictable
+- Match game settings to the theme's energy:
+  - Action themes (villains, sports) → shorter stacks, faster blinds, competitive mode
+  - Cerebral themes (science, history) → deeper stacks, slower blinds, standard mode
+  - Fun/casual themes (comedy, music) → moderate stacks, casual mode
+  - Surprise → anything goes, be creative
+- Ensure good variety in play styles among the personalities
+- Do NOT use "pro" game mode — only casual, standard, or competitive
+
+Return ONLY the JSON object, no other text."""
 
         # Get owner_id for tracking
         current_user = auth_manager.get_current_user()
         owner_id = current_user.get('id') if current_user else None
 
-        client = LLMClient(model=config.FAST_AI_MODEL)
+        client = LLMClient(model=config.get_assistant_model(), provider=config.get_assistant_provider())
         messages = [
             {"role": "system", "content": "You are a game designer selecting personalities for themed poker games."},
             {"role": "user", "content": prompt}
@@ -338,20 +430,31 @@ No other text or explanation."""
                 if response_text.startswith('json'):
                     response_text = response_text[4:]
 
-            personalities = json.loads(response_text)
+            result = json.loads(response_text)
 
-            valid_personalities = []
-            for name in personalities:
-                if name in personality_sample:
-                    valid_personalities.append(name)
+            # Handle both old (array) and new (object) response formats
+            if isinstance(result, list):
+                personalities_list = result
+                game_settings = {}
+            else:
+                personalities_list = result.get('personalities', [])
+                game_settings = {
+                    k: result[k] for k in ('description', 'game_mode', 'starting_stack', 'big_blind', 'blind_growth', 'blinds_increase', 'max_blind')
+                    if k in result
+                }
+
+            valid_personalities = _validate_theme_personalities(personalities_list, personality_sample)
 
             if len(valid_personalities) < 3:
                 logger.warning(f"Theme generation returned insufficient valid personalities ({len(valid_personalities)}), using random fallback")
                 valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
 
+            game_settings = _validate_theme_game_settings(game_settings)
+
             return jsonify({
                 'success': True,
-                'personalities': valid_personalities[:5]
+                'personalities': valid_personalities[:5],
+                **game_settings
             })
 
         except json.JSONDecodeError as e:
