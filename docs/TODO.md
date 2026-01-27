@@ -64,6 +64,12 @@
 | Personality Matchups | Special interactions between specific personalities | 🔴 Open | Low | Trump vs Obama banter |
 | RAISE_WAR Detection | Detect 3+ raises in single betting round as problematic scenario | 🔴 Open | Medium | Requires cross-decision aggregation: group captures by (game_id, hand_number, phase), count raises per group. See docs/analysis/SCENARIO_QUERIES.md for detection logic. Threshold: 3+ raises = RAISE_WAR, 7+ = EXTREME_RAISE_WAR |
 
+## UI/UX Improvements
+
+| Enhancement | Description | Status | Priority | Notes |
+|-------------|-------------|--------|----------|-------|
+| Skip Winner Overlay for Blind Steals | Don't show winner announcement when someone raises and everyone folds (no voluntary action) | 🔴 Open | Medium | Plan in docs/plans/skip-winner-announcement-no-action.md |
+
 ## Testing Gaps
 
 | Test Area | Description | Status | Priority |
