@@ -35,8 +35,8 @@ class PromptConfig:
         situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
         gto_equity: Always show equity vs required equity comparison for all decisions
         gto_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
-        include_personality: Include personality system prompt (Phase 2 implementation)
-        use_simple_response_format: Use simple JSON response format (Phase 2 implementation)
+        include_personality: Include personality system prompt (when False, uses generic prompt)
+        use_simple_response_format: Use simple JSON response format instead of rich format
         guidance_injection: Extra text to append to decision prompts (for experiments)
     """
 
@@ -68,15 +68,10 @@ class PromptConfig:
     gto_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
     use_enhanced_ranges: bool = True   # Use PFR/action-based range estimation (vs VPIP-only)
 
-    # Minimal prompt mode - strips everything to bare game state
-    # When True, uses minimal_prompt.py instead of full prompt system
-    # Disables personality, psychology, guidance - just pure game theory inputs
-    use_minimal_prompt: bool = False
-
-    # Personality toggle (Phase 2 implementation - field added now for config readiness)
+    # Personality toggle — when False, uses a generic system prompt instead of personality
     include_personality: bool = True
 
-    # Response format toggle (Phase 2 implementation - field added now for config readiness)
+    # Response format toggle
     # When True, expect simple {"action": "...", "raise_to": ...} instead of rich format
     use_simple_response_format: bool = False
 
@@ -121,6 +116,12 @@ class PromptConfig:
             data['gto_verdict'] = data.pop('show_equity_verdict')
         elif 'show_equity_verdict' in data:
             data.pop('show_equity_verdict')
+
+        # Migrate use_minimal_prompt -> include_personality + use_simple_response_format
+        if 'use_minimal_prompt' in data:
+            if data.pop('use_minimal_prompt'):
+                data.setdefault('include_personality', False)
+                data.setdefault('use_simple_response_format', True)
 
         # Get known field names
         known_fields = {f.name for f in fields(cls)}

@@ -30,7 +30,7 @@ class TestPromptConfig(unittest.TestCase):
         config = PromptConfig()
         d = config.to_dict()
 
-        self.assertEqual(len(d), 20)  # 18 bool + 1 int + 1 str
+        self.assertEqual(len(d), 19)  # 17 bool + 1 int + 1 str
         self.assertIn('pot_odds', d)
         self.assertIn('mind_games', d)
         self.assertIn('persona_response', d)
@@ -171,7 +171,6 @@ class TestPromptConfig(unittest.TestCase):
             use_dollar_amounts=True,
             gto_equity=True,
             gto_verdict=True,
-            use_minimal_prompt=True,
             use_simple_response_format=True,
         )
         self.assertIn('all enabled', repr(config))

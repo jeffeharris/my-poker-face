@@ -160,7 +160,8 @@ Control which information is included in AI decision prompts:
 | `gto_equity` | false | Show equity comparison (vs random + vs opponent ranges) for all decisions |
 | `gto_verdict` | false | Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct") |
 | `use_enhanced_ranges` | true | Use PFR/action-based range estimation (vs simpler VPIP-only) |
-| `use_minimal_prompt` | false | Strip to bare game state only (no personality, psychology, or guidance) |
+| `include_personality` | true | Include personality system prompt (set to false for baseline testing) |
+| `use_simple_response_format` | false | Use simple JSON response format instead of rich format |
 
 ---
 

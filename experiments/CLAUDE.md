@@ -50,6 +50,27 @@ python -m experiments.resume_stalled -e <experiment_id> -g <game_id>
 python -m experiments.resume_stalled -e <experiment_id> --list --threshold 10
 ```
 
+## Prompt Config & A/B Testing
+
+Experiments control AI behavior through `PromptConfig` toggles in `prompt_config` sections. Key toggles:
+
+| Toggle | Default | What it controls |
+|--------|---------|-----------------|
+| `include_personality` | `true` | Personality system prompt (false = generic poker player) |
+| `use_simple_response_format` | `false` | Simple `{"action", "raise_to"}` JSON vs rich format |
+| `pot_odds` | `true` | Pot odds guidance in prompt |
+| `hand_strength` | `true` | Hand strength evaluation |
+| `gto_equity` | `false` | Equity vs random + opponent ranges |
+| `gto_verdict` | `false` | Explicit +EV/-EV verdict |
+| `situational_guidance` | `true` | Coaching (pot-committed, short-stack, made hand) |
+
+To run a baseline test (no personality, simple format):
+```json
+{"prompt_config": {"include_personality": false, "use_simple_response_format": true}}
+```
+
+See `experiments/README.md` for full config reference, A/B testing structure, game modes, cost estimation, and querying results.
+
 ## Key Files
 
 | File | Purpose |
@@ -58,9 +79,11 @@ python -m experiments.resume_stalled -e <experiment_id> --list --threshold 10
 | `pause_coordinator.py` | Pause/resume coordination across threads |
 | `resume_stalled.py` | CLI for detecting and resuming stalled variants |
 | `run_from_config.py` | Run experiments from JSON config files |
+| `run_minimal_prompt_test.py` | Quick baseline prompt test script |
 | `variant_config.py` | Variant configuration utilities |
 | `configs/` | Example experiment configuration files |
 | `results/` | Default output directory for tournament results |
+| `README.md` | Full documentation (config reference, A/B testing, cost estimation) |
 
 ## Architecture
 

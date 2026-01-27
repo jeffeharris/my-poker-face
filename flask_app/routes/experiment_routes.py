@@ -844,7 +844,6 @@ Compare stripped-down prompts to full prompts with all features:
   "control": {
     "label": "Full Prompts",
     "prompt_config": {
-      "use_minimal_prompt": false,
       "gto_equity": true,
       "gto_verdict": true
     }
@@ -853,7 +852,8 @@ Compare stripped-down prompts to full prompts with all features:
     {
       "label": "Minimal Prompts",
       "prompt_config": {
-        "use_minimal_prompt": true
+        "include_personality": false,
+        "use_simple_response_format": true
       }
     }
   ]
@@ -905,7 +905,8 @@ All boolean options (default true unless specified):
 - gto_equity: Show equity comparison (vs random + vs opponent ranges) for all decisions
 - gto_verdict: Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct")
 - use_enhanced_ranges: Use PFR/action-based range estimation vs VPIP-only (default true)
-- use_minimal_prompt: Strip to bare game state only - no personality, psychology, or guidance (default false)
+- include_personality: Include personality system prompt (default true). Set to false for baseline testing.
+- use_simple_response_format: Use simple JSON response format instead of rich format (default false)
 
 ## Guidelines
 

@@ -14,7 +14,8 @@
   "control": {
     "label": "Minimal-Only",
     "prompt_config": {
-      "use_minimal_prompt": true,
+      "include_personality": false,
+      "use_simple_response_format": true,
       "gto_equity": false,
       "gto_verdict": false
     }
@@ -23,7 +24,8 @@
     {
       "label": "Minimal+Equity",
       "prompt_config": {
-        "use_minimal_prompt": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
         "pot_odds": true,
         "hand_strength": true,
         "gto_equity": true,
@@ -42,7 +44,8 @@
     {
       "label": "Minimal+Equity+Verdict",
       "prompt_config": {
-        "use_minimal_prompt": false,
+        "include_personality": false,
+        "use_simple_response_format": true,
         "pot_odds": true,
         "hand_strength": true,
         "gto_equity": true,

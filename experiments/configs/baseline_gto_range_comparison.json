@@ -19,7 +19,7 @@
     "label": "Enhanced-Ranges",
     "description": "GTO baseline with PFR, action context, and aggression-adjusted range estimation",
     "prompt_config": {
-      "use_minimal_prompt": false,
+
       "pot_odds": true,
       "hand_strength": true,
       "gto_equity": true,
@@ -41,7 +41,7 @@
       "label": "VPIP-Only-Ranges",
       "description": "GTO baseline with original VPIP-only range estimation",
       "prompt_config": {
-        "use_minimal_prompt": false,
+  
         "pot_odds": true,
         "hand_strength": true,
         "gto_equity": true,

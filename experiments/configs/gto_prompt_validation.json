@@ -74,7 +74,8 @@
       "label": "Minimal Prompt",
       "description": "Stripped down to bare game state only",
       "prompt_config": {
-        "use_minimal_prompt": true
+        "include_personality": false,
+        "use_simple_response_format": true
       }
     }
   ]

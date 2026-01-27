@@ -127,80 +127,62 @@ The UI displays version and hash for each template.
 
 ---
 
-## Minimal Prompt System
+## Personality and Response Format Toggles
 
-An alternative to the full template system is the **minimal prompt**, which bypasses all YAML templates and provides only essential game state information.
+The unified prompt system supports baseline testing through `PromptConfig` toggles, without separate code paths.
 
 ### Purpose
 
-The minimal prompt serves as a baseline for:
-1. Testing pure model poker ability without personality/psychology overhead
-2. A/B testing to measure the impact of prompt additions
-3. Comparing different LLM models on identical, simple prompts
+Baseline testing serves to:
+1. Test pure model poker ability without personality/psychology overhead
+2. A/B test the impact of prompt additions
+3. Compare different LLM models on identical prompts
 
 ### Enabling
 
-Set `use_minimal_prompt: true` in PromptConfig:
+Set `include_personality` and `use_simple_response_format` in PromptConfig:
 
 ```python
-prompt_config = PromptConfig(use_minimal_prompt=True)
+# Baseline mode (no personality, simple JSON response)
+prompt_config = PromptConfig(include_personality=False, use_simple_response_format=True)
 ```
 
 Or in experiment config JSON:
 ```json
 {
   "prompt_config": {
-    "use_minimal_prompt": true
+    "include_personality": false,
+    "use_simple_response_format": true
   }
 }
 ```
 
-### Format
+### How It Works
 
-The minimal prompt uses BB-normalized values and standard poker terminology:
+All prompt modes use the same `decide_action()` code path:
+- `build_base_game_state()` always produces BB-normalized game state
+- `_build_decision_prompt()` conditionally includes pot odds, coaching, GTO via YAML templates
+- `_get_ai_decision()` swaps system prompt if `include_personality=False`
+- `_normalize_response()` sets defaults for missing rich fields when `use_simple_response_format=True`
 
-```
-You are playing No-Limit Texas Hold'em.
+### Response Format (Simple)
 
-Hand: Ah Kd
-Board: Js 7c 2h
-Street: Flop
-
-Position: CO
-Stack: 94.0 BB
-
-Pot: 7.0 BB
-To call: 3.0 BB
-Min raise to: 6.0 BB
-
-Players behind: BTN (102.0 BB), SB (45.0 BB)
-
-Respond in JSON. Valid actions:
-{"action": "fold"}
-{"action": "call"}
-{"action": "raise", "raise_to": <6.0-94.0>}
-```
-
-### Response Format
-
-Simple JSON with action and optional raise amount:
+When `use_simple_response_format=True`:
 ```json
 {"action": "raise", "raise_to": 12}
 ```
 
-### What's Excluded
+### What's Controlled
 
-When minimal prompt is enabled, the following are bypassed:
-- All YAML templates (poker_player.yaml, decision.yaml, etc.)
-- Personality traits and personas
-- Psychological state (tilt, emotions)
-- Situational guidance (pot_committed, short_stack, made_hand)
-- Session memory and opponent modeling
-- Table talk and persona responses
+| Toggle | What it disables |
+|--------|-----------------|
+| `include_personality=False` | Personality system prompt, replaced with generic poker player prompt |
+| `use_simple_response_format=True` | Rich response format (dramatic_sequence, inner_monologue, etc.) |
+| Other `PromptConfig` flags | Pot odds, hand strength, memory, psychology, coaching, etc. |
 
 ### Files
 
-- `poker/minimal_prompt.py` - Core implementation (BB normalization, position mapping, parsing)
-- `poker/controllers.py` - `_decide_action_minimal()` method
-- `experiments/run_minimal_prompt_test.py` - Test script
-- `experiments/configs/minimal_prompt_test.json` - Example config
+- `poker/controllers.py` - `build_base_game_state()`, personality toggle in `_get_ai_decision()`
+- `poker/prompt_config.py` - `include_personality`, `use_simple_response_format` toggles
+- `poker/minimal_prompt.py` - Utility functions (position mapping, BB conversion)
+- `experiments/configs/minimal_prompt_test.json` - Example baseline config
