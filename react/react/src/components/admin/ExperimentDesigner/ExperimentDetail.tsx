@@ -215,15 +215,12 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   }, [fetchExperiment]);
 
   // Auto-refresh for running experiments
-  // Note: experimentId is stable, so fetchExperiment reference is stable
-  // Only re-run effect when status changes to avoid multiple intervals
   useEffect(() => {
     if (experiment?.status !== 'running') return;
 
     const interval = setInterval(fetchExperiment, 5000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [experiment?.status, experimentId]);
+  }, [experiment?.status, fetchExperiment]);
 
   // Check for stalled variants periodically while running
   useEffect(() => {
@@ -238,8 +235,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     // Check every 30 seconds
     const interval = setInterval(fetchStalledVariants, 30000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [experiment?.status, experimentId]);
+  }, [experiment?.status, fetchStalledVariants]);
 
 
   const handlePause = async () => {
