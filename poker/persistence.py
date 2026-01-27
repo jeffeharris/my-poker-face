@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # v51: Add stack_bb and already_bet_bb to prompt_captures for auto-labels
 # v52: Add RBAC tables (groups, user_groups, permissions, group_permissions)
 # v53: Add AI decision resilience columns to prompt_captures (parent_id, error_type, correction_attempt)
-SCHEMA_VERSION = 53
+# v54: Squashed features - heartbeat tracking, outcome columns, system presets
+SCHEMA_VERSION = 54
 
 
 @dataclass
@@ -753,7 +754,8 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)")
 
-            # 28. Prompt presets (v47) - Saved, reusable prompt configurations
+            # 28. Prompt presets (v47, v57) - Saved, reusable prompt configurations
+            # v57 adds is_system column for built-in game mode presets
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_presets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -762,6 +764,7 @@ class GamePersistence:
                     prompt_config TEXT,
                     guidance_injection TEXT,
                     owner_id TEXT,
+                    is_system BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -952,6 +955,7 @@ class GamePersistence:
             51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
             52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
             53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
+            54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
         }
 
         with sqlite3.connect(self.db_path) as conn:
@@ -2575,6 +2579,124 @@ class GamePersistence:
             logger.info("Added correction_attempt column to prompt_captures")
 
         logger.info("Migration v53 complete: AI decision resilience columns added to prompt_captures")
+
+    def _migrate_v54_squashed_features(self, conn: sqlite3.Connection) -> None:
+        """Migration v54: Squashed features from baseline-prompt branch.
+
+        Combines multiple migrations into one:
+        - experiment_games: heartbeat tracking columns
+        - tournament_standings: outcome columns, times_eliminated, all_in tracking
+        - prompt_presets: is_system column and system presets (casual, standard, pro, competitive)
+        """
+        # === Heartbeat tracking columns (experiment_games) ===
+        experiment_games_cols = [
+            ("state", "TEXT DEFAULT 'idle'"),
+            ("last_heartbeat_at", "TIMESTAMP"),
+            ("last_api_call_started_at", "TIMESTAMP"),
+            ("process_id", "INTEGER"),
+            ("resume_lock_acquired_at", "TIMESTAMP"),
+        ]
+
+        for col_name, col_def in experiment_games_cols:
+            try:
+                conn.execute(f"ALTER TABLE experiment_games ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to experiment_games")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in experiment_games")
+                else:
+                    raise
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_experiment_games_state_heartbeat
+            ON experiment_games(state, last_heartbeat_at)
+        """)
+
+        # === Outcome and tracking columns (tournament_standings) ===
+        tournament_standings_cols = [
+            ("final_stack", "INTEGER"),
+            ("hands_won", "INTEGER"),
+            ("hands_played", "INTEGER"),
+            ("times_eliminated", "INTEGER"),
+            ("all_in_wins", "INTEGER"),
+            ("all_in_losses", "INTEGER"),
+        ]
+
+        for col_name, col_def in tournament_standings_cols:
+            try:
+                conn.execute(f"ALTER TABLE tournament_standings ADD COLUMN {col_name} {col_def}")
+                logger.info(f"Added {col_name} column to tournament_standings")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.debug(f"Column {col_name} already exists in tournament_standings")
+                else:
+                    raise
+
+        # === System presets (prompt_presets) ===
+        try:
+            conn.execute("ALTER TABLE prompt_presets ADD COLUMN is_system BOOLEAN DEFAULT FALSE")
+            logger.info("Added is_system column to prompt_presets")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                logger.debug("Column is_system already exists in prompt_presets")
+            else:
+                raise
+
+        system_presets = [
+            {
+                'name': 'casual',
+                'description': 'Casual mode - personality-driven fun poker with full expressiveness',
+                'prompt_config': {},
+            },
+            {
+                'name': 'standard',
+                'description': 'Standard mode - balanced personality with GTO awareness (shows equity comparisons)',
+                'prompt_config': {'show_equity_always': True},
+            },
+            {
+                'name': 'pro',
+                'description': 'Pro mode - GTO-focused analytical poker with explicit equity verdicts',
+                'prompt_config': {
+                    'show_equity_always': True,
+                    'show_equity_verdict': True,
+                    'chattiness': False,
+                    'persona_response': False,
+                },
+            },
+            {
+                'name': 'competitive',
+                'description': 'Competitive mode - full GTO guidance with personality and trash talk',
+                'prompt_config': {
+                    'show_equity_always': True,
+                    'show_equity_verdict': True,
+                },
+            },
+        ]
+
+        for preset in system_presets:
+            try:
+                conn.execute("""
+                    INSERT INTO prompt_presets (name, description, prompt_config, is_system, owner_id)
+                    VALUES (?, ?, ?, TRUE, 'system')
+                """, (
+                    preset['name'],
+                    preset['description'],
+                    json.dumps(preset['prompt_config']),
+                ))
+                logger.info(f"Created system preset '{preset['name']}'")
+            except sqlite3.IntegrityError:
+                conn.execute("""
+                    UPDATE prompt_presets
+                    SET description = ?, prompt_config = ?, is_system = TRUE, owner_id = 'system'
+                    WHERE name = ?
+                """, (
+                    preset['description'],
+                    json.dumps(preset['prompt_config']),
+                    preset['name'],
+                ))
+                logger.info(f"Updated existing preset '{preset['name']}' as system preset")
+
+        logger.info("Migration v54 complete: squashed features added")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4244,15 +4366,22 @@ class GamePersistence:
                 conn.execute("""
                     INSERT OR REPLACE INTO tournament_standings
                     (game_id, player_name, is_human, finishing_position,
-                     eliminated_by, eliminated_at_hand)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                     eliminated_by, eliminated_at_hand, final_stack, hands_won, hands_played,
+                     times_eliminated, all_in_wins, all_in_losses)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     game_id,
                     standing.get('player_name'),
                     standing.get('is_human', False),
                     standing.get('finishing_position'),
                     standing.get('eliminated_by'),
-                    standing.get('eliminated_at_hand')
+                    standing.get('eliminated_at_hand'),
+                    standing.get('final_stack'),
+                    standing.get('hands_won'),
+                    standing.get('hands_played'),
+                    standing.get('times_eliminated', 0),
+                    standing.get('all_in_wins', 0),
+                    standing.get('all_in_losses', 0),
                 ))
 
     def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
@@ -5686,6 +5815,179 @@ class GamePersistence:
                 for row in cursor.fetchall()
             ]
 
+    def update_experiment_game_heartbeat(
+        self,
+        game_id: str,
+        state: str,
+        api_call_started: bool = False,
+        process_id: Optional[int] = None
+    ) -> None:
+        """Update heartbeat for an experiment game.
+
+        Args:
+            game_id: The game ID (tournament_id)
+            state: Current state ('idle', 'calling_api', 'processing')
+            api_call_started: If True, also update last_api_call_started_at
+            process_id: Optional process ID to record
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            if api_call_started:
+                conn.execute("""
+                    UPDATE experiment_games
+                    SET state = ?,
+                        last_heartbeat_at = CURRENT_TIMESTAMP,
+                        last_api_call_started_at = CURRENT_TIMESTAMP,
+                        process_id = COALESCE(?, process_id)
+                    WHERE game_id = ?
+                """, (state, process_id, game_id))
+            else:
+                conn.execute("""
+                    UPDATE experiment_games
+                    SET state = ?,
+                        last_heartbeat_at = CURRENT_TIMESTAMP,
+                        process_id = COALESCE(?, process_id)
+                    WHERE game_id = ?
+                """, (state, process_id, game_id))
+
+    def get_stalled_variants(
+        self,
+        experiment_id: int,
+        threshold_minutes: int = 5
+    ) -> List[Dict]:
+        """Get variants that appear to be stalled.
+
+        A variant is considered stalled if:
+        - state='calling_api' AND last_api_call_started_at < (NOW - threshold)
+        - state='processing' AND last_heartbeat_at < (NOW - threshold)
+        - NOT in tournament_results (not completed)
+
+        Args:
+            experiment_id: The experiment ID
+            threshold_minutes: Minutes of inactivity before considered stalled
+
+        Returns:
+            List of stalled variant records
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
+                       eg.tournament_number, eg.state, eg.last_heartbeat_at,
+                       eg.last_api_call_started_at, eg.process_id, eg.resume_lock_acquired_at
+                FROM experiment_games eg
+                WHERE eg.experiment_id = ?
+                  AND eg.state IN ('calling_api', 'processing')
+                  AND (
+                      (eg.state = 'calling_api'
+                       AND eg.last_api_call_started_at < datetime('now', ? || ' minutes'))
+                      OR
+                      (eg.state = 'processing'
+                       AND eg.last_heartbeat_at < datetime('now', ? || ' minutes'))
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tournament_results tr
+                      WHERE tr.game_id = eg.game_id
+                  )
+                ORDER BY eg.last_heartbeat_at
+            """, (experiment_id, -threshold_minutes, -threshold_minutes))
+
+            return [
+                {
+                    'id': row[0],
+                    'game_id': row[1],
+                    'variant': row[2],
+                    'variant_config': json.loads(row[3]) if row[3] else None,
+                    'tournament_number': row[4],
+                    'state': row[5],
+                    'last_heartbeat_at': row[6],
+                    'last_api_call_started_at': row[7],
+                    'process_id': row[8],
+                    'resume_lock_acquired_at': row[9],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    # Resume lock timeout in minutes - lock expires after this period
+    RESUME_LOCK_TIMEOUT_MINUTES = 5
+
+    def acquire_resume_lock(self, experiment_game_id: int) -> bool:
+        """Attempt to acquire a resume lock on an experiment game.
+
+        Uses pessimistic locking to prevent race conditions when resuming.
+        Lock expires after RESUME_LOCK_TIMEOUT_MINUTES.
+
+        Args:
+            experiment_game_id: The experiment_games.id
+
+        Returns:
+            True if lock was acquired, False if already locked
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(f"""
+                UPDATE experiment_games
+                SET resume_lock_acquired_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                  AND (resume_lock_acquired_at IS NULL
+                       OR resume_lock_acquired_at < datetime('now', '-{self.RESUME_LOCK_TIMEOUT_MINUTES} minutes'))
+            """, (experiment_game_id,))
+            return cursor.rowcount == 1
+
+    def release_resume_lock(self, game_id: str) -> None:
+        """Release the resume lock for a game.
+
+        Args:
+            game_id: The game_id to release lock for
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE experiment_games
+                SET resume_lock_acquired_at = NULL
+                WHERE game_id = ?
+            """, (game_id,))
+
+    def release_resume_lock_by_id(self, experiment_game_id: int) -> None:
+        """Release the resume lock by experiment_games.id.
+
+        Args:
+            experiment_game_id: The experiment_games.id to release lock for
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE experiment_games
+                SET resume_lock_acquired_at = NULL
+                WHERE id = ?
+            """, (experiment_game_id,))
+
+    def check_resume_lock_superseded(self, game_id: str) -> bool:
+        """Check if this process has been superseded by a resume.
+
+        A process is superseded if resume_lock_acquired_at > last_heartbeat_at,
+        meaning another process has claimed the resume lock after our last heartbeat.
+
+        Args:
+            game_id: The game_id to check
+
+        Returns:
+            True if superseded (should exit), False otherwise
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT resume_lock_acquired_at, last_heartbeat_at
+                FROM experiment_games
+                WHERE game_id = ?
+            """, (game_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            resume_lock, last_heartbeat = row
+            if not resume_lock:
+                return False
+            if not last_heartbeat:
+                return True  # No heartbeat but lock exists = superseded
+
+            # Compare timestamps
+            return resume_lock > last_heartbeat
+
     def get_experiment_decision_stats(
         self,
         experiment_id: int,
@@ -6386,11 +6688,89 @@ class GamePersistence:
                     'total_hands': total_hands_for_cost,
                 }
 
+                # 5. Quality indicators from player_decision_analysis + prompt_captures
+                # Detect degenerate play patterns with improved all-in detection
+                cursor = conn.execute(f"""
+                    SELECT
+                        SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                        SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                        SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                        COUNT(*) as total_decisions
+                    FROM player_decision_analysis pda
+                    JOIN experiment_games eg ON pda.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                qi_row = cursor.fetchone()
+
+                # Query all-ins with AI response data for smarter categorization
+                # Join prompt_captures to get bluff_likelihood, hand_strength, stack_bb
+                cursor = conn.execute(f"""
+                    SELECT
+                        pc.stack_bb,
+                        pc.ai_response,
+                        pda.equity
+                    FROM prompt_captures pc
+                    JOIN experiment_games eg ON pc.game_id = eg.game_id
+                    LEFT JOIN player_decision_analysis pda
+                        ON pc.game_id = pda.game_id
+                        AND pc.hand_number = pda.hand_number
+                        AND pc.player_name = pda.player_name
+                        AND pc.phase = pda.phase
+                    WHERE eg.experiment_id = ? {variant_clause}
+                      AND pc.action_taken = 'all_in'
+                """, [experiment_id] + variant_params)
+
+                # Use shared categorization logic
+                from poker.quality_metrics import compute_allin_categorizations
+                suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
+
+                # 6. Survival metrics from tournament_standings
+                cursor = conn.execute(f"""
+                    SELECT
+                        SUM(COALESCE(ts.times_eliminated, 0)) as total_eliminations,
+                        SUM(COALESCE(ts.all_in_wins, 0)) as total_all_in_wins,
+                        SUM(COALESCE(ts.all_in_losses, 0)) as total_all_in_losses,
+                        COUNT(*) as total_standings
+                    FROM tournament_standings ts
+                    JOIN experiment_games eg ON ts.game_id = eg.game_id
+                    WHERE eg.experiment_id = ? {variant_clause}
+                """, [experiment_id] + variant_params)
+                survival_row = cursor.fetchone()
+
+                quality_indicators = None
+                if qi_row and qi_row[3] > 0:  # total_decisions > 0 (now at index 3)
+                    fold_mistakes = qi_row[0] or 0
+                    total_all_ins = qi_row[1] or 0
+                    total_folds = qi_row[2] or 0
+                    total_decisions = qi_row[3]
+
+                    # Survival metrics
+                    total_eliminations = survival_row[0] or 0 if survival_row else 0
+                    total_all_in_wins = survival_row[1] or 0 if survival_row else 0
+                    total_all_in_losses = survival_row[2] or 0 if survival_row else 0
+                    total_all_in_showdowns = total_all_in_wins + total_all_in_losses
+
+                    quality_indicators = {
+                        'suspicious_allins': suspicious_allins,
+                        'marginal_allins': marginal_allins,
+                        'fold_mistakes': fold_mistakes,
+                        'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+                        'total_all_ins': total_all_ins,
+                        'total_folds': total_folds,
+                        'total_decisions': total_decisions,
+                        # Survival metrics
+                        'total_eliminations': total_eliminations,
+                        'all_in_wins': total_all_in_wins,
+                        'all_in_losses': total_all_in_losses,
+                        'all_in_survival_rate': round(total_all_in_wins * 100 / total_all_in_showdowns, 1) if total_all_in_showdowns > 0 else None,
+                    }
+
                 result['by_variant'][variant_key] = {
                     'latency_metrics': latency_metrics,
                     'decision_quality': decision_quality,
                     'progress': progress,
                     'cost_metrics': cost_metrics,
+                    'quality_indicators': quality_indicators,
                 }
 
             # Compute overall stats
@@ -6474,11 +6854,63 @@ class GamePersistence:
                 'total_hands': overall_total_hands,
             }
 
+            # Overall quality indicators from player_decision_analysis + prompt_captures
+            cursor = conn.execute("""
+                SELECT
+                    SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
+                    SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
+                    SUM(CASE WHEN action_taken = 'fold' THEN 1 ELSE 0 END) as total_folds,
+                    COUNT(*) as total_decisions
+                FROM player_decision_analysis pda
+                JOIN experiment_games eg ON pda.game_id = eg.game_id
+                WHERE eg.experiment_id = ?
+            """, (experiment_id,))
+            overall_qi_row = cursor.fetchone()
+
+            # Query all-ins for smarter categorization (overall)
+            cursor = conn.execute("""
+                SELECT
+                    pc.stack_bb,
+                    pc.ai_response,
+                    pda.equity
+                FROM prompt_captures pc
+                JOIN experiment_games eg ON pc.game_id = eg.game_id
+                LEFT JOIN player_decision_analysis pda
+                    ON pc.game_id = pda.game_id
+                    AND pc.hand_number = pda.hand_number
+                    AND pc.player_name = pda.player_name
+                    AND pc.phase = pda.phase
+                WHERE eg.experiment_id = ?
+                  AND pc.action_taken = 'all_in'
+            """, (experiment_id,))
+
+            # Use shared categorization logic
+            from poker.quality_metrics import compute_allin_categorizations
+            overall_suspicious_allins, overall_marginal_allins = compute_allin_categorizations(cursor.fetchall())
+
+            overall_quality_indicators = None
+            if overall_qi_row and overall_qi_row[3] > 0:  # total_decisions at index 3
+                fold_mistakes = overall_qi_row[0] or 0
+                total_all_ins = overall_qi_row[1] or 0
+                total_folds = overall_qi_row[2] or 0
+                total_decisions = overall_qi_row[3]
+
+                overall_quality_indicators = {
+                    'suspicious_allins': overall_suspicious_allins,
+                    'marginal_allins': overall_marginal_allins,
+                    'fold_mistakes': fold_mistakes,
+                    'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+                    'total_all_ins': total_all_ins,
+                    'total_folds': total_folds,
+                    'total_decisions': total_decisions,
+                }
+
             result['overall'] = {
                 'latency_metrics': overall_latency,
                 'decision_quality': overall_decision_quality,
                 'progress': overall_progress_result,
                 'cost_metrics': overall_cost_metrics,
+                'quality_indicators': overall_quality_indicators,
             }
 
             return result
@@ -6986,7 +7418,7 @@ class GamePersistence:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
-                       owner_id, created_at, updated_at
+                       owner_id, is_system, created_at, updated_at
                 FROM prompt_presets
                 WHERE id = ?
             """, (preset_id,))
@@ -6999,6 +7431,7 @@ class GamePersistence:
                     'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
                     'guidance_injection': row['guidance_injection'],
                     'owner_id': row['owner_id'],
+                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                 }
@@ -7017,7 +7450,7 @@ class GamePersistence:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT id, name, description, prompt_config, guidance_injection,
-                       owner_id, created_at, updated_at
+                       owner_id, is_system, created_at, updated_at
                 FROM prompt_presets
                 WHERE name = ?
             """, (name,))
@@ -7030,6 +7463,7 @@ class GamePersistence:
                     'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
                     'guidance_injection': row['guidance_injection'],
                     'owner_id': row['owner_id'],
+                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                 }
@@ -7052,20 +7486,21 @@ class GamePersistence:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             if owner_id:
+                # Include system presets for all users, plus user's own presets
                 cursor = conn.execute("""
                     SELECT id, name, description, prompt_config, guidance_injection,
-                           owner_id, created_at, updated_at
+                           owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
-                    WHERE owner_id = ? OR owner_id IS NULL
-                    ORDER BY updated_at DESC
+                    WHERE owner_id = ? OR owner_id IS NULL OR is_system = TRUE
+                    ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
                 """, (owner_id, limit))
             else:
                 cursor = conn.execute("""
                     SELECT id, name, description, prompt_config, guidance_injection,
-                           owner_id, created_at, updated_at
+                           owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
-                    ORDER BY updated_at DESC
+                    ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
                 """, (limit,))
 
@@ -7077,6 +7512,7 @@ class GamePersistence:
                     'prompt_config': json.loads(row['prompt_config']) if row['prompt_config'] else None,
                     'guidance_injection': row['guidance_injection'],
                     'owner_id': row['owner_id'],
+                    'is_system': bool(row['is_system']) if row['is_system'] is not None else False,
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                 }

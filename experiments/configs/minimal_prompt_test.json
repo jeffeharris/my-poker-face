@@ -1,0 +1,31 @@
+{
+  "name": "minimal_prompt_baseline",
+  "description": "Test the minimal prompt system with pure game state, no personality/psychology",
+  "hypothesis": "AI can make reasonable poker decisions with only essential game state information",
+  "tags": ["minimal-prompt", "baseline", "test"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 10,
+  "num_players": 3,
+  "starting_stack": 1000,
+  "big_blind": 20,
+  "model": "gpt-4o-mini",
+  "provider": "openai",
+  "personalities": ["Player 1", "Player 2", "Player 3"],
+  "control": {
+    "label": "Minimal Prompt",
+    "prompt_config": {
+      "use_minimal_prompt": true,
+      "pot_odds": false,
+      "hand_strength": false,
+      "session_memory": false,
+      "opponent_intel": false,
+      "strategic_reflection": false,
+      "chattiness": false,
+      "emotional_state": false,
+      "tilt_effects": false,
+      "mind_games": false,
+      "persona_response": false,
+      "situational_guidance": false
+    }
+  }
+}

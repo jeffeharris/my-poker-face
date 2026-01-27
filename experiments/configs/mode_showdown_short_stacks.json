@@ -1,0 +1,20 @@
+{
+  "name": "mode_showdown_short_stacks",
+  "description": "All 4 game modes compete at the same table with 15bb stacks",
+  "num_tournaments": 10,
+  "hands_per_tournament": 100,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "starting_stack": 750,
+  "big_blind": 50,
+  "model": "llama-3.3-70b-versatile",
+  "provider": "groq",
+  "parallel_tournaments": 5,
+  "stagger_start_delay": 2,
+  "personalities": [
+    {"name": "Batman", "game_mode": "casual"},
+    {"name": "Gordon Ramsay", "game_mode": "standard"},
+    {"name": "Daniel Negreanu", "game_mode": "pro"},
+    {"name": "Deadpool", "game_mode": "competitive"}
+  ]
+}

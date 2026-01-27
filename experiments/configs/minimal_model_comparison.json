@@ -1,0 +1,48 @@
+{
+  "name": "minimal_model_comparison",
+  "description": "Compare different models using the minimal prompt (pure game state, no guidance)",
+  "hypothesis": "Different models have different baseline poker abilities with minimal context",
+  "tags": ["minimal-prompt", "model-comparison", "baseline"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 15,
+  "num_players": 4,
+  "starting_stack": 2000,
+  "big_blind": 40,
+  "capture_prompts": true,
+  "random_seed": 42,
+  "parallel_tournaments": 4,
+  "control": {
+    "label": "GPT-5-nano",
+    "model": "gpt-5-nano",
+    "provider": "openai",
+    "prompt_config": {
+      "use_minimal_prompt": true
+    }
+  },
+  "variants": [
+    {
+      "label": "Llama-8B",
+      "model": "llama-3.1-8b-instant",
+      "provider": "groq",
+      "prompt_config": {
+        "use_minimal_prompt": true
+      }
+    },
+    {
+      "label": "Gemini-Flash",
+      "model": "gemini-2.0-flash",
+      "provider": "google",
+      "prompt_config": {
+        "use_minimal_prompt": true
+      }
+    },
+    {
+      "label": "Grok-4-Fast",
+      "model": "grok-4-fast",
+      "provider": "xai",
+      "prompt_config": {
+        "use_minimal_prompt": true
+      }
+    }
+  ]
+}

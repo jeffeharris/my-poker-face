@@ -4,10 +4,13 @@ Pressure Event Statistics Tracking.
 This module tracks and aggregates pressure events for analytics and fun stats.
 """
 
+import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -211,7 +214,7 @@ class PressureStatsTracker:
                     )
                 except Exception as e:
                     # Log error but don't fail - maintain backward compatibility
-                    print(f"Failed to save pressure event to database: {e}")
+                    logger.warning(f"Failed to save pressure event to database: {e}")
     
     def get_player_stats(self, player_name: str) -> Dict[str, Any]:
         """Get stats for a specific player."""
@@ -331,4 +334,4 @@ class PressureStatsTracker:
                     )
                     
         except Exception as e:
-            print(f"Failed to load pressure events from database: {e}")
+            logger.warning(f"Failed to load pressure events from database: {e}")

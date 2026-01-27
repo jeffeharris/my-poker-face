@@ -153,6 +153,15 @@ Control which information is included in AI decision prompts:
 | `situational_guidance` | true | Coaching prompts (pot-committed, short-stack, made hand) |
 | `memory_keep_exchanges` | 0 | Conversation exchanges to retain |
 
+**GTO Foundation Options** (math-based decision support):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `show_equity_always` | false | Show equity comparison (vs random + vs opponent ranges) for all decisions |
+| `show_equity_verdict` | false | Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct") |
+| `use_enhanced_ranges` | true | Use PFR/action-based range estimation (vs simpler VPIP-only) |
+| `use_minimal_prompt` | false | Strip to bare game state only (no personality, psychology, or guidance) |
+
 ---
 
 ## A/B Testing
@@ -189,7 +198,8 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
 | Field | Required | Description |
 |-------|----------|-------------|
 | `label` | Yes | Display name in results |
-| `prompt_config` | No | Override prompt settings |
+| `game_mode` | No | Preset mode: `casual`, `standard`, `pro`, or `competitive` |
+| `prompt_config` | No | Override prompt settings (overrides game_mode) |
 | `enable_psychology` | No | Enable tilt/emotional state |
 | `enable_commentary` | No | Enable commentary generation |
 
@@ -202,7 +212,8 @@ This runs **5 tournaments with control** (using top-level model/provider) AND **
 | `label` | Yes | Display name in results |
 | `model` | No | Override model (inherits from experiment) |
 | `provider` | No | Override provider (inherits from experiment) |
-| `prompt_config` | No | Override prompt settings |
+| `game_mode` | No | Preset mode: `casual`, `standard`, `pro`, or `competitive` (inherits from control) |
+| `prompt_config` | No | Override prompt settings (overrides game_mode) |
 | `reasoning_effort` | No | Override reasoning level |
 | `enable_psychology` | No | Enable tilt/emotional state (inherits from control) |
 | `enable_commentary` | No | Enable commentary generation (inherits from control) |
@@ -274,6 +285,102 @@ Test the impact of coaching prompts (pot-committed, short-stack, made hand warni
     {
       "label": "No Coaching",
       "prompt_config": {"situational_guidance": false}
+    }
+  ]
+}
+```
+
+### Example: GTO Guidance Impact
+
+Test if showing equity calculations and verdicts reduces fold mistakes:
+
+```json
+{
+  "name": "gto_guidance_impact",
+  "description": "Test if GTO foundation reduces EV-losing decisions",
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "No GTO Guidance",
+    "prompt_config": {
+      "show_equity_always": false,
+      "show_equity_verdict": false
+    }
+  },
+  "variants": [
+    {
+      "label": "With GTO Guidance",
+      "prompt_config": {
+        "show_equity_always": true,
+        "show_equity_verdict": true
+      }
+    }
+  ]
+}
+```
+
+### Game Modes
+
+Instead of manually specifying `prompt_config` fields, you can use the `game_mode` preset:
+
+| Mode | Effect |
+|------|--------|
+| `casual` | Default PromptConfig (personality-driven fun poker) |
+| `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
+| `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `competitive` | `show_equity_always=true, show_equity_verdict=true` (full GTO guidance with personality and trash talk) |
+
+**Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
+
+**Priority**: Explicit `prompt_config` fields override `game_mode` settings
+
+### Example: Game Mode Comparison
+
+```json
+{
+  "name": "casual_vs_pro",
+  "description": "Compare personality-driven vs GTO-focused play",
+  "num_tournaments": 5,
+  "hands_per_tournament": 100,
+  "reset_on_elimination": true,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "Casual Mode",
+    "game_mode": "casual"
+  },
+  "variants": [
+    {
+      "label": "Pro Mode",
+      "game_mode": "pro"
+    },
+    {
+      "label": "Standard Mode",
+      "game_mode": "standard"
+    }
+  ]
+}
+```
+
+### Example: Game Mode with Custom Overrides
+
+You can combine `game_mode` with `prompt_config` to start from a preset and customize:
+
+```json
+{
+  "name": "pro_with_tilt",
+  "control": {
+    "label": "Pure Pro",
+    "game_mode": "pro"
+  },
+  "variants": [
+    {
+      "label": "Pro + Tilt Effects",
+      "game_mode": "pro",
+      "prompt_config": {"tilt_effects": true}
     }
   ]
 }
@@ -603,6 +710,24 @@ GROUP BY eg.variant, au.provider, au.model;
 
 ---
 
+## Experiment Statuses
+
+| Status | Description | Can Resume? |
+|--------|-------------|-------------|
+| `pending` | Created but not started | No |
+| `running` | Currently executing tournaments | No (pause first) |
+| `paused` | Manually paused by user | Yes |
+| `interrupted` | Server restarted while running | Yes |
+| `failed` | All tournaments failed (e.g., API errors, migration issues) | Yes |
+| `completed` | Finished successfully (at least one tournament completed) | No |
+
+**When does an experiment become `failed`?**
+- When ALL tournaments fail (none complete successfully)
+- Error message shows the first 3 failure reasons
+- Common causes: missing DB migrations, invalid API keys, rate limits on all providers
+
+---
+
 ## Troubleshooting
 
 ### Experiment Won't Start
@@ -646,6 +771,44 @@ conn.commit()
 # Then resume via API
 ```
 
+### Resuming Stalled Variants
+
+Experiments track heartbeats per variant. If a variant stops updating (API timeout, crash, etc.), it's detected as "stalled" after 5 minutes.
+
+**Via Web UI**:
+- Running experiments show a "Stalled" badge on affected variant cards
+- Click "Resume" button on the stalled variant card
+
+**Via CLI**:
+```bash
+# List stalled variants for an experiment
+python -m experiments.resume_stalled -e 42 --list
+
+# Resume all stalled variants
+python -m experiments.resume_stalled -e 42 --resume-all
+
+# Resume a specific variant by game_id
+python -m experiments.resume_stalled -e 42 -g <game_id>
+
+# Custom stall threshold (default: 5 minutes)
+python -m experiments.resume_stalled -e 42 --list --threshold 10
+```
+
+**Via API**:
+```bash
+# Get stalled variants
+curl http://localhost:5005/api/experiments/42/stalled?threshold_minutes=5
+
+# Resume a specific variant (game_id from stalled list)
+curl -X POST http://localhost:5005/api/experiments/42/variants/<variant_id>/resume
+```
+
+**How it works**:
+- Each variant updates a heartbeat before/after API calls
+- The system detects variants stuck in `calling_api` or `processing` state beyond the threshold
+- Resume uses pessimistic locking to prevent race conditions with the original process
+- If the original process is still alive, it exits gracefully when it detects it's been superseded
+
 ---
 
 ## Architecture
@@ -675,6 +838,7 @@ conn.commit()
 
 - `experiments/run_ai_tournament.py` - Main runner and config
 - `experiments/pause_coordinator.py` - Pause/resume coordination
+- `experiments/resume_stalled.py` - CLI for stalled variant detection and resume
 - `flask_app/routes/experiment_routes.py` - API endpoints
 - `poker/controllers.py` - AIPlayerController
 - `poker/player_psychology.py` - Tilt and emotional state

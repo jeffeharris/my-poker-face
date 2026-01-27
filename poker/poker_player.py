@@ -1,9 +1,12 @@
 import json
+import logging
 import random
 from typing import List, Dict, Optional
 from pathlib import Path
 
 from core.card import Card, CardSet
+
+logger = logging.getLogger(__name__)
 from core.llm import Assistant, LLMClient, CallType
 from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
@@ -439,7 +442,7 @@ class AIPokerPlayer(PokerPlayer):
                 player_response['hand_strategy'] = self.current_hand_strategy
                 
         except (json.JSONDecodeError, TypeError) as e:
-            print(f"Error decoding player response: {e}")
+            logger.warning(f"Error decoding player response: {e}")
             player_response = {"error": "Invalid response from assistant"}
         return player_response
 

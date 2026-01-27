@@ -83,6 +83,16 @@ interface ExperimentGame {
   created_at: string;
 }
 
+interface StalledVariant {
+  id: number;
+  game_id: string;
+  variant: string;
+  state: 'calling_api' | 'processing';
+  last_heartbeat_at: string;
+  last_api_call_started_at: string | null;
+  process_id: number | null;
+}
+
 interface DecisionStats {
   total: number;
   correct: number;
@@ -120,6 +130,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const [pauseRequested, setPauseRequested] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [failureDetailsExpanded, setFailureDetailsExpanded] = useState(true);
+  const [stalledVariants, setStalledVariants] = useState<StalledVariant[]>([]);
+  const [resumingVariants, setResumingVariants] = useState<Set<number>>(new Set());
 
 
   const fetchExperiment = useCallback(async () => {
@@ -153,21 +165,77 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     }
   }, [experimentId]);
 
+  // Fetch stalled variants for running experiments
+  const fetchStalledVariants = useCallback(async () => {
+    if (!experimentId) return;
+    try {
+      const response = await fetch(
+        `${config.API_URL}/api/experiments/${experimentId}/stalled?threshold_minutes=5`
+      );
+      const data = await response.json();
+      if (data.success) {
+        setStalledVariants(data.stalled_variants || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stalled variants:', err);
+    }
+  }, [experimentId]);
+
+  // Resume a stalled variant
+  const handleResumeVariant = async (variantId: number) => {
+    setResumingVariants((prev) => new Set(prev).add(variantId));
+    try {
+      const response = await fetch(
+        `${config.API_URL}/api/experiments/${experimentId}/variants/${variantId}/resume`,
+        { method: 'POST' }
+      );
+      const data = await response.json();
+      if (data.success) {
+        // Refresh stalled variants list
+        fetchStalledVariants();
+        fetchExperiment();
+      } else {
+        setError(data.error || 'Failed to resume variant');
+      }
+    } catch (err) {
+      console.error('Failed to resume variant:', err);
+      setError('Failed to resume variant');
+    } finally {
+      setResumingVariants((prev) => {
+        const next = new Set(prev);
+        next.delete(variantId);
+        return next;
+      });
+    }
+  };
+
   // Initial load
   useEffect(() => {
     fetchExperiment();
   }, [fetchExperiment]);
 
   // Auto-refresh for running experiments
-  // Note: experimentId is stable, so fetchExperiment reference is stable
-  // Only re-run effect when status changes to avoid multiple intervals
   useEffect(() => {
     if (experiment?.status !== 'running') return;
 
     const interval = setInterval(fetchExperiment, 5000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [experiment?.status, experimentId]);
+  }, [experiment?.status, fetchExperiment]);
+
+  // Check for stalled variants periodically while running
+  useEffect(() => {
+    if (experiment?.status !== 'running') {
+      setStalledVariants([]);
+      return;
+    }
+
+    // Initial fetch
+    fetchStalledVariants();
+
+    // Check every 30 seconds
+    const interval = setInterval(fetchStalledVariants, 30000);
+    return () => clearInterval(interval);
+  }, [experiment?.status, fetchStalledVariants]);
 
 
   const handlePause = async () => {
@@ -573,11 +641,12 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             )}
 
             {/* Surprises (new) or Key Findings (legacy) - only show if non-empty */}
-            {((summary.ai_interpretation.surprises?.length ?? 0) > 0 || (summary.ai_interpretation.key_findings?.length ?? 0) > 0) && (
+            {((Array.isArray(summary.ai_interpretation.surprises) && summary.ai_interpretation.surprises.length > 0) ||
+              (Array.isArray(summary.ai_interpretation.key_findings) && summary.ai_interpretation.key_findings.length > 0)) && (
               <div className="experiment-detail__ai-block">
                 <h4>
                   <Lightbulb size={14} />
-                  {summary.ai_interpretation.surprises ? 'Surprises' : 'Key Findings'}
+                  {Array.isArray(summary.ai_interpretation.surprises) && summary.ai_interpretation.surprises.length > 0 ? 'Surprises' : 'Key Findings'}
                 </h4>
                 <ul className="experiment-detail__ai-list">
                   {(summary.ai_interpretation.surprises || summary.ai_interpretation.key_findings || []).map((item, idx) => (
@@ -588,7 +657,8 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             )}
 
             {/* Next Steps (new) or Suggested Follow-ups (legacy) */}
-            {((summary.ai_interpretation.next_steps?.length ?? 0) > 0 || (summary.ai_interpretation.suggested_followups?.length ?? 0) > 0) && (
+            {((Array.isArray(summary.ai_interpretation.next_steps) && summary.ai_interpretation.next_steps.length > 0) ||
+              (Array.isArray(summary.ai_interpretation.suggested_followups) && summary.ai_interpretation.suggested_followups.length > 0)) && (
               <div className="experiment-detail__ai-block">
                 <h4>
                   <Target size={14} />
@@ -646,15 +716,37 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             {Object.entries(liveStats.by_variant).map(([label, variantLive]) => {
               // Get model info from summary if available
               const variantSummary = summary?.variants?.[label];
+              // Check if this variant is stalled
+              const stalledVariant = stalledVariants.find((sv) => sv.variant === label);
+              const isStalled = !!stalledVariant;
+              const isResuming = stalledVariant ? resumingVariants.has(stalledVariant.id) : false;
               return (
-                <div key={label} className="experiment-detail__variant-card">
+                <div key={label} className={`experiment-detail__variant-card${isStalled ? ' experiment-detail__variant-card--stalled' : ''}`}>
                   <div className="experiment-detail__variant-header">
                     <h4 className="experiment-detail__variant-label">{label}</h4>
-                    {variantSummary?.model_config && (
-                      <span className="experiment-detail__variant-model">
-                        {variantSummary.model_config.provider}/{variantSummary.model_config.model}
-                      </span>
-                    )}
+                    <div className="experiment-detail__variant-header-right">
+                      {isStalled && (
+                        <>
+                          <span className="experiment-detail__stalled-badge" title={`State: ${stalledVariant.state}, Last activity: ${stalledVariant.last_heartbeat_at}`}>
+                            <AlertTriangle size={12} /> Stalled
+                          </span>
+                          <button
+                            className="experiment-detail__resume-variant-btn"
+                            onClick={() => handleResumeVariant(stalledVariant.id)}
+                            disabled={isResuming}
+                            title="Resume this stalled variant"
+                          >
+                            {isResuming ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                            Resume
+                          </button>
+                        </>
+                      )}
+                      {variantSummary?.model_config && (
+                        <span className="experiment-detail__variant-model">
+                          {variantSummary.model_config.provider}/{variantSummary.model_config.model}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Progress Section */}
@@ -689,6 +781,38 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
                           ${variantLive.decision_quality.avg_ev_lost} EV
                         </span>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Quality Indicators Section */}
+                  {variantLive.quality_indicators && (
+                    <div className="experiment-detail__variant-section">
+                      <span className="experiment-detail__variant-section-label">Quality Indicators</span>
+                      <div className="experiment-detail__decision-row">
+                        <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.suspicious_allins > 0 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                          {variantLive.quality_indicators.suspicious_allins} Suspicious All-ins
+                        </span>
+                        <span className="experiment-detail__decision-metric">
+                          {variantLive.quality_indicators.marginal_allins} Marginal
+                        </span>
+                        <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.fold_mistake_rate > 50 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                          {variantLive.quality_indicators.fold_mistakes} Fold Mistakes
+                        </span>
+                      </div>
+                      {/* Survival Metrics */}
+                      {((variantLive.quality_indicators.total_eliminations ?? 0) > 0 ||
+                        (variantLive.quality_indicators.all_in_wins ?? 0) > 0 ||
+                        (variantLive.quality_indicators.all_in_losses ?? 0) > 0) && (
+                        <div className="experiment-detail__decision-row" style={{ marginTop: '4px' }}>
+                          <span className="experiment-detail__decision-metric">
+                            {variantLive.quality_indicators.total_eliminations ?? 0} Eliminations
+                          </span>
+                          <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.all_in_survival_rate != null && variantLive.quality_indicators.all_in_survival_rate < 40 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
+                            All-in: {variantLive.quality_indicators.all_in_wins ?? 0}W/{variantLive.quality_indicators.all_in_losses ?? 0}L
+                            {variantLive.quality_indicators.all_in_survival_rate != null && ` (${variantLive.quality_indicators.all_in_survival_rate}%)`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 

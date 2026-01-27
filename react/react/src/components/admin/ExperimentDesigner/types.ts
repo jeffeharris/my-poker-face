@@ -175,11 +175,30 @@ export interface CostMetrics {
 /**
  * Live stats for a single variant during experiment execution.
  */
+export interface QualityIndicators {
+  // Improved all-in detection (3-tier stack depth)
+  suspicious_allins: number;  // Confident trash shoves at >15BB
+  marginal_allins: number;    // Confident trash shoves at 11-15BB
+  // Fold mistakes
+  fold_mistakes: number;
+  fold_mistake_rate: number;
+  // Totals
+  total_all_ins: number;
+  total_folds: number;
+  total_decisions: number;
+  // Survival metrics
+  total_eliminations?: number;
+  all_in_wins?: number;
+  all_in_losses?: number;
+  all_in_survival_rate?: number | null;
+}
+
 export interface VariantLiveStats {
   latency_metrics: LatencyMetrics | null;
   decision_quality: DecisionQuality | null;
   progress: VariantProgress;
   cost_metrics: CostMetrics | null;
+  quality_indicators?: QualityIndicators | null;
 }
 
 /**
@@ -214,6 +233,7 @@ export interface VariantResultSummary {
     avg_ev_lost: number;
   };
   latency_metrics?: LatencyMetrics;
+  quality_indicators?: QualityIndicators;
 }
 
 export interface ExperimentResultSummary {
@@ -234,6 +254,8 @@ export interface ExperimentResultSummary {
   };
   // Per-variant stats for A/B testing experiments
   variants?: Record<string, VariantResultSummary>;
+  // Quality indicators for degenerate play detection
+  quality_indicators?: QualityIndicators;
   // Failed tournament details for failed experiments
   failed_tournaments?: FailedTournament[];
   total_failed?: number;

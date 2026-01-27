@@ -2,7 +2,9 @@
 
 import json
 import logging
+import os
 import re
+import sqlite3
 import threading
 import uuid
 from dataclasses import asdict
@@ -248,6 +250,10 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
         # Add per-variant stats if available
         if summary.get('variants'):
             results_context['results']['per_variant_stats'] = summary['variants']
+
+        # Add quality indicators if available (degenerate play detection)
+        if summary.get('quality_indicators'):
+            results_context['results']['quality_indicators'] = summary['quality_indicators']
 
         # Build messages array
         messages = [
@@ -578,15 +584,16 @@ For comparing models, prompts, or other configurations, use the control/variants
 
 - control: The baseline configuration (required for A/B tests)
   - label: Name shown in results (e.g., "GPT-4o Baseline")
-  - prompt_config: Prompt settings for control (optional)
+  - game_mode: Preset mode ("casual", "standard", "pro", "competitive") - see Game Modes section
+  - prompt_config: Prompt settings for control (optional, overrides game_mode)
   - enable_psychology: Enable tilt/emotional state generation (default false, ~4 LLM calls/hand)
   - enable_commentary: Enable commentary generation (default false, ~4 LLM calls/hand)
   - NOTE: Control always uses the experiment-level model/provider settings
 
 - variants: List of variations to compare against control
   - Each variant can override model/provider to test different LLMs
-  - Variants inherit psychology/commentary settings from control if not specified
-  - Fields: label (required), model, provider, prompt_config, enable_psychology, enable_commentary
+  - Variants inherit game_mode/psychology/commentary settings from control if not specified
+  - Fields: label (required), model, provider, game_mode, prompt_config, enable_psychology, enable_commentary
 
 ## Real Examples from Successful Experiments
 
@@ -787,6 +794,97 @@ Test specific prompt component impact:
   ]
 }
 
+### Example 7: GTO Foundation Impact Test
+Test if showing equity calculations and verdicts improves decision quality:
+{
+  "name": "gto_guidance_impact",
+  "description": "Test if GTO foundation (equity verdict) reduces fold mistakes and bad calls",
+  "hypothesis": "Showing equity vs required equity will reduce EV-losing decisions",
+  "tags": ["gto", "equity", "decision_quality"],
+  "num_tournaments": 5,
+  "hands_per_tournament": 50,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "parallel_tournaments": 2,
+  "control": {
+    "label": "No GTO Guidance",
+    "prompt_config": {
+      "show_equity_always": false,
+      "show_equity_verdict": false,
+      "situational_guidance": true
+    }
+  },
+  "variants": [
+    {
+      "label": "With GTO Guidance",
+      "prompt_config": {
+        "show_equity_always": true,
+        "show_equity_verdict": true,
+        "situational_guidance": true
+      }
+    }
+  ]
+}
+
+### Example 8: Minimal vs Full Prompt Comparison
+Compare stripped-down prompts to full prompts with all features:
+{
+  "name": "minimal_vs_full_prompt",
+  "description": "Test if minimal prompts produce comparable decisions to full prompts",
+  "hypothesis": "Minimal prompts may reduce token costs while maintaining decision quality",
+  "tags": ["minimal", "baseline", "cost_optimization"],
+  "num_tournaments": 3,
+  "hands_per_tournament": 40,
+  "reset_on_elimination": true,
+  "num_players": 4,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "control": {
+    "label": "Full Prompts",
+    "prompt_config": {
+      "use_minimal_prompt": false,
+      "show_equity_always": true,
+      "show_equity_verdict": true
+    }
+  },
+  "variants": [
+    {
+      "label": "Minimal Prompts",
+      "prompt_config": {
+        "use_minimal_prompt": true
+      }
+    }
+  ]
+}
+
+## Game Modes
+
+Instead of manually specifying prompt_config fields, you can use the `game_mode` preset in control or variants:
+
+| Mode | Effect |
+|------|--------|
+| `casual` | Default PromptConfig (personality-driven fun poker) |
+| `standard` | `show_equity_always=true` (balanced personality + GTO awareness) |
+| `pro` | `show_equity_always=true, show_equity_verdict=true, chattiness=false, persona_response=false` (GTO-focused analytical) |
+| `competitive` | `show_equity_always=true, show_equity_verdict=true` (full GTO guidance with personality and trash talk) |
+
+**Inheritance**: `variant.game_mode` → `control.game_mode` → `None` (defaults)
+
+**Priority**: Explicit `prompt_config` fields override `game_mode` settings
+
+Example:
+```json
+{
+  "control": {"label": "Casual", "game_mode": "casual"},
+  "variants": [
+    {"label": "Pro Mode", "game_mode": "pro"},
+    {"label": "Pro + Tilt", "game_mode": "pro", "prompt_config": {"tilt_effects": true}}
+  ]
+}
+```
+
 ## Available prompt_config Options
 
 All boolean options (default true unless specified):
@@ -800,7 +898,14 @@ All boolean options (default true unless specified):
 - tilt_effects: Include tilt-based modifications
 - mind_games: Include mind games instruction
 - persona_response: Include persona response instruction
+- situational_guidance: Coaching prompts for pot-committed, short-stack, made hand situations
 - memory_keep_exchanges: Number of conversation exchanges to retain (integer, default 0)
+
+**GTO Foundation Options** (math-based decision support, default false):
+- show_equity_always: Show equity comparison (vs random + vs opponent ranges) for all decisions
+- show_equity_verdict: Show explicit +EV/-EV verdict ("CALL is +EV", "FOLD is correct")
+- use_enhanced_ranges: Use PFR/action-based range estimation vs VPIP-only (default true)
+- use_minimal_prompt: Strip to bare game state only - no personality, psychology, or guidance (default false)
 
 ## Guidelines
 
@@ -840,6 +945,9 @@ Common experiment scenarios:
 7. Commentary impact: Test if enable_commentary affects player behavior
 8. Fixed hand count experiments: Use reset_on_elimination: true for equal hand counts across variants (fair A/B comparisons)
 9. Natural tournaments: Use reset_on_elimination: false (default) for tournaments that end when one player wins all chips
+10. GTO guidance impact: Test if show_equity_always/show_equity_verdict reduces fold mistakes and bad calls
+11. Range estimation comparison: Test use_enhanced_ranges (PFR/action-based) vs VPIP-only ranges
+12. Game mode comparison: Test casual vs standard vs pro vs competitive modes using game_mode preset
 
 When users ask to "compare", "A/B test", or run experiments "against each other", use the control/variants structure.
 
@@ -2237,7 +2345,8 @@ def get_experiment(experiment_id: int):
         })
 
     except Exception as e:
-        logger.error(f"Error getting experiment: {e}")
+        import traceback
+        logger.error(f"Error getting experiment {experiment_id}: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -2774,3 +2883,162 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
     finally:
         with _active_experiments_lock:
             _active_experiments.pop(experiment_id, None)
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/stalled', methods=['GET'])
+def get_stalled_variants(experiment_id: int):
+    """Get stalled variants for an experiment.
+
+    Query params:
+        threshold_minutes: Minutes of inactivity before considered stalled (default: 5)
+
+    Returns:
+        List of stalled variants with state, last heartbeat, etc.
+    """
+    try:
+        threshold_minutes = request.args.get('threshold_minutes', 5, type=int)
+        stalled = persistence.get_stalled_variants(experiment_id, threshold_minutes)
+        return jsonify({
+            'success': True,
+            'stalled_variants': stalled,
+            'threshold_minutes': threshold_minutes,
+        })
+    except Exception as e:
+        logger.error(f"Error getting stalled variants for experiment {experiment_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@experiment_bp.route('/api/experiments/<int:experiment_id>/variants/<int:game_id>/resume', methods=['POST'])
+def resume_variant(experiment_id: int, game_id: int):
+    """Resume a specific stalled variant.
+
+    Uses pessimistic locking to prevent race conditions with the original process.
+
+    Returns:
+        Success/failure status
+    """
+    try:
+        # Acquire resume lock
+        lock_acquired = persistence.acquire_resume_lock(game_id)
+        if not lock_acquired:
+            return jsonify({
+                'success': False,
+                'error': 'Could not acquire resume lock - variant may already be resuming',
+            }), 409
+
+        # Get variant details
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            persistence.release_resume_lock_by_id(game_id)
+            return jsonify({'error': 'Experiment not found'}), 404
+
+        # Get the experiment game record
+        with sqlite3.connect(persistence.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT game_id, variant, variant_config_json, tournament_number
+                FROM experiment_games WHERE id = ?
+            """, (game_id,))
+            row = cursor.fetchone()
+            if not row:
+                persistence.release_resume_lock_by_id(game_id)
+                return jsonify({'error': 'Variant not found'}), 404
+
+            tournament_info = {
+                'game_id': row[0],
+                'variant': row[1],
+                'variant_config': json.loads(row[2]) if row[2] else None,
+                'tournament_number': row[3],
+            }
+
+        # Start resume in background
+        config_dict = experiment.get('config', {})
+        thread = threading.Thread(
+            target=resume_single_variant_background,
+            args=(experiment_id, tournament_info, config_dict),
+            daemon=True
+        )
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'message': f'Resuming variant {tournament_info["game_id"]}',
+        })
+
+    except Exception as e:
+        logger.error(f"Error resuming variant {game_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+def resume_single_variant_background(experiment_id: int, tournament_info: Dict, config_dict: Dict[str, Any]):
+    """Resume a single variant in background thread."""
+    from experiments.run_ai_tournament import TournamentPausedException, TournamentSupersededException
+    from experiments.resume_helpers import resume_variant_impl
+
+    game_id = tournament_info['game_id']
+    variant = tournament_info.get('variant')
+    variant_config = tournament_info.get('variant_config')
+
+    logger.info(f"Resuming stalled variant {game_id}")
+
+    try:
+        result = resume_variant_impl(
+            persistence=persistence,
+            experiment_id=experiment_id,
+            game_id=game_id,
+            variant=variant,
+            variant_config=variant_config,
+            config_dict=config_dict,
+        )
+
+        if result:
+            # Save the result
+            from experiments.run_ai_tournament import AITournamentRunner
+            from experiments.resume_helpers import build_experiment_config
+
+            exp_config = build_experiment_config(config_dict)
+            runner = AITournamentRunner(exp_config, db_path=persistence.db_path)
+            runner.experiment_id = experiment_id
+            runner._save_result(result)
+            logger.info(f"Variant {game_id} completed successfully")
+
+        # Check if experiment is now complete
+        _check_and_complete_experiment(experiment_id)
+
+    except TournamentSupersededException:
+        logger.info(f"Variant {game_id} resume was superseded")
+
+    except TournamentPausedException as e:
+        logger.info(f"Variant {game_id} paused again: {e}")
+
+    except Exception as e:
+        logger.error(f"Error resuming variant {game_id}: {e}", exc_info=True)
+        persistence.update_experiment_game_heartbeat(game_id, 'idle')
+
+    finally:
+        persistence.release_resume_lock(game_id)
+
+
+def _check_and_complete_experiment(experiment_id: int):
+    """Check if all tournaments are complete and finalize experiment if so."""
+    try:
+        experiment = persistence.get_experiment(experiment_id)
+        if not experiment:
+            return
+
+        # Check for incomplete tournaments
+        games = persistence.get_experiment_games(experiment_id)
+        incomplete = []
+        for game in games:
+            state_machine = persistence.load_game(game['game_id'])
+            if state_machine:
+                active_players = [p for p in state_machine.game_state.players if p.stack > 0]
+                if len(active_players) > 1:
+                    incomplete.append(game)
+
+        if not incomplete:
+            # All tournaments complete - generate summary
+            logger.info(f"All variants complete for experiment {experiment_id}, generating summary")
+            _complete_experiment_with_summary(experiment_id)
+
+    except Exception as e:
+        logger.error(f"Error checking experiment completion: {e}")

@@ -124,3 +124,83 @@ When disabled, the AI receives no coaching prompts for any of these scenarios.
 ## Analysis Source
 
 See `docs/analysis/AI_DECISION_QUALITY_REPORT.md` for the full analysis that identified these issues.
+
+---
+
+## Minimal Prompt: Baseline Alternative
+
+The **minimal prompt system** (`poker/minimal_prompt.py`) provides a stripped-down alternative that bypasses all conditional injections and YAML templates entirely.
+
+### What It Is
+
+A pure game-state prompt with only essential information:
+- Hole cards and board (standard notation: Ah, Kd, etc.)
+- Position (standard abbreviations: UTG, CO, BTN, SB, BB)
+- All amounts normalized to big blinds (BB)
+- Valid actions with raise range
+- Simple JSON response format
+
+### Why It Exists
+
+1. **Baseline measurement**: Test raw model poker ability without guidance
+2. **A/B testing**: Measure the actual impact of each prompt injection
+3. **Model comparison**: Compare different LLMs on identical prompts
+4. **Simplicity**: ~150 tokens vs ~2000+ tokens for full prompt
+
+### Toggle: `use_minimal_prompt`
+
+```python
+prompt_config = PromptConfig(use_minimal_prompt=True)
+```
+
+When enabled:
+- Bypasses `decision.yaml` and all conditional sections
+- Bypasses `poker_player.yaml` persona template
+- Bypasses psychology, memory, and opponent modeling
+- Uses `_decide_action_minimal()` instead of `_get_ai_decision()`
+
+### Example Minimal Prompt
+
+```
+You are playing No-Limit Texas Hold'em.
+
+Hand: Ah Kd
+Board: Js 7c 2h
+Street: Flop
+
+Position: CO
+Stack: 94.0 BB
+
+Pot: 7.0 BB
+To call: 3.0 BB
+Min raise to: 6.0 BB
+
+Players behind: BTN (102.0 BB), SB (45.0 BB)
+
+Respond in JSON. Valid actions:
+{"action": "fold"}
+{"action": "call"}
+{"action": "raise", "raise_to": <6.0-94.0>}
+```
+
+### Response Format
+
+```json
+{"action": "raise", "raise_to": 12}
+```
+
+- `action`: fold, check, call, raise, or all-in
+- `raise_to`: Total BB to raise to (only for raise action)
+
+### Experiment Configs
+
+Pre-built configs for testing:
+- `experiments/configs/minimal_prompt_test.json` - Quick test
+- `experiments/configs/prompt_ablation_study.json` - Compare minimal vs full
+- `experiments/configs/minimal_model_comparison.json` - Compare models
+
+### Files
+
+- `poker/minimal_prompt.py` - BB normalization, position mapping, prompt rendering, response parsing
+- `poker/controllers.py` - `_decide_action_minimal()` integration
+- `poker/prompt_config.py` - `use_minimal_prompt` toggle

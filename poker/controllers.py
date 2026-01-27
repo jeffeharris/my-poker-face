@@ -29,23 +29,172 @@ from .ai_resilience import (
 )
 from .player_psychology import PlayerPsychology
 from .memory.commentary_generator import DecisionPlan
+from .minimal_prompt import (
+    convert_game_to_minimal_prompt,
+    parse_minimal_response,
+    convert_minimal_response_to_game_action,
+    get_position_abbrev,
+    to_bb,
+)
+from .hand_ranges import (
+    build_opponent_info,
+    calculate_equity_vs_ranges,
+    format_opponent_stats,
+    EquityConfig,
+)
 from .decision_analyzer import calculate_max_winnable
+from .card_utils import normalize_card_string, card_to_string
 
 logger = logging.getLogger(__name__)
 
-# Hand strength evaluation for clearer AI decision making
-SUIT_MAP = {'♣': 'c', '♦': 'd', '♠': 's', '♥': 'h'}
+
+# =============================================================================
+# Functional Helpers for Message Parsing
+# =============================================================================
+
+# Aggression priority for postflop actions (higher = more aggressive)
+AGGRESSION_PRIORITY = {
+    'raise': 4,
+    'bet': 3,
+    'check_call': 2,
+    'check': 1,
+}
+
+# Raise level to action name mapping for preflop
+RAISE_LEVEL_ACTIONS = {
+    0: 'open_raise',
+    1: '3bet',
+}
 
 
-def _convert_card_for_eval(card_str: str) -> str:
-    """Convert unicode card string to eval7 format."""
-    for unicode_suit, letter_suit in SUIT_MAP.items():
-        if unicode_suit in card_str:
-            card_str = card_str.replace(unicode_suit, letter_suit)
+def _parse_game_messages(game_messages) -> Optional[List[str]]:
+    """Parse game messages into a list of non-empty string lines."""
+    if isinstance(game_messages, str):
+        return [line for line in game_messages.strip().split('\n') if line]
+    elif isinstance(game_messages, list):
+        return [line for line in game_messages if line and isinstance(line, str)]
+    return None
+
+
+def _get_preflop_lines(lines: List[str]) -> List[str]:
+    """Extract lines from preflop phase only, stopping at postflop indicators."""
+    postflop_indicators = ('flop', 'turn', 'river', 'community')
+    result = []
+    for line in lines:
+        line_lower = line.lower()
+        if any(indicator in line_lower for indicator in postflop_indicators):
             break
-    if card_str.startswith('10'):
-        card_str = 'T' + card_str[2:]
-    return card_str
+        result.append(line)
+    return result
+
+
+def _get_street_lines(lines: List[str], current_phase: str) -> List[str]:
+    """Extract lines from the specified street phase only."""
+    street_markers = {'FLOP': 'flop', 'TURN': 'turn', 'RIVER': 'river'}
+    current_marker = street_markers.get(current_phase, '').lower()
+    if not current_marker:
+        return []
+
+    next_streets = [s for s in ('turn', 'river', 'showdown') if s != current_marker]
+    in_current_street = False
+    result = []
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Check for current street marker
+        if current_marker in line_lower:
+            in_current_street = True
+            continue
+
+        # Check for next street marker (stop processing)
+        if in_current_street and any(s in line_lower for s in next_streets):
+            break
+
+        if in_current_street:
+            result.append(line)
+
+    return result
+
+
+def _classify_raise_action(raise_count: int) -> str:
+    """Classify a raise/all-in action based on raise count."""
+    return RAISE_LEVEL_ACTIONS.get(raise_count, '4bet+')
+
+
+def _is_raise_action(line_lower: str) -> bool:
+    """Check if line contains a raise or bet (not big blind post)."""
+    return 'raise' in line_lower or ('bet' in line_lower and 'big blind' not in line_lower)
+
+
+def _is_allin_action(line_lower: str) -> bool:
+    """Check if line contains an all-in action."""
+    return 'all' in line_lower and 'in' in line_lower
+
+
+def _process_preflop_lines(
+    lines: List[str],
+    opponent_lower: str,
+    opponent_name: str,
+    bb_player: Optional[str]
+) -> Optional[str]:
+    """
+    Process preflop lines and extract opponent's action.
+
+    Returns the opponent's preflop action or None if they folded/not determinable.
+    """
+    raise_count = 0
+    opponent_action = None
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Check if this line is about our opponent
+        if opponent_lower not in line_lower:
+            # Track raises by others to count raise level
+            if _is_raise_action(line_lower):
+                raise_count += 1
+            continue
+
+        # This line is about our opponent - determine their action
+        if 'fold' in line_lower:
+            return None  # Folded preflop - not in hand
+
+        if 'raise' in line_lower:
+            opponent_action = _classify_raise_action(raise_count)
+            raise_count += 1
+        elif 'call' in line_lower:
+            if raise_count == 0:
+                # Called with no raise = limp (unless they're BB)
+                opponent_action = None if opponent_name == bb_player else 'limp'
+            else:
+                opponent_action = 'call'
+        elif 'check' in line_lower:
+            # Check preflop only happens in BB with no raise
+            pass
+        elif _is_allin_action(line_lower):
+            # All-in preflop - treat as raise
+            opponent_action = _classify_raise_action(raise_count)
+
+    return opponent_action
+
+
+def _classify_aggression(line_lower: str) -> Optional[str]:
+    """Classify a single line's aggression level."""
+    if 'raise' in line_lower or _is_allin_action(line_lower):
+        return 'raise'
+    elif 'bet' in line_lower:
+        return 'bet'
+    elif 'call' in line_lower:
+        return 'check_call'
+    elif 'check' in line_lower:
+        return 'check'
+    return None
+
+
+# =============================================================================
+# Hand Evaluation
+# =============================================================================
 
 
 def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
@@ -61,8 +210,8 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
         import eval7
 
         # Convert cards
-        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
-        board = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+        hand = [eval7.Card(normalize_card_string(c)) for c in hole_cards]
+        board = [eval7.Card(normalize_card_string(c)) for c in community_cards]
 
         # Evaluate
         score = eval7.evaluate(hand + board)
@@ -92,12 +241,19 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
 
 
 def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
-                           num_simulations: int = 300) -> Optional[float]:
+                           num_simulations: int = 300,
+                           num_opponents: int = 1) -> Optional[float]:
     """
     Calculate quick equity estimate against random opponent hands.
 
     Uses Monte Carlo simulation with eval7. Returns equity as 0.0-1.0.
     ~30-50ms for 300 simulations - acceptable for real-time use.
+
+    Args:
+        hole_cards: Hero's hole cards
+        community_cards: Community cards on board
+        num_simulations: Number of Monte Carlo iterations
+        num_opponents: Number of opponents to simulate (important for multi-way pots)
     """
     if not community_cards:
         return None
@@ -105,8 +261,8 @@ def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
     try:
         import eval7
 
-        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
-        board_cards = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+        hand = [eval7.Card(normalize_card_string(c)) for c in hole_cards]
+        board_cards = [eval7.Card(normalize_card_string(c)) for c in community_cards]
 
         wins = 0
         for _ in range(num_simulations):
@@ -114,19 +270,35 @@ def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
             for c in hand + board_cards:
                 deck.cards.remove(c)
             deck.shuffle()
-            opp_hand = list(deck.deal(2))
+
+            # Deal cards to all opponents
+            opponent_hands = []
+            for _ in range(num_opponents):
+                opp_hand = list(deck.deal(2))
+                opponent_hands.append(opp_hand)
 
             # Complete board if needed (flop/turn)
             remaining = 5 - len(board_cards)
             full_board = board_cards + list(deck.deal(remaining))
 
             hero_score = eval7.evaluate(hand + full_board)
-            opp_score = eval7.evaluate(opp_hand + full_board)
 
-            # Higher score = better hand in eval7
-            if hero_score > opp_score:
+            # Must beat ALL opponents to win
+            hero_wins = True
+            hero_ties = True
+            for opp_hand in opponent_hands:
+                opp_score = eval7.evaluate(opp_hand + full_board)
+                if opp_score > hero_score:
+                    hero_wins = False
+                    hero_ties = False
+                    break
+                elif opp_score < hero_score:
+                    hero_ties = False
+
+            if hero_wins and not hero_ties:
                 wins += 1
-            elif hero_score == opp_score:
+            elif hero_wins and hero_ties:
+                # Tie with all opponents - split pot
                 wins += 0.5
 
         return wins / num_simulations
@@ -156,8 +328,8 @@ def _get_canonical_hand(hole_cards: List[str]) -> str:
         return ''
 
     # Normalize cards
-    c1 = _convert_card_for_eval(hole_cards[0])
-    c2 = _convert_card_for_eval(hole_cards[1])
+    c1 = normalize_card_string(hole_cards[0])
+    c2 = normalize_card_string(hole_cards[1])
 
     # Extract rank and suit
     rank1, suit1 = c1[0], c1[1] if len(c1) > 1 else ''
@@ -428,6 +600,9 @@ class AIPlayerController:
     def decide_action(self, game_messages) -> Dict:
         game_state = self.state_machine.game_state
 
+        # Store original messages for action extraction in _analyze_decision
+        self._current_game_messages = game_messages
+
         # Manage conversation memory based on prompt_config setting
         # Table chatter is preserved via game_messages -> Recent Actions
         # Mental state is preserved via PlayerPsychology (separate system)
@@ -439,6 +614,10 @@ class AIPlayerController:
             else:
                 # Clear all memory (default behavior)
                 self.assistant.memory.clear()
+
+        # MINIMAL PROMPT PATH: Skip all personality/psychology and use pure game state
+        if self.prompt_config.use_minimal_prompt:
+            return self._decide_action_minimal(game_state, game_messages)
 
         # Save original messages before summarizing (for address detection)
         original_messages = game_messages
@@ -500,7 +679,7 @@ class AIPlayerController:
         if self.prompt_config.guidance_injection:
             message = message + "\n\n" + "ADDITIONAL GUIDANCE:\n" + self.prompt_config.guidance_injection
 
-        print(message)
+        logger.debug(f"[AI_DECISION] Prompt:\n{message}")
 
         # Context for fallback
         player_stack = game_state.current_player.stack
@@ -551,7 +730,7 @@ class AIPlayerController:
             )
             self._current_hand_plans.append(plan)
 
-        print(json.dumps(cleaned_response, indent=4))
+        logger.debug(f"[AI_DECISION] Response:\n{json.dumps(cleaned_response, indent=4)}")
         return cleaned_response
     
     def _get_ai_decision(self, message: str, **context) -> Dict:
@@ -803,6 +982,7 @@ class AIPlayerController:
         pot_committed_info = None
         short_stack_info = None
         made_hand_info = None
+        equity_verdict_info = None
         drama_context = None
         hand_equity = 0.0  # Track for drama detection
 
@@ -836,25 +1016,15 @@ class AIPlayerController:
                 short_stack_info = {'stack_bb': round(stack_bb, 1)}
 
             if game_state.community_cards:
-                def card_to_str(c):
-                    if isinstance(c, dict):
-                        rank = c.get('rank', '')
-                        suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                        if rank == '10':
-                            rank = 'T'
-                        return f"{rank}{suit}"
-                    else:
-                        s = str(c)
-                        suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                        for symbol, letter in suit_map.items():
-                            s = s.replace(symbol, letter)
-                        s = s.replace('10', 'T')
-                        return s
+                hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
+                community_cards = [card_to_string(c) for c in game_state.community_cards]
 
-                hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
-                community_cards = [card_to_str(c) for c in game_state.community_cards]
-
-                equity = calculate_quick_equity(hole_cards, community_cards)
+                # Count opponents still in hand for accurate multi-way equity
+                num_opponents = len([
+                    p for p in game_state.players
+                    if not p.is_folded and p.name != player.name
+                ])
+                equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
                 if equity is not None:
                     hand_equity = equity  # Store for drama detection
                     is_tilted = False
@@ -896,6 +1066,127 @@ class AIPlayerController:
                 'tone': analysis.tone
             }
 
+        # Calculate equity verdict if enabled (GTO foundation - always show the math)
+        cost_to_call_for_equity = context.get('call_amount', 0)
+        if self.prompt_config.show_equity_always and cost_to_call_for_equity > 0:
+            pot_total = game_state.pot.get('total', 0)
+            pot_odds = pot_total / cost_to_call_for_equity if cost_to_call_for_equity > 0 else 0
+            required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
+
+            # Convert cards for equity calculation
+            hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
+            community_cards = [card_to_string(c) for c in game_state.community_cards]
+
+            # Get opponents still in hand (needed for accurate multi-way equity)
+            opponents_in_hand = [
+                p for p in game_state.players
+                if not p.is_folded and p.name != player.name
+            ]
+            num_opponents = len(opponents_in_hand)
+
+            # Calculate equity (post-flop) or use preflop estimates
+            if community_cards:
+                equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
+            else:
+                # Preflop: use hand ranking as rough equity estimate
+                # These estimates are for heads-up; adjust for multi-way
+                canonical = _get_canonical_hand(hole_cards)
+                if canonical in PREMIUM_HANDS:
+                    base_equity = 0.75  # Premium hands ~75% equity vs random
+                elif canonical in TOP_10_HANDS:
+                    base_equity = 0.65  # Top 10% ~65% equity
+                elif canonical in TOP_20_HANDS:
+                    base_equity = 0.55  # Top 20% ~55% equity
+                elif canonical in TOP_35_HANDS:
+                    base_equity = 0.50  # Top 35% ~50% equity
+                else:
+                    base_equity = 0.40  # Below average ~40% equity
+                # Rough multi-way adjustment: equity decreases with more opponents
+                # Simplified model: equity^(num_opponents) gives approximate multi-way equity
+                equity = base_equity ** max(1, num_opponents * 0.7) if num_opponents > 1 else base_equity
+
+            if equity is not None:
+                equity_pct = round(equity * 100)
+
+                # Calculate equity vs ranges (uses opponent position/stats)
+                equity_ranges_pct = None
+                opponent_stats_str = ""
+                try:
+                    if opponents_in_hand:
+                        # Get positions
+                        table_positions = game_state.table_positions
+                        position_by_name = {name: pos for pos, name in table_positions.items()}
+
+                        # Build OpponentInfo objects
+                        opponent_infos = []
+                        for opp in opponents_in_hand:
+                            opp_position = position_by_name.get(opp.name, "button")
+
+                            # Get observed stats from opponent model manager
+                            opp_model_data = None
+                            if self.opponent_model_manager:
+                                opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                                if opp_model and opp_model.tendencies:
+                                    opp_model_data = opp_model.tendencies.to_dict()
+
+                            opponent_infos.append(build_opponent_info(
+                                name=opp.name,
+                                position=opp_position,
+                                opponent_model=opp_model_data,
+                            ))
+
+                        # Calculate equity vs ranges (use config setting for range mode)
+                        equity_config = EquityConfig(
+                            use_enhanced_ranges=self.prompt_config.use_enhanced_ranges
+                        )
+                        equity_vs_ranges = calculate_equity_vs_ranges(
+                            hole_cards, community_cards, opponent_infos,
+                            iterations=300, config=equity_config
+                        )
+                        if equity_vs_ranges is not None:
+                            equity_ranges_pct = round(equity_vs_ranges * 100)
+
+                        # Format opponent stats for display
+                        opponent_stats_str = format_opponent_stats(opponent_infos)
+                except Exception as e:
+                    logger.debug(f"Range equity calculation failed: {e}")
+
+                # Determine verdict (consider both equities)
+                # Range-based equity is more accurate than vs-random, so weight it heavily
+                if self.prompt_config.show_equity_verdict:
+                    if equity_ranges_pct is not None:
+                        # When we have range-based equity, use it as primary signal
+                        if equity_ranges_pct >= required_equity:
+                            if equity_pct >= required_equity:
+                                verdict = "CALL is +EV vs both"
+                            else:
+                                verdict = "CALL is +EV vs ranges"
+                        elif equity_ranges_pct >= required_equity * 0.85:
+                            # Close to break-even vs ranges - truly marginal
+                            verdict = "MARGINAL - close to break-even vs ranges"
+                        else:
+                            # Clearly below required equity vs ranges - fold
+                            verdict = "FOLD - below required equity vs ranges"
+                    else:
+                        # No range data, use random equity only
+                        if equity_pct >= required_equity:
+                            verdict = "CALL is +EV"
+                        else:
+                            verdict = "FOLD is correct"
+                else:
+                    verdict = None
+
+                equity_verdict_info = {
+                    'equity_random': equity_pct,
+                    'equity_ranges': equity_ranges_pct if equity_ranges_pct is not None else equity_pct,
+                    'required_equity': round(required_equity, 1),
+                    'verdict': verdict,
+                    'pot_odds': round(pot_odds, 1),
+                    'cost_to_call': cost_to_call_for_equity,
+                    'opponent_stats': opponent_stats_str,
+                }
+
+        # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
             message=message,
             include_mind_games=self.prompt_config.mind_games,
@@ -903,6 +1194,7 @@ class AIPlayerController:
             pot_committed_info=pot_committed_info,
             short_stack_info=short_stack_info,
             made_hand_info=made_hand_info,
+            equity_verdict_info=equity_verdict_info,
             drama_context=drama_context
         )
 
@@ -985,26 +1277,6 @@ class AIPlayerController:
             player = game_state.current_player
 
             # Get cards in format equity calculator understands
-            def card_to_string(c):
-                """Convert card (dict or Card object) to short string like '8h'."""
-                if isinstance(c, dict):
-                    rank = c.get('rank', '')
-                    suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                    # Handle 10 -> T
-                    if rank == '10':
-                        rank = 'T'
-                    return f"{rank}{suit}"
-                else:
-                    # Card object - use str() which gives "8♥" format
-                    s = str(c)
-                    # Convert Unicode suits to letters
-                    suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                    for symbol, letter in suit_map.items():
-                        s = s.replace(symbol, letter)
-                    # Handle 10 -> T
-                    s = s.replace('10', 'T')
-                    return s
-
             community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
             player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
 
@@ -1024,9 +1296,14 @@ class AIPlayerController:
                 for p in opponents_in_hand
             ]
 
-            # Build OpponentInfo objects with observed stats and personality data
+            # Build OpponentInfo objects with observed stats, personality data, and action context
             from .hand_ranges import build_opponent_info
             opponent_infos = []
+
+            # Get game messages for action extraction
+            game_messages = getattr(self, '_current_game_messages', None)
+            current_phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
+
             for opp in opponents_in_hand:
                 opp_position = position_by_name.get(opp.name, "button")
 
@@ -1037,10 +1314,23 @@ class AIPlayerController:
                     if opp_model and opp_model.tendencies:
                         opp_model_data = opp_model.tendencies.to_dict()
 
+                # Extract opponent's preflop and postflop actions from game messages
+                preflop_action = None
+                postflop_aggression = None
+                if game_messages:
+                    preflop_action = self._extract_opponent_preflop_action(
+                        opp.name, game_messages, game_state
+                    )
+                    postflop_aggression = self._extract_opponent_postflop_aggression(
+                        opp.name, game_messages, current_phase
+                    )
+
                 opponent_infos.append(build_opponent_info(
                     name=opp.name,
                     position=opp_position,
                     opponent_model=opp_model_data,
+                    preflop_action=preflop_action,
+                    postflop_aggression=postflop_aggression,
                 ))
 
             # Get request_id from last LLM response
@@ -1078,6 +1368,286 @@ class AIPlayerController:
             )
         except Exception as e:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
+
+    def _decide_action_minimal(self, game_state, game_messages) -> Dict:
+        """
+        Minimal prompt path for pure poker decisions.
+
+        Bypasses all personality, psychology, and guidance systems.
+        Uses BB-normalized game state and simple JSON response format.
+        """
+        player = game_state.current_player
+        big_blind = game_state.current_ante
+
+        # Build action history from game messages
+        # Parse the messages to extract position, action, amount
+        action_history = self._parse_action_history_for_minimal(game_state, game_messages)
+
+        # Generate the minimal prompt
+        prompt = convert_game_to_minimal_prompt(
+            game_state,
+            player,
+            self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase),
+            action_history
+        )
+
+        logger.debug(f"[MINIMAL PROMPT]\n{prompt}\n")
+
+        # Call LLM with minimal system prompt
+        minimal_system = "You are a poker player. Analyze the situation and respond with your action in JSON format."
+
+        # Use a fresh assistant call without personality
+        from core.llm import LLMClient, CallType
+
+        llm_client = LLMClient(
+            model=self.assistant.model if hasattr(self.assistant, 'model') else None,
+            provider=self.assistant.provider if hasattr(self.assistant, 'provider') else None,
+            reasoning_effort=None,  # Disable thinking mode for compatibility with all models
+        )
+
+        llm_response = llm_client.complete(
+            messages=[
+                {"role": "system", "content": minimal_system},
+                {"role": "user", "content": prompt}
+            ],
+            json_format=True,
+            call_type=CallType.PLAYER_DECISION,
+            game_id=getattr(self, 'game_id', None),
+            player_name=self.player_name,
+            hand_number=self.current_hand_number,
+            prompt_template="minimal",  # Tag for analysis
+        )
+
+        # Extract content from response object
+        response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
+        logger.debug(f"[MINIMAL RAW RESPONSE] {response_text}")
+
+        # Parse the minimal response
+        parsed = parse_minimal_response(response_text)
+
+        # Capture prompt for replay/debugging (after parsing so we have action)
+        captured_id = getattr(llm_response, 'captured_id', None)
+        if captured_id:
+            try:
+                from core.llm.tracking import update_prompt_capture
+                action = parsed.action if parsed else 'unknown'
+                raise_amount = parsed.raise_to if parsed and parsed.raise_to else None
+                update_prompt_capture(captured_id, action_taken=action, raise_amount=raise_amount)
+            except Exception as e:
+                logger.debug(f"[MINIMAL] Failed to update prompt capture: {e}")
+
+        if parsed.parse_error:
+            logger.warning(f"[MINIMAL] Parse error: {parsed.parse_error}")
+
+        # Convert to game action format
+        game_action = convert_minimal_response_to_game_action(
+            parsed,
+            big_blind,
+            player.bet
+        )
+
+        # Add required fields for compatibility with rest of system
+        game_action.setdefault('inner_monologue', '')
+        game_action.setdefault('persona_response', '')
+        game_action.setdefault('physical', [])
+
+        logger.debug(f"[MINIMAL RESPONSE] {game_action}")
+
+        # Analyze decision for quality metrics
+        phase = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)
+
+        # Calculate call amount for decision analysis
+        raw_cost_to_call = game_state.highest_bet - player.bet
+        cost_to_call = min(raw_cost_to_call, player.stack)
+
+        context = {
+            'game_state': game_state,
+            'phase': phase,
+            'player': player,
+            'prompt': prompt,
+            'call_amount': cost_to_call,
+        }
+        self._analyze_decision(
+            game_action,
+            context,
+            capture_id=captured_id,
+            player_bet=player.bet,
+            all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
+        )
+
+        return game_action
+
+    def _parse_action_history_for_minimal(self, game_state, game_messages) -> list:
+        """
+        Parse game messages into action history format for minimal prompt.
+
+        Returns list of dicts with: position, action, amount_bb, stack_bb
+        """
+        big_blind = game_state.current_ante
+        table_positions = game_state.table_positions
+
+        # Reverse lookup: player name -> position abbreviation
+        name_to_position = {
+            name: get_position_abbrev(pos)
+            for pos, name in table_positions.items()
+        }
+
+        # Build player stacks lookup
+        name_to_stack = {p.name: p.stack for p in game_state.players}
+
+        actions = []
+
+        # Parse messages - they're typically in format:
+        # "PlayerName folds" or "PlayerName raises to $500" etc.
+        if isinstance(game_messages, str):
+            lines = game_messages.strip().split('\n')
+        elif isinstance(game_messages, list):
+            lines = game_messages
+        else:
+            return []
+
+        import re
+        for line in lines:
+            if not line.strip():
+                continue
+
+            # Try to extract player name and action
+            # Patterns: "Name folds", "Name calls $X", "Name raises to $X", "Name checks", "Name bets $X"
+            match = re.match(r'^([^:]+?)?\s*(folds?|checks?|calls?|raises?|bets?|all[- ]?in)', line.lower())
+            if not match:
+                continue
+
+            # Extract player name from start of line
+            name_match = re.match(r'^([A-Za-z][A-Za-z\s]+?)(?:\s+(?:folds?|checks?|calls?|raises?|bets?|all))', line, re.IGNORECASE)
+            if not name_match:
+                continue
+
+            player_name = name_match.group(1).strip()
+            position = name_to_position.get(player_name, '?')
+
+            # Determine action type
+            action = 'fold'
+            if 'check' in line.lower():
+                action = 'check'
+            elif 'call' in line.lower():
+                action = 'call'
+            elif 'raise' in line.lower():
+                action = 'raise'
+            elif 'bet' in line.lower():
+                action = 'bet'
+            elif 'all' in line.lower():
+                action = 'all-in'
+            elif 'fold' in line.lower():
+                action = 'fold'
+
+            # Extract amount if present
+            amount_bb = None
+            amount_match = re.search(r'\$(\d+)', line)
+            if amount_match and action in ('call', 'raise', 'bet', 'all-in'):
+                amount = int(amount_match.group(1))
+                amount_bb = to_bb(amount, big_blind)
+
+            # Get player's remaining stack
+            stack_bb = to_bb(name_to_stack.get(player_name, 0), big_blind)
+
+            actions.append({
+                'position': position,
+                'action': action,
+                'amount_bb': amount_bb,
+                'stack_bb': stack_bb if action != 'fold' else None
+            })
+
+        return actions
+
+    def _extract_opponent_preflop_action(
+        self,
+        opponent_name: str,
+        game_messages,
+        game_state
+    ) -> Optional[str]:
+        """
+        Extract what preflop action an opponent took this hand.
+
+        Analyzes game messages to determine if opponent:
+        - open_raise: First to raise preflop
+        - call: Called a raise (or limped behind)
+        - 3bet: Re-raised a raise
+        - 4bet+: Re-raised a 3-bet or more
+        - limp: Just called the big blind (no raise faced)
+
+        Args:
+            opponent_name: Name of opponent to check
+            game_messages: List of game messages or string of messages
+            game_state: Current game state for position info
+
+        Returns:
+            Action string or None if not determinable
+        """
+        lines = _parse_game_messages(game_messages)
+        if lines is None:
+            return None
+
+        # Get BB player name to ignore forced BB
+        bb_player = game_state.table_positions.get('big_blind_player')
+        opponent_lower = opponent_name.lower()
+
+        # Filter to preflop lines only
+        preflop_lines = _get_preflop_lines(lines)
+
+        # Process lines, accumulating state as (raise_count, opponent_action)
+        # Using reduce-like iteration but keeping it readable
+        state = _process_preflop_lines(
+            preflop_lines,
+            opponent_lower,
+            opponent_name,
+            bb_player
+        )
+
+        return state
+
+    def _extract_opponent_postflop_aggression(
+        self,
+        opponent_name: str,
+        game_messages,
+        current_phase: str
+    ) -> Optional[str]:
+        """
+        Extract opponent's postflop aggression in current street.
+
+        Args:
+            opponent_name: Name of opponent
+            game_messages: Game messages
+            current_phase: Current phase (FLOP, TURN, RIVER)
+
+        Returns:
+            'bet', 'raise', 'check_call', 'check', or None
+        """
+        if current_phase == 'PRE_FLOP':
+            return None
+
+        lines = _parse_game_messages(game_messages)
+        if lines is None:
+            return None
+
+        # Get lines from current street for the opponent
+        street_lines = _get_street_lines(lines, current_phase)
+        opponent_lower = opponent_name.lower()
+        opponent_lines = [
+            line for line in street_lines
+            if opponent_lower in line.lower()
+        ]
+
+        # Classify each line's aggression and find the highest priority action
+        actions = [
+            action for line in opponent_lines
+            if (action := _classify_aggression(line.lower())) is not None
+        ]
+
+        if not actions:
+            return None
+
+        # Return highest priority action (aggressive actions override passive ones)
+        return max(actions, key=lambda a: AGGRESSION_PRIORITY.get(a, 0))
 
     def _build_game_context(self, game_state, game_messages=None) -> Dict:
         """Build context for chattiness decisions."""

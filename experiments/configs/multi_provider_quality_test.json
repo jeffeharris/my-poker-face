@@ -1,0 +1,24 @@
+{
+  "name": "multi_provider_quality_test",
+  "description": "Test AI play quality metrics across different providers: Groq GPT-OSS-20B vs xAI Grok-4-Fast",
+  "num_tournaments": 2,
+  "hands_per_tournament": 40,
+  "reset_on_elimination": true,
+  "starting_stack": 1000,
+  "big_blind": 20,
+  "num_players": 3,
+  "personalities": ["Gordon Ramsay", "Jesus Christ", "Sherlock Holmes"],
+  "parallel_tournaments": 4,
+  "provider": "groq",
+  "model": "openai/gpt-oss-20b",
+  "control": {
+    "label": "Groq GPT-OSS-20B"
+  },
+  "variants": [
+    {
+      "label": "xAI Grok-4-Fast",
+      "provider": "xai",
+      "model": "grok-4-fast"
+    }
+  ]
+}

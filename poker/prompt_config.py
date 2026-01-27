@@ -32,6 +32,8 @@ class PromptConfig:
         mind_games: MIND GAMES instruction (read opponent table talk)
         persona_response: PERSONA RESPONSE instruction (trash talk guidance)
         situational_guidance: Coaching prompts for specific situations (pot-committed, short-stack, made hand)
+        show_equity_always: Always show equity vs required equity comparison for all decisions
+        show_equity_verdict: Show explicit +EV/-EV verdict (CALL is +EV, FOLD is correct)
         guidance_injection: Extra text to append to decision prompts (for experiments)
     """
 
@@ -56,6 +58,16 @@ class PromptConfig:
 
     # Situational guidance components (coaching for specific game states)
     situational_guidance: bool = True  # pot_committed, short_stack, made_hand
+
+    # GTO Foundation components (math-first decision support)
+    show_equity_always: bool = False  # Always show equity verdict for all decisions
+    show_equity_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
+    use_enhanced_ranges: bool = True   # Use PFR/action-based range estimation (vs VPIP-only)
+
+    # Minimal prompt mode - strips everything to bare game state
+    # When True, uses minimal_prompt.py instead of full prompt system
+    # Disables personality, psychology, guidance - just pure game theory inputs
+    use_minimal_prompt: bool = False
 
     # Experiment support
     guidance_injection: str = ""  # Extra text appended to decision prompts
@@ -128,3 +140,49 @@ class PromptConfig:
         if extras:
             parts.append(", ".join(extras))
         return f"PromptConfig({', '.join(parts)})"
+
+    # Game mode factory methods
+    @classmethod
+    def casual(cls) -> 'PromptConfig':
+        """Casual mode - personality-driven fun poker."""
+        return cls()  # Default config is casual
+
+    @classmethod
+    def standard(cls) -> 'PromptConfig':
+        """Standard mode - balanced personality + GTO awareness."""
+        return cls(
+            show_equity_always=True,
+            show_equity_verdict=False,
+        )
+
+    @classmethod
+    def pro(cls) -> 'PromptConfig':
+        """Pro mode - GTO-focused analytical poker."""
+        return cls(
+            show_equity_always=True,
+            show_equity_verdict=True,
+            chattiness=False,
+            persona_response=False,
+        )
+
+    @classmethod
+    def competitive(cls) -> 'PromptConfig':
+        """Competitive mode - full GTO guidance with personality and trash talk."""
+        return cls(
+            show_equity_always=True,
+            show_equity_verdict=True,
+        )
+
+    @classmethod
+    def from_mode_name(cls, mode: str) -> 'PromptConfig':
+        """Resolve a game mode by name string."""
+        mode = mode.lower()
+        modes = {
+            'casual': cls.casual,
+            'standard': cls.standard,
+            'pro': cls.pro,
+            'competitive': cls.competitive,
+        }
+        if mode not in modes:
+            raise ValueError(f"Invalid game mode: {mode}. Valid: {list(modes.keys())}")
+        return modes[mode]()

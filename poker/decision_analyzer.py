@@ -20,24 +20,7 @@ except ImportError:
     EVAL7_AVAILABLE = False
     EquityCalculator = None
 
-# Unicode suit symbols to letter codes for eval7 compatibility
-SUIT_MAP = {'♣': 'c', '♦': 'd', '♠': 's', '♥': 'h'}
-
-
-def _convert_card(card_str: str) -> str:
-    """Convert unicode card string to eval7 format.
-
-    Converts '7♣' -> '7c', 'A♠' -> 'As', '10♥' -> 'Th'
-    """
-    # Handle unicode suit symbols
-    for unicode_suit, letter_suit in SUIT_MAP.items():
-        if unicode_suit in card_str:
-            card_str = card_str.replace(unicode_suit, letter_suit)
-            break
-    # Handle '10' -> 'T'
-    if card_str.startswith('10'):
-        card_str = 'T' + card_str[2:]
-    return card_str
+from poker.card_utils import normalize_card_string
 
 
 def calculate_max_winnable(
@@ -264,8 +247,8 @@ class DecisionAnalyzer:
         if player_hand and community_cards:
             try:
                 import eval7
-                hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-                board = [eval7.Card(_convert_card(c)) for c in community_cards]
+                hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+                board = [eval7.Card(normalize_card_string(c)) for c in community_cards]
                 # eval7.evaluate returns higher scores for better hands
                 analysis.hand_rank = eval7.evaluate(hero_hand + board)
                 # Convert to relative strength (0-100 percentile)
@@ -355,8 +338,8 @@ class DecisionAnalyzer:
             import random
 
             # Parse hero's hand
-            hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-            board = [eval7.Card(_convert_card(c)) for c in community_cards] if community_cards else []
+            hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+            board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
 
             # Build deck excluding known cards
             all_known = set(hero_hand + board)
@@ -434,8 +417,8 @@ class DecisionAnalyzer:
             )
 
             # Parse hero's hand
-            hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-            board = [eval7.Card(_convert_card(c)) for c in community_cards] if community_cards else []
+            hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+            board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
 
             # Build set of excluded cards (hero's hand + board)
             excluded_cards = set(player_hand + (community_cards or []))
@@ -476,7 +459,7 @@ class DecisionAnalyzer:
                 opponent_hands = []
                 opp_cards_set = set()
                 for hand in opponent_hands_raw:
-                    opp_hand = [eval7.Card(_convert_card(hand[0])), eval7.Card(_convert_card(hand[1]))]
+                    opp_hand = [eval7.Card(normalize_card_string(hand[0])), eval7.Card(normalize_card_string(hand[1]))]
                     opponent_hands.append(opp_hand)
                     opp_cards_set.add(opp_hand[0])
                     opp_cards_set.add(opp_hand[1])

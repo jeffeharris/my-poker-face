@@ -1,0 +1,56 @@
+{
+  "name": "prompt_ablation_study",
+  "description": "Compare minimal prompt vs current system with/without psychology and reflection",
+  "hypothesis": "Minimal prompt provides baseline; psychology and reflection improve decision quality",
+  "tags": ["minimal-prompt", "ablation", "psychology", "reflection", "baseline"],
+  "num_tournaments": 1,
+  "hands_per_tournament": 20,
+  "num_players": 4,
+  "starting_stack": 2000,
+  "big_blind": 40,
+  "model": "gpt-5-nano",
+  "provider": "openai",
+  "capture_prompts": true,
+  "control": {
+    "label": "Minimal",
+    "prompt_config": {
+      "use_minimal_prompt": true
+    }
+  },
+  "variants": [
+    {
+      "label": "Full-NoMind",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "situational_guidance": true,
+        "session_memory": false,
+        "opponent_intel": false,
+        "strategic_reflection": false,
+        "chattiness": false,
+        "emotional_state": false,
+        "tilt_effects": false,
+        "mind_games": false,
+        "persona_response": false
+      }
+    },
+    {
+      "label": "Full-WithMind",
+      "prompt_config": {
+        "use_minimal_prompt": false,
+        "pot_odds": true,
+        "hand_strength": true,
+        "situational_guidance": true,
+        "session_memory": true,
+        "opponent_intel": true,
+        "strategic_reflection": true,
+        "chattiness": false,
+        "emotional_state": true,
+        "tilt_effects": true,
+        "mind_games": true,
+        "persona_response": false
+      }
+    }
+  ]
+}
