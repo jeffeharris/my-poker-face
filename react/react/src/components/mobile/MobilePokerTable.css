@@ -1053,13 +1053,7 @@
   margin-left: 0;
 }
 
-/* Cards sized relative to viewport */
-.opponent-revealed-cards .playing-card.image-card,
-.opponent-revealed-cards .playing-card.card-back {
-  width: 13vw !important;
-  height: auto !important;
-  aspect-ratio: 500 / 726;
-}
+/* Cards inherit size from Card.css - using 'large' (18vw) which is bigger than community cards (14vw) */
 
 @keyframes revealCardsSlideDown {
   0% {

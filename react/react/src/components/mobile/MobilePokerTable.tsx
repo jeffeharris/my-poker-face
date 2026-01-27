@@ -291,7 +291,7 @@ export function MobilePokerTable({
               {revealedCards?.players_cards[opponent.name] && (
                 <div className="opponent-revealed-cards">
                   {revealedCards.players_cards[opponent.name].map((card, i) => (
-                    <Card key={i} card={card} faceDown={false} size="small" />
+                    <Card key={i} card={card} faceDown={false} size="large" />
                   ))}
                 </div>
               )}
@@ -364,7 +364,7 @@ export function MobilePokerTable({
                   '--exit-converge-x': `${cardTransforms.card2.offsetX + cardTransforms.gap}px`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
               <div
                 onAnimationEnd={handleExitAnimationEnd}
@@ -375,7 +375,7 @@ export function MobilePokerTable({
                   '--exit-start-rotation': `${cardTransforms.card2.rotation}deg`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
             </>
           ) : displayCards?.[0] && displayCards?.[1] ? (
@@ -394,7 +394,7 @@ export function MobilePokerTable({
                   '--deal-offset-y': `${cardTransforms.card1.offsetY}px`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[0]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[0]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
               <div
                 onClick={toggleCardsNeat}
@@ -410,7 +410,7 @@ export function MobilePokerTable({
                   '--deal-offset-y': `${cardTransforms.card2.offsetY}px`,
                 } as React.CSSProperties}
               >
-                <Card card={displayCards[1]} faceDown={false} size="large" className="hero-card" />
+                <Card card={displayCards[1]} faceDown={false} size="xlarge" className="hero-card" />
               </div>
             </>
           ) : (

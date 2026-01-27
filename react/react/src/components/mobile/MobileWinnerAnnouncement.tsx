@@ -327,7 +327,7 @@ export function MobileWinnerAnnouncement({
                                                             key={i}
                                                             card={card}
                                                             faceDown={false}
-                                                            size="small"
+                                                            size="large"
                                                         />
                                                     ))}
                                                 </div>
