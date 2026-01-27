@@ -25,7 +25,7 @@ from ..extensions import socketio, persistence
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
-from .message_handler import send_message, format_action_message, record_action_in_memory
+from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
 
 logger = logging.getLogger(__name__)
@@ -258,15 +258,7 @@ def update_and_emit_game_state(game_id: str) -> None:
                     player_dict['llm_debug'] = llm_stats[player_name]
 
     # Include messages (transform to frontend format)
-    messages = []
-    for msg in current_game_data.get('messages', []):
-        messages.append({
-            'id': str(msg.get('id', len(messages))),
-            'sender': msg.get('sender', 'System'),
-            'message': msg.get('content', msg.get('message', '')),
-            'timestamp': msg.get('timestamp', datetime.now().isoformat()),
-            'type': msg.get('message_type', msg.get('type', 'system'))
-        })
+    messages = format_messages_for_api(current_game_data.get('messages', []))
 
     game_state_dict['messages'] = messages
     game_state_dict['current_dealer_idx'] = game_state.current_dealer_idx
@@ -314,8 +306,10 @@ def handle_phase_cards_dealt(game_id: str, state_machine, game_state, game_data:
     """
     num_cards_dealt = 3 if state_machine.current_phase == PokerPhase.FLOP else 1
     cards = [str(c) for c in game_state.community_cards[-num_cards_dealt:]]
-    message_content = f"{state_machine.current_phase} cards dealt: {cards}"
-    send_message(game_id, "Table", message_content, "table")
+    phase_name = str(state_machine.current_phase)
+    message_content = f"{phase_name}: {' '.join(cards)}"
+    send_message(game_id, "Table", message_content, "table",
+                 phase=phase_name.lower(), cards=cards)
 
     # Record community cards to hand history
     if game_data:
@@ -843,6 +837,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     # Award winnings FIRST so chip counts are updated
     game_state = award_pot_winnings(game_state, winner_info)
 
+    if not winning_player_names:
+        logger.error(f"[Game {game_id}] No winning player names found in pot_breakdown")
+        return game_state, False
+
     # Prepare winner announcement data
     winning_players_string = (', '.join(winning_player_names[:-1]) +
                               f" and {winning_player_names[-1]}") if len(winning_player_names) > 1 else winning_player_names[0]
@@ -882,11 +880,34 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             f"{winning_players_string} won the pot of ${total_pot} with {winner_info['hand_name']}. "
             f"Winning hand: {winner_info['winning_hand']}"
         )
+        # Build structured win_result for rich chat rendering
+        winner_hole_cards = []
+        if winning_player_names:
+            winner_player = next(
+                (p for p in game_state.players if p.name == winning_player_names[0]),
+                None
+            )
+            winner_hole_cards = [str(c) for c in winner_player.hand] if winner_player and winner_player.hand else []
+        community_card_strings = [str(c) for c in game_state.community_cards]
+        win_result = {
+            'winners': winning_players_string,
+            'pot': total_pot,
+            'hand_name': winner_info['hand_name'],
+            'winner_cards': winner_hole_cards,
+            'community_cards': community_card_strings,
+            'winning_combo': winner_info['winning_hand'],
+            'is_showdown': True,
+        }
     else:
-        message_content = f"{winning_players_string} won the pot of ${total_pot}."
+        message_content = f"{winning_players_string} took the pot of ${total_pot}."
+        win_result = {
+            'winners': winning_players_string,
+            'pot': total_pot,
+            'is_showdown': False,
+        }
 
     # EMIT WINNER ANNOUNCEMENT IMMEDIATELY
-    send_message(game_id, "Table", message_content, "table", 1)
+    send_message(game_id, "Table", message_content, "table", 1, win_result=win_result)
     socketio.emit('winner_announcement', winner_data, to=game_id)
 
     # Create event to track when async commentary tasks complete

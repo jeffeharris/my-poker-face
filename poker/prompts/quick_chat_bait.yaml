@@ -1,0 +1,24 @@
+name: quick_chat_bait
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Lure them into overplaying. Give off a vibe of mild frustration or casual respect — just enough that they feel in control and bet bigger than they should.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "Nice bet, {target_first_name}."
+    - "I keep running into you."
+    - "Ugh, really?"
+    - "You've been on a roll."
+
+    Be SUBTLE. You're planting a feeling, not announcing a strategy. Sound like someone who's slightly annoyed or grudgingly impressed — never like you're acting. Do NOT ask questions or challenge them — that's a different tactic. You're complimenting or sighing, not interrogating.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "bait"}}, {{"text": "...", "tone": "bait"}}], "targetPlayer": "{target_player}"}}

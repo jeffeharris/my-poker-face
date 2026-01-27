@@ -449,20 +449,20 @@ def get_targeted_chat_suggestions(game_id):
         # Map tones to template names
         template_map = {
             'tilt': 'quick_chat_tilt',
-            'false_confidence': 'quick_chat_false_confidence',
-            'doubt': 'quick_chat_doubt',
+            'bait': 'quick_chat_bait',
+            'needle': 'quick_chat_needle',
             'goad': 'quick_chat_goad',
-            'mislead': 'quick_chat_mislead',
+            'bluff': 'quick_chat_bluff',
             'befriend': 'quick_chat_befriend',
         }
 
         # Tone descriptions for table talk (no target)
         tone_descriptions = {
             'tilt': 'Needle the table. Be cutting.',
-            'false_confidence': 'Sound worried about the competition.',
-            'doubt': 'Question what just happened.',
+            'bait': 'Sound mildly frustrated or grudgingly impressed by the competition.',
+            'needle': 'Question what just happened. Be subtle.',
             'goad': 'Dare the table to act.',
-            'mislead': 'Give false tells about your hand.',
+            'bluff': 'Give false tells about your hand.',
             'befriend': 'Be warm to the table.',
         }
 
@@ -582,10 +582,10 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
         target = data.get('targetPlayer') if data else None
         fallback_messages = {
             'tilt': ["Still thinking about that last hand?", "Rough night, huh?"],
-            'false_confidence': ["You've got this one for sure.", "I'm scared of that bet."],
-            'doubt': ["Interesting timing...", "You sure about that read?"],
+            'bait': ["Nice bet.", "You've been running hot."],
+            'needle': ["Interesting timing...", "You sure about that?"],
             'goad': ["Prove it.", "You wouldn't dare."],
-            'mislead': ["I should've folded...", "This hand is killing me."],
+            'bluff': ["I should've folded...", "This hand is killing me."],
             'befriend': ["Good game so far.", "Respect the play."]
         }
         tone = data.get('tone', 'goad') if data else 'goad'

@@ -15,10 +15,10 @@ sections:
 
     EXAMPLES:
     - "That call was... a choice."
-    - "You look nervous, {target_first_name}."
     - "Remember last hand, {target_first_name}?"
     - "{target_first_name}, still thinking about that one?"
+    - "Bold strategy, {target_first_name}. Bold."
 
-    Include "{target_first_name}" naturally. Make it PERSONAL - reference their recent play or words.
+    Include "{target_first_name}" naturally. Make it PERSONAL — reference their recent play, mistakes, or decisions. You're poking at their ego, not asking questions.
 
     Return JSON: {{"suggestions": [{{"text": "...", "tone": "tilt"}}, {{"text": "...", "tone": "tilt"}}], "targetPlayer": "{target_player}"}}

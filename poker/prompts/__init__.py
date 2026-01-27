@@ -91,21 +91,21 @@ TEMPLATE_SCHEMAS = {
         'required_sections': ['instruction'],
         'description': 'Manipulation tactic: tilt opponent',
     },
-    'quick_chat_false_confidence': {
+    'quick_chat_bait': {
         'required_sections': ['instruction'],
-        'description': 'Manipulation tactic: false confidence',
+        'description': 'Manipulation tactic: bait into overplaying',
     },
-    'quick_chat_doubt': {
+    'quick_chat_needle': {
         'required_sections': ['instruction'],
-        'description': 'Manipulation tactic: plant doubt',
+        'description': 'Manipulation tactic: subtle doubt',
     },
     'quick_chat_goad': {
         'required_sections': ['instruction'],
         'description': 'Manipulation tactic: goad into action',
     },
-    'quick_chat_mislead': {
+    'quick_chat_bluff': {
         'required_sections': ['instruction'],
-        'description': 'Manipulation tactic: mislead about hand',
+        'description': 'Manipulation tactic: lie about hand',
     },
     'quick_chat_befriend': {
         'required_sections': ['instruction'],

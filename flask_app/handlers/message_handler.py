@@ -80,7 +80,9 @@ def record_action_in_memory(game_data: dict, player_name: str, action: str,
 
 
 def send_message(game_id: str, sender: str, content: str, message_type: str,
-                 sleep: Optional[int] = None, action: Optional[str] = None) -> None:
+                 sleep: Optional[int] = None, action: Optional[str] = None,
+                 phase: Optional[str] = None, cards: Optional[list] = None,
+                 win_result: Optional[dict] = None) -> None:
     """Send a message to the specified game chat.
 
     Args:
@@ -90,6 +92,9 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         message_type: The type of the message ['ai', 'table', 'user'].
         sleep: Optional time to sleep after sending the message, in seconds.
         action: Optional action text to include with AI messages (e.g., "raised to $50").
+        phase: Optional game phase name for card-deal messages (e.g., "flop").
+        cards: Optional list of card strings for card-deal messages (e.g., ["A♠", "K♦"]).
+        win_result: Optional structured data for winning hand display.
     """
     game_data = game_state_service.get_game(game_id)
     if not game_data:
@@ -108,6 +113,14 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
     # Include action for AI messages (shown in floating bubble)
     if action:
         new_message["action"] = action
+
+    # Include structured card data for card-deal messages
+    if phase:
+        new_message["phase"] = phase
+    if cards:
+        new_message["cards"] = cards
+    if win_result:
+        new_message["win_result"] = win_result
 
     game_messages.append(new_message)
 
@@ -136,11 +149,21 @@ def format_messages_for_api(messages: list) -> list:
     """
     formatted = []
     for msg in messages:
-        formatted.append({
+        entry = {
             'id': str(msg.get('id', len(formatted))),
             'sender': msg.get('sender', 'System'),
             'message': msg.get('content', msg.get('message', '')),
             'timestamp': msg.get('timestamp', datetime.now().isoformat()),
             'type': msg.get('message_type', msg.get('type', 'system'))
-        })
+        }
+        # Pass through optional structured fields
+        if 'phase' in msg:
+            entry['phase'] = msg['phase']
+        if 'cards' in msg:
+            entry['cards'] = msg['cards']
+        if 'action' in msg:
+            entry['action'] = msg['action']
+        if 'win_result' in msg:
+            entry['win_result'] = msg['win_result']
+        formatted.append(entry)
     return formatted

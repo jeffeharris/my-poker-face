@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Flame, Smile, HelpCircle, Zap, Theater, Handshake, Users, type LucideIcon } from 'lucide-react';
+import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, Users, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
@@ -21,6 +21,7 @@ interface QuickChatSuggestionsProps {
   onSelectSuggestion: (text: string) => void;
   defaultExpanded?: boolean;
   hideHeader?: boolean;
+  onSuggestionsLoaded?: () => void;
 }
 
 interface ToneOption {
@@ -31,10 +32,10 @@ interface ToneOption {
 
 const TONE_OPTIONS: ToneOption[] = [
   { id: 'tilt', icon: Flame, label: 'Tilt' },
-  { id: 'false_confidence', icon: Smile, label: 'False Confidence' },
-  { id: 'doubt', icon: HelpCircle, label: 'Doubt' },
+  { id: 'bait', icon: Crosshair, label: 'Bait' },
+  { id: 'needle', icon: CircleDot, label: 'Needle' },
   { id: 'goad', icon: Zap, label: 'Goad' },
-  { id: 'mislead', icon: Theater, label: 'Mislead' },
+  { id: 'bluff', icon: Sparkles, label: 'Bluff' },
   { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 
@@ -45,7 +46,8 @@ export function QuickChatSuggestions({
   lastAction,
   onSelectSuggestion,
   defaultExpanded = false,
-  hideHeader = false
+  hideHeader = false,
+  onSuggestionsLoaded
 }: QuickChatSuggestionsProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
@@ -85,7 +87,6 @@ export function QuickChatSuggestions({
 
   // Get AI players (non-human, not folded)
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
-
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Cooldown check (skip if force refresh)
     const now = Date.now();
@@ -130,8 +131,9 @@ export function QuickChatSuggestions({
     } finally {
       setLoading(false);
       setContainerHeight(null); // Release fixed height
+      onSuggestionsLoaded?.();
     }
-  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey]);
+  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey, onSuggestionsLoaded]);
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {
@@ -140,6 +142,7 @@ export function QuickChatSuggestions({
       const cached = suggestionsCache.current[cacheKey];
       if (cached) {
         setSuggestions(cached);
+        onSuggestionsLoaded?.();
       } else {
         // No cache - capture height and fetch new suggestions
         if (suggestionsRef.current) {
@@ -158,6 +161,7 @@ export function QuickChatSuggestions({
       const cached = suggestionsCache.current[cacheKey];
       if (cached) {
         setSuggestions(cached);
+        onSuggestionsLoaded?.();
       } else {
         // Capture height before fetching
         if (suggestionsRef.current) {
@@ -178,6 +182,7 @@ export function QuickChatSuggestions({
       const cached = suggestionsCache.current[cacheKey];
       if (cached) {
         setSuggestions(cached);
+        onSuggestionsLoaded?.();
       } else {
         // Capture height before fetching
         if (suggestionsRef.current) {
@@ -247,36 +252,34 @@ export function QuickChatSuggestions({
         <div className="selector-label">Who?</div>
         <div className="target-options">
           <button
-            className={`target-btn ${selectedTarget === 'table' ? 'selected' : ''}`}
+            className={`target-btn target-btn-table ${selectedTarget === 'table' ? 'selected' : ''}`}
             onClick={() => handleTargetSelect('table')}
             title="Talk to the table"
           >
-            <Users className="target-avatar" size={16} />
+            <Users size={22} style={{ opacity: 0.85 }} />
             <span className="target-name">Table</span>
           </button>
-          {aiPlayers.map((player) => (
-            <button
-              key={player.name}
-              className={`target-btn ${selectedTarget === player.name ? 'selected' : ''}`}
-              onClick={() => handleTargetSelect(player.name)}
-              title={`Talk to ${player.name}`}
-            >
-              <span className={`target-avatar ${player.avatar_url ? 'has-image' : ''}`}>
-                {player.avatar_url ? (
-                  <img
-                    src={`${config.API_URL}${player.avatar_url}`}
-                    alt={player.name}
-                    className="target-avatar-img"
-                  />
-                ) : (
-                  player.name.charAt(0).toUpperCase()
-                )}
-              </span>
-              <span className="target-name">
-                {player.nickname || player.name}
-              </span>
-            </button>
-          ))}
+          {aiPlayers.map((player) => {
+            // Encode avatar URL path segments to handle spaces in player names
+            const rawPath = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
+              ? player.avatar_url
+              : `/api/avatar/${player.name}/confident/full`;
+            const encodedPath = rawPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
+            const avatarUrl = `${config.API_URL}${encodedPath}`;
+            return (
+              <button
+                key={player.name}
+                className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} has-bg-image`}
+                onClick={() => handleTargetSelect(player.name)}
+                title={`Talk to ${player.name}`}
+                style={{ backgroundImage: `url(${avatarUrl})` }}
+              >
+                <span className="target-name">
+                  {player.nickname || player.name}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
