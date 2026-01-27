@@ -666,9 +666,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    from pathlib import Path
-
-    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    db_path = _get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -703,9 +701,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    from pathlib import Path
-
-    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    db_path = _get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -738,9 +734,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    from pathlib import Path
-
-    db_path = '/app/data/poker_games.db' if Path('/app/data').exists() else str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    db_path = _get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:

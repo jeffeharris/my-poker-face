@@ -21,6 +21,8 @@ from enum import Enum
 from typing import Set, List, Tuple, Optional, Dict, Any
 import logging
 
+from poker.card_utils import normalize_card_string
+
 logger = logging.getLogger(__name__)
 
 
@@ -907,18 +909,9 @@ def calculate_equity_vs_ranges(
     try:
         import eval7
 
-        def _convert_card(card_str: str) -> str:
-            """Convert card string to eval7 format (e.g., 'Ah' -> 'Ah')."""
-            if len(card_str) == 2:
-                return card_str
-            elif len(card_str) == 3 and card_str[0] == '1':
-                # Handle '10h' -> 'Th'
-                return 'T' + card_str[2]
-            return card_str
-
         # Parse hero's hand
-        hero_hand = [eval7.Card(_convert_card(c)) for c in player_hand]
-        board = [eval7.Card(_convert_card(c)) for c in community_cards] if community_cards else []
+        hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
+        board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
 
         # Build set of excluded cards (hero's hand + board)
         excluded_cards = set(player_hand + (community_cards or []))
@@ -947,7 +940,7 @@ def calculate_equity_vs_ranges(
             opponent_hands = []
             opp_cards_set = set()
             for hand in opponent_hands_raw:
-                opp_hand = [eval7.Card(_convert_card(hand[0])), eval7.Card(_convert_card(hand[1]))]
+                opp_hand = [eval7.Card(normalize_card_string(hand[0])), eval7.Card(normalize_card_string(hand[1]))]
                 opponent_hands.append(opp_hand)
                 opp_cards_set.add(opp_hand[0])
                 opp_cards_set.add(opp_hand[1])

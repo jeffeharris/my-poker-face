@@ -43,22 +43,9 @@ from .hand_ranges import (
     EquityConfig,
 )
 from .decision_analyzer import calculate_max_winnable
+from .card_utils import normalize_card_string, card_to_string
 
 logger = logging.getLogger(__name__)
-
-# Hand strength evaluation for clearer AI decision making
-SUIT_MAP = {'♣': 'c', '♦': 'd', '♠': 's', '♥': 'h'}
-
-
-def _convert_card_for_eval(card_str: str) -> str:
-    """Convert unicode card string to eval7 format."""
-    for unicode_suit, letter_suit in SUIT_MAP.items():
-        if unicode_suit in card_str:
-            card_str = card_str.replace(unicode_suit, letter_suit)
-            break
-    if card_str.startswith('10'):
-        card_str = 'T' + card_str[2:]
-    return card_str
 
 
 def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> Optional[str]:
@@ -74,8 +61,8 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
         import eval7
 
         # Convert cards
-        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
-        board = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+        hand = [eval7.Card(normalize_card_string(c)) for c in hole_cards]
+        board = [eval7.Card(normalize_card_string(c)) for c in community_cards]
 
         # Evaluate
         score = eval7.evaluate(hand + board)
@@ -125,8 +112,8 @@ def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
     try:
         import eval7
 
-        hand = [eval7.Card(_convert_card_for_eval(c)) for c in hole_cards]
-        board_cards = [eval7.Card(_convert_card_for_eval(c)) for c in community_cards]
+        hand = [eval7.Card(normalize_card_string(c)) for c in hole_cards]
+        board_cards = [eval7.Card(normalize_card_string(c)) for c in community_cards]
 
         wins = 0
         for _ in range(num_simulations):
@@ -192,8 +179,8 @@ def _get_canonical_hand(hole_cards: List[str]) -> str:
         return ''
 
     # Normalize cards
-    c1 = _convert_card_for_eval(hole_cards[0])
-    c2 = _convert_card_for_eval(hole_cards[1])
+    c1 = normalize_card_string(hole_cards[0])
+    c2 = normalize_card_string(hole_cards[1])
 
     # Extract rank and suit
     rank1, suit1 = c1[0], c1[1] if len(c1) > 1 else ''
@@ -880,23 +867,8 @@ class AIPlayerController:
                 short_stack_info = {'stack_bb': round(stack_bb, 1)}
 
             if game_state.community_cards:
-                def card_to_str(c):
-                    if isinstance(c, dict):
-                        rank = c.get('rank', '')
-                        suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                        if rank == '10':
-                            rank = 'T'
-                        return f"{rank}{suit}"
-                    else:
-                        s = str(c)
-                        suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                        for symbol, letter in suit_map.items():
-                            s = s.replace(symbol, letter)
-                        s = s.replace('10', 'T')
-                        return s
-
-                hole_cards = [card_to_str(c) for c in player.hand] if player.hand else []
-                community_cards = [card_to_str(c) for c in game_state.community_cards]
+                hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
+                community_cards = [card_to_string(c) for c in game_state.community_cards]
 
                 # Count opponents still in hand for accurate multi-way equity
                 num_opponents = len([
@@ -953,24 +925,8 @@ class AIPlayerController:
             required_equity = 100 / (pot_odds + 1) if pot_odds > 0 else 100
 
             # Convert cards for equity calculation
-            def card_to_str_equity(c):
-                """Convert card (dict or Card object) to short string like '8h'."""
-                if isinstance(c, dict):
-                    rank = c.get('rank', '')
-                    suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                    if rank == '10':
-                        rank = 'T'
-                    return f"{rank}{suit}"
-                else:
-                    s = str(c)
-                    suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                    for symbol, letter in suit_map.items():
-                        s = s.replace(symbol, letter)
-                    s = s.replace('10', 'T')
-                    return s
-
-            hole_cards = [card_to_str_equity(c) for c in player.hand] if player.hand else []
-            community_cards = [card_to_str_equity(c) for c in game_state.community_cards]
+            hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
+            community_cards = [card_to_string(c) for c in game_state.community_cards]
 
             # Get opponents still in hand (needed for accurate multi-way equity)
             opponents_in_hand = [
@@ -1172,26 +1128,6 @@ class AIPlayerController:
             player = game_state.current_player
 
             # Get cards in format equity calculator understands
-            def card_to_string(c):
-                """Convert card (dict or Card object) to short string like '8h'."""
-                if isinstance(c, dict):
-                    rank = c.get('rank', '')
-                    suit = c.get('suit', '')[0].lower() if c.get('suit') else ''
-                    # Handle 10 -> T
-                    if rank == '10':
-                        rank = 'T'
-                    return f"{rank}{suit}"
-                else:
-                    # Card object - use str() which gives "8♥" format
-                    s = str(c)
-                    # Convert Unicode suits to letters
-                    suit_map = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
-                    for symbol, letter in suit_map.items():
-                        s = s.replace(symbol, letter)
-                    # Handle 10 -> T
-                    s = s.replace('10', 'T')
-                    return s
-
             community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
             player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
 

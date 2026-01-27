@@ -15,6 +15,8 @@ import logging
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
+from poker.card_utils import card_to_string
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,37 +57,11 @@ def to_bb(amount: int, big_blind: int) -> float:
     return round(amount / big_blind, 1)
 
 
-def format_card(card) -> str:
-    """Format a card to standard notation (e.g., 'Ah', 'Kd')."""
-    if isinstance(card, dict):
-        rank = card.get('rank', card.get('value', '?'))
-        suit = card.get('suit', '?')
-    elif hasattr(card, 'rank') and hasattr(card, 'suit'):
-        rank = card.rank
-        suit = card.suit
-    else:
-        return str(card)
-
-    # Convert suit to single letter
-    suit_map = {
-        'Spades': 's', 'spades': 's', 'S': 's', 's': 's',
-        'Hearts': 'h', 'hearts': 'h', 'H': 'h', 'h': 'h',
-        'Diamonds': 'd', 'diamonds': 'd', 'D': 'd', 'd': 'd',
-        'Clubs': 'c', 'clubs': 'c', 'C': 'c', 'c': 'c',
-    }
-    suit_char = suit_map.get(suit, suit[0].lower() if suit else '?')
-
-    # Normalize rank (10 -> T for standard notation)
-    rank_str = 'T' if rank == '10' else str(rank)
-
-    return f"{rank_str}{suit_char}"
-
-
 def format_cards(cards) -> str:
     """Format a list of cards to standard notation."""
     if not cards:
         return "none"
-    return " ".join(format_card(c) for c in cards)
+    return " ".join(card_to_string(c) for c in cards)
 
 
 @dataclass
@@ -181,10 +157,10 @@ def extract_minimal_state(game_state, player, phase: str) -> MinimalGameState:
         players_behind.append((next_pos, to_bb(next_player.stack, big_blind)))
 
     return MinimalGameState(
-        hole_cards=[format_card(c) for c in player.hand],
+        hole_cards=[card_to_string(c) for c in player.hand],
         position=player_position,
         stack_bb=to_bb(player.stack, big_blind),
-        community_cards=[format_card(c) for c in game_state.community_cards],
+        community_cards=[card_to_string(c) for c in game_state.community_cards],
         street=STREET_NAMES.get(phase, phase),
         pot_bb=to_bb(game_state.pot.get('total', 0), big_blind),
         to_call_bb=to_bb(cost_to_call, big_blind),
