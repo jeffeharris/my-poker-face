@@ -798,14 +798,14 @@ def api_new_game():
 
     requested_personalities = data.get('personalities', [])
     default_llm_config = data.get('llm_config', {})
-    starting_stack = data.get('starting_stack', 10000)
-    big_blind = data.get('big_blind', 50)
+    starting_stack = data.get('starting_stack', 5000)
+    big_blind = data.get('big_blind', 100)
     blind_growth = data.get('blind_growth', 1.5)
     blinds_increase = data.get('blinds_increase', 6)
-    max_blind = data.get('max_blind', 0)  # 0 = no limit
+    max_blind = data.get('max_blind', 1000)  # 0 = no limit
 
     # Validate game mode (if provided)
-    game_mode = data.get('game_mode', 'casual').lower()
+    game_mode = data.get('game_mode', 'standard').lower()
     VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
     if game_mode not in VALID_GAME_MODES:
         return jsonify({
@@ -822,9 +822,7 @@ def api_new_game():
         if default_model and default_model not in PROVIDER_MODELS.get(default_provider, []):
             return jsonify({'error': f'Invalid default model {default_model} for provider {default_provider}'}), 400
 
-    # Validate: ensure starting stack is at least 10x big blind
-    if starting_stack < big_blind * 10:
-        starting_stack = big_blind * 10
+    # Note: UI warns if starting stack < 10x big blind, but we allow it
 
     # Parse personalities - supports both string names and objects with llm_config/game_mode
     # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}, "game_mode": "pro"}]
@@ -863,7 +861,8 @@ def api_new_game():
                             }), 400
                         player_prompt_configs[name] = load_game_mode_preset(p_mode)
     else:
-        ai_player_names = get_celebrities(shuffled=True)[:3]
+        opponent_count = data.get('opponent_count', 3)
+        ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
 
     game_state = initialize_game_state(
         player_names=ai_player_names,

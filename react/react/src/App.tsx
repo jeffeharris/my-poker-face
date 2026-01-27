@@ -159,6 +159,10 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           starting_stack: startingStack,
           big_blind: bigBlind,
           opponent_count: quickPlayConfig.opponents,
+          game_mode: quickPlayConfig.gameMode,
+          blind_growth: quickPlayConfig.blindGrowth,
+          blinds_increase: quickPlayConfig.blindsIncrease,
+          max_blind: quickPlayConfig.maxBlind,
         }),
       });
 
@@ -178,7 +182,8 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   const handleStartCustomGame = async (
     selectedPersonalities: Array<string | { name: string; llm_config: { provider: string; model: string; reasoning_effort?: string } }>,
-    llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number }
+    llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number },
+    gameMode?: string
   ) => {
     if (isCreatingGame) return;
     setIsCreatingGame(true);
@@ -197,7 +202,8 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           big_blind: llmConfig?.big_blind,
           blind_growth: llmConfig?.blind_growth,
           blinds_increase: llmConfig?.blinds_increase,
-          max_blind: llmConfig?.max_blind
+          max_blind: llmConfig?.max_blind,
+          game_mode: gameMode,
         }),
       });
 
