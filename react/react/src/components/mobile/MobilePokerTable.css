@@ -1077,11 +1077,6 @@
   max-width: 58%;
 }
 
-/* Non-thinking opponent shrinks when sibling is thinking */
-.mobile-opponents.two-opponents-mode .mobile-opponent.two-opponents-avatar:not(.thinking) {
-  flex: 0.8 1 35%;
-}
-
 /* =================================
    HEADS-UP MODE
    When only 1 AI opponent remains
