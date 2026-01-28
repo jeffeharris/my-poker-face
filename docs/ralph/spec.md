@@ -815,8 +815,11 @@ def get_default_provider() -> str:
 **Type**: Fix + new utility
 **Files**: `react/react/src/utils/logger.ts` (new), 38 React source files
 
+### Important Note
+Earlier Tier 1 tasks (T1-11, T1-13, T1-14, T1-15) added new React files and modified `App.tsx`. **Do NOT rely on the line numbers or exact counts below** — they were measured before those changes. Instead, do a fresh `grep -rn "console\." react/react/src/ --include="*.ts" --include="*.tsx"` to get current counts and locations before starting.
+
 ### Problem
-120 console statements across 38 React files: 48 `console.log` (debug noise), 62 `console.error` (legitimate error handling), 8 `console.warn`, 2 `console.debug`. Debug logs fire on every WebSocket event, cluttering the browser console and potentially exposing game state data. An existing `config.ENABLE_DEBUG` flag exists but is unused for logging.
+120+ console statements across 38+ React files: ~48 `console.log` (debug noise), ~62 `console.error` (legitimate error handling), ~8 `console.warn`, ~2 `console.debug`. Debug logs fire on every WebSocket event, cluttering the browser console and potentially exposing game state data. An existing `config.ENABLE_DEBUG` flag exists but is unused for logging.
 
 ### Action
 
