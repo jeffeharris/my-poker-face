@@ -52,7 +52,7 @@ export interface PotBreakdown {
   pot_name: string;
   total_amount: number;
   winners: { name: string; amount: number }[];
-  hand_name?: string;
+  hand_name: string;
 }
 
 // Used by WinnerAnnouncement component
