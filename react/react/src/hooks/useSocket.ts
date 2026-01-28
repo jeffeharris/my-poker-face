@@ -13,7 +13,7 @@ export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOpt
 
   useEffect(() => {
     if (options.autoConnect !== false) {
-      const socket = io(url);
+      const socket = io(url, { withCredentials: true });
       socketRef.current = socket;
 
       if (options.onConnect) {
@@ -32,7 +32,7 @@ export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOpt
 
   const connect = () => {
     if (!socketRef.current || !socketRef.current.connected) {
-      socketRef.current = io(url);
+      socketRef.current = io(url, { withCredentials: true });
     }
   };
 
