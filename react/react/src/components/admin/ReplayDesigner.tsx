@@ -19,19 +19,6 @@ interface Variant {
   reasoning_effort?: string;
 }
 
-interface CaptureSelection {
-  mode: 'ids' | 'labels' | 'filters';
-  ids?: number[];
-  labels?: string[];
-  match_all?: boolean;
-  filters?: {
-    phase?: string;
-    action?: string;
-    min_pot_odds?: number;
-    max_pot_odds?: number;
-  };
-}
-
 interface ReplayDesignerProps {
   onExperimentCreated?: (experimentId: number) => void;
 }
@@ -53,10 +40,6 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
 
   // Capture selection state
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<number[]>([]);
-  const [_captureSelection, setCaptureSelection] = useState<CaptureSelection>({
-    mode: 'ids',
-    ids: []
-  });
 
   // Variants state
   const [variants, setVariants] = useState<Variant[]>([
@@ -85,15 +68,6 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
     }
     return options;
   }, [providers, formatModelLabel]);
-
-  // Update capture selection when IDs change
-  useEffect(() => {
-    setCaptureSelection(prev => ({
-      ...prev,
-      mode: 'ids',
-      ids: selectedCaptureIds
-    }));
-  }, [selectedCaptureIds]);
 
   // Clear messages after timeout
   useEffect(() => {

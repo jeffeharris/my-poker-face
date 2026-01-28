@@ -54,7 +54,7 @@ export function QuickChatSuggestions({
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
-  const [lastFetchTime, setLastFetchTime] = useState(0);
+  const lastFetchTimeRef = useRef(0);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [containerHeight, setContainerHeight] = useState<number | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -91,7 +91,7 @@ export function QuickChatSuggestions({
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Cooldown check (skip if force refresh)
     const now = Date.now();
-    if (!forceRefresh && now - lastFetchTime < SUGGESTION_FETCH_COOLDOWN_MS) {
+    if (!forceRefresh && now - lastFetchTimeRef.current < SUGGESTION_FETCH_COOLDOWN_MS) {
       return;
     }
 
@@ -121,7 +121,7 @@ export function QuickChatSuggestions({
       // Cache the suggestions
       const cacheKey = getCacheKey(target, tone, length, intensity);
       suggestionsCache.current[cacheKey] = newSuggestions;
-      setLastFetchTime(now);
+      lastFetchTimeRef.current = now;
     } catch (error) {
       logger.error('[QuickChat] Failed to fetch suggestions:', error);
       // Set fallback suggestions
@@ -134,7 +134,7 @@ export function QuickChatSuggestions({
       setContainerHeight(null); // Release fixed height
       onSuggestionsLoaded?.();
     }
-  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey, onSuggestionsLoaded]);
+  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded]);
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {
