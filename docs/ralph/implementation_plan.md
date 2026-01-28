@@ -51,13 +51,17 @@
 - [x] T2-20: Cap in-memory message list at 200 entries with trim on append
 - [x] T2-22: Conversation memory token trim [Dismissed - memory cleared each turn, usage is 6.6% of 128k context]
 
+## Phase 7a: T1-08 Revision (revert ValueError, use Optional[int])
+
+- [ ] T1-21: Refactor `get_next_active_player_idx` to return `Optional[int]` — return `None` when no active players, update all callers to handle gracefully
+
 ## Phase 7: Tier 3 Mechanical Fixes (config & cleanup)
 
 - [x] T3-20: Remove GET method from `/api/end_game/<game_id>` — POST only for destructive endpoints
 - [x] T3-24: Add `.editorconfig` — standard editor settings for consistent formatting
 - [x] T3-25: Add `.github/dependabot.yml` — automated dependency updates for pip, npm, github-actions
 - [x] T3-27: Update Makefile from `docker-compose` to `docker compose` (v2)
-- [ ] T3-04: Fix skipped test in `test_prompt_management.py:192` — fix or delete, no orphaned skips
+- [x] T3-04: Fix skipped test in `test_prompt_management.py:192` — fix or delete, no orphaned skips
 - [ ] T3-13: Make HTTP client timeout configurable via `LLM_HTTP_TIMEOUT` env var
 - [ ] T3-16: Consolidate duplicated `_get_db_path()` functions — single canonical version in config
 - [ ] T3-28: Set `--max-warnings=0` in `.github/workflows/deploy.yml`
