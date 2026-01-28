@@ -873,8 +873,8 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
 
     # Determine the best hand among all evaluated hands
-    evaluated_hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
-    evaluated_hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
+    evaluated_hands.sort(key=lambda x: x[1]["kicker_values"], reverse=True)
+    evaluated_hands.sort(key=lambda x: x[1]["hand_values"], reverse=True)
     evaluated_hands.sort(key=lambda x: x[1]["hand_rank"])
     best_overall_hand = evaluated_hands[0][1]
 
