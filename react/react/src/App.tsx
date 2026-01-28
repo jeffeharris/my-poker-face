@@ -18,6 +18,7 @@ import { useAuth } from './hooks/useAuth'
 import { LoadingOverlay } from './components/shared'
 import { config } from './config'
 import { type Theme } from './types/theme'
+import { Toaster } from 'react-hot-toast'
 import './App.css'
 
 // Game limit constants
@@ -282,6 +283,14 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   return (
     <>
+      {/* Toast notifications */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+        }}
+      />
+
       {/* Routes */}
       <Routes>
         {/* Public routes */}
