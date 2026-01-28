@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Flask, jsonify, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .config import SECRET_KEY
+from .config import SECRET_KEY, is_development
 from .extensions import init_extensions, socketio
 from . import extensions
 
@@ -97,6 +97,11 @@ def register_error_handlers(app: Flask) -> None:
     @app.errorhandler(Exception)
     def unhandled_exception_handler(e):
         logger.error(f"Unhandled exception: {e}", exc_info=True)
+        if is_development:
+            return jsonify({
+                'error': type(e).__name__,
+                'message': str(e)
+            }), 500
         return jsonify({
             'error': 'Internal server error',
             'message': 'An unexpected error occurred'

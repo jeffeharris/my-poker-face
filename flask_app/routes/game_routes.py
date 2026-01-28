@@ -1234,26 +1234,26 @@ def register_socket_events(sio):
             action = data['action']
             amount = int(data.get('amount', 0))
         except KeyError:
+            logger.debug(f"[SOCKET] player_action missing required fields: {data}")
             return
 
         current_game_data = game_state_service.get_game(game_id)
         if not current_game_data:
+            logger.debug(f"[SOCKET] player_action game not found: {game_id}")
             return
 
         # Verify the current user is the game owner
         user = auth_manager.get_current_user() if auth_manager else None
         owner_id = current_game_data.get('owner_id')
         if not user or user.get('id') != owner_id:
+            logger.debug(f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}")
             return
 
         state_machine = current_game_data['state_machine']
 
-        # Verify it's a human player's turn
-        if not state_machine.game_state.current_player.is_human:
-            return
-
         is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
         if not is_valid:
+            logger.debug(f"[SOCKET] player_action validation failed: {error_message}")
             return
 
         current_player = state_machine.game_state.current_player
