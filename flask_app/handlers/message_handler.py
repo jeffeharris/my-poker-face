@@ -10,6 +10,8 @@ from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
 
+MAX_MESSAGES_IN_MEMORY = 200
+
 
 def format_action_message(player_name: str, action: str, amount: int = 0,
                           highest_bet: int = 0) -> str:
@@ -123,6 +125,10 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         new_message["win_result"] = win_result
 
     game_messages.append(new_message)
+
+    # Trim to prevent unbounded growth
+    if len(game_messages) > MAX_MESSAGES_IN_MEMORY:
+        game_messages = game_messages[-MAX_MESSAGES_IN_MEMORY:]
 
     # Update the messages in game data
     game_data['messages'] = game_messages
