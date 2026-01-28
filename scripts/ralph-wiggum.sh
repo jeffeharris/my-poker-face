@@ -5,7 +5,13 @@
 # Usage: ./scripts/ralph-wiggum.sh
 # Run inside the ralph-wiggum Docker container after authenticating Claude.
 
-set -euo pipefail
+set -uo pipefail
+# Note: -e intentionally omitted. The claude CLI can throw transient errors
+# (e.g., "No messages returned") that are not task failures. The loop handles
+# errors via if/else and retry logic instead of exiting the script.
+
+MAX_RETRIES=3
+RETRY_DELAY=30
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -64,15 +70,32 @@ while true; do
     echo "Log: $LOG_FILE"
     echo ""
 
-    # Run Claude headless with the prompt
-    if claude -p "$(cat "$PROMPT_FILE")" \
-        --dangerously-skip-permissions \
-        --max-turns 50 \
-        2>&1 | tee "$LOG_FILE"; then
+    # Run Claude headless with the prompt (with retry on transient errors)
+    ATTEMPT=0
+    TASK_SUCCEEDED=false
+    while [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; do
+        ATTEMPT=$((ATTEMPT + 1))
+        if [ "$ATTEMPT" -gt 1 ]; then
+            echo "--- Retry $ATTEMPT/$MAX_RETRIES after ${RETRY_DELAY}s ---"
+            sleep "$RETRY_DELAY"
+        fi
+
+        if claude -p "$(cat "$PROMPT_FILE")" \
+            --dangerously-skip-permissions \
+            --max-turns 50 \
+            2>&1 | tee "$LOG_FILE"; then
+            TASK_SUCCEEDED=true
+            break
+        fi
+
+        echo "--- Attempt $ATTEMPT failed (exit code $?) ---"
+    done
+
+    if [ "$TASK_SUCCEEDED" = true ]; then
         echo "=== Task #${TASK_NUM} completed ==="
         COMPLETED=$((COMPLETED + 1))
     else
-        echo "=== Task #${TASK_NUM} exited with error ==="
+        echo "=== Task #${TASK_NUM} failed after $MAX_RETRIES attempts ==="
         FAILED=$((FAILED + 1))
     fi
 
