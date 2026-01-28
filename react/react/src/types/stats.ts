@@ -16,7 +16,7 @@ export interface PlayerSummary {
 
 export interface LeaderboardEntry {
   name: string;
-  [key: string]: any;
+  [key: string]: string | number | boolean | null | undefined;
 }
 
 export interface SessionSummary {

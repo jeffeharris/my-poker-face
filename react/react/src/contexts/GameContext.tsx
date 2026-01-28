@@ -31,6 +31,7 @@ const GameContext = createContext<GameContextType | undefined>(undefined);
 // Cap message arrays to prevent unbounded memory growth in long games
 const MAX_MESSAGES = 200;
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useGame() {
   const context = useContext(GameContext);
   if (!context) {
@@ -65,7 +66,7 @@ export function GameProvider({ children }: GameProviderProps) {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('update_game_state', (data: { game_state: any }) => {
+    socket.on('update_game_state', (data: { game_state: GameState }) => {
 
       const transformedState = {
         ...data.game_state,

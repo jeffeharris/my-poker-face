@@ -28,6 +28,8 @@ export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOpt
         socket.disconnect();
       };
     }
+    // Intentionally omit callbacks - we don't want to reconnect when callbacks change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, options.autoConnect]);
 
   const connect = () => {

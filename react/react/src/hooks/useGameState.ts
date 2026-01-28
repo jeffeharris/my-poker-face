@@ -137,6 +137,8 @@ export function useGameState(gameId: string | null): UseGameStateResult {
       // Always fetch fresh data (will update cache)
       fetchGameState(gameId);
     }
+    // Intentionally only depend on gameId - fetch on game change, not on every callback/state change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
   return {

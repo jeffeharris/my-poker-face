@@ -111,7 +111,7 @@ export function parseCard(cardString: string): Card | null {
   
   return {
     suit,
-    rank: rank as any,
+    rank: rank as Card['rank'],
     value: getRankValue(rank),
     unicode: CARD_SYMBOLS[suit][rank as keyof typeof CARD_SYMBOLS.spades],
     imagePath: getCardImagePath(rank, suit),

@@ -152,7 +152,7 @@ export function QuickChatSuggestions({
         fetchSuggestions(selectedTarget, selectedTone, true);
       }
     }
-  }, [length, intensity, selectedTarget, selectedTone, getCacheKey, fetchSuggestions]);
+  }, [length, intensity, selectedTarget, selectedTone, getCacheKey, fetchSuggestions, onSuggestionsLoaded]);
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);

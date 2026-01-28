@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { ChatMessage, GameState } from '../types';
+import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import { config } from '../config';
 import { logger } from '../utils/logger';
@@ -28,7 +28,7 @@ interface UsePokerGameResult {
   gameId: string | null;
   messages: ChatMessage[];
   aiThinking: boolean;
-  winnerInfo: any;
+  winnerInfo: WinnerInfo | null;
   revealedCards: RevealedCardsInfo | null;
   tournamentResult: TournamentResult | null;
   eliminationEvents: EliminationEvent[];
@@ -72,7 +72,7 @@ export function usePokerGame({
   const socketRef = useRef<Socket | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
-  const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const [winnerInfo, setWinnerInfo] = useState<WinnerInfo | null>(null);
   const [revealedCards, setRevealedCards] = useState<RevealedCardsInfo | null>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
@@ -103,7 +103,7 @@ export function usePokerGame({
       // Placeholder for future player join handling
     });
 
-    socket.on('update_game_state', (data: { game_state: any }) => {
+    socket.on('update_game_state', (data: { game_state: GameState }) => {
       const transformedState = {
         ...data.game_state,
         messages: data.game_state.messages || []
@@ -134,7 +134,7 @@ export function usePokerGame({
     });
 
     // Listen for new message (singular - desktop format)
-    socket.on('new_message', (data: { message: any }) => {
+    socket.on('new_message', (data: { message: BackendChatMessage }) => {
       const msg = data.message;
       const msgId = msg.id || String(msg.timestamp);
 
@@ -160,22 +160,22 @@ export function usePokerGame({
     });
 
     // Listen for new messages (plural - mobile format)
-    socket.on('new_messages', (data: { game_messages: any[] }) => {
-      const newMessages = data.game_messages.filter((msg: any) => {
+    socket.on('new_messages', (data: { game_messages: BackendChatMessage[] }) => {
+      const newMessages = data.game_messages.filter((msg) => {
         return !messageIdsRef.current.has(msg.id || String(msg.timestamp));
       });
 
       if (newMessages.length > 0) {
-        newMessages.forEach((msg: any) => {
+        newMessages.forEach((msg) => {
           const msgId = msg.id || String(msg.timestamp);
           messageIdsRef.current.add(msgId);
         });
-        setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
+        setMessages(prev => [...prev, ...newMessages as unknown as ChatMessage[]].slice(-MAX_MESSAGES));
 
         if (onNewAiMessage) {
-          const aiMessages = newMessages.filter((msg: any) => msg.type === 'ai');
+          const aiMessages = newMessages.filter((msg) => msg.message_type === 'ai');
           if (aiMessages.length > 0) {
-            onNewAiMessage(aiMessages[aiMessages.length - 1]);
+            onNewAiMessage(aiMessages[aiMessages.length - 1] as unknown as ChatMessage);
           }
         }
       }
@@ -201,7 +201,7 @@ export function usePokerGame({
       });
     });
 
-    socket.on('winner_announcement', (data: any) => {
+    socket.on('winner_announcement', (data: WinnerInfo) => {
       setWinnerInfo(data);
       setQueuedAction(null); // Clear queue when hand ends
     });

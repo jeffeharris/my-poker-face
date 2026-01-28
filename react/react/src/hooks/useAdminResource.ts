@@ -83,7 +83,7 @@ export function useAdminResource<T>(
         setError(errorMessage);
         onErrorRef.current?.(errorMessage);
       }
-    } catch (err) {
+    } catch {
       if (!mountedRef.current) return;
       const errorMessage = 'Failed to connect to server';
       setError(errorMessage);
@@ -100,6 +100,7 @@ export function useAdminResource<T>(
     if (autoFetch) {
       fetchData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFetch, fetchData, ...deps]);
 
   // Cleanup on unmount
@@ -153,7 +154,7 @@ export function useAdminMutation<TPayload = unknown, TResponse = unknown>() {
         setError(errorMessage);
         return { success: false, error: errorMessage };
       }
-    } catch (err) {
+    } catch {
       const errorMessage = 'Failed to connect to server';
       setError(errorMessage);
       return { success: false, error: errorMessage };

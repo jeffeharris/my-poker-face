@@ -47,7 +47,7 @@ export interface WinnerInfo {
   winning_hand?: string[];
   showdown: boolean;
   players_cards?: { [key: string]: string[] };
-  community_cards?: any[];
+  community_cards?: string[];
   // Tournament final hand context
   is_final_hand?: boolean;
   tournament_outcome?: {
