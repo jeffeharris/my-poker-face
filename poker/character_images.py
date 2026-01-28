@@ -11,6 +11,7 @@ import logging
 import os
 import time
 import urllib.request
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
@@ -39,10 +40,16 @@ ICON_SIZE = 256
 # IMAGE_PROVIDER: "openai" (default), "pollinations", "runware", etc.
 # IMAGE_MODEL: model to use (provider-specific default if not set)
 
+@lru_cache(maxsize=1)
+def _get_image_config_persistence():
+    """Get a shared persistence instance for image config lookups."""
+    from .persistence import GamePersistence
+    return GamePersistence()
+
+
 def get_image_provider() -> str:
     """Get the image provider from app_settings or environment."""
-    from .persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_image_config_persistence()
     db_value = p.get_setting('IMAGE_PROVIDER', '')
     if db_value:
         return db_value
@@ -51,8 +58,7 @@ def get_image_provider() -> str:
 
 def get_image_model() -> Optional[str]:
     """Get the image model from app_settings or environment."""
-    from .persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_image_config_persistence()
     db_value = p.get_setting('IMAGE_MODEL', '')
     if db_value:
         return db_value

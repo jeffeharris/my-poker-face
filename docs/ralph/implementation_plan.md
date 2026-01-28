@@ -45,7 +45,7 @@
 
 ## Phase 6: Tier 2 Resource & Cleanup Fixes
 
-- [ ] T2-05: Cache `GamePersistence` in config getters — `@lru_cache` shared instance
+- [x] T2-05: Cache `GamePersistence` in config getters — `@lru_cache` shared instance
 - [ ] T2-12: Remove debug console.log statements — create logger utility, delete noise, convert rest
 - [ ] T2-19: Add TTL-based eviction for in-memory game state (2-hour expiry)
 - [ ] T2-20: Cap in-memory message list at 200 entries with trim on append

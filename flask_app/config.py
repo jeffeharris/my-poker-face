@@ -1,6 +1,7 @@
 """Configuration for the Flask application."""
 
 import os
+from functools import lru_cache
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -49,13 +50,19 @@ from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
 from core.llm.config import DEFAULT_MODEL
 
 
+@lru_cache(maxsize=1)
+def _get_config_persistence():
+    """Get a shared persistence instance for config lookups."""
+    from poker.persistence import GamePersistence
+    return GamePersistence()
+
+
 def get_default_provider() -> str:
     """Get the default LLM provider from app_settings or environment.
 
     Priority: 1. Database (app_settings), 2. Default ('openai')
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('DEFAULT_PROVIDER', '')
     if db_value:
         return db_value
@@ -67,8 +74,7 @@ def get_default_model() -> str:
 
     Priority: 1. Database (app_settings), 2. core.llm.config.DEFAULT_MODEL
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('DEFAULT_MODEL', '')
     if db_value:
         return db_value
@@ -80,8 +86,7 @@ def get_assistant_provider() -> str:
 
     Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_PROVIDER
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('ASSISTANT_PROVIDER', '')
     if db_value:
         return db_value
@@ -93,8 +98,7 @@ def get_assistant_model() -> str:
 
     Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_MODEL
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('ASSISTANT_MODEL', '')
     if db_value:
         return db_value
