@@ -66,7 +66,7 @@ while true; do
 
     # Run Claude headless with the prompt
     if claude -p "$(cat "$PROMPT_FILE")" \
-        --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
+        --dangerously-skip-permissions \
         --max-turns 50 \
         2>&1 | tee "$LOG_FILE"; then
         echo "=== Task #${TASK_NUM} completed ==="
