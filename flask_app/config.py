@@ -15,7 +15,15 @@ is_development = (flask_env == 'development' or flask_debug == '1')
 enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 
 # Secret key
-SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+if is_development:
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-not-for-production')
+else:
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is required in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
 
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
