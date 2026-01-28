@@ -3,6 +3,8 @@
 Provides a connection-pooled httpx client with longer keepalive to avoid
 cold connection overhead (DNS + TCP + TLS handshake) between API calls.
 """
+import atexit
+
 import httpx
 
 # Shared HTTP client for all OpenAI-compatible providers
@@ -15,3 +17,14 @@ shared_http_client = httpx.Client(
     ),
     timeout=httpx.Timeout(connect=10.0, read=600.0, write=600.0, pool=600.0),
 )
+
+
+def _cleanup_http_client():
+    """Close shared HTTP client on process exit."""
+    try:
+        shared_http_client.close()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_http_client)

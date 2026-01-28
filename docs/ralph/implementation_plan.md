@@ -40,7 +40,7 @@
 - [x] T2-14: Fix `get_celebrities()` shuffle mutation — use `random.sample()` instead of in-place shuffle
 - [x] T2-15: Delete dead `setup_helper.py` (references non-existent `working_game.py`)
 - [x] T2-09: Refactor `reset_player_action_flags` to single-pass tuple comprehension (O(n) instead of O(n²))
-- [ ] T2-17: Add `atexit` cleanup for shared HTTP client in `core/llm/providers/http_client.py`
+- [x] T2-17: Add `atexit` cleanup for shared HTTP client in `core/llm/providers/http_client.py`
 - [ ] T2-18: Add thread-safe double-checked locking to `UsageTracker.get_default()`
 
 ## Phase 6: Tier 2 Resource & Cleanup Fixes
