@@ -18,7 +18,7 @@
 - [x] T1-04: RE-VERIFY + fix `_check_two_pair` count >= 2 -> == 2
 - [x] T1-05: RE-VERIFY raise validation bypass (trace HTTP + socket paths) [Dismissed - sanitized_amount IS enforced inside player_raise; gaps are covered by T1-17/T1-18]
 - [x] T1-09: RE-VERIFY missing max_winnable data (check closure scope) [Dismissed - game_state is correctly in closure scope, all_players_bets computed correctly]
-- [ ] T1-12: RE-VERIFY socket memory leak in useSocket.ts
+- [x] T1-12: RE-VERIFY socket memory leak in useSocket.ts [Dismissed - socket.disconnect() removes all listeners; no accumulation]
 - [ ] T1-20: RE-VERIFY SQL injection in admin (check whitelist guard)
 
 ## Phase 3: Backend Logic (more complex, some interdependency)
