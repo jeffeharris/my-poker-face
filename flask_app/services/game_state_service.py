@@ -7,7 +7,7 @@ All modules that need access to game state import from here.
 import threading
 import logging
 from typing import Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,22 @@ logger = logging.getLogger(__name__)
 games: Dict[str, dict] = {}
 game_locks: Dict[str, threading.Lock] = {}
 _game_locks_lock = threading.Lock()
+
+# TTL-based eviction for stale games
+game_last_access: Dict[str, datetime] = {}
+GAME_TTL_HOURS = 2
+
+
+def _cleanup_stale_games():
+    """Remove games not accessed within GAME_TTL_HOURS."""
+    cutoff = datetime.now() - timedelta(hours=GAME_TTL_HOURS)
+    stale_keys = [k for k, t in game_last_access.items() if t < cutoff]
+    for key in stale_keys:
+        games.pop(key, None)
+        game_locks.pop(key, None)
+        game_last_access.pop(key, None)
+    if stale_keys:
+        logger.info(f"[TTL] Evicted {len(stale_keys)} stale game(s): {stale_keys}")
 
 
 def get_game(game_id: str) -> Optional[dict]:
@@ -26,7 +42,11 @@ def get_game(game_id: str) -> Optional[dict]:
     Returns:
         The game data dictionary, or None if not found
     """
-    return games.get(game_id)
+    _cleanup_stale_games()
+    game_data = games.get(game_id)
+    if game_data is not None:
+        game_last_access[game_id] = datetime.now()
+    return game_data
 
 
 def set_game(game_id: str, game_data: dict) -> None:
@@ -36,7 +56,9 @@ def set_game(game_id: str, game_data: dict) -> None:
         game_id: The game identifier
         game_data: The game data dictionary
     """
+    _cleanup_stale_games()
     games[game_id] = game_data
+    game_last_access[game_id] = datetime.now()
 
 
 def delete_game(game_id: str) -> Optional[dict]:
@@ -48,6 +70,8 @@ def delete_game(game_id: str) -> Optional[dict]:
     Returns:
         The removed game data, or None if not found
     """
+    game_last_access.pop(game_id, None)
+    game_locks.pop(game_id, None)
     return games.pop(game_id, None)
 
 
