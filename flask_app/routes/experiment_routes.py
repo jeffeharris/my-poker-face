@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from flask import Blueprint, jsonify, request, session
 
-from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
+from core.llm import LLMClient, CallType
 from poker.persistence import GamePersistence
 from poker.prompt_config import PromptConfig
 from ..extensions import persistence, limiter
@@ -262,7 +262,7 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
         ]
 
         # Make LLM call
-        client = LLMClient(model=ASSISTANT_MODEL, provider=ASSISTANT_PROVIDER)
+        client = LLMClient(model=config.get_assistant_model(), provider=config.get_assistant_provider())
         response = client.complete(
             messages=messages,
             json_format=True,
@@ -1574,7 +1574,7 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
             tools = [SQL_QUERY_TOOL, PERSONALITY_TOOL]
 
         # Call LLM with tool support - use reasoning model for better analysis
-        client = LLMClient(model=config.ASSISTANT_MODEL, provider=config.ASSISTANT_PROVIDER)
+        client = LLMClient(model=config.get_assistant_model(), provider=config.get_assistant_provider())
         response = client.complete(
             messages=messages,
             tools=tools,

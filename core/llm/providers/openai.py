@@ -62,7 +62,7 @@ class OpenAIProvider(LLMProvider):
     @property
     def image_model(self) -> str:
         """Return the image generation model name."""
-        return DEFAULT_IMAGE_MODEL
+        return self._model if self._model != DEFAULT_MODEL else DEFAULT_IMAGE_MODEL
 
     def complete(
         self,
@@ -113,7 +113,7 @@ class OpenAIProvider(LLMProvider):
         if seed_image_url:
             logger.warning("DALL-E doesn't support img2img, ignoring seed_image_url")
         return self._client.images.generate(
-            model=DEFAULT_IMAGE_MODEL,
+            model=self.image_model,
             prompt=prompt,
             n=n,
             size=size,

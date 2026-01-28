@@ -11,6 +11,7 @@ from core.llm import Assistant, LLMClient, CallType
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .personality_generator import PersonalityGenerator
 from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
+from flask_app.config import get_default_model, get_default_provider
 
 
 class PokerPlayer:
@@ -257,7 +258,7 @@ class AIPokerPlayer(PokerPlayer):
         )
 
         # Use stateless LLMClient for one-off attribute generation
-        client = LLMClient()
+        client = LLMClient(model=get_default_model(), provider=get_default_provider())
         response = client.complete(
             messages=[{"role": "user", "content": formatted_message}],
             json_format=True,
