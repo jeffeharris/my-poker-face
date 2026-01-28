@@ -391,7 +391,8 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
         If the bet amount is less than or equal to zero or if the player does not have enough chips to cover the bet.
     """
     # Get the betting player, default to current player if betting player is not set and update their total bet amount
-    player_idx = player_idx or game_state.current_player_idx
+    if player_idx is None:
+        player_idx = game_state.current_player_idx
     betting_player = game_state.players[player_idx]
 
 

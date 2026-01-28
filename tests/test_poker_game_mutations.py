@@ -88,5 +88,43 @@ class TestPropertyMutationPatterns(unittest.TestCase):
         positions = positions + ["under_the_gun"]  # Creates new list
 
 
+class TestPlaceBetPlayerIdx(unittest.TestCase):
+    """Test that place_bet correctly handles player_idx=0."""
+
+    def test_place_bet_with_player_idx_zero(self):
+        """place_bet(player_idx=0) should bet for player 0, not current_player_idx."""
+        from poker.poker_game import place_bet
+
+        game_state = initialize_game_state(['Alice', 'Bob', 'Charlie'])
+        # Set current_player_idx to 2 (Charlie), so it differs from 0
+        game_state = game_state.update(current_player_idx=2)
+
+        alice_stack_before = game_state.players[0].stack
+        charlie_stack_before = game_state.players[2].stack
+        bet_amount = 50
+
+        result = place_bet(game_state, amount=bet_amount, player_idx=0)
+
+        # Alice (index 0) should have lost chips
+        assert result.players[0].stack == alice_stack_before - bet_amount
+        # Charlie (index 2, the current player) should be untouched
+        assert result.players[2].stack == charlie_stack_before
+
+    def test_place_bet_default_uses_current_player(self):
+        """place_bet without player_idx should use current_player_idx."""
+        from poker.poker_game import place_bet
+
+        game_state = initialize_game_state(['Alice', 'Bob', 'Charlie'])
+        game_state = game_state.update(current_player_idx=1)
+
+        bob_stack_before = game_state.players[1].stack
+        bet_amount = 50
+
+        result = place_bet(game_state, amount=bet_amount)
+
+        # Bob (current player, index 1) should have lost chips
+        assert result.players[1].stack == bob_stack_before - bet_amount
+
+
 if __name__ == '__main__':
     unittest.main()

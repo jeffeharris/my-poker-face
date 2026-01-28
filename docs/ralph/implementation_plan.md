@@ -5,8 +5,8 @@
 
 ## Phase 1: Pure Backend Fixes (no dependencies)
 
-- [ ] T1-01: Delete `poker/poker_action.py` (verify zero imports, delete file)
-- [ ] T1-07: Fix `player_idx=0` falsy bug in `poker/poker_game.py:394`
+- [x] T1-01: Delete `poker/poker_action.py` (verify zero imports, delete file)
+- [x] T1-07: Fix `player_idx=0` falsy bug in `poker/poker_game.py:394`
 - [ ] T1-10: Fix name collision in `reset_player_action_flags` — use enumerate + index comparison
 - [ ] T1-16: Replace predictable game IDs with `secrets.token_urlsafe(16)`
 - [ ] T1-19: Fix SECRET_KEY — require in prod, stable default in dev
