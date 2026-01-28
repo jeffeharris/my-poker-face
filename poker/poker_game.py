@@ -431,10 +431,12 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     Sets all player action flags to False. Current player can be excluded from this action when they are betting and
     just other players should be reset.
     """
-    for idx, player in enumerate(game_state.players):
-        if idx != game_state.current_player_idx or not exclude_current_player:
-            game_state = game_state.update_player(player_idx=idx, has_acted=False)
-    return game_state
+    updated_players = tuple(
+        player if (exclude_current_player and idx == game_state.current_player_idx)
+        else player.update(has_acted=False)
+        for idx, player in enumerate(game_state.players)
+    )
+    return game_state.update(players=updated_players)
 
 
 def player_call(game_state):
