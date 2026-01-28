@@ -15,6 +15,7 @@ import { AdminRoutes } from './components/admin/AdminRoutes'
 import { PrivacyPolicy, TermsOfService } from './components/legal'
 import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
+import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { LoadingOverlay } from './components/shared'
 import { config } from './config'
 import { type Theme } from './types/theme'
@@ -46,6 +47,7 @@ function App() {
   const { user, isLoading: authLoading, isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  useOnlineStatus();
 
 const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)

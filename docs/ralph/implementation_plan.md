@@ -31,7 +31,7 @@
 ## Phase 4: Frontend (toast is prerequisite for others)
 
 - [x] T1-15: Install react-hot-toast, add Toaster to App.tsx
-- [ ] T1-14: Add offline detection with toast notifications
+- [x] T1-14: Add offline detection with toast notifications
 - [ ] T1-13: Add loading/error states to handleQuickPlay with toasts
 - [ ] T1-11: Add React error boundaries (top-level + per-route)
 
@@ -42,3 +42,11 @@
 - [ ] T2-09: Refactor `reset_player_action_flags` to single-pass tuple comprehension (O(n) instead of O(n²))
 - [ ] T2-17: Add `atexit` cleanup for shared HTTP client in `core/llm/providers/http_client.py`
 - [ ] T2-18: Add thread-safe double-checked locking to `UsageTracker.get_default()`
+
+## Phase 6: Tier 2 Resource & Cleanup Fixes
+
+- [ ] T2-05: Cache `GamePersistence` in config getters — `@lru_cache` shared instance
+- [ ] T2-12: Remove debug console.log statements — create logger utility, delete noise, convert rest
+- [ ] T2-19: Add TTL-based eviction for in-memory game state (2-hour expiry)
+- [ ] T2-20: Cap in-memory message list at 200 entries with trim on append
+- [x] T2-22: Conversation memory token trim [Dismissed - memory cleared each turn, usage is 6.6% of 128k context]
