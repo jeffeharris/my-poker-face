@@ -1,7 +1,6 @@
 """Tests for message handler in-memory trim (T2-20)."""
 
-import uuid
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from flask_app.handlers.message_handler import send_message, MAX_MESSAGES_IN_MEMORY
 from flask_app.services import game_state_service

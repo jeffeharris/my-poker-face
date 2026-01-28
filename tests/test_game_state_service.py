@@ -34,7 +34,7 @@ class TestGameStateTTLEviction:
         # Access again slightly later
         with patch("flask_app.services.game_state_service.datetime") as mock_dt:
             mock_dt.now.return_value = old_time + timedelta(seconds=10)
-            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            mock_dt.side_effect = datetime
             result = game_state_service.get_game("game1")
 
         assert result is not None

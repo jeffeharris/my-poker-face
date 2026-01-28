@@ -5,7 +5,6 @@ Verifies that when two players have the same two pairs, the kicker
 correctly determines the winner.
 """
 
-import pytest
 from poker.hand_evaluator import HandEvaluator
 from poker.poker_game import determine_winner, PokerGameState, Player
 from core.card import Card

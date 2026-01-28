@@ -24,6 +24,8 @@ def _cleanup_http_client():
     try:
         shared_http_client.close()
     except Exception:
+        # Silently ignore exceptions during cleanup (e.g., already closed,
+        # invalid state). At process exit, cleanup failures are non-critical.
         pass
 
 

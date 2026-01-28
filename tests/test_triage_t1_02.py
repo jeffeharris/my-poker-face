@@ -10,7 +10,6 @@ Impact was display-only (pot distribution used correct sort at lines 824-825),
 but the reported "best overall hand" could be wrong.
 """
 
-import pytest
 from poker.poker_game import determine_winner, PokerGameState, Player, Card
 
 
@@ -55,18 +54,7 @@ class TestBestOverallHandSort:
         """
         # Alice: Aces and Tens (better two-pair)
         # Bob: Kings and Queens (worse two-pair)
-        community_cards = [
-            Card('7', 'diamonds'),
-            Card('5', 'clubs'),
-            Card('3', 'spades'),
-        ]
-        game_state = make_game_state(
-            player1_hand=[Card('A', 'spades'), Card('10', 'hearts')],
-            player2_hand=[Card('K', 'hearts'), Card('Q', 'clubs')],
-            community_cards=community_cards + [Card('A', 'diamonds'), Card('10', 'clubs')],
-        )
-        # Need both players to have two-pair from community + hand
-        # Rebuild with proper community cards
+        # Both players need two-pair from community + hand
         game_state = make_game_state(
             player1_hand=[Card('A', 'spades'), Card('10', 'hearts')],
             player2_hand=[Card('K', 'hearts'), Card('Q', 'clubs')],

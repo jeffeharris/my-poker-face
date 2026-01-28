@@ -83,8 +83,8 @@ export function GameProvider({ children }: GameProviderProps) {
       setAiThinking(false);
     });
 
-    socket.on('player_joined', (data: { message: string }) => {
-
+    socket.on('player_joined', (_data: { message: string }) => {
+      // Placeholder for future player join handling
     });
 
     // Listen for new message (emitted by send_message in backend)

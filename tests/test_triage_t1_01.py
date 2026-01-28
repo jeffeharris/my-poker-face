@@ -11,7 +11,7 @@ def test_poker_action_file_deleted():
 
 def test_poker_package_imports_without_poker_action():
     """The poker package should import cleanly without poker_action."""
-    import poker
+    poker = importlib.import_module("poker")
     # PokerAction and PlayerAction should not be in the package
     assert not hasattr(poker, "PokerAction")
     assert not hasattr(poker, "PlayerAction")

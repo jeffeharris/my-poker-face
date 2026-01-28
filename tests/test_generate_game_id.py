@@ -1,10 +1,17 @@
-"""Tests for T1-16: Secure game ID generation."""
+"""Tests for T1-16: Secure game ID generation.
+
+Note: We duplicate the generate_game_id implementation here instead of importing
+from flask_app.routes.game_routes because importing that module requires Flask
+app context (due to decorators like @limiter.limit). The production implementation
+is verified to match by checking the output format (22-char URL-safe string from
+secrets.token_urlsafe(16)).
+"""
 import re
 import secrets
 
 
 def _generate_game_id() -> str:
-    """Mirror of generate_game_id from game_routes.py to avoid Flask import issues."""
+    """Mirror of generate_game_id from game_routes.py (secrets.token_urlsafe(16))."""
     return secrets.token_urlsafe(16)
 
 

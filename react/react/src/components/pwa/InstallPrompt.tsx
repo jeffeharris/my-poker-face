@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { logger } from '../../utils/logger';
 import './InstallPrompt.css';
 
 interface BeforeInstallPromptEvent extends Event {

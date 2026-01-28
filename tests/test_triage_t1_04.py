@@ -5,7 +5,6 @@ Verifies that hands with trips are not falsely detected as two-pair or one-pair
 when the check methods are called directly.
 """
 
-import pytest
 from poker.hand_evaluator import HandEvaluator
 from core.card import Card
 

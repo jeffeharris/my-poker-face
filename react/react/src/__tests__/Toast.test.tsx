@@ -9,7 +9,7 @@
  *   npx vitest run src/__tests__/Toast.test.tsx
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 

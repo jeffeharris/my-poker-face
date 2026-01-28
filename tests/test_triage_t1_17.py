@@ -3,7 +3,6 @@
 Validates that the validate_player_action function correctly rejects
 invalid actions, wrong turn, and bad amounts before they reach play_turn().
 """
-import pytest
 from unittest.mock import MagicMock
 
 from flask_app.validation import validate_player_action, VALID_ACTIONS

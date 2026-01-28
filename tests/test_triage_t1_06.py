@@ -3,7 +3,6 @@
 In No-Limit Hold'em, raise amounts should not be capped by pot size.
 The max raise should be limited only by player/opponent stacks.
 """
-import pytest
 from unittest.mock import MagicMock, patch
 
 from poker.prompt_config import PromptConfig
@@ -87,7 +86,6 @@ class TestControllerMaxRaiseNoPotCap:
 
         # Capture the max_raise value passed to _get_ai_decision
         captured_kwargs = {}
-        original_get_ai_decision = None
 
         def capture_get_ai_decision(**kwargs):
             captured_kwargs.update(kwargs)

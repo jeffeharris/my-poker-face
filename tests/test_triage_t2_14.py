@@ -1,5 +1,4 @@
 """Tests for T2-14: get_celebrities() should not mutate CELEBRITIES_LIST."""
-import pytest
 from poker.utils import get_celebrities, CELEBRITIES_LIST
 
 

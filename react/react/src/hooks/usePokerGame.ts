@@ -96,7 +96,8 @@ export function usePokerGame({
       setIsConnected(false);
     });
 
-    socket.on('player_joined', (data: { message: string }) => {
+    socket.on('player_joined', (_data: { message: string }) => {
+      // Placeholder for future player join handling
     });
 
     socket.on('update_game_state', (data: { game_state: any }) => {

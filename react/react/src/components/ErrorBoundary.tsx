@@ -48,6 +48,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <h1 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Something went wrong</h1>
           <p style={{ color: '#999', marginBottom: '2rem', maxWidth: '400px' }}>
             An unexpected error occurred. You can try reloading the page or returning to the menu.
+            {this.state.error && (
+              <span style={{ display: 'block', marginTop: '0.5rem', fontSize: '0.8rem', color: '#666' }}>
+                {this.state.error.message}
+              </span>
+            )}
           </p>
           <div style={{ display: 'flex', gap: '1rem' }}>
             <button
