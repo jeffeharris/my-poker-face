@@ -554,3 +554,213 @@ if table not in allowed_tables:
 - [ ] Whitelist guard verified as robust
 - [ ] No bypass path exists
 - [ ] Finding confirmed or dismissed with evidence
+
+---
+
+# Tier 2 Task Specifications (Mechanical Fixes)
+
+> Selected Tier 2 items that are well-scoped, mechanical, and safe for autonomous execution.
+> Design decisions are final. Ralph should execute, not redesign.
+
+---
+
+## T2-14: Shuffle mutates module-level list
+
+**Type**: Fix
+**File**: `poker/utils.py:83-87`
+
+### Problem
+`get_celebrities()` mutates the module-level `CELEBRITIES_LIST` constant in place:
+```python
+def get_celebrities(shuffled: bool = False):
+    """Retrieve the list of celebrities."""
+    celebrities_list = CELEBRITIES_LIST      # reference, NOT a copy
+    random.shuffle(celebrities_list) if shuffled else None
+    return celebrities_list
+```
+`celebrities_list = CELEBRITIES_LIST` creates a reference to the same list object. `random.shuffle()` mutates in place, permanently altering the module-level constant. Subsequent calls without `shuffled=True` return the shuffled order. This breaks experiment reproducibility and violates the codebase's functional programming patterns.
+
+### Callers affected
+- `flask_app/routes/game_routes.py:866` — game creation (shuffled=True)
+- `flask_app/routes/personality_routes.py:363, 489` — theme generation (no shuffle, gets mutated list)
+- `experiments/run_ai_tournament.py:563` — tournament init (no shuffle, gets mutated list)
+- `tests/test_persistence.py:104` — tests (shuffled=True)
+
+### Action
+1. Replace the function body with:
+```python
+def get_celebrities(shuffled: bool = False):
+    """Retrieve the list of celebrities."""
+    if shuffled:
+        return random.sample(CELEBRITIES_LIST, len(CELEBRITIES_LIST))
+    return list(CELEBRITIES_LIST)
+```
+2. `random.sample()` returns a new list without mutating the original
+3. `list()` returns a defensive copy for the non-shuffled case
+4. Write test: call `get_celebrities(shuffled=True)` twice, verify `CELEBRITIES_LIST` is not mutated between calls
+
+### Acceptance Criteria
+- [ ] `CELEBRITIES_LIST` is never mutated by `get_celebrities()`
+- [ ] Shuffled call returns all celebrities in random order
+- [ ] Non-shuffled call returns original order
+- [ ] Test: call shuffled, then verify module-level list unchanged
+- [ ] Existing tests pass
+
+---
+
+## T2-15: Delete dead `setup_helper.py`
+
+**Type**: Delete dead code
+**File**: `setup_helper.py`
+
+### Problem
+`setup_helper.py` is a legacy script from the pre-Docker console-game era. It references `python working_game.py` (line 123) which no longer exists. The file is never imported or referenced anywhere in active code. The project now uses Docker Compose (`make up` / `docker compose up`).
+
+### Verification
+- `working_game.py` does not exist in the repo
+- Zero imports of `setup_helper` anywhere
+- Not referenced in Makefile, docker-compose, or any scripts
+- Current setup instructions in README.md and CLAUDE.md use Docker
+
+### Action
+1. Grep the codebase for `setup_helper` imports — confirm zero
+2. Delete `setup_helper.py`
+3. Run existing tests to confirm nothing breaks
+
+### Acceptance Criteria
+- [ ] Grep confirms zero imports of `setup_helper`
+- [ ] File `setup_helper.py` is deleted
+- [ ] All existing tests pass
+
+---
+
+## T2-09: O(n²) player flag reset
+
+**Type**: Refactor
+**File**: `poker/poker_game.py` — `reset_player_action_flags` function
+
+### Problem
+After Ralph's T1-10 fix, the function uses `enumerate()` correctly but still calls `update_player()` in a loop. Each call creates a new tuple of all players + a new `PokerGameState`, resulting in O(n) intermediate objects. The codebase documents single-pass tuple comprehensions as the preferred pattern (see CLAUDE.md "Immutable Updates" section).
+
+Current code (post T1-10):
+```python
+for idx, player in enumerate(game_state.players):
+    if idx != game_state.current_player_idx or not exclude_current_player:
+        game_state = game_state.update_player(player_idx=idx, has_acted=False)
+return game_state
+```
+
+### Action
+1. Replace with single-pass tuple comprehension:
+```python
+def reset_player_action_flags(game_state: PokerGameState, exclude_current_player: bool = False):
+    """
+    Sets all player action flags to False. Current player can be excluded from this action when they are betting and
+    just other players should be reset.
+    """
+    updated_players = tuple(
+        player if (exclude_current_player and idx == game_state.current_player_idx)
+        else player.update(has_acted=False)
+        for idx, player in enumerate(game_state.players)
+    )
+    return game_state.update(players=updated_players)
+```
+2. Run existing T1-10 tests (`test_reset_flags_uses_index_not_name`, `test_reset_flags_resets_all_when_not_excluding`) to verify identical behavior
+3. No new tests needed — existing tests cover the behavior. Optionally add a test verifying the function returns a single new GameState (not n intermediate ones).
+
+### Acceptance Criteria
+- [ ] Function uses single tuple comprehension (no loop with `update_player`)
+- [ ] Existing T1-10 tests pass unchanged
+- [ ] All existing tests pass
+
+---
+
+## T2-17: HTTP client never closed
+
+**Type**: Fix
+**File**: `core/llm/providers/http_client.py`
+
+### Problem
+Module-level `httpx.Client()` singleton has no shutdown hook. The client maintains up to 20 keepalive connections that are never explicitly closed. While the OS reclaims sockets on process exit, proper cleanup prevents resource warnings and is necessary if worker count increases.
+
+Current code:
+```python
+shared_http_client = httpx.Client(
+    limits=httpx.Limits(
+        max_connections=100,
+        max_keepalive_connections=20,
+        keepalive_expiry=300.0,
+    ),
+    timeout=httpx.Timeout(connect=10.0, read=600.0, write=600.0, pool=600.0),
+)
+```
+
+Used by 7 LLM providers: openai, anthropic, groq, deepseek, mistral, xai, google.
+
+### Action
+1. Add `atexit` cleanup to `core/llm/providers/http_client.py`:
+```python
+import atexit
+
+def _cleanup_http_client():
+    """Close shared HTTP client on process exit."""
+    try:
+        shared_http_client.close()
+    except Exception:
+        pass
+
+atexit.register(_cleanup_http_client)
+```
+2. Write test: verify `atexit` handler is registered (check `atexit._run_exitfuncs` or mock `atexit.register` on import)
+
+### Acceptance Criteria
+- [ ] `atexit.register` called for `shared_http_client.close`
+- [ ] Cleanup function handles exceptions gracefully (no crash on double-close)
+- [ ] Test verifies cleanup is registered
+- [ ] All existing tests pass
+
+---
+
+## T2-18: UsageTracker singleton not thread-safe
+
+**Type**: Fix
+**File**: `core/llm/tracking.py` — `UsageTracker.get_default()` classmethod
+
+### Problem
+The singleton pattern has a race condition:
+```python
+@classmethod
+def get_default(cls) -> "UsageTracker":
+    """Get or create the default singleton tracker."""
+    if cls._instance is None:      # Thread A checks
+        cls._instance = cls()       # Thread B also checks before A sets
+    return cls._instance
+```
+Multiple threads (e.g., `ThreadPoolExecutor` in `experiments/run_ai_tournament.py`) can create separate instances. Impact: redundant pricing caches and stale cache after invalidation (admin updates pricing, only one instance gets invalidated).
+
+### Action
+1. Add double-checked locking:
+```python
+import threading
+
+class UsageTracker:
+    _instance: Optional["UsageTracker"] = None
+    _instance_lock = threading.Lock()
+
+    @classmethod
+    def get_default(cls) -> "UsageTracker":
+        """Get or create the default singleton tracker (thread-safe)."""
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+```
+2. Add `_instance_lock = threading.Lock()` as a class variable
+3. Write test: spawn 10 threads calling `get_default()` concurrently, verify all return the same instance (same `id()`)
+
+### Acceptance Criteria
+- [ ] `get_default()` uses double-checked locking with `threading.Lock`
+- [ ] `_instance_lock` is a class-level `threading.Lock()`
+- [ ] Test: 10 concurrent threads all get same instance
+- [ ] All existing tests pass

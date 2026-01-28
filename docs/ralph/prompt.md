@@ -58,19 +58,20 @@ This is a poker game with AI personalities.
 
 ## Commit Convention
 
-- Format: `fix(T1-XX): short description`
+- Format: `fix(TX-XX): short description`
 - Examples:
   - `fix(T1-01): delete dead code poker_action.py`
   - `fix(T1-07): use None check for player_idx instead of falsy or`
   - `verify(T1-02): dismiss hand evaluator sort bug as false positive`
+  - `fix(T2-14): use random.sample instead of in-place shuffle`
 
 ## File Conventions
 
-- Spec files: `docs/ralph/specs/T1-XX.md`
+- Spec files: `docs/ralph/specs/TX-XX.md` (e.g., `T1-07.md` or `T2-14.md`)
 - Test files: `tests/test_{area}.py` (existing) or `tests/test_triage_{id}.py` (new)
 - Check boxes: change `- [ ]` to `- [x]` in `docs/ralph/implementation_plan.md`
-  - For dismissals: `- [x] T1-XX: ... [Dismissed - reason]`
-  - For failures: `- [x] T1-XX: ... [Failed - see spec]`
+  - For dismissals: `- [x] TX-XX: ... [Dismissed - reason]`
+  - For failures: `- [x] TX-XX: ... [Failed - see spec]`
 
 ## Important Reminders
 
