@@ -50,3 +50,10 @@
 - [x] T2-19: Add TTL-based eviction for in-memory game state (2-hour expiry)
 - [x] T2-20: Cap in-memory message list at 200 entries with trim on append
 - [x] T2-22: Conversation memory token trim [Dismissed - memory cleared each turn, usage is 6.6% of 128k context]
+
+## Phase 7: Tier 3 Mechanical Fixes (config & cleanup)
+
+- [ ] T3-20: Remove GET method from `/api/end_game/<game_id>` — POST only for destructive endpoints
+- [ ] T3-24: Add `.editorconfig` — standard editor settings for consistent formatting
+- [ ] T3-25: Add `.github/dependabot.yml` — automated dependency updates for pip, npm, github-actions
+- [ ] T3-27: Update Makefile from `docker-compose` to `docker compose` (v2)

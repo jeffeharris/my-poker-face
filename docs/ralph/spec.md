@@ -958,3 +958,166 @@ The concern was that trimming by message count (15) rather than token count coul
 - Extensive analysis in `tests/test_message_history_impact.py` confirms the design is intentional
 
 **No action needed.** Mark as dismissed in implementation plan.
+
+---
+
+# Tier 3 Task Specifications
+
+> Mechanical post-release tech debt items. Well-scoped, no design decisions needed.
+
+---
+
+## T3-20: Remove GET from destructive endpoint
+
+**Type**: Fix (one-line change)
+**File**: `flask_app/routes/game_routes.py`
+
+### Problem
+The `/api/end_game/<game_id>` endpoint accepts both GET and POST methods (line 1121). GET requests should never mutate server state — this violates HTTP semantics and could cause accidental game deletion from browser prefetch, search engine crawlers, or link previews.
+
+### Action
+Change line 1121 from:
+```python
+@game_bp.route('/api/end_game/<game_id>', methods=['GET', 'POST'])
+```
+To:
+```python
+@game_bp.route('/api/end_game/<game_id>', methods=['POST'])
+```
+
+### Acceptance Criteria
+- [ ] `methods=['POST']` only on the endpoint
+- [ ] All existing tests pass
+- [ ] No test file writes needed (this is a config change)
+
+---
+
+## T3-24: Add `.editorconfig`
+
+**Type**: New config file
+**File**: `.editorconfig` (project root)
+
+### Problem
+No `.editorconfig` file exists. Different editors use different tab/space/line-ending defaults, causing inconsistent formatting and noisy diffs.
+
+### Action
+Create `.editorconfig` in project root with standard settings matching the codebase conventions:
+
+```ini
+# EditorConfig helps maintain consistent coding styles
+# https://editorconfig.org
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{js,jsx,ts,tsx,json,css,scss,html}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+```
+
+### Acceptance Criteria
+- [ ] `.editorconfig` file created in project root
+- [ ] Settings match existing code conventions (4-space Python, 2-space JS/TS)
+- [ ] No test file writes needed (this is a config file)
+
+---
+
+## T3-25: Add `dependabot.yml`
+
+**Type**: New config file
+**File**: `.github/dependabot.yml`
+
+### Problem
+No Dependabot configuration. Dependency updates are manual, and security patches could be missed.
+
+### Action
+Create `.github/dependabot.yml`:
+
+```yaml
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+
+  # npm dependencies (React frontend)
+  - package-ecosystem: "npm"
+    directory: "/react/react"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+```
+
+### Acceptance Criteria
+- [ ] `.github/dependabot.yml` file created
+- [ ] Configures pip, npm, and github-actions ecosystems
+- [ ] Weekly schedule on Mondays
+- [ ] No test file writes needed (this is a config file)
+
+---
+
+## T3-27: Update Makefile to `docker compose` (v2)
+
+**Type**: Fix (search and replace)
+**File**: `Makefile`
+
+### Problem
+Makefile uses deprecated `docker-compose` command (v1). Docker Compose v1 is deprecated and won't work on newer systems that only have v2 installed. The v2 command is `docker compose` (space, not hyphen).
+
+### Action
+Replace all occurrences of `docker-compose` with `docker compose` in `Makefile`:
+- Line 10: `docker-compose build` → `docker compose build`
+- Line 13: `docker-compose up -d` → `docker compose up -d`
+- Line 16: `docker-compose down` → `docker compose down`
+- Line 19: `docker-compose logs -f` → `docker compose logs -f`
+- Line 22: `docker-compose logs -f backend` → `docker compose logs -f backend`
+- Line 25: `docker-compose logs -f frontend` → `docker compose logs -f frontend`
+- Line 28: `docker-compose exec backend bash` → `docker compose exec backend bash`
+- Line 31: `docker-compose exec frontend sh` → `docker compose exec frontend sh`
+- Line 34: `docker-compose exec backend python -m pytest` → `docker compose exec backend python -m pytest`
+- Line 37: `docker-compose down -v` → `docker compose down -v`
+- Line 43: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d` → `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+- Line 46: `docker-compose -f docker-compose.yml -f docker-compose.prod.yml down` → `docker compose -f docker-compose.yml -f docker-compose.prod.yml down`
+- Line 49: `docker-compose restart` → `docker compose restart`
+- Line 52: `docker-compose ps` → `docker compose ps`
+
+Use `replace_all=true` for efficiency.
+
+### Acceptance Criteria
+- [ ] All `docker-compose` replaced with `docker compose`
+- [ ] Verify with `grep docker-compose Makefile` returns no matches
+- [ ] No test file writes needed (this is a config change)
