@@ -32,7 +32,7 @@
 
 - [x] T1-15: Install react-hot-toast, add Toaster to App.tsx
 - [x] T1-14: Add offline detection with toast notifications
-- [ ] T1-13: Add loading/error states to handleQuickPlay with toasts
+- [x] T1-13: Add loading/error states to handleQuickPlay with toasts
 - [ ] T1-11: Add React error boundaries (top-level + per-route)
 
 ## Phase 5: Tier 2 Mechanical Fixes (no dependencies)

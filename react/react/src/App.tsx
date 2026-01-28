@@ -19,7 +19,7 @@ import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { LoadingOverlay } from './components/shared'
 import { config } from './config'
 import { type Theme } from './types/theme'
-import { Toaster } from 'react-hot-toast'
+import toast, { Toaster } from 'react-hot-toast'
 import './App.css'
 
 // Game limit constants
@@ -167,10 +167,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       if (response.ok) {
         navigate(`/game/${data.game_id}`);
       } else {
-        checkMaxGamesError(response, data);
+        if (!checkMaxGamesError(response, data)) {
+          toast.error(data.error || 'Failed to create game. Please try again.');
+        }
       }
     } catch (error) {
       console.error('Failed to create game:', error);
+      toast.error('Failed to create game. Please try again.');
     } finally {
       setIsCreatingGame(false);
     }
@@ -208,10 +211,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       if (response.ok) {
         navigate(`/game/${data.game_id}`);
       } else {
-        checkMaxGamesError(response, data);
+        if (!checkMaxGamesError(response, data)) {
+          toast.error(data.error || 'Failed to create game. Please try again.');
+        }
       }
     } catch (error) {
       console.error('Failed to create custom game:', error);
+      toast.error('Failed to create game. Please try again.');
     } finally {
       setIsCreatingGame(false);
     }
