@@ -53,7 +53,7 @@
 
 ## Phase 7a: T1-08 Revision (revert ValueError, use Optional[int])
 
-- [ ] T1-21: Refactor `get_next_active_player_idx` to return `Optional[int]` — return `None` when no active players, update all callers to handle gracefully
+- [x] T1-21: Refactor `get_next_active_player_idx` to return `Optional[int]` — return `None` when no active players, update all callers to handle gracefully
 
 ## Phase 7: Tier 3 Mechanical Fixes (config & cleanup)
 
