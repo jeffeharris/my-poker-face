@@ -15,8 +15,8 @@
 
 - [x] T1-02: RE-VERIFY hand evaluator sort bug (line reference was wrong)
 - [x] T1-03: RE-VERIFY two-pair kicker calculation [Dismissed - kicker list with one element is correct for two-pair]
-- [ ] T1-04: RE-VERIFY + fix `_check_two_pair` count >= 2 -> == 2
-- [ ] T1-05: RE-VERIFY raise validation bypass (trace HTTP + socket paths)
+- [x] T1-04: RE-VERIFY + fix `_check_two_pair` count >= 2 -> == 2
+- [x] T1-05: RE-VERIFY raise validation bypass (trace HTTP + socket paths) [Dismissed - sanitized_amount IS enforced inside player_raise; gaps are covered by T1-17/T1-18]
 - [ ] T1-09: RE-VERIFY missing max_winnable data (check closure scope)
 - [ ] T1-12: RE-VERIFY socket memory leak in useSocket.ts
 - [ ] T1-20: RE-VERIFY SQL injection in admin (check whitelist guard)
