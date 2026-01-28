@@ -156,42 +156,16 @@ export function QuickChatSuggestions({
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);
-    // Check cache for this target with current tone
-    if (selectedTone) {
-      const cacheKey = getCacheKey(target, selectedTone, length, intensity);
-      const cached = suggestionsCache.current[cacheKey];
-      if (cached) {
-        setSuggestions(cached);
-        onSuggestionsLoaded?.();
-      } else {
-        // Capture height before fetching
-        if (suggestionsRef.current) {
-          setContainerHeight(suggestionsRef.current.offsetHeight);
-        }
-        fetchSuggestions(target, selectedTone, true);
-      }
-    } else {
+    // If no tone selected yet, clear suggestions and wait
+    if (!selectedTone) {
       setSuggestions([]);
     }
+    // The useEffect handles fetching/cache lookup when both target and tone are set
   };
 
   const handleToneSelect = (tone: ChatTone) => {
     setSelectedTone(tone);
-    // Check cache for this tone with current target
-    if (selectedTarget) {
-      const cacheKey = getCacheKey(selectedTarget, tone, length, intensity);
-      const cached = suggestionsCache.current[cacheKey];
-      if (cached) {
-        setSuggestions(cached);
-        onSuggestionsLoaded?.();
-      } else {
-        // Capture height before fetching
-        if (suggestionsRef.current) {
-          setContainerHeight(suggestionsRef.current.offsetHeight);
-        }
-        fetchSuggestions(selectedTarget, tone, true);
-      }
-    }
+    // The useEffect handles fetching/cache lookup when both target and tone are set
   };
 
   const handleSuggestionClick = (text: string) => {
