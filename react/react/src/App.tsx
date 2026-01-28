@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
@@ -300,6 +301,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       />
 
       {/* Routes */}
+      <ErrorBoundary>
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={
@@ -360,7 +362,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
         <Route path="/game/:gameId" element={
           <ProtectedRoute>
-            <GamePage playerName={playerName} />
+            <ErrorBoundary fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}>
+              <GamePage playerName={playerName} />
+            </ErrorBoundary>
           </ProtectedRoute>
         } />
 
@@ -386,6 +390,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <Route path="/" element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />} />
         <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
       </Routes>
+      </ErrorBoundary>
 
       {/* Loading Overlay - blocks all interaction during game creation */}
       {isCreatingGame && (

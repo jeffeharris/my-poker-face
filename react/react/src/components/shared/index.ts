@@ -33,3 +33,5 @@ export { UserDropdown } from './UserDropdown';
 export type { UserDropdownProps } from './UserDropdown';
 
 export { LoadingOverlay } from './LoadingOverlay';
+
+export { ErrorBoundary } from '../ErrorBoundary';
