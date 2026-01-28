@@ -607,7 +607,7 @@ class PromptManager:
         if 'call' in valid_actions:
             action_hints.append(f"- 'call': Match the bet (costs {fmt_bb(call_amount)})")
         if 'raise' in valid_actions:
-            action_hints.append(f"- 'raise': Increase the bet (raise_to between {fmt_bb(min_raise)} and {fmt_bb(max_raise)})")
+            action_hints.append(f"- 'raise': Increase the bet (raise_to between {fmt_bb(min_raise)} and {fmt_bb(max_raise)}, the total you're raising TO)")
         if 'all_in' in valid_actions or 'all-in' in valid_actions:
             action_hints.append("- 'all_in': Bet all your remaining chips")
 
@@ -627,7 +627,7 @@ VALID ACTIONS:
 
 REQUIREMENTS:
 1. Your 'action' must be one of: {', '.join(valid_actions)}
-2. If action is 'raise', you MUST include 'raise_to' with a valid amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
+2. If action is 'raise', you MUST include 'raise_to' with a valid total bet amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
 3. Include 'inner_monologue' with your thinking
 
 Respond with valid JSON only. No explanation or markdown, just the JSON object."""
