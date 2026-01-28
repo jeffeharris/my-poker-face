@@ -40,6 +40,7 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
+from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 
 logger = logging.getLogger(__name__)
@@ -991,10 +992,11 @@ def api_player_action(game_id):
 
     state_machine = current_game_data['state_machine']
 
-    current_player = state_machine.game_state.current_player
-    if not current_player.is_human:
-        return jsonify({'error': 'Not human player turn'}), 400
+    is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
+    if not is_valid:
+        return jsonify({'error': error_message}), 400
 
+    current_player = state_machine.game_state.current_player
     highest_bet = state_machine.game_state.highest_bet
     pre_action_state = state_machine.game_state  # Save state before action for analysis
     game_state = play_turn(state_machine.game_state, action, amount)
@@ -1227,6 +1229,11 @@ def register_socket_events(sio):
             return
 
         state_machine = current_game_data['state_machine']
+
+        is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
+        if not is_valid:
+            return
+
         current_player = state_machine.game_state.current_player
         highest_bet = state_machine.game_state.highest_bet
         pre_action_state = state_machine.game_state  # Save state before action for analysis

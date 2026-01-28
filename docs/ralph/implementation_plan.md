@@ -23,9 +23,9 @@
 
 ## Phase 3: Backend Logic (more complex, some interdependency)
 
-- [ ] T1-06: Remove pot x 2 raise cap from controllers.py and game_handler.py
-- [ ] T1-08: Investigate get_next_active_player_idx — trace callers, add ValueError
-- [ ] T1-17: Add shared input validation for player actions (both HTTP + socket)
+- [x] T1-06: Remove pot x 2 raise cap from controllers.py and game_handler.py
+- [x] T1-08: Investigate get_next_active_player_idx — trace callers, add ValueError
+- [x] T1-17: Add shared input validation for player actions (both HTTP + socket)
 - [ ] T1-18: Add owner + is_human auth checks to WebSocket handlers
 
 ## Phase 4: Frontend (toast is prerequisite for others)
