@@ -1190,6 +1190,7 @@ def handle_ai_action(game_id: str) -> None:
             full_message = '\n'.join(stage_direction)
         else:
             # Legacy fallback: use persona_response + physical
+            logger.debug(f"[AI_ACTION] Legacy response format for {current_player.name} (no stage_direction)")
             player_message = player_response_dict.get('persona_response', '')
             player_physical_description = player_response_dict.get('physical', '')
             if isinstance(player_physical_description, list):

@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
+from ..moment_analyzer import MomentAnalyzer
 from ..prompt_manager import PromptManager, DRAMA_CONTEXTS, TONE_MODIFIERS
 from ..config import COMMENTARY_ENABLED, is_development_mode
 from .hand_history import RecordedHand
@@ -255,16 +256,10 @@ class CommentaryGenerator:
     ) -> dict:
         """Derive drama level and tone from a completed hand.
 
-        Uses the same drama level scale as MomentAnalyzer but works from
-        post-hand RecordedHand data instead of live game state.
-
-        Args:
-            hand: The completed hand record
-            player_outcome: 'won', 'lost', 'folded', or 'spectating'
-            big_blind: Current big blind for pot significance thresholds
-
-        Returns:
-            Dict with 'level' and 'tone' keys
+        Detects drama factors from post-hand RecordedHand data (all_in,
+        showdown, big_pot, heads_up) and delegates level determination to
+        MomentAnalyzer._determine_level(). The live analyzer detects
+        additional factors (big_bet, huge_raise, late_stage) from game state.
         """
         factors = []
 
@@ -276,31 +271,18 @@ class CommentaryGenerator:
         if hand.was_showdown:
             factors.append('showdown')
 
-        # Big pot (relative to big blind)
+        # Big pot (relative to big blind) - skip when big_blind unknown
         if big_blind and big_blind > 0:
             pot_bb = hand.pot_size / big_blind
             if pot_bb >= 20:
                 factors.append('big_pot')
-        elif hand.pot_size >= 1000:
-            # Fallback when big_blind unknown
-            factors.append('big_pot')
 
         # Heads-up (only 2 players involved in actions)
         active_players = set(a.player_name for a in hand.actions)
         if len(active_players) == 2:
             factors.append('heads_up')
 
-        # Determine level (same logic as MomentAnalyzer)
-        if 'all_in' in factors:
-            level = 'climactic'
-        elif 'big_pot' in factors and 'showdown' in factors:
-            level = 'climactic'
-        elif len(factors) >= 2:
-            level = 'high_stakes'
-        elif factors:
-            level = 'notable'
-        else:
-            level = 'routine'
+        level = MomentAnalyzer._determine_level(factors)
 
         # Determine post-hand tone based on outcome and drama
         if level == 'climactic' and player_outcome == 'won':
@@ -316,21 +298,11 @@ class CommentaryGenerator:
 
     @staticmethod
     def _format_beats_for_chat(stage_direction) -> Optional[str]:
-        """Convert stage_direction (list of beats or string) to chat-ready string.
+        """Convert stage_direction to chat-ready string.
 
-        The frontend's parseBeats() splits on newlines and detects *action* syntax,
-        so joining beats with newlines produces the correct format.
-
-        Args:
-            stage_direction: List of beat strings, a plain string, or None
-
-        Returns:
-            Newline-joined string for send_message(), or None
+        Frontend's parseBeats() splits on newlines and detects *action* syntax.
         """
-        if stage_direction is None:
-            return None
         if isinstance(stage_direction, list):
-            # Filter empty beats and join
             beats = [b.strip() for b in stage_direction if isinstance(b, str) and b.strip()]
             return "\n".join(beats) if beats else None
         if isinstance(stage_direction, str):
