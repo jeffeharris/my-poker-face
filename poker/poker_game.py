@@ -640,7 +640,7 @@ def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx:
         if players[next_player_idx].is_active:
             return next_player_idx
         if next_player_idx == starting_idx:
-            return starting_idx
+            raise ValueError("No active players found")
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
 
