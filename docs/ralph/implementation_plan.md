@@ -55,5 +55,5 @@
 
 - [x] T3-20: Remove GET method from `/api/end_game/<game_id>` — POST only for destructive endpoints
 - [x] T3-24: Add `.editorconfig` — standard editor settings for consistent formatting
-- [ ] T3-25: Add `.github/dependabot.yml` — automated dependency updates for pip, npm, github-actions
+- [x] T3-25: Add `.github/dependabot.yml` — automated dependency updates for pip, npm, github-actions
 - [ ] T3-27: Update Makefile from `docker-compose` to `docker compose` (v2)
