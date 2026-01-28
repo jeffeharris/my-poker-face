@@ -166,9 +166,12 @@ def initialize_game_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for INITIALIZING_HAND phase transition."""
     new_game_state = setup_hand(state.game_state)
-    new_game_state = set_betting_round_start_player(game_state=new_game_state)
+    new_game_state_with_start_player = set_betting_round_start_player(game_state=new_game_state)
+    # If no active players (all-in or folded), skip to showdown
+    if new_game_state_with_start_player is None:
+        return state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
     # Reset raise counter for the pre-flop betting round
-    new_game_state = new_game_state.update(raises_this_round=0)
+    new_game_state = new_game_state_with_start_player.update(raises_this_round=0)
     return (state
             .with_game_state(new_game_state)
             .with_phase(get_next_phase(state)))
@@ -186,11 +189,14 @@ def initialize_betting_round_transition(state: ImmutableStateMachine) -> Immutab
 
     # Continue normal flow - betting rounds auto-advance when pot_is_settled
     new_game_state = reset_player_action_flags(state.game_state)
-    new_game_state = set_betting_round_start_player(new_game_state)
+    new_game_state_with_start_player = set_betting_round_start_player(new_game_state)
+    # If no active players (all-in or folded), skip to showdown
+    if new_game_state_with_start_player is None:
+        return state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
     # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
     # Also clear run_it_out flag and raise counter to ensure fresh state
-    new_game_state = new_game_state.update(
-        last_raise_amount=new_game_state.current_ante,
+    new_game_state = new_game_state_with_start_player.update(
+        last_raise_amount=new_game_state_with_start_player.current_ante,
         run_it_out=False,
         raises_this_round=0
     )
