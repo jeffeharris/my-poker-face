@@ -271,7 +271,11 @@ class CommentaryGenerator:
         if hand.was_showdown:
             factors.append('showdown')
 
-        # Big pot (relative to big blind) - skip when big_blind unknown
+        # Big pot detection uses BB-relative threshold (20+ BB) rather than
+        # stack-relative like MomentAnalyzer.is_big_pot(). This is intentional:
+        # - Live analysis (MomentAnalyzer): "Is this pot significant to ME right now?"
+        # - Post-hand narrative: "Was this objectively a big pot?" (standard poker metric)
+        # Note: _should_speak() separately uses stack-relative pressure ratio.
         if big_blind and big_blind > 0:
             pot_bb = hand.pot_size / big_blind
             if pot_bb >= 20:

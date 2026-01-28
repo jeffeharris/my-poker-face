@@ -57,7 +57,7 @@ DRAMA_CONTEXTS = {
     'routine': "RESPONSE STYLE: Minimal. Skip stage_direction or one brief beat max.",
     'notable': "RESPONSE STYLE: Brief. One or two beats in stage_direction.",
     'high_stakes': "RESPONSE STYLE: Expressive. Build your stage_direction with 2-3 beats.",
-    'climactic': "RESPONSE STYLE: Theatrical. Build tension - 3-5 beats, savor the reveal."
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in stage_direction - 3-5 beats, savor the reveal."
 }
 
 TONE_MODIFIERS = {

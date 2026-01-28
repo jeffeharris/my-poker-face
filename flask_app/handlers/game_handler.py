@@ -1188,6 +1188,9 @@ def handle_ai_action(game_id: str) -> None:
         if isinstance(stage_direction, list) and stage_direction:
             # Join beats with newlines for display
             full_message = '\n'.join(stage_direction)
+        elif isinstance(stage_direction, str) and stage_direction.strip():
+            # String format (LLM returned single string instead of list)
+            full_message = stage_direction.strip()
         else:
             # Legacy fallback: use persona_response + physical
             logger.debug(f"[AI_ACTION] Legacy response format for {current_player.name} (no stage_direction)")

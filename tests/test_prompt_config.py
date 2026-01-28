@@ -210,7 +210,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertIn("DRAMATIC SEQUENCE", result)
+        self.assertIn("STAGE DIRECTION", result)
 
     def test_render_decision_prompt_mind_games_disabled(self):
         """render_decision_prompt should exclude MIND GAMES when disabled."""
@@ -225,10 +225,10 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertIn("DRAMATIC SEQUENCE", result)
+        self.assertIn("STAGE DIRECTION", result)
 
     def test_render_decision_prompt_persona_disabled(self):
-        """render_decision_prompt should exclude DRAMATIC SEQUENCE when disabled."""
+        """render_decision_prompt should exclude STAGE DIRECTION when disabled."""
         from poker.prompt_manager import PromptManager
 
         pm = PromptManager()
@@ -240,7 +240,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertIn("MIND GAMES", result)
-        self.assertNotIn("DRAMATIC SEQUENCE", result)
+        self.assertNotIn("STAGE DIRECTION", result)
 
     def test_render_decision_prompt_both_disabled(self):
         """render_decision_prompt should exclude both when disabled."""
@@ -255,7 +255,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         self.assertIn("Test message", result)
         self.assertNotIn("MIND GAMES", result)
-        self.assertNotIn("DRAMATIC SEQUENCE", result)
+        self.assertNotIn("STAGE DIRECTION", result)
         # Should still have the base instruction
         self.assertIn("CRITICAL", result)
 
