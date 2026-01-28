@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, RefreshCw, Monitor, Loader2, XCircle, LayoutGrid, Table2 } from 'lucide-react';
 import { config } from '../../../../config';
+import { logger } from '../../../../utils/logger';
 import { GameMonitorGrid } from './GameMonitorGrid';
 import { GameMonitorTable } from './GameMonitorTable';
 import { PlayerDrilldownPanel } from './PlayerDrilldownPanel';
@@ -58,7 +59,7 @@ export function LiveMonitoringView({
     } catch (err) {
       // Ignore abort errors - these are expected on unmount
       if (err instanceof Error && err.name === 'AbortError') return;
-      console.error('Failed to fetch live games:', err);
+      logger.error('Failed to fetch live games:', err);
       setError('Failed to connect to server');
     } finally {
       setLoading(false);

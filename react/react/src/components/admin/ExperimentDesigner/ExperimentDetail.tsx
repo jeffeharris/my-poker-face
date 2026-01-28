@@ -30,6 +30,7 @@ import {
 import { LiveMonitoringView } from './monitoring';
 import { config } from '../../../config';
 import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
+import { logger } from '../../../utils/logger';
 import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
 import type { VariantResultSummary, LiveStats, FailedTournament, ExperimentConfig, NextStepSuggestion } from './types';
 
@@ -159,7 +160,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         setGames(gamesData.games);
       }
     } catch (err) {
-      console.error('Failed to fetch experiment:', err);
+      logger.error('Failed to fetch experiment:', err);
       setError('Failed to connect to server');
     } finally {
       setLoading(false);
@@ -178,7 +179,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         setStalledVariants(data.stalled_variants || []);
       }
     } catch (err) {
-      console.error('Failed to fetch stalled variants:', err);
+      logger.error('Failed to fetch stalled variants:', err);
     }
   }, [experimentId]);
 
@@ -199,7 +200,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         setError(data.error || 'Failed to resume variant');
       }
     } catch (err) {
-      console.error('Failed to resume variant:', err);
+      logger.error('Failed to resume variant:', err);
       setError('Failed to resume variant');
     } finally {
       setResumingVariants((prev) => {
@@ -253,7 +254,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         setError(data.error || 'Failed to pause experiment');
       }
     } catch (err) {
-      console.error('Failed to pause experiment:', err);
+      logger.error('Failed to pause experiment:', err);
       setError('Failed to pause experiment');
     } finally {
       setPauseLoading(false);
@@ -274,7 +275,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         setError(data.error || 'Failed to resume experiment');
       }
     } catch (err) {
-      console.error('Failed to resume experiment:', err);
+      logger.error('Failed to resume experiment:', err);
       setError('Failed to resume experiment');
     } finally {
       setResumeLoading(false);
@@ -296,7 +297,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
         setError(data.error || `Failed to ${endpoint} experiment`);
       }
     } catch (err) {
-      console.error('Failed to archive/unarchive experiment:', err);
+      logger.error('Failed to archive/unarchive experiment:', err);
       setError('Failed to archive experiment');
     } finally {
       setArchiveLoading(false);

@@ -4,6 +4,7 @@ import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, Conf
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { config as appConfig } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
+import { logger } from '../../../utils/logger';
 import { seedToWords, wordsToSeed, generateSeed, isWordSeed } from './seedWords';
 
 // Number input field defaults for when blur occurs with empty value
@@ -86,7 +87,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
           setAvailablePersonalities(data.personalities);
         }
       } catch (err) {
-        console.warn('Failed to fetch personalities:', err);
+        logger.warn('Failed to fetch personalities:', err);
       }
     };
     fetchPersonalities();
@@ -104,7 +105,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
           setAvailablePresets(data.presets);
         }
       } catch (err) {
-        console.warn('Failed to fetch prompt presets:', err);
+        logger.warn('Failed to fetch prompt presets:', err);
       }
     };
     fetchPresets();
@@ -137,7 +138,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
         const data = await response.json();
         setValidation(data);
       } catch (err) {
-        console.error('Validation request failed:', err);
+        logger.error('Validation request failed:', err);
         setValidation({ valid: false, errors: ['Failed to validate configuration'], warnings: [] });
       } finally {
         setValidating(false);

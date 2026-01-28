@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { GameSelector } from './components/menus/GameSelector'
 import { PlayerNameEntry } from './components/menus/PlayerNameEntry'
 import { PersonalityManager } from './components/admin/PersonalityManager'
@@ -15,9 +16,12 @@ import { AdminRoutes } from './components/admin/AdminRoutes'
 import { PrivacyPolicy, TermsOfService } from './components/legal'
 import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
+import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { LoadingOverlay } from './components/shared'
+import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
+import toast, { Toaster } from 'react-hot-toast'
 import './App.css'
 
 // Game limit constants
@@ -45,6 +49,7 @@ function App() {
   const { user, isLoading: authLoading, isAuthenticated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  useOnlineStatus();
 
 const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
@@ -102,7 +107,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       const data = await response.json();
       setSavedGamesCount(data.games?.length || 0);
     } catch (error) {
-      console.error('Failed to fetch saved games:', error);
+      logger.error('Failed to fetch saved games:', error);
     }
   };
 
@@ -164,10 +169,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       if (response.ok) {
         navigate(`/game/${data.game_id}`);
       } else {
-        checkMaxGamesError(response, data);
+        if (!checkMaxGamesError(response, data)) {
+          toast.error(data.error || 'Failed to create game. Please try again.');
+        }
       }
     } catch (error) {
-      console.error('Failed to create game:', error);
+      logger.error('Failed to create game:', error);
+      toast.error('Failed to create game. Please try again.');
     } finally {
       setIsCreatingGame(false);
     }
@@ -205,10 +213,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       if (response.ok) {
         navigate(`/game/${data.game_id}`);
       } else {
-        checkMaxGamesError(response, data);
+        if (!checkMaxGamesError(response, data)) {
+          toast.error(data.error || 'Failed to create game. Please try again.');
+        }
       }
     } catch (error) {
-      console.error('Failed to create custom game:', error);
+      logger.error('Failed to create custom game:', error);
+      toast.error('Failed to create game. Please try again.');
     } finally {
       setIsCreatingGame(false);
     }
@@ -282,7 +293,16 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   return (
     <>
+      {/* Toast notifications */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+        }}
+      />
+
       {/* Routes */}
+      <ErrorBoundary>
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={
@@ -343,7 +363,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
         <Route path="/game/:gameId" element={
           <ProtectedRoute>
-            <GamePage playerName={playerName} />
+            <ErrorBoundary fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}>
+              <GamePage playerName={playerName} />
+            </ErrorBoundary>
           </ProtectedRoute>
         } />
 
@@ -369,6 +391,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <Route path="/" element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />} />
         <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
       </Routes>
+      </ErrorBoundary>
 
       {/* Loading Overlay - blocks all interaction during game creation */}
       {isCreatingGame && (

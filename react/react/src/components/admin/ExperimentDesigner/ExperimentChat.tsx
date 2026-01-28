@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles, GitCompare, Beaker, Repeat2 } from 'lucide-react';
 import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage, ExperimentType } from './types';
 import { config as appConfig } from '../../../config';
+import { logger } from '../../../utils/logger';
 
 interface QuickPrompt {
   id: string;
@@ -59,20 +60,17 @@ export function ExperimentChat({
 
   // Fetch quick prompts - refetch when experiment type changes
   useEffect(() => {
-    console.log('[ExperimentChat] experimentType changed to:', experimentType);
     const fetchQuickPrompts = async () => {
       try {
         // Pass type filter if determined, otherwise fetch all
         const typeParam = experimentType !== 'undetermined' ? `?type=${experimentType}` : '';
-        console.log('[ExperimentChat] Fetching quick prompts with type:', typeParam || 'all');
         const response = await fetch(`${appConfig.API_URL}/api/experiments/quick-prompts${typeParam}`);
         const data = await response.json();
         if (data.success) {
-          console.log('[ExperimentChat] Got prompts:', data.prompts.length);
           setQuickPrompts(data.prompts);
         }
       } catch (err) {
-        console.error('Failed to load quick prompts:', err);
+        logger.error('Failed to load quick prompts:', err);
       }
     };
     fetchQuickPrompts();
@@ -212,8 +210,6 @@ export function ExperimentChat({
 
   // Handle direct type selection via buttons
   const handleTypeSelection = (type: ExperimentType) => {
-    console.log('[ExperimentChat] handleTypeSelection called with:', type);
-    console.log('[ExperimentChat] onExperimentTypeChange exists:', !!onExperimentTypeChange);
     onExperimentTypeChange?.(type);
     // Don't send a message, just update the type - the UI will change to show type-specific prompts
   };

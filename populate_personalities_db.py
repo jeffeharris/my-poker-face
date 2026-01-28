@@ -20,13 +20,15 @@ from poker.utils import ALL_CELEBRITIES_LIST
 
 def populate_all_personalities():
     """Generate personalities for all celebrities and save to database."""
-    
+
     # Initialize persistence
+    # Note: This duplicates flask_app.config.get_db_path() to allow standalone execution.
+    # The canonical version is in flask_app/config.py.
     if os.path.exists('/app/data'):
         db_path = '/app/data/poker_games.db'
     else:
         db_path = os.path.join(project_root, 'poker_games.db')
-    
+
     persistence = GamePersistence(db_path)
     
     # Initialize personality generator

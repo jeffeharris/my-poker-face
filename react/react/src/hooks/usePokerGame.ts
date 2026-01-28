@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { ChatMessage, GameState } from '../types';
+import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import { config } from '../config';
+import { logger } from '../utils/logger';
 
 interface UsePokerGameOptions {
   gameId: string | null;
@@ -27,7 +28,7 @@ interface UsePokerGameResult {
   gameId: string | null;
   messages: ChatMessage[];
   aiThinking: boolean;
-  winnerInfo: any;
+  winnerInfo: WinnerInfo | null;
   revealedCards: RevealedCardsInfo | null;
   tournamentResult: TournamentResult | null;
   eliminationEvents: EliminationEvent[];
@@ -45,6 +46,9 @@ interface UsePokerGameResult {
   debugTriggerSplitPot: () => void;
   debugTriggerSidePot: () => void;
 }
+
+// Cap message arrays to prevent unbounded memory growth in long games
+const MAX_MESSAGES = 200;
 
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
   return fetch(url, {
@@ -68,7 +72,7 @@ export function usePokerGame({
   const socketRef = useRef<Socket | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
-  const [winnerInfo, setWinnerInfo] = useState<any>(null);
+  const [winnerInfo, setWinnerInfo] = useState<WinnerInfo | null>(null);
   const [revealedCards, setRevealedCards] = useState<RevealedCardsInfo | null>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
@@ -92,16 +96,14 @@ export function usePokerGame({
 
   const setupSocketListeners = useCallback((socket: Socket) => {
     socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
       setIsConnected(false);
     });
 
-    socket.on('player_joined', (data: { message: string }) => {
-      console.log('Player joined:', data.message);
+    socket.on('player_joined', (_data: { message: string }) => {
+      // Placeholder for future player join handling
     });
 
-    socket.on('update_game_state', (data: { game_state: any }) => {
-      console.log('Received game state update via WebSocket');
+    socket.on('update_game_state', (data: { game_state: GameState }) => {
       const transformedState = {
         ...data.game_state,
         messages: data.game_state.messages || []
@@ -115,7 +117,7 @@ export function usePokerGame({
 
         if (newMessages.length > 0) {
           newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          setMessages(prev => [...prev, ...newMessages]);
+          setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
 
           // Notify about new AI messages (for mobile floating bubbles)
           if (onNewAiMessage) {
@@ -132,8 +134,7 @@ export function usePokerGame({
     });
 
     // Listen for new message (singular - desktop format)
-    socket.on('new_message', (data: { message: any }) => {
-      console.log('Received new_message via WebSocket');
+    socket.on('new_message', (data: { message: BackendChatMessage }) => {
       const msg = data.message;
       const msgId = msg.id || String(msg.timestamp);
 
@@ -151,7 +152,7 @@ export function usePokerGame({
       };
 
       messageIdsRef.current.add(msgId);
-      setMessages(prev => [...prev, transformedMessage]);
+      setMessages(prev => [...prev, transformedMessage].slice(-MAX_MESSAGES));
 
       if (onNewAiMessage && transformedMessage.type === 'ai') {
         onNewAiMessage(transformedMessage);
@@ -159,36 +160,33 @@ export function usePokerGame({
     });
 
     // Listen for new messages (plural - mobile format)
-    socket.on('new_messages', (data: { game_messages: any[] }) => {
-      const newMessages = data.game_messages.filter((msg: any) => {
+    socket.on('new_messages', (data: { game_messages: BackendChatMessage[] }) => {
+      const newMessages = data.game_messages.filter((msg) => {
         return !messageIdsRef.current.has(msg.id || String(msg.timestamp));
       });
 
       if (newMessages.length > 0) {
-        newMessages.forEach((msg: any) => {
+        newMessages.forEach((msg) => {
           const msgId = msg.id || String(msg.timestamp);
           messageIdsRef.current.add(msgId);
         });
-        setMessages(prev => [...prev, ...newMessages]);
+        setMessages(prev => [...prev, ...newMessages as unknown as ChatMessage[]].slice(-MAX_MESSAGES));
 
         if (onNewAiMessage) {
-          const aiMessages = newMessages.filter((msg: any) => msg.type === 'ai');
+          const aiMessages = newMessages.filter((msg) => msg.message_type === 'ai');
           if (aiMessages.length > 0) {
-            onNewAiMessage(aiMessages[aiMessages.length - 1]);
+            onNewAiMessage(aiMessages[aiMessages.length - 1] as unknown as ChatMessage);
           }
         }
       }
     });
 
     socket.on('player_turn_start', (data: { current_player_options: string[], cost_to_call: number }) => {
-      console.log('Player turn started, options:', data.current_player_options, 'cost_to_call:', data.cost_to_call);
-      console.log('Queued action:', queuedActionRef.current);
       setAiThinking(false);
 
       // Check for queued preemptive action
       if (queuedActionRef.current === 'check_fold') {
         const action = data.cost_to_call === 0 ? 'check' : 'fold';
-        console.log('Executing queued Check/Fold action:', action);
         setQueuedAction(null);
         handlePlayerActionRef.current(action);
         return; // Action will trigger new state update
@@ -203,8 +201,7 @@ export function usePokerGame({
       });
     });
 
-    socket.on('winner_announcement', (data: any) => {
-      console.log('Winner announcement received:', data);
+    socket.on('winner_announcement', (data: WinnerInfo) => {
       setWinnerInfo(data);
       setQueuedAction(null); // Clear queue when hand ends
     });
@@ -215,18 +212,15 @@ export function usePokerGame({
     });
 
     socket.on('player_eliminated', (data: EliminationEvent) => {
-      console.log('Player eliminated:', data);
       setEliminationEvents(prev => [...prev, data]);
     });
 
     socket.on('tournament_complete', (data: TournamentResult) => {
-      console.log('Tournament complete:', data);
       setTournamentResult(data);
     });
 
     // Listen for avatar updates (when background generation completes)
     socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
-      console.log('Avatar update received:', data);
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -257,10 +251,11 @@ export function usePokerGame({
       }
 
       if (data.messages) {
-        setMessages(data.messages);
+        const capped = data.messages.slice(-MAX_MESSAGES);
+        setMessages(capped);
         // Clear and repopulate to prevent unbounded growth
         messageIdsRef.current.clear();
-        data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+        capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
       }
 
       const currentPlayer = data.players[data.current_player_idx];
@@ -270,7 +265,7 @@ export function usePokerGame({
 
       return true;
     } catch (err) {
-      console.error('Failed to refresh game state:', err);
+      logger.error('Failed to refresh game state:', err);
       return false;
     }
   }, []);
@@ -282,13 +277,13 @@ export function usePokerGame({
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
+      withCredentials: true,  // Send cookies for auth
     });
 
     socketRef.current = socket;
 
     socket.on('connect', () => {
       const isReconnect = !isInitialConnectionRef.current;
-      console.log(`Socket ${isReconnect ? 're' : ''}connected, joining game:`, gId);
       setIsConnected(true);
       socket.emit('join_game', gId);
       // Use silent mode for reconnections to avoid loading flash
@@ -311,7 +306,7 @@ export function usePokerGame({
 
       refreshGameState(loadGameId).then(success => {
         if (!success) {
-          console.error('Failed to load game');
+          logger.error('Failed to load game');
           if (onGameCreated) {
             onGameCreated('');
           }
@@ -351,7 +346,7 @@ export function usePokerGame({
           return refreshGameState(newGameId);
         })
         .catch(err => {
-          console.error('Failed to create/fetch game:', err);
+          logger.error('Failed to create/fetch game:', err);
           setError(err.message || 'Failed to create game');
           setLoading(false);
         });
@@ -362,11 +357,9 @@ export function usePokerGame({
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && gameId) {
-        console.log('Page became visible, checking connection...');
         const socket = socketRef.current;
 
         if (!socket || !socket.connected) {
-          console.log('Socket disconnected, reconnecting...');
           if (socket) {
             socket.connect();
           } else {
@@ -374,7 +367,6 @@ export function usePokerGame({
           }
         } else {
           // Silent refresh - just update state in background, no loading flash
-          console.log('Socket connected, silently refreshing game state...');
           refreshGameState(gameId, true);
         }
       }
@@ -391,7 +383,6 @@ export function usePokerGame({
   useEffect(() => {
     return () => {
       if (socketRef.current) {
-        console.log('Disconnecting WebSocket');
         socketRef.current.disconnect();
       }
     };
@@ -417,12 +408,12 @@ export function usePokerGame({
       });
 
       if (response.ok) {
-        console.log('Action sent successfully, waiting for WebSocket updates');
+        // Action sent, WebSocket will deliver state updates
       } else {
         throw new Error('Action failed');
       }
     } catch (error) {
-      console.error('Failed to send action:', error);
+      logger.error('Failed to send action:', error);
       setAiThinking(false);
     }
   }, [gameId]);
@@ -445,7 +436,7 @@ export function usePokerGame({
         }),
       });
     } catch (error) {
-      console.error('Failed to send message:', error);
+      logger.error('Failed to send message:', error);
     }
   }, [gameId, playerName]);
 
@@ -493,7 +484,6 @@ export function usePokerGame({
         }
       }
     };
-    console.log('[DEBUG] Triggering split pot with mock data:', mockWinnerData);
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
 
@@ -555,7 +545,6 @@ export function usePokerGame({
         }
       }
     };
-    console.log('[DEBUG] Triggering side pot with mock data:', mockWinnerData);
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
 

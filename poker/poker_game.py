@@ -391,7 +391,8 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
         If the bet amount is less than or equal to zero or if the player does not have enough chips to cover the bet.
     """
     # Get the betting player, default to current player if betting player is not set and update their total bet amount
-    player_idx = player_idx or game_state.current_player_idx
+    if player_idx is None:
+        player_idx = game_state.current_player_idx
     betting_player = game_state.players[player_idx]
 
 
@@ -430,11 +431,12 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     Sets all player action flags to False. Current player can be excluded from this action when they are betting and
     just other players should be reset.
     """
-    for player in game_state.players:
-        if player.name != game_state.current_player.name or not exclude_current_player:
-            game_state = game_state.update_player(player_idx=game_state.players.index(player),
-                                                  has_acted=False)
-    return game_state
+    updated_players = tuple(
+        player if (exclude_current_player and idx == game_state.current_player_idx)
+        else player.update(has_acted=False)
+        for idx, player in enumerate(game_state.players)
+    )
+    return game_state.update(players=updated_players)
 
 
 def player_call(game_state):
@@ -546,7 +548,7 @@ def player_all_in(game_state):
 ##################################################################
 ######################      GAME FLOW       ######################
 ##################################################################
-def set_betting_round_start_player(game_state) -> PokerGameState:
+def set_betting_round_start_player(game_state) -> Optional[PokerGameState]:
     """
     Set the starting player for the betting round based on the current state of the game.
 
@@ -555,8 +557,9 @@ def set_betting_round_start_player(game_state) -> PokerGameState:
 
     :param game_state: (PokerGameState)
         The current state of the poker game, including players, dealer index, and community cards.
-    :return: (PokerGameState)
-        Updated state of the poker game with the current player index set for the betting round start.
+    :return: (Optional[PokerGameState])
+        Updated state of the poker game with the current player index set for the betting round start,
+        or None if no active players exist (betting round should not start).
     """
     if len(game_state.community_cards) > 0:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
@@ -564,6 +567,8 @@ def set_betting_round_start_player(game_state) -> PokerGameState:
     else:
         first_action_player_idx = get_next_active_player_idx(players=game_state.players,
                                                              relative_player_idx=game_state.current_dealer_idx + 2)
+    if first_action_player_idx is None:
+        return None  # No active players, betting round should not start
     return game_state.update(current_player_idx=first_action_player_idx)
 
 def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
@@ -615,7 +620,7 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
     return game_state.update(awaiting_action=False)
 
 
-def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx: int) -> int:
+def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx: int) -> Optional[int]:
     """
     Determines the index of the next active player in the players list based on is_player_active()
 
@@ -624,31 +629,35 @@ def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx:
     :param relative_player_idx: (int)
         The index of the current player.
 
-    :return: (int)
-        The index of the next active player.
-
-    :raises ValueError:
-        If there are no active players in the list.
+    :return: (Optional[int])
+        The index of the next active player, or None if no active players exist
+        (signals betting round should end - all players folded/all-in).
     """
     player_count = len(players)
-    # Start with the next player in the queue, save the starting index for later so we can take action
-    # if we come all the way around without finding an active player
-    starting_idx = relative_player_idx
+    # Normalize starting_idx to valid range (handles cases like dealer_idx + 2 exceeding player count)
+    starting_idx = relative_player_idx % player_count
     next_player_idx = (starting_idx + 1) % player_count
 
     while True:
         if players[next_player_idx].is_active:
             return next_player_idx
         if next_player_idx == starting_idx:
-            return starting_idx
+            # No active players found - return None to signal betting round should end
+            # (e.g., trigger showdown when all players are all-in or folded)
+            return None
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
 
-def advance_to_next_active_player(game_state: PokerGameState) -> PokerGameState:
+def advance_to_next_active_player(game_state: PokerGameState) -> Optional[PokerGameState]:
     """
     Move to the next active player in the game.
+
+    :return: Updated game state with next active player, or None if no active players exist
+             (signals betting round should end - all players folded/all-in).
     """
     next_active_player_idx = get_next_active_player_idx(players=game_state.players, relative_player_idx=game_state.current_player_idx)
+    if next_active_player_idx is None:
+        return None  # Signal: no active players, betting should end
     return game_state.update(current_player_idx=next_active_player_idx)
 
 
@@ -669,6 +678,11 @@ def initialize_game_state(
     :param starting_stack: Starting chip stack for each player (default: 10000)
     :param big_blind: Starting big blind amount (default: 50)
     """
+    # Validate no duplicate names
+    all_names = [human_name] + list(player_names)
+    if len(all_names) != len(set(all_names)):
+        raise ValueError(f"Duplicate player names are not allowed: {all_names}")
+
     # Create a tuple of Human and AI players to be added to the game state
     ai_players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=starting_stack, is_human=True) for n in player_names)
@@ -727,6 +741,8 @@ def reset_game_state_for_new_hand(
     # reset so that get_next_active_player isn't based on the prior hands actions.
     new_dealer_idx = get_next_active_player_idx(players=tuple(new_players),
                                                 relative_player_idx=game_state.current_dealer_idx)
+    if new_dealer_idx is None:
+        raise ValueError("No active players for dealer assignment")
     new_players = new_players[new_dealer_idx:] + new_players[:new_dealer_idx]
 
     # Remove players who have no chips left. This needs to come after the players are reset and the dealer is rotated
@@ -868,8 +884,8 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
 
     # Determine the best hand among all evaluated hands
-    evaluated_hands.sort(key=lambda x: sorted(x[1]["kicker_values"]), reverse=True)
-    evaluated_hands.sort(key=lambda x: sorted(x[1]["hand_values"]), reverse=True)
+    evaluated_hands.sort(key=lambda x: x[1]["kicker_values"], reverse=True)
+    evaluated_hands.sort(key=lambda x: x[1]["hand_values"], reverse=True)
     evaluated_hands.sort(key=lambda x: x[1]["hand_rank"])
     best_overall_hand = evaluated_hands[0][1]
 

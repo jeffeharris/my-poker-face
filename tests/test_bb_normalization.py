@@ -197,12 +197,12 @@ class TestApplyFinalFixes(unittest.TestCase):
         self.assertEqual(result['raise_to'], 0)
 
     def test_zero_raise_gets_min_raise_fallback(self):
-        """Raise with raise_to=0 should fall back to min raise."""
+        """Raise with raise_to=0 should fall back to min raise TO value from context."""
         response = {'action': 'raise', 'raise_to': 0}
-        context = {'valid_actions': ['fold', 'call', 'raise'], 'min_raise': 200}
+        # context['min_raise'] is a "raise TO" value (already includes highest_bet)
+        context = {'valid_actions': ['fold', 'call', 'raise'], 'min_raise': 300}
         gs = self._make_game_state(100, highest_bet=100)
         result = self.controller._apply_final_fixes(response, context, gs)
-        # min_raise_to = highest_bet + min_raise = 100 + 200 = 300
         self.assertEqual(result['raise_to'], 300)
         self.assertTrue(result.get('raise_amount_corrected'))
 

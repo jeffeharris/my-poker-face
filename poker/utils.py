@@ -82,9 +82,9 @@ ALL_CELEBRITIES_LIST = [
 
 def get_celebrities(shuffled: bool = False):
     """Retrieve the list of celebrities."""
-    celebrities_list = CELEBRITIES_LIST
-    random.shuffle(celebrities_list) if shuffled else None
-    return celebrities_list
+    if shuffled:
+        return random.sample(CELEBRITIES_LIST, len(CELEBRITIES_LIST))
+    return list(CELEBRITIES_LIST)
 
 
 def obj_to_dict(self):

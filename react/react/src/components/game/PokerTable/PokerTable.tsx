@@ -8,6 +8,7 @@ import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
+import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import type { Player } from '../../../types/player';
@@ -51,7 +52,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
           credentials: 'include',
         });
       } catch (err) {
-        console.error('Failed to end game:', err);
+        logger.error('Failed to end game:', err);
       }
     }
     clearTournamentResult();
@@ -123,17 +124,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
   const isHumanSmallBlind = humanPlayerIndex === gameState?.small_blind_idx;
   const isHumanBigBlind = humanPlayerIndex === gameState?.big_blind_idx;
   const isHumanCurrentPlayer = humanPlayerIndex === gameState?.current_player_idx;
-
-  // Debug logging
-  if (currentPlayer?.is_human) {
-    console.log('Human player turn check:', {
-      is_human: currentPlayer.is_human,
-      is_folded: currentPlayer.is_folded,
-      player_options: gameState?.player_options,
-      aiThinking,
-      showActionButtons
-    });
-  }
 
   if (error) {
     return (

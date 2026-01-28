@@ -39,15 +39,33 @@ export interface GameState {
   newly_dealt_count?: number;
 }
 
+/** Player's showdown hand information */
+export interface PlayerShowdownInfo {
+  cards: string[] | { rank: string; suit: string }[];
+  hand_name: string;
+  hand_rank: number;
+  kickers?: string[];
+}
+
+/** Pot breakdown for split/side pots */
+export interface PotBreakdown {
+  pot_name: string;
+  total_amount: number;
+  winners: { name: string; amount: number }[];
+  hand_name: string;
+}
+
 // Used by WinnerAnnouncement component
 export interface WinnerInfo {
   winners: string[];
-  winnings: { [key: string]: number };
+  winnings?: { [key: string]: number };  // Optional - may use pot_breakdown instead
+  pot_breakdown?: PotBreakdown[];  // New format from backend
   hand_name: string;
   winning_hand?: string[];
   showdown: boolean;
   players_cards?: { [key: string]: string[] };
-  community_cards?: any[];
+  players_showdown?: { [key: string]: PlayerShowdownInfo };
+  community_cards?: string[] | { rank: string; suit: string }[];
   // Tournament final hand context
   is_final_hand?: boolean;
   tournament_outcome?: {

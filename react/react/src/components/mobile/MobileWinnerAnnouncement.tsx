@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { PartyPopper, Smile, Angry, Handshake, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
+import { logger } from "../../utils/logger";
 import { getOrdinal, type BackendCard } from "../../types/tournament";
 import type { PostRoundTone, PostRoundSuggestion } from "../../types/chat";
 import "./MobileWinnerAnnouncement.css";
@@ -100,7 +101,7 @@ export function MobileWinnerAnnouncement({
 
         // Skip API call if required params are missing
         if (!gameId || !playerName) {
-            console.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
+            logger.warn('[PostRoundChat] Missing gameId or playerName, using fallback suggestions');
             const fallbacks: Record<PostRoundTone, PostRoundSuggestion[]> = {
                 gloat: [{ text: 'Too easy.', tone: 'gloat' }, { text: 'Thanks for the chips!', tone: 'gloat' }],
                 humble: [{ text: 'Got lucky there.', tone: 'humble' }, { text: 'Good game.', tone: 'humble' }],
@@ -121,7 +122,7 @@ export function MobileWinnerAnnouncement({
             );
             setSuggestions(response.suggestions || []);
         } catch (error) {
-            console.error('[PostRoundChat] Failed to fetch suggestions:', error);
+            logger.error('[PostRoundChat] Failed to fetch suggestions:', error);
             // Set fallback suggestions
             const fallbacks: Record<PostRoundTone, PostRoundSuggestion[]> = {
                 gloat: [{ text: 'Too easy.', tone: 'gloat' }, { text: 'Thanks for the chips!', tone: 'gloat' }],

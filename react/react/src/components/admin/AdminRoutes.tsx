@@ -11,6 +11,7 @@ import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
+import { logger } from '../../utils/logger';
 import type { AdminTab } from './AdminSidebar';
 
 const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
@@ -58,7 +59,7 @@ function ExperimentDetailWrapper() {
           setChatMessages(data.history);
         }
       } catch (err) {
-        console.error('Failed to load chat history:', err);
+        logger.error('Failed to load chat history:', err);
       }
     }
   };
@@ -98,7 +99,7 @@ function ExperimentDetailWrapper() {
       });
       setChatMessages([]);
     } catch (err) {
-      console.error('Failed to clear chat history:', err);
+      logger.error('Failed to clear chat history:', err);
     }
   };
 

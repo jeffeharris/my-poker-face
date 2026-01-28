@@ -3,6 +3,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { adminAPI } from '../../../utils/api';
+import { logger } from '../../../utils/logger';
 import type { TemplateSummary, PromptTemplate, PlaygroundCapture, ReplayResponse } from './types';
 
 interface Props {
@@ -117,7 +118,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
       );
       setRelatedCaptures(allCaptures.slice(0, 10));
     } catch (err) {
-      console.error('Failed to fetch related captures:', err);
+      logger.error('Failed to fetch related captures:', err);
       setRelatedCaptures([]);
     } finally {
       setLoadingCaptures(false);

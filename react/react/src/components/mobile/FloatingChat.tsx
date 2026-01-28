@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatMessage, Player } from '../../types';
 import { config } from '../../config';
@@ -165,12 +165,13 @@ interface MessageItemProps {
   onDismiss: (id: string) => void;
 }
 
-function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
+const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ msg, avatarUrl, onDismiss }, ref) {
   const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
   const isAI = msg.type === 'ai';
 
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, y: -20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -220,7 +221,7 @@ function MessageItem({ msg, avatarUrl, onDismiss }: MessageItemProps) {
       </button>
     </motion.div>
   );
-}
+});
 
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;

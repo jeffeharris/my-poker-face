@@ -85,6 +85,7 @@ class UsageTracker:
     """Tracks and persists API usage for cost analysis."""
 
     _instance: Optional["UsageTracker"] = None
+    _instance_lock = threading.Lock()
 
     def __init__(self, db_path: Optional[str] = None):
         """Initialize usage tracker.
@@ -104,9 +105,11 @@ class UsageTracker:
 
     @classmethod
     def get_default(cls) -> "UsageTracker":
-        """Get or create the default singleton tracker."""
+        """Get or create the default singleton tracker (thread-safe)."""
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     @classmethod
@@ -115,7 +118,11 @@ class UsageTracker:
         cls._instance = tracker
 
     def _get_default_db_path(self) -> str:
-        """Get the default database path based on environment."""
+        """Get the default database path based on environment.
+
+        Note: This duplicates flask_app.config.get_db_path() to avoid circular imports.
+        The canonical version is in flask_app/config.py.
+        """
         if Path('/app/data').exists():
             return '/app/data/poker_games.db'
         return str(Path(__file__).parent.parent.parent / 'poker_games.db')

@@ -1206,7 +1206,7 @@ def handle_ai_action(game_id: str) -> None:
         valid_actions = state_machine.game_state.current_player_options
         personality_traits = getattr(controller, 'personality_traits', {})
         call_amount = state_machine.game_state.highest_bet - current_player.bet
-        max_raise = min(current_player.stack, state_machine.game_state.pot.get('total', 0) * 2)
+        max_raise = current_player.stack
 
         fallback_result = FallbackActionSelector.select_action(
             valid_actions=valid_actions,
@@ -1242,7 +1242,10 @@ def handle_ai_action(game_id: str) -> None:
 
     game_state = play_turn(state_machine.game_state, action, amount)
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
-    game_state = advance_to_next_active_player(game_state)
+    advanced_state = advance_to_next_active_player(game_state)
+    # If None, no active players remain - keep current state, let progress_game handle phase transition
+    if advanced_state is not None:
+        game_state = advanced_state
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     game_state_service.set_game(game_id, current_game_data)

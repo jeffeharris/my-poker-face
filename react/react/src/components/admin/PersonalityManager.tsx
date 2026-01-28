@@ -3,6 +3,7 @@ import { config } from '../../config';
 import { adminFetch } from '../../utils/api';
 import { PageLayout, PageHeader } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
+import { logger } from '../../utils/logger';
 import './AdminShared.css';
 import './PersonalityManager.css';
 
@@ -928,7 +929,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
       const imageResults = await Promise.all(imagePromises);
       setImages(imageResults);
     } catch (error) {
-      console.error('Failed to load avatar images:', error);
+      logger.error('Failed to load avatar images:', error);
     } finally {
       setLoading(false);
     }
@@ -942,7 +943,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         setReferenceImageId(data.reference_image_id || null);
       }
     } catch (error) {
-      console.error('Failed to load reference image:', error);
+      logger.error('Failed to load reference image:', error);
     }
   };
 
@@ -956,7 +957,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         body: JSON.stringify({ reference_image_id: newReferenceId })
       });
     } catch (error) {
-      console.error('Failed to save reference image:', error);
+      logger.error('Failed to save reference image:', error);
     }
   };
 
@@ -985,7 +986,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         await loadEmotionsAndImages();
       }
     } catch (error) {
-      console.error('Failed to regenerate:', error);
+      logger.error('Failed to regenerate:', error);
     } finally {
       setRegenerating(null);
     }
@@ -1015,7 +1016,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
       }
       await loadEmotionsAndImages();
     } catch (error) {
-      console.error('Failed to regenerate all:', error);
+      logger.error('Failed to regenerate all:', error);
     } finally {
       setRegenerating(null);
     }
@@ -1039,7 +1040,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
       }
       await loadEmotionsAndImages();
     } catch (error) {
-      console.error('Failed to generate missing:', error);
+      logger.error('Failed to generate missing:', error);
     } finally {
       setRegenerating(null);
     }

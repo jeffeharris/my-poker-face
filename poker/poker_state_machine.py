@@ -166,9 +166,12 @@ def initialize_game_transition(state: ImmutableStateMachine) -> ImmutableStateMa
 def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for INITIALIZING_HAND phase transition."""
     new_game_state = setup_hand(state.game_state)
-    new_game_state = set_betting_round_start_player(game_state=new_game_state)
+    new_game_state_with_start_player = set_betting_round_start_player(game_state=new_game_state)
+    # If no active players (all-in or folded), skip to showdown
+    if new_game_state_with_start_player is None:
+        return state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
     # Reset raise counter for the pre-flop betting round
-    new_game_state = new_game_state.update(raises_this_round=0)
+    new_game_state = new_game_state_with_start_player.update(raises_this_round=0)
     return (state
             .with_game_state(new_game_state)
             .with_phase(get_next_phase(state)))
@@ -186,11 +189,23 @@ def initialize_betting_round_transition(state: ImmutableStateMachine) -> Immutab
 
     # Continue normal flow - betting rounds auto-advance when pot_is_settled
     new_game_state = reset_player_action_flags(state.game_state)
-    new_game_state = set_betting_round_start_player(new_game_state)
+    new_game_state_with_start_player = set_betting_round_start_player(new_game_state)
+    # If no active players, check if it's an all-in run-out or everyone folded
+    if new_game_state_with_start_player is None:
+        num_not_folded = len([p for p in new_game_state.players if not p.is_folded])
+        if num_not_folded > 1:
+            # Multiple players still in but all are all-in: advance to the betting
+            # phase (FLOP/TURN/RIVER) with run_it_out flag so the game handler deals
+            # remaining community cards with delays
+            new_game_state = new_game_state.update(awaiting_action=True, run_it_out=True)
+            return (state
+                    .with_game_state(new_game_state)
+                    .with_phase(get_next_phase(state)))
+        return state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
     # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
     # Also clear run_it_out flag and raise counter to ensure fresh state
-    new_game_state = new_game_state.update(
-        last_raise_amount=new_game_state.current_ante,
+    new_game_state = new_game_state_with_start_player.update(
+        last_raise_amount=new_game_state_with_start_player.current_ante,
         run_it_out=False,
         raises_this_round=0
     )

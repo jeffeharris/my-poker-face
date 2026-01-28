@@ -5,7 +5,7 @@
 services:
   backend:
     # Use Flask's dev server with auto-reload (instead of the production entry point)
-    command: python -m flask run --host=0.0.0.0 --port=5000 --reload
+    command: python -m flask_app.ui_web
     # Additional volumes for hot reloading (beyond what's in main file)
     volumes:
       - .:/app

@@ -115,7 +115,7 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
       }
 
       setError(null);
-    } catch (e) {
+    } catch {
       setError('Failed to load experiment data');
     } finally {
       setLoading(false);
@@ -146,7 +146,7 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
       } else {
         setError(data.error || 'Failed to launch experiment');
       }
-    } catch (e) {
+    } catch {
       setError('Failed to connect to server');
     }
   };

@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { Target, Flame, Square, Phone, Search, Frown, Angry, Meh, Smile, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import './HeadsUpOpponentPanel.css';
 
@@ -83,7 +84,7 @@ export function HeadsUpOpponentPanel({ opponent, gameId, humanPlayerName }: Head
           }
         }
       } catch (error) {
-        console.error('Failed to fetch opponent data:', error);
+        logger.error('Failed to fetch opponent data:', error);
       }
     };
 

@@ -3,6 +3,7 @@ import { Socket } from 'socket.io-client';
 import { Card } from '../cards';
 import { CSSDebugger } from './CSSDebugger';
 import { config } from '../../config';
+import { logger } from '../../utils/logger';
 import './DebugPanel.css';
 
 interface DebugPanelProps {
@@ -52,7 +53,7 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
           setElasticityData(data);
         }
       } catch (error) {
-        console.error('Failed to fetch elasticity data:', error);
+        logger.error('Failed to fetch elasticity data:', error);
       } finally {
         setLoading(false);
       }
@@ -64,7 +65,6 @@ export function DebugPanel({ gameId, socket }: DebugPanelProps) {
     // Set up WebSocket listener if socket is available
     if (socket) {
       const handleElasticityUpdate = (data: ElasticityData) => {
-        console.log('Received elasticity update via WebSocket:', data);
         setElasticityData(data);
       };
 

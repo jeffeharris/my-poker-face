@@ -54,7 +54,7 @@ jobs:
 
       - name: Lint
         working-directory: react/react
-        run: npm run lint -- --max-warnings=50
+        run: npm run lint -- --max-warnings=0
 
       - name: Build
         working-directory: react/react

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../config';
+import { logger } from '../utils/logger';
 import type { CareerStats, TournamentHistoryEntry, EliminatedPersonality } from '../types/tournament';
 
 interface UseCareerStatsResult {
@@ -44,7 +45,7 @@ export function useCareerStats(): UseCareerStatsResult {
       setTournaments(data.recent_tournaments || []);
       setEliminatedPersonalities(data.eliminated_personalities || []);
     } catch (err) {
-      console.error('Failed to fetch career stats:', err);
+      logger.error('Failed to fetch career stats:', err);
       setError('Failed to connect to server');
       setStats(null);
       setTournaments([]);

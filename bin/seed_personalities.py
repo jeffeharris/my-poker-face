@@ -24,7 +24,11 @@ from poker.persistence import GamePersistence
 
 
 def get_db_path() -> str:
-    """Get the appropriate database path based on environment."""
+    """Get the appropriate database path based on environment.
+
+    Note: This duplicates flask_app.config.get_db_path() to allow standalone execution.
+    The canonical version is in flask_app/config.py.
+    """
     if os.path.exists('/app/data'):
         return '/app/data/poker_games.db'
     return str(project_root / 'data' / 'poker_games.db')

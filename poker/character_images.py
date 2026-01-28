@@ -11,6 +11,7 @@ import logging
 import os
 import time
 import urllib.request
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
@@ -39,10 +40,16 @@ ICON_SIZE = 256
 # IMAGE_PROVIDER: "openai" (default), "pollinations", "runware", etc.
 # IMAGE_MODEL: model to use (provider-specific default if not set)
 
+@lru_cache(maxsize=1)
+def _get_image_config_persistence():
+    """Get a shared persistence instance for image config lookups."""
+    from .persistence import GamePersistence
+    return GamePersistence()
+
+
 def get_image_provider() -> str:
     """Get the image provider from app_settings or environment."""
-    from .persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_image_config_persistence()
     db_value = p.get_setting('IMAGE_PROVIDER', '')
     if db_value:
         return db_value
@@ -51,8 +58,7 @@ def get_image_provider() -> str:
 
 def get_image_model() -> Optional[str]:
     """Get the image model from app_settings or environment."""
-    from .persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_image_config_persistence()
     db_value = p.get_setting('IMAGE_MODEL', '')
     if db_value:
         return db_value
@@ -71,15 +77,23 @@ FULL_IMAGE_DIMENSIONS = (512, 512)
 
 # Prompt template for fictional characters (can use names directly)
 # DALL-E 2 prioritizes early instructions, so put black background first
-PROMPT_TEMPLATE_FICTIONAL = """Black background, cartoonish caricature of {emotion_detail} {character} playing poker.
-Bold outlines, vibrant colors, exaggerated features. Chest-up view, centered."""
+PROMPT_TEMPLATE_FICTIONAL = """Black background, {emotion_detail} {character} playing poker.
+Animated style with clean bold outlines, cel-shaded, realistic proportions, stylized aesthetic.
+Fully clothed, chest-up portrait, centered."""
 
 # Prompt template for real people (uses descriptions to avoid content policy blocks)
-PROMPT_TEMPLATE_DESCRIPTION = """Black background, cartoonish caricature of {emotion_detail} {description} playing poker.
-Bold outlines, vibrant colors, exaggerated features. Chest-up view, centered."""
+PROMPT_TEMPLATE_DESCRIPTION = """Black background, {emotion_detail} {description} playing poker.
+Animated style with clean bold outlines, cel-shaded, realistic proportions, stylized aesthetic.
+Fully clothed, chest-up portrait, centered."""
 
 # Negative prompt for avatar generation - things to avoid
-NEGATIVE_PROMPT = "cleavage, anime, manga, cartoon eyes, big eyes, nsfw, nude, naked, revealing clothing, low cut, sexy"
+NEGATIVE_PROMPT = (
+    "cleavage, anime, manga, cartoon eyes, big eyes, nsfw, nude, naked, "
+    "revealing clothing, low cut, sexy, shirtless, bare chest, muscular torso, "
+    "exaggerated body proportions, exaggerated breasts, deep neckline, "
+    "Japanese animation style, chibi, bishonen, "
+    "blurry, low quality, distorted, extra limbs, text, watermark, deformed hands"
+)
 
 # Emotion descriptions for image generation - grammatically complete phrases
 EMOTION_DETAILS = {

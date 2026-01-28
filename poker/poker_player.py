@@ -8,7 +8,6 @@ from core.card import Card, CardSet
 
 logger = logging.getLogger(__name__)
 from core.llm import Assistant, LLMClient, CallType
-from .poker_action import PlayerAction
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .personality_generator import PersonalityGenerator
 from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
@@ -17,7 +16,7 @@ from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
 class PokerPlayer:
     money: int
     cards: CardSet
-    options: List[PlayerAction]
+    options: List[str]
     folded: bool
 
     def __init__(self, name="Player", starting_money=10000):

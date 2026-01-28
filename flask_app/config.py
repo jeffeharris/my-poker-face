@@ -1,6 +1,7 @@
 """Configuration for the Flask application."""
 
 import os
+from functools import lru_cache
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -15,7 +16,15 @@ is_development = (flask_env == 'development' or flask_debug == '1')
 enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 
 # Secret key
-SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+if is_development:
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-not-for-production')
+else:
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is required in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
 
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
@@ -41,13 +50,28 @@ from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
 from core.llm.config import DEFAULT_MODEL
 
 
+@lru_cache(maxsize=1)
+def _get_config_persistence():
+    """Get a cached GamePersistence instance for config lookups.
+
+    Note: This caches a single shared instance across all callers. This is safe
+    because GamePersistence uses context managers for all DB operations and
+    maintains no connection state between calls. Each operation opens and closes
+    its own connection.
+
+    If GamePersistence is ever modified to maintain persistent state (connection
+    pools, cached transactions, etc.), this caching pattern must be revisited.
+    """
+    from poker.persistence import GamePersistence
+    return GamePersistence()
+
+
 def get_default_provider() -> str:
     """Get the default LLM provider from app_settings or environment.
 
     Priority: 1. Database (app_settings), 2. Default ('openai')
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('DEFAULT_PROVIDER', '')
     if db_value:
         return db_value
@@ -59,8 +83,7 @@ def get_default_model() -> str:
 
     Priority: 1. Database (app_settings), 2. core.llm.config.DEFAULT_MODEL
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('DEFAULT_MODEL', '')
     if db_value:
         return db_value
@@ -72,8 +95,7 @@ def get_assistant_provider() -> str:
 
     Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_PROVIDER
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('ASSISTANT_PROVIDER', '')
     if db_value:
         return db_value
@@ -85,8 +107,7 @@ def get_assistant_model() -> str:
 
     Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_MODEL
     """
-    from poker.persistence import GamePersistence
-    p = GamePersistence()
+    p = _get_config_persistence()
     db_value = p.get_setting('ASSISTANT_MODEL', '')
     if db_value:
         return db_value

@@ -189,24 +189,29 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         self.assertIn('"action":', prompt)
         self.assertIn('"stage_direction":', prompt)
     
-    @unittest.skip("TODO: Update test to match current personality modifier text")
     @patch.object(AIPokerPlayer, '_load_personality_config')
     def test_personality_modifiers(self, mock_load_config):
-        """Test personality modifier generation."""
-        # High bluff tendency - use Donald Trump from fixtures
+        """Test personality modifier generation based on archetype matrix.
+
+        The get_personality_modifier method uses a unified strategy matrix
+        combining aggression and bluff_tendency into poker archetypes:
+        - High aggression + high bluff = LAG (Loose-Aggressive)
+        - Low aggression + low bluff = Tight-Passive (rock)
+        """
+        # Donald Trump: high bluff (0.75) + high aggression (0.8) = LAG archetype
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Donald Trump']
         bluffer = AIPokerPlayer(name='Donald Trump', starting_money=10000)
         bluffer_mod = bluffer.get_personality_modifier()
+        self.assertIn('loose-aggressive', bluffer_mod.lower())
         self.assertIn('bluff', bluffer_mod.lower())
-        self.assertIn('aggressive', bluffer_mod.lower())
 
-        # Low bluff tendency - use Bob Ross from fixtures
+        # Bob Ross: low bluff (0.3) + low aggression (0.1) = Tight-Passive archetype
         mock_load_config.return_value = PERSONALITIES_FIXTURE['Bob Ross']
         honest = AIPokerPlayer(name='Bob Ross', starting_money=10000)
         honest_mod = honest.get_personality_modifier()
-        # Bob Ross has low aggression (0.1) so should get the cautious modifier
-        self.assertIn('cautiously', honest_mod.lower())
-        self.assertIn('avoid', honest_mod.lower())
+        # Bob Ross should get the "Tight and patient" modifier (low aggression + low bluff)
+        self.assertIn('tight and patient', honest_mod.lower())
+        self.assertIn('fold', honest_mod.lower())
     
     def test_strategy_adjustment(self):
         """Test dynamic strategy adjustment based on stack size."""

@@ -719,24 +719,29 @@ class AIPlayerController:
         # Effective cost is capped at player's stack (they can only risk what they have)
         cost_to_call = min(raw_cost_to_call, player_stack)
 
-        # Calculate max raise: capped at largest opponent stack (can only raise what they can match)
+        # Calculate raise TO bounds for the AI prompt
+        # max_raise_to: capped by largest opponent stack (no point raising beyond what they can match)
+        highest_bet = game_state.highest_bet
         max_opponent_stack = max(
             (p.stack for p in game_state.players
              if not p.is_folded and not p.is_all_in and p.name != game_state.current_player.name),
             default=0
         )
-        max_raise = min(player_stack, max_opponent_stack, game_state.pot['total'] * 2)
-        # Collar min_raise to not exceed what's actually possible
-        min_raise = min(game_state.min_raise_amount, max_raise) if max_raise > 0 else 0
+        max_raise_by = min(player_stack, max_opponent_stack)
+        max_raise_to = highest_bet + max_raise_by
+        # min_raise_to: highest bet + minimum raise increment
+        min_raise_by = min(game_state.min_raise_amount, max_raise_by) if max_raise_by > 0 else 0
+        min_raise_to = highest_bet + min_raise_by
 
         # Use resilient AI call
         response_dict = self._get_ai_decision(
             message=message,
             valid_actions=player_options,
             call_amount=cost_to_call,
-            min_raise=min_raise,
-            max_raise=max_raise,
-            should_speak=should_speak
+            min_raise=min_raise_to,
+            max_raise=max_raise_to,
+            should_speak=should_speak,
+            big_blind=game_state.current_ante or 100,
         )
         
         # Clean response based on speaking decision
@@ -1326,9 +1331,8 @@ class AIPlayerController:
         # Note: The resilience layer should have already asked the AI to fix this,
         # so this is a last-resort fallback if the AI still didn't provide an amount.
         if response_dict.get('action') == 'raise' and response_dict.get('raise_to', 0) == 0:
-            highest_bet = game_state.highest_bet
-            min_raise = context.get('min_raise', MIN_RAISE)
-            min_raise_to = highest_bet + min_raise
+            # context['min_raise'] is already a "raise TO" value (includes highest_bet)
+            min_raise_to = context.get('min_raise', game_state.highest_bet + MIN_RAISE)
             response_dict['raise_to'] = min_raise_to
             response_dict['raise_amount_corrected'] = True
             logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
@@ -1782,9 +1786,28 @@ def build_base_game_state(
 
     stack_limit = _format_money(player_money, big_blind, True)
 
+    # Calculate raise TO bounds for the prompt (opponent-aware)
+    highest_bet = game_state.highest_bet
+    max_opponent_stack = max(
+        (p.stack for p in game_state.players
+         if not p.is_folded and not p.is_all_in and p.name != player.name),
+        default=0
+    )
+    max_raise_by = min(player_money, max_opponent_stack)
+    max_raise_to = highest_bet + max_raise_by
+    min_raise_by = min(game_state.min_raise_amount, max_raise_by) if max_raise_by > 0 else 0
+    min_raise_to = highest_bet + min_raise_by
+    min_raise_to_fmt = _format_money(min_raise_to, big_blind, True)
+    max_raise_to_fmt = _format_money(max_raise_to, big_blind, True)
+
+    raise_guidance = ""
+    if 'raise' in player_options:
+        raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).\n"
+
     hand_update_message = persona_state + hand_state + pot_state + "\n" + (
         f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
         f"You cannot bet more than you have, {stack_limit}.\n"
+        f"{raise_guidance}"
         f"You must select from these options: {player_options}\n"
         f"Your table position: {player_positions}\n"
         f"What is your move, {persona}?\n\n"

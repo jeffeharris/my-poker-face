@@ -5,6 +5,7 @@ import type { GameState, ChatMessage, BackendChatMessage } from '../types';
 import { useSocket } from '../hooks/useSocket';
 import { useGameState } from '../hooks/useGameState';
 import { gameAPI } from '../utils/api';
+import { logger } from '../utils/logger';
 
 interface GameContextType {
   // State
@@ -27,6 +28,10 @@ interface GameContextType {
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
+// Cap message arrays to prevent unbounded memory growth in long games
+const MAX_MESSAGES = 200;
+
+// eslint-disable-next-line react-refresh/only-export-components
 export function useGame() {
   const context = useContext(GameContext);
   if (!context) {
@@ -53,7 +58,7 @@ export function GameProvider({ children }: GameProviderProps) {
     const newMessages = incomingMessages.filter(msg => !messageIdsRef.current.has(msg.id));
     if (newMessages.length > 0) {
       newMessages.forEach(msg => messageIdsRef.current.add(msg.id));
-      setMessages(prev => [...prev, ...newMessages]);
+      setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
     }
   }, []);
 
@@ -61,8 +66,8 @@ export function GameProvider({ children }: GameProviderProps) {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('update_game_state', (data: { game_state: any }) => {
-      console.log('Received game state update via WebSocket');
+    socket.on('update_game_state', (data: { game_state: GameState }) => {
+
       const transformedState = {
         ...data.game_state,
         messages: data.game_state.messages || []
@@ -82,13 +87,13 @@ export function GameProvider({ children }: GameProviderProps) {
       setAiThinking(false);
     });
 
-    socket.on('player_joined', (data: { message: string }) => {
-      console.log('Player joined:', data.message);
+    socket.on('player_joined', (_data: { message: string }) => {
+      // Placeholder for future player join handling
     });
 
     // Listen for new message (emitted by send_message in backend)
     socket.on('new_message', (data: { message: BackendChatMessage }) => {
-      console.log('Received new_message via WebSocket');
+
       const msg = data.message;
 
       const transformedMessage: ChatMessage = {
@@ -125,7 +130,7 @@ export function GameProvider({ children }: GameProviderProps) {
       
       await fetchGameState(data.game_id);
     } catch (err) {
-      console.error('Failed to create game:', err);
+      logger.error('Failed to create game:', err);
       throw err;
     }
   };
@@ -140,7 +145,7 @@ export function GameProvider({ children }: GameProviderProps) {
       
       await fetchGameState(loadGameId);
     } catch (err) {
-      console.error('Failed to load game:', err);
+      logger.error('Failed to load game:', err);
       throw err;
     }
   };
@@ -152,9 +157,9 @@ export function GameProvider({ children }: GameProviderProps) {
     
     try {
       await gameAPI.sendAction(gameId, action, amount);
-      console.log('Action sent successfully, waiting for WebSocket updates');
+
     } catch (error) {
-      console.error('Failed to send action:', error);
+      logger.error('Failed to send action:', error);
       setAiThinking(false);
       throw error;
     }
@@ -167,7 +172,7 @@ export function GameProvider({ children }: GameProviderProps) {
       await gameAPI.sendMessage(gameId, message, sender);
       // Message will be received via WebSocket 'new_message' event
     } catch (error) {
-      console.error('Failed to send message:', error);
+      logger.error('Failed to send message:', error);
       throw error;
     }
   };

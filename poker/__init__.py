@@ -4,7 +4,6 @@ Poker game module for Texas Hold'em implementation.
 
 from .poker_game import PokerGameState, Player, initialize_game_state
 from .poker_state_machine import PokerStateMachine, PokerPhase
-from .poker_action import PokerAction, PlayerAction
 from .poker_player import PokerPlayer, AIPokerPlayer
 from .controllers import ConsolePlayerController, AIPlayerController
 from .hand_evaluator import HandEvaluator
@@ -16,8 +15,6 @@ __all__ = [
     'initialize_game_state',
     'PokerStateMachine',
     'PokerPhase',
-    'PokerAction',
-    'PlayerAction',
     'PokerPlayer',
     'AIPokerPlayer',
     'ConsolePlayerController',

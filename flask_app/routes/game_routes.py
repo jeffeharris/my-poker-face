@@ -3,6 +3,7 @@
 import time
 import json
 import logging
+import secrets
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,8 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
+from ..config import get_db_path
+from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 
 logger = logging.getLogger(__name__)
@@ -187,8 +190,8 @@ def analyze_player_decision(
 
 
 def generate_game_id() -> str:
-    """Generate a unique game ID based on current timestamp."""
-    return str(int(time.time() * 1000))
+    """Generate a unique, unpredictable game ID."""
+    return secrets.token_urlsafe(16)
 
 
 @game_bp.route('/api/games')
@@ -451,13 +454,6 @@ def api_game_state(game_id):
     return jsonify(response)
 
 
-def _get_db_path() -> str:
-    """Get the database path based on environment."""
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
-
-
 def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     """Calculate cost tiers for all models from pricing database.
 
@@ -482,7 +478,7 @@ def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     }
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             cursor = conn.execute("""
                 SELECT provider, model, cost FROM model_pricing
                 WHERE unit = 'output_tokens_1m'
@@ -666,7 +662,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = _get_db_path()
+    db_path = get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -702,7 +698,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = _get_db_path()
+    db_path = get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -736,7 +732,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    db_path = _get_db_path()
+    db_path = get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -990,38 +986,46 @@ def api_player_action(game_id):
 
     state_machine = current_game_data['state_machine']
 
-    current_player = state_machine.game_state.current_player
-    if not current_player.is_human:
-        return jsonify({'error': 'Not human player turn'}), 400
+    is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
+    if not is_valid:
+        return jsonify({'error': error_message}), 400
 
-    highest_bet = state_machine.game_state.highest_bet
-    pre_action_state = state_machine.game_state  # Save state before action for analysis
-    game_state = play_turn(state_machine.game_state, action, amount)
+    try:
+        current_player = state_machine.game_state.current_player
+        highest_bet = state_machine.game_state.highest_bet
+        pre_action_state = state_machine.game_state  # Save state before action for analysis
+        game_state = play_turn(state_machine.game_state, action, amount)
 
-    # Analyze decision quality (works for both human and AI)
-    memory_manager = current_game_data.get('memory_manager')
-    hand_number = memory_manager.hand_count if memory_manager else None
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+        # Analyze decision quality (works for both human and AI)
+        memory_manager = current_game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
-    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+        record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
-    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
-    send_message(game_id, "Table", table_message_content, "table")
+        table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+        send_message(game_id, "Table", table_message_content, "table")
 
-    game_state = advance_to_next_active_player(game_state)
-    state_machine.game_state = game_state
+        advanced_state = advance_to_next_active_player(game_state)
+        # If None, no active players remain - keep current state, let progress_game handle phase transition
+        if advanced_state is not None:
+            game_state = advanced_state
+        state_machine.game_state = game_state
 
-    current_game_data['state_machine'] = state_machine
-    game_state_service.set_game(game_id, current_game_data)
+        current_game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, current_game_data)
 
-    owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-    if 'memory_manager' in current_game_data:
-        persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        if 'memory_manager' in current_game_data:
+            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
-    progress_game(game_id)
+        progress_game(game_id)
 
-    return jsonify({'success': True})
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error processing action for game {game_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to process action', 'message': str(e)}), 500
 
 
 @game_bp.route('/api/game/<game_id>/message', methods=['POST'])
@@ -1111,7 +1115,7 @@ def delete_game(game_id):
         return jsonify({'error': str(e)}), 500
 
 
-@game_bp.route('/api/end_game/<game_id>', methods=['GET', 'POST'])
+@game_bp.route('/api/end_game/<game_id>', methods=['POST'])
 def end_game(game_id):
     """Clean up game after tournament completes or user exits."""
     game_state_service.delete_game(game_id)
@@ -1200,17 +1204,25 @@ def register_socket_events(sio):
 
     @sio.on('join_game')
     def on_join(game_id):
+        game_id_str = str(game_id)
+        game_data = game_state_service.get_game(game_id_str)
+        if not game_data:
+            return
+
+        # Verify the current user is the game owner
+        user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = game_data.get('owner_id')
+        if not user or user.get('id') != owner_id:
+            return
+
         join_room(game_id)
         logger.debug(f"[SOCKET] User joined room: {game_id}")
         socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
-        game_id_str = str(game_id)
-        game_data = game_state_service.get_game(game_id_str)
-        if game_data:
-            if not game_data.get('game_started', False):
-                game_data['game_started'] = True
-                logger.debug(f"[SOCKET] Starting game progression for: {game_id_str}")
-                progress_game(game_id_str)
+        if not game_data.get('game_started', False):
+            game_data['game_started'] = True
+            logger.debug(f"[SOCKET] Starting game progression for: {game_id_str}")
+            progress_game(game_id_str)
 
     @sio.on('player_action')
     def handle_player_action(data):
@@ -1219,13 +1231,28 @@ def register_socket_events(sio):
             action = data['action']
             amount = int(data.get('amount', 0))
         except KeyError:
+            logger.debug(f"[SOCKET] player_action missing required fields: {data}")
             return
 
         current_game_data = game_state_service.get_game(game_id)
         if not current_game_data:
+            logger.debug(f"[SOCKET] player_action game not found: {game_id}")
+            return
+
+        # Verify the current user is the game owner
+        user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = current_game_data.get('owner_id')
+        if not user or user.get('id') != owner_id:
+            logger.debug(f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}")
             return
 
         state_machine = current_game_data['state_machine']
+
+        is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
+        if not is_valid:
+            logger.debug(f"[SOCKET] player_action validation failed: {error_message}")
+            return
+
         current_player = state_machine.game_state.current_player
         highest_bet = state_machine.game_state.highest_bet
         pre_action_state = state_machine.game_state  # Save state before action for analysis
@@ -1241,7 +1268,10 @@ def register_socket_events(sio):
 
         record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
-        game_state = advance_to_next_active_player(game_state)
+        advanced_state = advance_to_next_active_player(game_state)
+        # If None, no active players remain - keep current state, let progress_game handle phase transition
+        if advanced_state is not None:
+            game_state = advanced_state
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine

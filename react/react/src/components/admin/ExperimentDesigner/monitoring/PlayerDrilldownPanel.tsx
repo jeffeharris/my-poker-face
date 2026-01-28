@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, Brain, Flame, Target, Cpu, History } from 'lucide-react';
 import { config } from '../../../../config';
+import { logger } from '../../../../utils/logger';
 import { formatLatency } from '../../../../utils/formatters';
 import type { PlayerDetail, PlayerDetailResponse } from './types';
 
@@ -42,7 +43,7 @@ export function PlayerDrilldownPanel({
           setError(data.error || 'Failed to load player details');
         }
       } catch (err) {
-        console.error('Failed to fetch player detail:', err);
+        logger.error('Failed to fetch player detail:', err);
         setError('Failed to connect to server');
       } finally {
         setLoading(false);

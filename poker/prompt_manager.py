@@ -591,6 +591,12 @@ class PromptManager:
         call_amount = context.get('call_amount', 0)
         min_raise = context.get('min_raise', 0)
         max_raise = context.get('max_raise', 0)
+        big_blind = context.get('big_blind', 0)
+
+        def fmt_bb(amount):
+            if big_blind > 0:
+                return f"{amount / big_blind:.2f} BB"
+            return f"${amount}"
 
         # Build context hints based on available actions
         action_hints = []
@@ -599,9 +605,9 @@ class PromptManager:
         if 'check' in valid_actions:
             action_hints.append("- 'check': Pass without betting (free)")
         if 'call' in valid_actions:
-            action_hints.append(f"- 'call': Match the bet (costs ${call_amount})")
+            action_hints.append(f"- 'call': Match the bet (costs {fmt_bb(call_amount)})")
         if 'raise' in valid_actions:
-            action_hints.append(f"- 'raise': Increase the bet (raise_to between ${min_raise} and ${max_raise})")
+            action_hints.append(f"- 'raise': Increase the bet (raise_to between {fmt_bb(min_raise)} and {fmt_bb(max_raise)}, the total you're raising TO)")
         if 'all_in' in valid_actions or 'all-in' in valid_actions:
             action_hints.append("- 'all_in': Bet all your remaining chips")
 
@@ -621,7 +627,7 @@ VALID ACTIONS:
 
 REQUIREMENTS:
 1. Your 'action' must be one of: {', '.join(valid_actions)}
-2. If action is 'raise', you MUST include 'raise_to' with a valid amount (${min_raise} to ${max_raise})
+2. If action is 'raise', you MUST include 'raise_to' with a valid total bet amount ({fmt_bb(min_raise)} to {fmt_bb(max_raise)})
 3. Include 'inner_monologue' with your thinking
 
 Respond with valid JSON only. No explanation or markdown, just the JSON object."""

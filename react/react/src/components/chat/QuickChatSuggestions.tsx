@@ -3,6 +3,7 @@ import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, U
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import './QuickChatSuggestions.css';
 
@@ -53,7 +54,7 @@ export function QuickChatSuggestions({
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
-  const [lastFetchTime, setLastFetchTime] = useState(0);
+  const lastFetchTimeRef = useRef(0);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [containerHeight, setContainerHeight] = useState<number | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -90,7 +91,7 @@ export function QuickChatSuggestions({
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Cooldown check (skip if force refresh)
     const now = Date.now();
-    if (!forceRefresh && now - lastFetchTime < SUGGESTION_FETCH_COOLDOWN_MS) {
+    if (!forceRefresh && now - lastFetchTimeRef.current < SUGGESTION_FETCH_COOLDOWN_MS) {
       return;
     }
 
@@ -113,16 +114,16 @@ export function QuickChatSuggestions({
         lastAction
       );
       if (response.fallback) {
-        console.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
+        logger.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
       }
       const newSuggestions = response.suggestions || [];
       setSuggestions(newSuggestions);
       // Cache the suggestions
       const cacheKey = getCacheKey(target, tone, length, intensity);
       suggestionsCache.current[cacheKey] = newSuggestions;
-      setLastFetchTime(now);
+      lastFetchTimeRef.current = now;
     } catch (error) {
-      console.error('[QuickChat] Failed to fetch suggestions:', error);
+      logger.error('[QuickChat] Failed to fetch suggestions:', error);
       // Set fallback suggestions
       setSuggestions([
         { text: 'Nice play!', tone },
@@ -133,7 +134,7 @@ export function QuickChatSuggestions({
       setContainerHeight(null); // Release fixed height
       onSuggestionsLoaded?.();
     }
-  }, [gameId, playerName, lastAction, lastFetchTime, length, intensity, getCacheKey, onSuggestionsLoaded]);
+  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded]);
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {
@@ -151,46 +152,20 @@ export function QuickChatSuggestions({
         fetchSuggestions(selectedTarget, selectedTone, true);
       }
     }
-  }, [length, intensity, selectedTarget, selectedTone, getCacheKey, fetchSuggestions]);
+  }, [length, intensity, selectedTarget, selectedTone, getCacheKey, fetchSuggestions, onSuggestionsLoaded]);
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);
-    // Check cache for this target with current tone
-    if (selectedTone) {
-      const cacheKey = getCacheKey(target, selectedTone, length, intensity);
-      const cached = suggestionsCache.current[cacheKey];
-      if (cached) {
-        setSuggestions(cached);
-        onSuggestionsLoaded?.();
-      } else {
-        // Capture height before fetching
-        if (suggestionsRef.current) {
-          setContainerHeight(suggestionsRef.current.offsetHeight);
-        }
-        fetchSuggestions(target, selectedTone, true);
-      }
-    } else {
+    // If no tone selected yet, clear suggestions and wait
+    if (!selectedTone) {
       setSuggestions([]);
     }
+    // The useEffect handles fetching/cache lookup when both target and tone are set
   };
 
   const handleToneSelect = (tone: ChatTone) => {
     setSelectedTone(tone);
-    // Check cache for this tone with current target
-    if (selectedTarget) {
-      const cacheKey = getCacheKey(selectedTarget, tone, length, intensity);
-      const cached = suggestionsCache.current[cacheKey];
-      if (cached) {
-        setSuggestions(cached);
-        onSuggestionsLoaded?.();
-      } else {
-        // Capture height before fetching
-        if (suggestionsRef.current) {
-          setContainerHeight(suggestionsRef.current.offsetHeight);
-        }
-        fetchSuggestions(selectedTarget, tone, true);
-      }
-    }
+    // The useEffect handles fetching/cache lookup when both target and tone are set
   };
 
   const handleSuggestionClick = (text: string) => {

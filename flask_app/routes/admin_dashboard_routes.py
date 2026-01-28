@@ -9,19 +9,13 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 
 from ..services import game_state_service
+from ..config import get_db_path
 from core.llm import UsageTracker
 from poker.authorization import require_permission
 
 logger = logging.getLogger(__name__)
 
 admin_dashboard_bp = Blueprint('admin_dashboard', __name__, url_prefix='/admin')
-
-
-def _get_db_path() -> str:
-    """Get the database path based on environment."""
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
 
 
 def _get_date_modifier(range_param: str) -> str:
@@ -72,7 +66,7 @@ def api_summary():
     date_modifier = _get_date_modifier(range_param)
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
             cursor = conn.execute("""
@@ -170,7 +164,7 @@ def api_toggle_model(model_id):
         return jsonify({'success': False, 'error': 'Invalid field. Must be "enabled" or "user_enabled"'}), 400
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
             # Get current state for cascade logic
@@ -217,7 +211,7 @@ def api_toggle_model(model_id):
 def api_list_models():
     """List all models with their enabled status."""
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
             # Check if table exists (migration may not have run)
@@ -507,7 +501,7 @@ def api_upload_reference_image():
         reference_id = str(uuid.uuid4())
 
         # Store in database
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.execute("""
                 INSERT INTO reference_images (id, image_data, width, height, content_type, source, original_url)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -535,7 +529,7 @@ def api_get_reference_image(reference_id: str):
     from flask import Response
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
@@ -604,7 +598,7 @@ def api_playground_replay_image(capture_id: int):
         seed_image_url = None
         if reference_image_id:
             # Check model's img2img support
-            with sqlite3.connect(_get_db_path()) as conn:
+            with sqlite3.connect(get_db_path()) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(
                     "SELECT supports_img2img FROM enabled_models WHERE provider = ? AND model = ?",
@@ -736,7 +730,7 @@ def api_assign_avatar_from_capture(capture_id: int):
             return jsonify({'success': False, 'error': 'No image data available'}), 400
 
         # Save to avatar_images table
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             # Check if avatar exists for this personality/emotion
             cursor = conn.execute(
                 "SELECT id FROM avatar_images WHERE personality_name = ? AND emotion = ?",
@@ -778,7 +772,7 @@ def api_get_image_providers():
     Returns providers that support image generation (supports_image_gen=1).
     """
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
             # Get enabled image generation models
@@ -1098,7 +1092,7 @@ def list_pricing():
     current_only = request.args.get('current_only', 'false').lower() == 'true'
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
 
             query = "SELECT * FROM model_pricing WHERE 1=1"
@@ -1154,7 +1148,7 @@ def add_pricing():
     notes = data.get('notes')
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             # Expire any current pricing for this SKU
             conn.execute("""
                 UPDATE model_pricing
@@ -1200,7 +1194,7 @@ def bulk_add_pricing():
     errors = []
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             for entry in entries:
                 try:
                     provider = entry['provider']
@@ -1239,7 +1233,7 @@ def bulk_add_pricing():
 def delete_pricing(pricing_id: int):
     """Delete a pricing entry by ID."""
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             cursor = conn.execute("DELETE FROM model_pricing WHERE id = ?", (pricing_id,))
             if cursor.rowcount == 0:
                 return jsonify({'success': False, 'error': 'Not found'}), 404
@@ -1254,7 +1248,7 @@ def delete_pricing(pricing_id: int):
 def list_providers():
     """List all providers with model/SKU counts."""
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT provider, COUNT(DISTINCT model) as model_count, COUNT(*) as sku_count
@@ -1276,7 +1270,7 @@ def list_models_for_provider(provider: str):
         return jsonify({'success': False, 'error': 'Invalid provider format'}), 400
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT DISTINCT model FROM model_pricing
@@ -1671,7 +1665,7 @@ def api_storage_stats():
     from pathlib import Path
 
     try:
-        db_path = _get_db_path()
+        db_path = get_db_path()
 
         # Get total DB size
         total_bytes = Path(db_path).stat().st_size

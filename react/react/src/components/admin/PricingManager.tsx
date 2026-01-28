@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
 import { adminAPI } from '../../utils/api';
+import { logger } from '../../utils/logger';
 import './PricingManager.css';
 
 // ============================================
@@ -199,7 +200,7 @@ const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function PricingS
       setEditValues(initial);
       setValidFrom(getTodayISO());
     }
-  }, [model.provider, model.model, pendingValues, units]);
+  }, [model.provider, model.model, model.costs, pendingValues, units]);
 
   const isDirty = useMemo(() => {
     for (const unit of units) {
@@ -340,7 +341,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to load pricing' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     } finally {
       setLoading(false);
@@ -356,7 +357,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
         setProviders(data.providers.map((p: { provider: string }) => p.provider));
       }
     } catch (error) {
-      console.error('Failed to fetch providers:', error);
+      logger.error('Failed to fetch providers:', error);
     }
   }, []);
 
@@ -375,7 +376,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
         setEnabledModels(enabled);
       }
     } catch (error) {
-      console.error('Failed to fetch enabled models:', error);
+      logger.error('Failed to fetch enabled models:', error);
     }
   }, []);
 
@@ -607,7 +608,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
       setAlert({ type: 'success', message: 'Pricing updated successfully' });
       setSelectedModel(null); // Close slide-out directly (bypasses dirty check)
       fetchPricing();
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to save pricing changes' });
     } finally {
       setSaving(false);
@@ -647,7 +648,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
       setPendingChanges(new Map());
       setAlert({ type: 'success', message: `Saved ${pendingChanges.size} model(s) successfully` });
       fetchPricing();
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to save pending changes' });
     } finally {
       setSaving(false);
@@ -717,7 +718,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to add pricing' });
       }
-    } catch (error) {
+    } catch {
       setAlert({ type: 'error', message: 'Failed to connect to server' });
     }
   };

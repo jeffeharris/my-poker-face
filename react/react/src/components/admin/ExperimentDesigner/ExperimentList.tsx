@@ -4,6 +4,7 @@ import { RefreshCw, Loader2, Archive, Plus, Beaker, Repeat2 } from 'lucide-react
 import type { ExperimentSummary, ExperimentType } from './types';
 import { config } from '../../../config';
 import { formatDate } from '../../../utils/formatters';
+import { logger } from '../../../utils/logger';
 import { STATUS_CONFIG_SMALL as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
 import { useViewport } from '../../../hooks/useViewport';
 import { MobileExperimentList } from './MobileExperimentList';
@@ -96,7 +97,7 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
       setExperiments(allExperiments);
       setError(null);
     } catch (err) {
-      console.error('Failed to fetch experiments:', err);
+      logger.error('Failed to fetch experiments:', err);
       setError('Failed to connect to server');
     } finally {
       setLoading(false);

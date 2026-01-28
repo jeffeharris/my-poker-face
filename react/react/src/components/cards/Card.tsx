@@ -1,4 +1,5 @@
 import { type Card as CardType, parseCard, cardFromBackend } from '../../utils/cards';
+import { logger } from '../../utils/logger';
 import './Card.css';
 
 // Backend card format (from Python API)
@@ -31,7 +32,7 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
         }
       } catch (error) {
         // Log error but still fall through to parseCard
-        console.error('Failed to parse Python-style card string in Card component:', {
+        logger.error('Failed to parse Python-style card string in Card component:', {
           cardString: card,
           error,
         });
@@ -54,7 +55,7 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
 
   if (faceDown || !cardObj) {
     if (!faceDown && !cardObj && card) {
-      console.error('[Card] Rendering card-back because cardObj is null. Original card:', card);
+      logger.error('[Card] Rendering card-back because cardObj is null. Original card:', card);
     }
     return (
       <div className={`playing-card card-back ${size} ${className}`}>
