@@ -53,7 +53,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
 
   // Capture selection state
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<number[]>([]);
-  const [captureSelection, setCaptureSelection] = useState<CaptureSelection>({
+  const [_captureSelection, setCaptureSelection] = useState<CaptureSelection>({
     mode: 'ids',
     ids: []
   });
@@ -88,11 +88,11 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
 
   // Update capture selection when IDs change
   useEffect(() => {
-    setCaptureSelection({
-      ...captureSelection,
+    setCaptureSelection(prev => ({
+      ...prev,
       mode: 'ids',
       ids: selectedCaptureIds
-    });
+    }));
   }, [selectedCaptureIds]);
 
   // Clear messages after timeout
@@ -194,7 +194,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
       } else {
         setError(data.error || 'Failed to create experiment');
       }
-    } catch (e) {
+    } catch {
       setError('Failed to connect to server');
     } finally {
       setLoading(false);
