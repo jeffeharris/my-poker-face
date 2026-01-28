@@ -13,12 +13,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --break-system-packages --no-cache-dir -r requirements.txt
 
-# Git config for commits
+# Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash ralph
 RUN git config --global user.email "ralph@wiggum.bot" && \
-    git config --global user.name "Ralph Wiggum"
+    git config --global user.name "Ralph Wiggum" && \
+    git config --global --add safe.directory /app
 
-# Mark /app as safe for git (mounted volume)
-RUN git config --global --add safe.directory /app
+# Copy git config to ralph user
+RUN cp /root/.gitconfig /home/ralph/.gitconfig && \
+    chown ralph:ralph /home/ralph/.gitconfig
 
+USER ralph
 WORKDIR /app
 CMD ["bash"]
