@@ -67,6 +67,10 @@ def create_app():
     # Register static file serving
     register_static_routes(app)
 
+    # Start background cleanup timer (must be after all imports to avoid import lock deadlock)
+    from .services.game_state_service import start_cleanup_timer
+    start_cleanup_timer()
+
     return app
 
 

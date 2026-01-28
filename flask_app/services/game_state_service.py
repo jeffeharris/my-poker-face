@@ -25,7 +25,7 @@ CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
 
 # Background cleanup timer
 _cleanup_timer: Optional[threading.Timer] = None
-_cleanup_timer_lock = threading.Lock()
+_cleanup_timer_lock = threading.RLock()
 
 
 def _cleanup_stale_games():
@@ -210,8 +210,3 @@ def add_message(game_id: str, message: dict) -> None:
         if 'messages' not in game_data:
             game_data['messages'] = []
         game_data['messages'].append(message)
-
-
-# Start background cleanup timer on module import (skip in test environment)
-if os.environ.get('TESTING') != '1':
-    start_cleanup_timer()
