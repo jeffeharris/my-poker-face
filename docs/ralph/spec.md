@@ -764,3 +764,194 @@ class UsageTracker:
 - [ ] `_instance_lock` is a class-level `threading.Lock()`
 - [ ] Test: 10 concurrent threads all get same instance
 - [ ] All existing tests pass
+
+---
+
+## T2-05: DB connection created per config lookup
+
+**Type**: Fix
+**Files**: `flask_app/config.py:52-101`, `poker/character_images.py:42-59`
+
+### Problem
+Four config getter functions in `flask_app/config.py` and two in `poker/character_images.py` each instantiate a new `GamePersistence()` on every call. `GamePersistence.__init__` opens **3 DB connections** (WAL mode, init schema, check migrations) before the actual query opens a 4th. These functions are called during game creation and AI image generation.
+
+Affected functions:
+- `flask_app/config.py`: `get_default_provider()`, `get_default_model()`, `get_assistant_provider()`, `get_assistant_model()`
+- `poker/character_images.py`: `get_image_provider()`, `get_image_model()`
+
+### Action
+1. Add a cached persistence getter in `flask_app/config.py`:
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def _get_config_persistence():
+    """Get a shared persistence instance for config lookups."""
+    from poker.persistence import GamePersistence
+    return GamePersistence()
+```
+2. Replace `GamePersistence()` in all 4 config getters with `_get_config_persistence()`:
+```python
+def get_default_provider() -> str:
+    p = _get_config_persistence()
+    db_value = p.get_setting('DEFAULT_PROVIDER', '')
+    if db_value:
+        return db_value
+    return 'openai'
+```
+3. Apply the same pattern to `poker/character_images.py` — add a local `@lru_cache` getter and replace both functions.
+4. Write test: call `get_default_provider()` twice, verify `GamePersistence` was only constructed once (mock `GamePersistence.__init__` and check call count).
+
+### Acceptance Criteria
+- [ ] `flask_app/config.py` config getters share a single cached `GamePersistence` instance
+- [ ] `poker/character_images.py` getters share a single cached `GamePersistence` instance
+- [ ] Test: two calls to a config getter only construct `GamePersistence` once
+- [ ] All existing tests pass
+
+---
+
+## T2-12: Remove debug console.log statements from production
+
+**Type**: Fix + new utility
+**Files**: `react/react/src/utils/logger.ts` (new), 38 React source files
+
+### Problem
+120 console statements across 38 React files: 48 `console.log` (debug noise), 62 `console.error` (legitimate error handling), 8 `console.warn`, 2 `console.debug`. Debug logs fire on every WebSocket event, cluttering the browser console and potentially exposing game state data. An existing `config.ENABLE_DEBUG` flag exists but is unused for logging.
+
+### Action
+
+**Step 1**: Create `react/react/src/utils/logger.ts`:
+```typescript
+import { config } from '../config';
+
+export const logger = {
+  debug(...args: unknown[]): void {
+    if (config.ENABLE_DEBUG) console.debug(...args);
+  },
+  log(...args: unknown[]): void {
+    if (config.ENABLE_DEBUG) console.log(...args);
+  },
+  warn(...args: unknown[]): void {
+    console.warn(...args);
+  },
+  error(...args: unknown[]): void {
+    console.error(...args);
+  },
+};
+```
+
+**Step 2**: Delete outright (~25-30 statements) — pure debug noise:
+- WebSocket routine logs in `usePokerGame.ts` (lines 95, 100, 104, 291, etc.)
+- `[ExperimentDesigner]` flow tracing (5 statements)
+- `[DEBUG]` test function logs (2 statements)
+- All `CSSDebugger.tsx` logs (9 statements)
+- `[PWA]` event logs (2 statements)
+- `GameSelector` fetch logs (2 statements)
+- `PokerTable.tsx:129` human turn debug object
+
+**Step 3**: Convert remaining `console.log` to `logger.log()` (~20 statements):
+- Debug panel WebSocket updates
+- Admin panel state changes
+- Queued action execution logs
+
+**Step 4**: Convert `console.error` to `logger.error()` and `console.warn` to `logger.warn()` across all files.
+
+**Step 5**: Verify with `grep -r "console\." react/react/src/ --include="*.ts" --include="*.tsx"` — only `logger.ts` should contain raw console calls.
+
+**Testing**: Run `npx tsc --noEmit` to verify TypeScript compiles. No runtime test needed (logger is a pass-through).
+
+### Acceptance Criteria
+- [ ] `react/react/src/utils/logger.ts` created with debug-gated logging
+- [ ] Zero raw `console.log` statements remain outside `logger.ts`
+- [ ] `console.error` and `console.warn` converted to `logger.error()` / `logger.warn()`
+- [ ] Debug noise statements deleted (not converted)
+- [ ] TypeScript compiles without errors
+- [ ] Grep confirms no raw console usage outside logger
+
+---
+
+## T2-19: Unbounded game state memory growth
+
+**Type**: Fix
+**File**: `flask_app/services/game_state_service.py`
+
+### Problem
+The module-level `games` dict stores all active games but has no eviction mechanism. Games are removed only when the frontend calls `/api/end_game`. Abandoned games (browser closed, crash, disconnect) remain in memory indefinitely. Each game is ~200-500 KB, growing to 1-5 MB for long tournaments. The codebase already has a TTL pattern in `flask_app/routes/experiment_routes.py:1885-1910`.
+
+### Action
+1. Add TTL tracking and cleanup to `flask_app/services/game_state_service.py`:
+```python
+from datetime import datetime, timedelta
+
+game_last_access: Dict[str, datetime] = {}
+GAME_TTL_HOURS = 2
+
+def _cleanup_stale_games():
+    """Remove games not accessed within GAME_TTL_HOURS."""
+    cutoff = datetime.now() - timedelta(hours=GAME_TTL_HOURS)
+    stale_keys = [k for k, t in game_last_access.items() if t < cutoff]
+    for key in stale_keys:
+        games.pop(key, None)
+        game_locks.pop(key, None)
+        game_last_access.pop(key, None)
+```
+2. Update `get_game()` to call `_cleanup_stale_games()` and track access time
+3. Update `set_game()` to call `_cleanup_stale_games()` and track access time
+4. Update `delete_game()` to also clean up `game_locks` and `game_last_access`
+5. Write test: create game, mock time to 3 hours later, call `get_game()` on a different game, verify stale game evicted. Then access evicted game again and verify lazy reload from SQLite works (this is the existing pattern at `game_routes.py:256-368`).
+
+### Acceptance Criteria
+- [ ] `game_last_access` dict tracks last access time per game
+- [ ] `_cleanup_stale_games()` evicts games older than `GAME_TTL_HOURS`
+- [ ] `get_game()` and `set_game()` trigger lazy cleanup
+- [ ] `delete_game()` also cleans up `game_locks` and `game_last_access`
+- [ ] Test: stale game evicted after TTL
+- [ ] All existing tests pass
+
+---
+
+## T2-20: Unbounded message list growth
+
+**Type**: Fix
+**File**: `flask_app/handlers/message_handler.py`
+
+### Problem
+`send_message()` appends to `game_data['messages']` without any limit. A typical tournament generates 1,000-4,000 messages (15-25 per hand × 50-200 hands). The DB already caps at 100 messages on load (`persistence.load_messages(game_id, limit=100)`), but the in-memory list grows unbounded during active play. AI players only use the last 8 messages (`AI_MESSAGE_CONTEXT_LIMIT = 8`).
+
+### Action
+1. Add a constant and trim logic in `flask_app/handlers/message_handler.py`:
+```python
+MAX_MESSAGES_IN_MEMORY = 200
+```
+2. After the append at line 125, add trimming:
+```python
+game_messages.append(new_message)
+
+# Trim to prevent unbounded growth
+if len(game_messages) > MAX_MESSAGES_IN_MEMORY:
+    game_messages = game_messages[-MAX_MESSAGES_IN_MEMORY:]
+    game_data['messages'] = game_messages
+```
+3. Write test: create a game, add 250 messages via `send_message`, verify only the last 200 remain in `game_data['messages']`.
+
+### Acceptance Criteria
+- [ ] `MAX_MESSAGES_IN_MEMORY` constant defined (200)
+- [ ] Message list trimmed after append when exceeding limit
+- [ ] Test: 250 messages added, only last 200 retained
+- [ ] All existing tests pass
+
+---
+
+## T2-22: Conversation memory token trim — DISMISS
+
+**Type**: Dismissed (not a real problem)
+
+### Investigation Summary
+The concern was that trimming by message count (15) rather than token count could exceed LLM context limits. Investigation found:
+- `MEMORY_TRIM_KEEP_EXCHANGES = 0` — memory is already **cleared each turn**
+- Even at max 15 messages, total usage is ~8.4k tokens vs 128k+ context windows (6.6%)
+- Modern models (gpt-5-nano, claude-sonnet-4-5, llama-3.1) all have 128k-200k context
+- No context overflow errors in production or tests
+- Extensive analysis in `tests/test_message_history_impact.py` confirms the design is intentional
+
+**No action needed.** Mark as dismissed in implementation plan.
