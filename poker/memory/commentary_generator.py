@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
-from ..prompt_manager import PromptManager
+from ..prompt_manager import PromptManager, DRAMA_CONTEXTS, TONE_MODIFIERS
 from ..config import COMMENTARY_ENABLED, is_development_mode
 from .hand_history import RecordedHand
 from .session_memory import SessionMemory
@@ -247,6 +247,96 @@ class CommentaryGenerator:
         logger.debug(f"Should speak: pot {hand.pot_size} >= {min_pot_threshold}")
         return True
 
+    def _analyze_hand_drama(
+        self,
+        hand: RecordedHand,
+        player_outcome: str,
+        big_blind: Optional[int] = None
+    ) -> dict:
+        """Derive drama level and tone from a completed hand.
+
+        Uses the same drama level scale as MomentAnalyzer but works from
+        post-hand RecordedHand data instead of live game state.
+
+        Args:
+            hand: The completed hand record
+            player_outcome: 'won', 'lost', 'folded', or 'spectating'
+            big_blind: Current big blind for pot significance thresholds
+
+        Returns:
+            Dict with 'level' and 'tone' keys
+        """
+        factors = []
+
+        # All-in occurred
+        if any(a.action == 'all_in' for a in hand.actions):
+            factors.append('all_in')
+
+        # Showdown
+        if hand.was_showdown:
+            factors.append('showdown')
+
+        # Big pot (relative to big blind)
+        if big_blind and big_blind > 0:
+            pot_bb = hand.pot_size / big_blind
+            if pot_bb >= 20:
+                factors.append('big_pot')
+        elif hand.pot_size >= 1000:
+            # Fallback when big_blind unknown
+            factors.append('big_pot')
+
+        # Heads-up (only 2 players involved in actions)
+        active_players = set(a.player_name for a in hand.actions)
+        if len(active_players) == 2:
+            factors.append('heads_up')
+
+        # Determine level (same logic as MomentAnalyzer)
+        if 'all_in' in factors:
+            level = 'climactic'
+        elif 'big_pot' in factors and 'showdown' in factors:
+            level = 'climactic'
+        elif len(factors) >= 2:
+            level = 'high_stakes'
+        elif factors:
+            level = 'notable'
+        else:
+            level = 'routine'
+
+        # Determine post-hand tone based on outcome and drama
+        if level == 'climactic' and player_outcome == 'won':
+            tone = 'triumphant'
+        elif level in ('high_stakes', 'climactic') and player_outcome in ('lost', 'folded'):
+            tone = 'desperate'
+        elif player_outcome == 'won' and level in ('notable', 'high_stakes'):
+            tone = 'confident'
+        else:
+            tone = 'neutral'
+
+        return {'level': level, 'tone': tone}
+
+    @staticmethod
+    def _format_beats_for_chat(would_say_aloud) -> Optional[str]:
+        """Convert would_say_aloud (list of beats or string) to chat-ready string.
+
+        The frontend's parseBeats() splits on newlines and detects *action* syntax,
+        so joining beats with newlines produces the correct format.
+
+        Args:
+            would_say_aloud: List of beat strings, a plain string, or None
+
+        Returns:
+            Newline-joined string for send_message(), or None
+        """
+        if would_say_aloud is None:
+            return None
+        if isinstance(would_say_aloud, list):
+            # Filter empty beats and join
+            beats = [b.strip() for b in would_say_aloud if isinstance(b, str) and b.strip()]
+            return "\n".join(beats) if beats else None
+        if isinstance(would_say_aloud, str):
+            return would_say_aloud.strip() or None
+        return None
+
     def generate_commentary(self,
                            player_name: str,
                            hand: RecordedHand,
@@ -327,6 +417,14 @@ class CommentaryGenerator:
                 cards_display = ", ".join(player_cards) if player_cards else "unknown"
                 outcome_display = player_outcome
 
+            # Compute drama context for intensity calibration
+            drama = self._analyze_hand_drama(hand, outcome_display, big_blind)
+            drama_level = drama['level']
+            drama_tone = drama['tone']
+            drama_text = DRAMA_CONTEXTS.get(drama_level, '')
+            tone_modifier = TONE_MODIFIERS.get(drama_tone, '')
+            drama_guidance = f"{drama_text}{tone_modifier}" if drama_text else ""
+
             # Render the prompt with spectator context if applicable
             prompt = self.prompt_manager.render_prompt(
                 'end_of_hand_commentary',
@@ -340,7 +438,8 @@ class CommentaryGenerator:
                 confidence=confidence,
                 attitude=attitude,
                 chattiness=chattiness,
-                spectator_context=spectator_context or ""
+                spectator_context=spectator_context or "",
+                drama_guidance=drama_guidance
             )
 
             # Use lightweight commentary-specific system prompt (not the decision-making one)
@@ -374,7 +473,9 @@ class CommentaryGenerator:
 
             # Build commentary object
             # Suppress table_comment if hand isn't dramatic enough to speak about
-            table_comment = commentary_data.get('would_say_aloud') if should_speak else None
+            # Handle would_say_aloud as list of beats (new) or plain string (legacy)
+            raw_would_say = commentary_data.get('would_say_aloud') if should_speak else None
+            table_comment = self._format_beats_for_chat(raw_would_say)
 
             return HandCommentary(
                 player_name=player_name,

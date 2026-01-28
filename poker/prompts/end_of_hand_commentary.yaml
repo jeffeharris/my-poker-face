@@ -1,5 +1,5 @@
 name: end_of_hand_commentary
-version: 1.1.0
+version: 1.2.0
 sections:
   context: |-
     The hand just ended. Here's what happened:
@@ -31,11 +31,12 @@ sections:
       "emotional_reaction": "How you feel right now (1-2 sentences, in character)",
       "strategic_reflection": "Your thoughts on the hand (1-2 sentences)",
       "opponent_observations": ["PlayerName: updated read if changed, e.g. 'Trump: folds to aggression on scary boards'"],
-      "would_say_aloud": "Trash talk, heckling, celebration, or dig at opponents (or null if quiet)"
+      "would_say_aloud": ["Beat 1", "*action beat*", "Beat 2"]
     }}
 
     For 'opponent_observations': Update your notes on players based on THIS hand. Format each as "PlayerName: observation". Only include if this hand gave you NEW insight - don't repeat what you already know. Keep observations short and actionable.
 
-    For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. If you're spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! Be an exaggerated caricature of yourself - use signature phrases. Only speak if chattiness ({chattiness}) > 0.4.
+    For 'would_say_aloud': Build your visible reaction as a sequence of beats. Each beat is either speech (plain text) or an action (*wrapped in asterisks*). If you won, rub it in. If you lost, save face or threaten revenge. If you're spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! Be an exaggerated caricature of yourself - use signature phrases. Reference opponents by name when needling them. Return null if quiet. Only speak if chattiness ({chattiness}) > 0.4.
+    {drama_guidance}
 
     IMPORTANT: Vary your phrasing. Don't repeat phrases you've used before in this game.
