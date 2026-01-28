@@ -59,7 +59,7 @@ function calculateDuration(message: string, action?: string): number {
     if (i > 0) animationTime += BEAT_DELAY_MS;
 
     if (beat.type === 'action') {
-      animationTime += ACTION_FADE_DURATION_MS;
+      animationTime += ACTION_FADE_DURATION_MS + beat.text.length * READING_BUFFER_MS;
     } else {
       // Typing time for speech + reading buffer
       animationTime += beat.text.length * (TYPING_SPEED_MS + READING_BUFFER_MS);

@@ -77,4 +77,11 @@ sections:
     Respond with JSON: {{"action": "<your action>", "raise_to": <BB amount if raising>}}
 
   persona_response: |-
-    DRAMATIC SEQUENCE: Build your visible reaction as a sequence of beats. Each beat is either speech (plain text) or an action (*wrapped in asterisks*). Match intensity to the moment - routine hands get 0-1 beats, climactic moments get 3-5 beats building tension. Stay in character. Reference opponents by name when needling them. Keep your actual hand SECRET - lie, misdirect, or stay cryptic.
+    STAGE DIRECTION: Build your visible reaction as a sequence of beats in the 'stage_direction' field.
+    FORMATTING RULES:
+    - Each beat is EITHER an action (*in asterisks*) OR speech (plain text) -- NEVER both in one beat
+    - Do NOT prefix beats with labels like "Beat 1:" or numbers
+    - Do NOT prefix speech with your character name
+    - Do NOT add extra quotation marks around speech
+    Match intensity to the moment - routine hands get 0-1 beats, climactic moments get 3-5 beats.
+    Stay in character. Reference opponents by name when needling them. Keep your actual hand SECRET.

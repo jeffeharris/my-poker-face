@@ -1301,7 +1301,7 @@ class AIPlayerController:
         if self.prompt_config.use_simple_response_format:
             response_dict.setdefault('inner_monologue', '')
             response_dict.setdefault('hand_strategy', '')
-            response_dict.setdefault('dramatic_sequence', [])
+            response_dict.setdefault('stage_direction', [])
 
         return response_dict
 

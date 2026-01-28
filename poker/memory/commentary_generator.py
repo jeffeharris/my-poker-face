@@ -11,7 +11,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
-from ..prompt_manager import PromptManager
+from ..moment_analyzer import MomentAnalyzer
+from ..prompt_manager import PromptManager, DRAMA_CONTEXTS, TONE_MODIFIERS
 from ..config import COMMENTARY_ENABLED, is_development_mode
 from .hand_history import RecordedHand
 from .session_memory import SessionMemory
@@ -247,6 +248,71 @@ class CommentaryGenerator:
         logger.debug(f"Should speak: pot {hand.pot_size} >= {min_pot_threshold}")
         return True
 
+    def _analyze_hand_drama(
+        self,
+        hand: RecordedHand,
+        player_outcome: str,
+        big_blind: Optional[int] = None
+    ) -> dict:
+        """Derive drama level and tone from a completed hand.
+
+        Detects drama factors from post-hand RecordedHand data (all_in,
+        showdown, big_pot, heads_up) and delegates level determination to
+        MomentAnalyzer._determine_level(). The live analyzer detects
+        additional factors (big_bet, huge_raise, late_stage) from game state.
+        """
+        factors = []
+
+        # All-in occurred
+        if any(a.action == 'all_in' for a in hand.actions):
+            factors.append('all_in')
+
+        # Showdown
+        if hand.was_showdown:
+            factors.append('showdown')
+
+        # Big pot detection uses BB-relative threshold (20+ BB) rather than
+        # stack-relative like MomentAnalyzer.is_big_pot(). This is intentional:
+        # - Live analysis (MomentAnalyzer): "Is this pot significant to ME right now?"
+        # - Post-hand narrative: "Was this objectively a big pot?" (standard poker metric)
+        # Note: _should_speak() separately uses stack-relative pressure ratio.
+        if big_blind and big_blind > 0:
+            pot_bb = hand.pot_size / big_blind
+            if pot_bb >= 20:
+                factors.append('big_pot')
+
+        # Heads-up (only 2 players involved in actions)
+        active_players = set(a.player_name for a in hand.actions)
+        if len(active_players) == 2:
+            factors.append('heads_up')
+
+        level = MomentAnalyzer._determine_level(factors)
+
+        # Determine post-hand tone based on outcome and drama
+        if level == 'climactic' and player_outcome == 'won':
+            tone = 'triumphant'
+        elif level in ('high_stakes', 'climactic') and player_outcome in ('lost', 'folded'):
+            tone = 'desperate'
+        elif player_outcome == 'won' and level in ('notable', 'high_stakes'):
+            tone = 'confident'
+        else:
+            tone = 'neutral'
+
+        return {'level': level, 'tone': tone}
+
+    @staticmethod
+    def _format_beats_for_chat(stage_direction) -> Optional[str]:
+        """Convert stage_direction to chat-ready string.
+
+        Frontend's parseBeats() splits on newlines and detects *action* syntax.
+        """
+        if isinstance(stage_direction, list):
+            beats = [b.strip() for b in stage_direction if isinstance(b, str) and b.strip()]
+            return "\n".join(beats) if beats else None
+        if isinstance(stage_direction, str):
+            return stage_direction.strip() or None
+        return None
+
     def generate_commentary(self,
                            player_name: str,
                            hand: RecordedHand,
@@ -327,6 +393,14 @@ class CommentaryGenerator:
                 cards_display = ", ".join(player_cards) if player_cards else "unknown"
                 outcome_display = player_outcome
 
+            # Compute drama context for intensity calibration
+            drama = self._analyze_hand_drama(hand, outcome_display, big_blind)
+            drama_level = drama['level']
+            drama_tone = drama['tone']
+            drama_text = DRAMA_CONTEXTS.get(drama_level, '')
+            tone_modifier = TONE_MODIFIERS.get(drama_tone, '')
+            drama_guidance = f"{drama_text}{tone_modifier}" if drama_text else ""
+
             # Render the prompt with spectator context if applicable
             prompt = self.prompt_manager.render_prompt(
                 'end_of_hand_commentary',
@@ -340,7 +414,8 @@ class CommentaryGenerator:
                 confidence=confidence,
                 attitude=attitude,
                 chattiness=chattiness,
-                spectator_context=spectator_context or ""
+                spectator_context=spectator_context or "",
+                drama_guidance=drama_guidance
             )
 
             # Use lightweight commentary-specific system prompt (not the decision-making one)
@@ -374,7 +449,9 @@ class CommentaryGenerator:
 
             # Build commentary object
             # Suppress table_comment if hand isn't dramatic enough to speak about
-            table_comment = commentary_data.get('would_say_aloud') if should_speak else None
+            # Handle stage_direction as list of beats (new) or plain string (legacy)
+            raw_stage_direction = commentary_data.get('stage_direction') if should_speak else None
+            table_comment = self._format_beats_for_chat(raw_stage_direction)
 
             return HandCommentary(
                 player_name=player_name,
