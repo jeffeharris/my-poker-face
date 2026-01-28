@@ -159,7 +159,7 @@ class HandEvaluator:
         return False, [], [], None, None
 
     def _check_two_pair(self):
-        pairs = [rank for rank, count in self.rank_counts.items() if count >= 2]
+        pairs = [rank for rank, count in self.rank_counts.items() if count == 2]
         if len(pairs) >= 2:
             pairs = sorted(pairs, reverse=True)[:2]
             kicker = sorted([card for card in self.ranks if card not in pairs], reverse=True)[0]
@@ -168,7 +168,7 @@ class HandEvaluator:
         return False, [], [], None, None
 
     def _check_one_pair(self):
-        pairs = [rank for rank, count in self.rank_counts.items() if count >= 2]
+        pairs = [rank for rank, count in self.rank_counts.items() if count == 2]
         if pairs:
             pair = max(pairs)
             kickers = sorted([card for card in self.ranks if card != pair], reverse=True)[:3]
