@@ -1121,3 +1121,129 @@ Use `replace_all=true` for efficiency.
 - [ ] All `docker-compose` replaced with `docker compose`
 - [ ] Verify with `grep docker-compose Makefile` returns no matches
 - [ ] No test file writes needed (this is a config change)
+
+---
+
+## T3-04: Fix skipped test with no tracking
+
+**Type**: Fix or delete
+**File**: `tests/test_prompt_management.py`
+
+### Problem
+Line 192 has `@unittest.skip("TODO: Update test to match current personality modifier text")` with no GitHub issue link. Skipped tests without tracking get forgotten.
+
+### Action
+1. Read the test to understand what it's testing
+2. Check if the test is still relevant and can be easily fixed
+3. If fixable: update the test to work with current code and remove the skip
+4. If not easily fixable: either delete the test or add a GitHub issue link in the skip reason
+
+### Acceptance Criteria
+- [ ] Test either fixed (skip removed) or deleted
+- [ ] If kept but still skipped, must have issue link: `@unittest.skip("See #XX")`
+- [ ] All existing tests pass
+
+---
+
+## T3-13: Make HTTP client timeout configurable
+
+**Type**: Fix
+**File**: `core/llm/providers/http_client.py`
+
+### Problem
+Line 18 has hardcoded 600-second (10 minute) timeouts:
+```python
+timeout=httpx.Timeout(connect=10.0, read=600.0, write=600.0, pool=600.0),
+```
+This can't be configured per-environment or per-request.
+
+### Action
+1. Add environment variable support for the timeout:
+```python
+import os
+
+LLM_HTTP_TIMEOUT = float(os.environ.get('LLM_HTTP_TIMEOUT', '600.0'))
+
+shared_http_client = httpx.Client(
+    timeout=httpx.Timeout(connect=10.0, read=LLM_HTTP_TIMEOUT, write=LLM_HTTP_TIMEOUT, pool=LLM_HTTP_TIMEOUT),
+    ...
+)
+```
+2. Keep 600.0 as the default (backward compatible)
+
+### Acceptance Criteria
+- [ ] Timeout configurable via `LLM_HTTP_TIMEOUT` environment variable
+- [ ] Default remains 600 seconds (backward compatible)
+- [ ] No test file writes needed (env var is optional)
+
+---
+
+## T3-16: Consolidate duplicated DB path logic
+
+**Type**: Refactor
+**Files**: Multiple (5+ files have duplicated `_get_db_path()` functions)
+
+### Problem
+The same DB path detection logic is duplicated in:
+- `flask_app/routes/game_routes.py:456` — `_get_db_path()`
+- `flask_app/routes/admin_dashboard_routes.py:20` — `_get_db_path()`
+- `flask_app/config.py:108` — `get_db_path()`
+- `core/llm/tracking.py:120` — `_get_default_db_path()`
+- `bin/seed_personalities.py:26` — `get_db_path()`
+- Inline versions in `image_routes.py:49,402`, `populate_personalities_db.py:26`
+
+All have the same pattern: check if `/app/data` exists (Docker), else use project root.
+
+### Action
+1. Add a canonical `get_db_path()` to `flask_app/config.py` (if not already the best version):
+```python
+def get_db_path() -> str:
+    """Get database path based on environment (Docker vs local)."""
+    if Path('/app/data').exists():
+        return '/app/data/poker_games.db'
+    return str(Path(__file__).parent.parent / 'poker_games.db')
+```
+
+2. Update all other files to import from `flask_app.config`:
+```python
+from flask_app.config import get_db_path
+```
+
+3. Delete the local `_get_db_path()` functions from each file
+
+4. For files that can't import from flask_app (e.g., standalone scripts), keep a minimal local version with a comment pointing to the canonical one.
+
+### Acceptance Criteria
+- [ ] Single canonical `get_db_path()` in `flask_app/config.py`
+- [ ] All Flask routes import from config instead of defining locally
+- [ ] `core/llm/tracking.py` imports from config or has documented reason not to
+- [ ] All existing tests pass
+- [ ] No test file writes needed (this is a refactor)
+
+---
+
+## T3-28: Set lint warnings to zero in CI
+
+**Type**: Fix (one-line change)
+**File**: `.github/workflows/deploy.yml`
+
+### Problem
+Line 57 allows 50 lint warnings:
+```yaml
+run: npm run lint -- --max-warnings=50
+```
+This lets warnings accumulate. A clean codebase should have zero warnings.
+
+### Action
+Change line 57 from:
+```yaml
+run: npm run lint -- --max-warnings=50
+```
+To:
+```yaml
+run: npm run lint -- --max-warnings=0
+```
+
+### Acceptance Criteria
+- [ ] `--max-warnings=0` in deploy.yml
+- [ ] No test file writes needed (this is a config change)
