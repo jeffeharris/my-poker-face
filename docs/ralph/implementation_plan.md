@@ -63,5 +63,5 @@
 - [x] T3-27: Update Makefile from `docker-compose` to `docker compose` (v2)
 - [x] T3-04: Fix skipped test in `test_prompt_management.py:192` — fix or delete, no orphaned skips
 - [x] T3-13: Make HTTP client timeout configurable via `LLM_HTTP_TIMEOUT` env var
-- [ ] T3-16: Consolidate duplicated `_get_db_path()` functions — single canonical version in config
+- [x] T3-16: Consolidate duplicated `_get_db_path()` functions — single canonical version in config
 - [ ] T3-28: Set `--max-warnings=0` in `.github/workflows/deploy.yml`
