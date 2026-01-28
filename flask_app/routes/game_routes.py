@@ -1118,7 +1118,7 @@ def delete_game(game_id):
         return jsonify({'error': str(e)}), 500
 
 
-@game_bp.route('/api/end_game/<game_id>', methods=['GET', 'POST'])
+@game_bp.route('/api/end_game/<game_id>', methods=['POST'])
 def end_game(game_id):
     """Clean up game after tournament completes or user exits."""
     game_state_service.delete_game(game_id)
