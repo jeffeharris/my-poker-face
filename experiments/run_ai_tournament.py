@@ -1045,7 +1045,10 @@ class AITournamentRunner:
 
                         # Apply action
                         game_state = play_turn(game_state, action, amount)
-                        game_state = advance_to_next_active_player(game_state)
+                        advanced_state = advance_to_next_active_player(game_state)
+                        # If None, no active players remain - keep current state, state machine handles phase transition
+                        if advanced_state is not None:
+                            game_state = advanced_state
                         state_machine.game_state = game_state  # Use property setter
 
                         # Per-action save for resilience (enables pause/resume)
@@ -1072,7 +1075,10 @@ class AITournamentRunner:
                     except Exception as e:
                         logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
                         game_state = play_turn(game_state, 'fold', 0)
-                        game_state = advance_to_next_active_player(game_state)
+                        advanced_state = advance_to_next_active_player(game_state)
+                        # If None, no active players remain - keep current state, state machine handles phase transition
+                        if advanced_state is not None:
+                            game_state = advanced_state
                         state_machine.game_state = game_state  # Use property setter
 
                         # Save after fallback action too

@@ -1238,7 +1238,10 @@ def handle_ai_action(game_id: str) -> None:
 
     game_state = play_turn(state_machine.game_state, action, amount)
     record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
-    game_state = advance_to_next_active_player(game_state)
+    advanced_state = advance_to_next_active_player(game_state)
+    # If None, no active players remain - keep current state, let progress_game handle phase transition
+    if advanced_state is not None:
+        game_state = advanced_state
     state_machine.game_state = game_state
     current_game_data['state_machine'] = state_machine
     game_state_service.set_game(game_id, current_game_data)
