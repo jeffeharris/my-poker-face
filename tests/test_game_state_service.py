@@ -50,10 +50,10 @@ class TestGameStateTTLEviction:
             datetime.now() - timedelta(hours=3)
         )
 
-        # Accessing a different game triggers cleanup
-        game_state_service.set_game("fresh_game", {"data": "new"})
+        # Trigger cleanup (in production, this is done by background timer)
+        game_state_service._cleanup_stale_games()
 
-        # The stale game should have been evicted by cleanup in set_game
+        # The stale game should have been evicted
         assert game_state_service.get_game("stale_game") is None
         assert "stale_game" not in game_state_service.games
         assert "stale_game" not in game_state_service.game_last_access
@@ -90,6 +90,9 @@ class TestGameStateTTLEviction:
         game_state_service.game_last_access["evicted"] = (
             datetime.now() - timedelta(hours=3)
         )
+
+        # Trigger cleanup (in production, this is done by background timer)
+        game_state_service._cleanup_stale_games()
 
         result = game_state_service.get_game("evicted")
         assert result is None

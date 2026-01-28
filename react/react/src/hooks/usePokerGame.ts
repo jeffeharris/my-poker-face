@@ -47,6 +47,9 @@ interface UsePokerGameResult {
   debugTriggerSidePot: () => void;
 }
 
+// Cap message arrays to prevent unbounded memory growth in long games
+const MAX_MESSAGES = 200;
+
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
   return fetch(url, {
     ...options,
@@ -114,7 +117,7 @@ export function usePokerGame({
 
         if (newMessages.length > 0) {
           newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-          setMessages(prev => [...prev, ...newMessages]);
+          setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
 
           // Notify about new AI messages (for mobile floating bubbles)
           if (onNewAiMessage) {
@@ -149,7 +152,7 @@ export function usePokerGame({
       };
 
       messageIdsRef.current.add(msgId);
-      setMessages(prev => [...prev, transformedMessage]);
+      setMessages(prev => [...prev, transformedMessage].slice(-MAX_MESSAGES));
 
       if (onNewAiMessage && transformedMessage.type === 'ai') {
         onNewAiMessage(transformedMessage);
@@ -167,7 +170,7 @@ export function usePokerGame({
           const msgId = msg.id || String(msg.timestamp);
           messageIdsRef.current.add(msgId);
         });
-        setMessages(prev => [...prev, ...newMessages]);
+        setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
 
         if (onNewAiMessage) {
           const aiMessages = newMessages.filter((msg: any) => msg.type === 'ai');
@@ -248,10 +251,11 @@ export function usePokerGame({
       }
 
       if (data.messages) {
-        setMessages(data.messages);
+        const capped = data.messages.slice(-MAX_MESSAGES);
+        setMessages(capped);
         // Clear and repopulate to prevent unbounded growth
         messageIdsRef.current.clear();
-        data.messages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+        capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
       }
 
       const currentPlayer = data.players[data.current_player_idx];

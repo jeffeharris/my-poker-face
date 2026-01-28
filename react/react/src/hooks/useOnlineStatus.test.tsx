@@ -1,10 +1,7 @@
 /**
  * Test for useOnlineStatus hook.
- *
- * NOTE: This project does not yet have a React test runner (vitest/jest) configured.
- * These tests are written for future use once test infrastructure is added.
- * To run: install vitest + @testing-library/react, then `npx vitest run useOnlineStatus`
  */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useOnlineStatus } from './useOnlineStatus'
 import toast from 'react-hot-toast'

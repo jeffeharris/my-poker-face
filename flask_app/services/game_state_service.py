@@ -4,9 +4,11 @@ This module provides the central source of truth for all game state.
 All modules that need access to game state import from here.
 """
 
+import os
 import threading
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
+
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,11 @@ _game_locks_lock = threading.Lock()
 # TTL-based eviction for stale games
 game_last_access: Dict[str, datetime] = {}
 GAME_TTL_HOURS = 2
+CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
+
+# Background cleanup timer
+_cleanup_timer: Optional[threading.Timer] = None
+_cleanup_timer_lock = threading.Lock()
 
 
 def _cleanup_stale_games():
@@ -33,6 +40,40 @@ def _cleanup_stale_games():
         logger.info(f"[TTL] Evicted {len(stale_keys)} stale game(s): {stale_keys}")
 
 
+def _schedule_cleanup():
+    """Schedule periodic cleanup of stale games."""
+    global _cleanup_timer
+    with _cleanup_timer_lock:
+        _cleanup_stale_games()
+        _cleanup_timer = threading.Timer(CLEANUP_INTERVAL_SECONDS, _schedule_cleanup)
+        _cleanup_timer.daemon = True
+        _cleanup_timer.start()
+
+
+def start_cleanup_timer():
+    """Start the background cleanup timer.
+
+    Called automatically on module import, but can be called
+    explicitly after stop_cleanup_timer() to restart.
+    """
+    global _cleanup_timer
+    with _cleanup_timer_lock:
+        if _cleanup_timer is None:
+            _schedule_cleanup()
+
+
+def stop_cleanup_timer():
+    """Stop the background cleanup timer.
+
+    Useful for testing or graceful shutdown.
+    """
+    global _cleanup_timer
+    with _cleanup_timer_lock:
+        if _cleanup_timer is not None:
+            _cleanup_timer.cancel()
+            _cleanup_timer = None
+
+
 def get_game(game_id: str) -> Optional[dict]:
     """Get game data by ID.
 
@@ -42,7 +83,6 @@ def get_game(game_id: str) -> Optional[dict]:
     Returns:
         The game data dictionary, or None if not found
     """
-    _cleanup_stale_games()
     game_data = games.get(game_id)
     if game_data is not None:
         game_last_access[game_id] = datetime.now()
@@ -56,7 +96,6 @@ def set_game(game_id: str, game_data: dict) -> None:
         game_id: The game identifier
         game_data: The game data dictionary
     """
-    _cleanup_stale_games()
     games[game_id] = game_data
     game_last_access[game_id] = datetime.now()
 
@@ -171,3 +210,8 @@ def add_message(game_id: str, message: dict) -> None:
         if 'messages' not in game_data:
             game_data['messages'] = []
         game_data['messages'].append(message)
+
+
+# Start background cleanup timer on module import (skip in test environment)
+if os.environ.get('TESTING') != '1':
+    start_cleanup_timer()

@@ -52,7 +52,16 @@ from core.llm.config import DEFAULT_MODEL
 
 @lru_cache(maxsize=1)
 def _get_config_persistence():
-    """Get a shared persistence instance for config lookups."""
+    """Get a cached GamePersistence instance for config lookups.
+
+    Note: This caches a single shared instance across all callers. This is safe
+    because GamePersistence uses context managers for all DB operations and
+    maintains no connection state between calls. Each operation opens and closes
+    its own connection.
+
+    If GamePersistence is ever modified to maintain persistent state (connection
+    pools, cached transactions, etc.), this caching pattern must be revisited.
+    """
     from poker.persistence import GamePersistence
     return GamePersistence()
 

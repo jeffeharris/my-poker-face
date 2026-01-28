@@ -28,6 +28,9 @@ interface GameContextType {
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
+// Cap message arrays to prevent unbounded memory growth in long games
+const MAX_MESSAGES = 200;
+
 export function useGame() {
   const context = useContext(GameContext);
   if (!context) {
@@ -54,7 +57,7 @@ export function GameProvider({ children }: GameProviderProps) {
     const newMessages = incomingMessages.filter(msg => !messageIdsRef.current.has(msg.id));
     if (newMessages.length > 0) {
       newMessages.forEach(msg => messageIdsRef.current.add(msg.id));
-      setMessages(prev => [...prev, ...newMessages]);
+      setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
     }
   }, []);
 

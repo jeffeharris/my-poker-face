@@ -1,12 +1,5 @@
 /**
  * T1-11: Verify ErrorBoundary catches render errors and shows fallback UI.
- *
- * NOTE: This test requires vitest (or jest) + @testing-library/react to be
- * configured. It is written ahead of that setup so it can be enabled once
- * the test infrastructure is in place.
- *
- * To run (once vitest is configured):
- *   npx vitest run src/__tests__/ErrorBoundary.test.tsx
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';

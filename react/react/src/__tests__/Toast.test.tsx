@@ -1,12 +1,5 @@
 /**
  * T1-15: Verify react-hot-toast Toaster is rendered in App.
- *
- * NOTE: This test requires vitest (or jest) + @testing-library/react to be
- * configured. It is written ahead of that setup so it can be enabled once
- * the test infrastructure is in place.
- *
- * To run (once vitest is configured):
- *   npx vitest run src/__tests__/Toast.test.tsx
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';

@@ -102,7 +102,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
     if not game_data:
         return
 
-    game_messages = game_data.get('messages', [])
+    # Copy messages to avoid mutating the original list during the append+trim
+    game_messages = list(game_data.get('messages', []))
 
     new_message = {
         "id": str(uuid.uuid4()),
@@ -126,12 +127,8 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
 
     game_messages.append(new_message)
 
-    # Trim to prevent unbounded growth
-    if len(game_messages) > MAX_MESSAGES_IN_MEMORY:
-        game_messages = game_messages[-MAX_MESSAGES_IN_MEMORY:]
-
-    # Update the messages in game data
-    game_data['messages'] = game_messages
+    # Trim and update atomically to prevent race condition
+    game_data['messages'] = game_messages[-MAX_MESSAGES_IN_MEMORY:]
     game_state_service.set_game(game_id, game_data)
 
     # Save message to database
