@@ -38,8 +38,8 @@
 ## Phase 5: Tier 2 Mechanical Fixes (no dependencies)
 
 - [x] T2-14: Fix `get_celebrities()` shuffle mutation — use `random.sample()` instead of in-place shuffle
-- [ ] T2-15: Delete dead `setup_helper.py` (references non-existent `working_game.py`)
-- [ ] T2-09: Refactor `reset_player_action_flags` to single-pass tuple comprehension (O(n) instead of O(n²))
+- [x] T2-15: Delete dead `setup_helper.py` (references non-existent `working_game.py`)
+- [x] T2-09: Refactor `reset_player_action_flags` to single-pass tuple comprehension (O(n) instead of O(n²))
 - [ ] T2-17: Add `atexit` cleanup for shared HTTP client in `core/llm/providers/http_client.py`
 - [ ] T2-18: Add thread-safe double-checked locking to `UsageTracker.get_default()`
 
