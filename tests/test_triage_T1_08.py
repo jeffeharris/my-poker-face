@@ -1,6 +1,10 @@
-"""Tests for T1-08: get_next_active_player_idx raises ValueError when no active players found."""
+"""Tests for get_next_active_player_idx behavior when no active players found.
 
-import pytest
+When no active players exist (all folded/all-in), the function returns the
+starting index to signal that the betting round should end. Callers handle
+this by triggering showdown or winner determination.
+"""
+
 from poker.poker_game import get_next_active_player_idx, Player
 
 
@@ -36,27 +40,28 @@ class TestGetNextActivePlayerIdx:
         )
         assert get_next_active_player_idx(players, 0) == 2
 
-    def test_raises_valueerror_when_no_active_players(self):
+    def test_returns_starting_idx_when_no_active_players(self):
+        """When no active players, returns starting_idx to signal betting should end."""
         players = (
             _make_player("A", is_folded=True),
             _make_player("B", is_all_in=True),
             _make_player("C", is_folded=True),
         )
-        with pytest.raises(ValueError, match="No active players found"):
-            get_next_active_player_idx(players, 0)
+        # Should return starting_idx (0), not raise
+        assert get_next_active_player_idx(players, 0) == 0
 
-    def test_raises_valueerror_all_acted(self):
+    def test_returns_starting_idx_all_acted(self):
+        """When all players have acted, returns starting_idx."""
         players = (
             _make_player("A", has_acted=True),
             _make_player("B", has_acted=True),
         )
-        with pytest.raises(ValueError, match="No active players found"):
-            get_next_active_player_idx(players, 0)
+        assert get_next_active_player_idx(players, 0) == 0
 
-    def test_raises_valueerror_zero_stack(self):
+    def test_returns_starting_idx_zero_stack(self):
+        """When all players have zero stack, returns starting_idx."""
         players = (
             _make_player("A", stack=0),
             _make_player("B", stack=0),
         )
-        with pytest.raises(ValueError, match="No active players found"):
-            get_next_active_player_idx(players, 0)
+        assert get_next_active_player_idx(players, 0) == 0

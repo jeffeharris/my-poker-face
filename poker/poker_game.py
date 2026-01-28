@@ -627,10 +627,8 @@ def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx:
         The index of the current player.
 
     :return: (int)
-        The index of the next active player.
-
-    :raises ValueError:
-        If there are no active players in the list.
+        The index of the next active player, or relative_player_idx if no active
+        players exist (signals betting round should end - all players folded/all-in).
     """
     player_count = len(players)
     # Start with the next player in the queue, save the starting index for later so we can take action
@@ -642,7 +640,9 @@ def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx:
         if players[next_player_idx].is_active:
             return next_player_idx
         if next_player_idx == starting_idx:
-            raise ValueError("No active players found")
+            # No active players found - return starting_idx to let caller handle
+            # (e.g., trigger showdown when all players are all-in or folded)
+            return starting_idx
         next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
 
 
