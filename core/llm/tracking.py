@@ -118,7 +118,11 @@ class UsageTracker:
         cls._instance = tracker
 
     def _get_default_db_path(self) -> str:
-        """Get the default database path based on environment."""
+        """Get the default database path based on environment.
+
+        Note: This duplicates flask_app.config.get_db_path() to avoid circular imports.
+        The canonical version is in flask_app/config.py.
+        """
         if Path('/app/data').exists():
             return '/app/data/poker_games.db'
         return str(Path(__file__).parent.parent.parent / 'poker_games.db')

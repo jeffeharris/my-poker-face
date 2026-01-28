@@ -40,6 +40,7 @@ from ..handlers.message_handler import (
 )
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
+from ..config import get_db_path
 from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
 
@@ -453,13 +454,6 @@ def api_game_state(game_id):
     return jsonify(response)
 
 
-def _get_db_path() -> str:
-    """Get the database path based on environment."""
-    if Path('/app/data').exists():
-        return '/app/data/poker_games.db'
-    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
-
-
 def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     """Calculate cost tiers for all models from pricing database.
 
@@ -484,7 +478,7 @@ def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     }
 
     try:
-        with sqlite3.connect(_get_db_path()) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             cursor = conn.execute("""
                 SELECT provider, model, cost FROM model_pricing
                 WHERE unit = 'output_tokens_1m'
@@ -668,7 +662,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = _get_db_path()
+    db_path = get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -704,7 +698,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    db_path = _get_db_path()
+    db_path = get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -738,7 +732,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    db_path = _get_db_path()
+    db_path = get_db_path()
 
     try:
         with sqlite3.connect(db_path) as conn:
@@ -1012,7 +1006,10 @@ def api_player_action(game_id):
         table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
         send_message(game_id, "Table", table_message_content, "table")
 
-        game_state = advance_to_next_active_player(game_state)
+        advanced_state = advance_to_next_active_player(game_state)
+        # If None, no active players remain - keep current state, let progress_game handle phase transition
+        if advanced_state is not None:
+            game_state = advanced_state
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine
@@ -1271,7 +1268,10 @@ def register_socket_events(sio):
 
         record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
-        game_state = advance_to_next_active_player(game_state)
+        advanced_state = advance_to_next_active_player(game_state)
+        # If None, no active players remain - keep current state, let progress_game handle phase transition
+        if advanced_state is not None:
+            game_state = advanced_state
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine

@@ -22,6 +22,7 @@ from poker.character_images import (
     EMOTIONS,
 )
 from poker.persistence import GamePersistence
+from ..config import get_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
 # Initialize persistence for avatar lookups
 def _get_persistence() -> GamePersistence:
     """Get persistence instance for avatar operations."""
-    db_path = Path('/app/data/poker_games.db') if Path('/app/data').exists() else Path(__file__).parent.parent.parent / 'poker_games.db'
-    return GamePersistence(str(db_path))
+    return GamePersistence(get_db_path())
 
 
 @image_bp.route('/api/character-images', methods=['GET'])
@@ -397,12 +397,9 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
     """
     import base64
     import sqlite3
-    from pathlib import Path
-
-    db_path = Path('/app/data/poker_games.db') if Path('/app/data').exists() else Path(__file__).parent.parent.parent / 'poker_games.db'
 
     try:
-        with sqlite3.connect(str(db_path)) as conn:
+        with sqlite3.connect(get_db_path()) as conn:
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
                 (reference_id,)
