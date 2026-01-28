@@ -3,6 +3,7 @@
 import time
 import json
 import logging
+import secrets
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -187,8 +188,8 @@ def analyze_player_decision(
 
 
 def generate_game_id() -> str:
-    """Generate a unique game ID based on current timestamp."""
-    return str(int(time.time() * 1000))
+    """Generate a unique, unpredictable game ID."""
+    return secrets.token_urlsafe(16)
 
 
 @game_bp.route('/api/games')
