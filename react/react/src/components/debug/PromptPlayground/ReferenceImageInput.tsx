@@ -7,6 +7,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { config } from '../../../config';
 import { adminFetch } from '../../../utils/api';
+import { logger } from '../../../utils/logger';
 
 interface ReferenceImageUploadResponse {
   success: boolean;
@@ -38,7 +39,7 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
       const previewUrl = `${config.API_URL}/admin/api/reference-images/${referenceId}`;
       setImagePreview(previewUrl);
     } catch (err) {
-      console.error('Failed to load preview:', err);
+      logger.error('Failed to load preview:', err);
     }
   }, []);
 

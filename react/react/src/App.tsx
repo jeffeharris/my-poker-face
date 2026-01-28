@@ -18,6 +18,7 @@ import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { LoadingOverlay } from './components/shared'
+import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
 import toast, { Toaster } from 'react-hot-toast'
@@ -106,7 +107,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       const data = await response.json();
       setSavedGamesCount(data.games?.length || 0);
     } catch (error) {
-      console.error('Failed to fetch saved games:', error);
+      logger.error('Failed to fetch saved games:', error);
     }
   };
 
@@ -173,7 +174,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         }
       }
     } catch (error) {
-      console.error('Failed to create game:', error);
+      logger.error('Failed to create game:', error);
       toast.error('Failed to create game. Please try again.');
     } finally {
       setIsCreatingGame(false);
@@ -217,7 +218,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         }
       }
     } catch (error) {
-      console.error('Failed to create custom game:', error);
+      logger.error('Failed to create custom game:', error);
       toast.error('Failed to create game. Please try again.');
     } finally {
       setIsCreatingGame(false);

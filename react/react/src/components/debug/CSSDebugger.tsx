@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { logger } from '../../utils/logger';
 
 interface ElementInfo {
   selector: string;
@@ -37,7 +38,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
       // First, check parent chain of poker-layout
       const pokerLayout = document.querySelector('.poker-layout') as HTMLElement;
       if (pokerLayout) {
-        console.log('=== Parent Chain Analysis ===');
+        logger.log('=== Parent Chain Analysis ===');
         let current = pokerLayout;
         let level = 0;
         
@@ -47,7 +48,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
           const className = current.className || 'no-class';
           const id = current.id || 'no-id';
           
-          console.log(`Level ${level}: <${tagName}> class="${className}" id="${id}"`, {
+          logger.log(`Level ${level}: <${tagName}> class="${className}" id="${id}"`, {
             width: computed.width,
             maxWidth: computed.maxWidth,
             display: computed.display,
@@ -80,7 +81,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
       });
 
       // Also log viewport info
-      console.log('Viewport:', {
+      logger.log('Viewport:', {
         width: window.innerWidth,
         height: window.innerHeight,
         documentWidth: document.documentElement.clientWidth,
@@ -228,16 +229,16 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
 
       <button
         onClick={() => {
-          console.log('=== CSS Debug Snapshot ===');
+          logger.log('=== CSS Debug Snapshot ===');
           elementInfo.forEach(info => {
-            console.log(`${info.selector}:`, info);
+            logger.log(`${info.selector}:`, info);
           });
           
           // Log computed styles for table-felt
           const tableFelt = document.querySelector('.table-felt') as HTMLElement;
           if (tableFelt) {
             const computed = window.getComputedStyle(tableFelt);
-            console.log('Table Felt Full Computed Styles:', {
+            logger.log('Table Felt Full Computed Styles:', {
               width: computed.width,
               height: computed.height,
               maxWidth: computed.maxWidth,
@@ -252,7 +253,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
           // Analyze parent chain
           const pokerLayout = document.querySelector('.poker-layout') as HTMLElement;
           if (pokerLayout) {
-            console.log('\n=== Parent Chain Analysis ===');
+            logger.log('\n=== Parent Chain Analysis ===');
             let current = pokerLayout;
             let level = 0;
             
@@ -263,7 +264,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
               const className = current.className || 'no-class';
               const id = current.id || 'no-id';
               
-              console.log(`Level ${level}: <${tagName}> class="${className}" id="${id}"`, {
+              logger.log(`Level ${level}: <${tagName}> class="${className}" id="${id}"`, {
                 computedWidth: computed.width,
                 offsetWidth: current.offsetWidth,
                 clientWidth: current.clientWidth,
@@ -277,7 +278,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
               
               // Check if this element is constraining width
               if (level > 0 && current.offsetWidth < window.innerWidth * 0.5) {
-                console.warn(`⚠️ Potential constraint at level ${level}: width=${current.offsetWidth}px`);
+                logger.warn(`⚠️ Potential constraint at level ${level}: width=${current.offsetWidth}px`);
               }
               
               current = current.parentElement as HTMLElement;

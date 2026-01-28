@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { config } from '../../../config';
+import { logger } from '../../../utils/logger';
 import './AvatarAssignmentModal.css';
 
 interface Props {
@@ -45,7 +46,7 @@ export function AvatarAssignmentModal({
           setPersonalities(names);
         }
       })
-      .catch((err) => console.error('Failed to fetch personalities:', err));
+      .catch((err) => logger.error('Failed to fetch personalities:', err));
 
     // Fetch emotions
     fetch(`${config.API_URL}/api/avatar/emotions`)
@@ -55,7 +56,7 @@ export function AvatarAssignmentModal({
           setEmotions(data.emotions);
         }
       })
-      .catch((err) => console.error('Failed to fetch emotions:', err));
+      .catch((err) => logger.error('Failed to fetch emotions:', err));
   }, []);
 
   // Fetch current avatar when personality/emotion changes

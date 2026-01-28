@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   FlaskConical, Clapperboard, Medal, Crown, Music, Laugh, Skull, Sparkles, Dices,
 } from 'lucide-react';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { type Theme } from '../../types/theme';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
@@ -84,7 +85,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate themed game. Please try again.';
       setError(errorMessage);
-      console.error('Theme generation error:', err);
+      logger.error('Theme generation error:', err);
     } finally {
       setGenerating(false);
     }

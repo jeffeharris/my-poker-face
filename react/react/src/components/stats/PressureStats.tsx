@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { Flame, Zap, Minus } from 'lucide-react';
 import { Socket } from 'socket.io-client';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import './PressureStats.css';
 
@@ -89,7 +90,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
           setIsInitialLoad(false);
         }
       } catch (error) {
-        console.error('Failed to fetch pressure stats:', error);
+        logger.error('Failed to fetch pressure stats:', error);
       } finally {
         if (mounted) {
           setLoading(false);

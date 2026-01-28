@@ -4,6 +4,7 @@ import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
 import { InterrogationChat } from './InterrogationChat';
+import { logger } from '../../../utils/logger';
 import './PromptDebugger.css';
 
 interface PromptDebuggerProps {
@@ -148,7 +149,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       }
     } catch (err) {
       // Silently ignore - analysis stats are optional
-      console.debug('Failed to fetch analysis stats:', err);
+      logger.debug('Failed to fetch analysis stats:', err);
     }
   }, [filters.game_id]);
 

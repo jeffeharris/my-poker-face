@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../../../config';
 import { adminAPI } from '../../../utils/api';
+import { logger } from '../../../utils/logger';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { AvatarAssignmentModal } from './AvatarAssignmentModal';
 import { ReferenceImageInput } from './ReferenceImageInput';
@@ -110,7 +111,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
         setImageProviders(data.providers || []);
       }
     } catch (err) {
-      console.error('Failed to fetch image providers:', err);
+      logger.error('Failed to fetch image providers:', err);
     }
   }, []);
 
@@ -143,7 +144,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch capture detail:', err);
+      logger.error('Failed to fetch capture detail:', err);
     }
   };
 

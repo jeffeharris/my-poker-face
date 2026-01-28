@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { GameState, Player } from '../types';
 import { config } from '../config';
+import { logger } from '../utils/logger';
 
 // Cache key prefix for localStorage
 const GAME_STATE_CACHE_PREFIX = 'gameStateCache_';
@@ -13,7 +14,7 @@ function getCachedGameState(gameId: string): GameState | null {
       return JSON.parse(cached);
     }
   } catch (e) {
-    console.warn('Failed to parse cached game state:', e);
+    logger.warn('Failed to parse cached game state:', e);
   }
   return null;
 }
@@ -23,7 +24,7 @@ function cacheGameState(gameId: string, state: GameState): void {
   try {
     localStorage.setItem(GAME_STATE_CACHE_PREFIX + gameId, JSON.stringify(state));
   } catch (e) {
-    console.warn('Failed to cache game state:', e);
+    logger.warn('Failed to cache game state:', e);
   }
 }
 

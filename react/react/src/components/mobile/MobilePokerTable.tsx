@@ -14,6 +14,7 @@ import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import './MobilePokerTable.css';
 import './MobileActionButtons.css';
@@ -82,7 +83,7 @@ export function MobilePokerTable({
           credentials: 'include',
         });
       } catch (err) {
-        console.error(`Failed to end game for gameId=${gameId}:`, err);
+        logger.error(`Failed to end game for gameId=${gameId}:`, err);
       }
     }
     clearTournamentResult();

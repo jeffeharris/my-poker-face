@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Check, Settings } from 'lucide-react';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { OpponentConfigScreen } from './OpponentConfigScreen';
@@ -102,7 +103,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
         setPersonalities(data.personalities);
       }
     } catch (error) {
-      console.error('Failed to fetch personalities:', error);
+      logger.error('Failed to fetch personalities:', error);
     } finally {
       setLoading(false);
     }

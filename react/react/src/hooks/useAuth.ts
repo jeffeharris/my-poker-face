@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../config';
+import { logger } from '../utils/logger';
 
 interface User {
   id: string;
@@ -91,7 +92,7 @@ export function useAuth() {
         localStorage.removeItem('currentUser');
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      logger.error('Auth check failed:', error);
       // On error, err on the side of security: treat user as unauthenticated
       // This prevents stale permissions from being used when backend is unreachable
       localStorage.removeItem('currentUser');
@@ -122,7 +123,7 @@ export function useAuth() {
         // OAuth was successful - refresh auth state
         checkAuth();
       } else if (authResult === 'error') {
-        console.error('OAuth error:', errorMessage);
+        logger.error('OAuth error:', errorMessage);
         // Could show a toast/notification here
       }
     }
@@ -162,7 +163,7 @@ export function useAuth() {
         return { success: false, error: data.error };
       }
     } catch (error) {
-      console.error('Login failed:', error);
+      logger.error('Login failed:', error);
       return { success: false, error: 'Connection error' };
     }
   }, []);
@@ -174,7 +175,7 @@ export function useAuth() {
         credentials: 'include',
       });
     } catch (error) {
-      console.error('Logout failed:', error);
+      logger.error('Logout failed:', error);
     }
 
     // Clear local state regardless

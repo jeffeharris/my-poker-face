@@ -3,6 +3,7 @@ import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, U
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import './QuickChatSuggestions.css';
 
@@ -113,7 +114,7 @@ export function QuickChatSuggestions({
         lastAction
       );
       if (response.fallback) {
-        console.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
+        logger.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
       }
       const newSuggestions = response.suggestions || [];
       setSuggestions(newSuggestions);
@@ -122,7 +123,7 @@ export function QuickChatSuggestions({
       suggestionsCache.current[cacheKey] = newSuggestions;
       setLastFetchTime(now);
     } catch (error) {
-      console.error('[QuickChat] Failed to fetch suggestions:', error);
+      logger.error('[QuickChat] Failed to fetch suggestions:', error);
       // Set fallback suggestions
       setSuggestions([
         { text: 'Nice play!', tone },

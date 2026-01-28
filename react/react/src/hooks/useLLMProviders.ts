@@ -7,6 +7,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../config';
+import { logger } from '../utils/logger';
 import type { ProviderInfo, ModelScope, LLMProvidersResponse } from '../types/llm';
 
 interface UseLLMProvidersOptions {
@@ -84,7 +85,7 @@ export function useLLMProviders({ scope }: UseLLMProvidersOptions): UseLLMProvid
         setProviders(FALLBACK_PROVIDERS);
       }
     } catch (err) {
-      console.warn(`Failed to fetch providers from ${endpoint}, using fallback:`, err);
+      logger.warn(`Failed to fetch providers from ${endpoint}, using fallback:`, err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       setProviders(FALLBACK_PROVIDERS);
     } finally {

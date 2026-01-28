@@ -13,6 +13,7 @@ import { DEFAULT_EXPERIMENT_CONFIG, DEFAULT_REPLAY_CONFIG } from './types';
 /** Extended experiment type with 'undetermined' for initial state */
 type ExperimentTypeState = ExperimentType | 'undetermined';
 import { config as appConfig } from '../../../config';
+import { logger } from '../../../utils/logger';
 import { generateSeed } from './seedWords';
 
 /** Create a fresh experiment config with a new random seed */
@@ -208,22 +209,16 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   useEffect(() => {
     const fetchLatestSession = async () => {
       try {
-        console.log('[ExperimentDesigner] Fetching latest chat session...');
         const response = await fetch(`${appConfig.API_URL}/api/experiments/chat/latest`);
         if (!response.ok) {
-          console.log('[ExperimentDesigner] Response not ok:', response.status);
           return;
         }
         const data = await response.json();
-        console.log('[ExperimentDesigner] Latest session response:', data);
         if (data.success && data.session) {
-          console.log('[ExperimentDesigner] Found pending session:', data.session.session_id);
           setPendingSession(data.session);
-        } else {
-          console.log('[ExperimentDesigner] No pending session found');
         }
       } catch (error) {
-        console.error('Error fetching latest chat session:', error);
+        logger.error('Error fetching latest chat session:', error);
       }
     };
     fetchLatestSession();
@@ -269,7 +264,7 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
           body: JSON.stringify({ session_id: pendingSession.session_id }),
         });
       } catch (error) {
-        console.error('Error archiving session:', error);
+        logger.error('Error archiving session:', error);
       }
     }
 

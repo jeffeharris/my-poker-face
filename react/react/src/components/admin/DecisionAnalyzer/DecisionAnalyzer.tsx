@@ -4,6 +4,7 @@ import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { useViewport } from '../../../hooks/useViewport';
+import { logger } from '../../../utils/logger';
 import { MobileFilterSheet } from '../shared/MobileFilterSheet';
 import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, LabelStats } from './types';
 import { InterrogationChat } from './InterrogationChat';
@@ -185,7 +186,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       }
     } catch (err) {
       // Silently ignore - analysis stats are optional
-      console.debug('Failed to fetch analysis stats:', err);
+      logger.debug('Failed to fetch analysis stats:', err);
     }
   }, [filters.game_id]);
 

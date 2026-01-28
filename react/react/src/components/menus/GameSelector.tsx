@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import './GameSelector.css';
@@ -29,16 +30,14 @@ export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelec
   const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
 
   const fetchGames = () => {
-    console.log('GameSelector: Fetching saved games...');
     fetch(`${config.API_URL}/api/games`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
-        console.log('GameSelector: Received games data:', data);
         setSavedGames(data.games || []);
         setLoading(false);
       })
       .catch(err => {
-        console.error('Failed to fetch games:', err);
+        logger.error('Failed to fetch games:', err);
         setLoading(false);
       });
   };
@@ -74,7 +73,7 @@ export function GameSelector({ onSelectGame, onBack, onGamesChanged }: GameSelec
         alert(`Failed to delete game: ${error.error || 'Unknown error'}`);
       }
     } catch (err) {
-      console.error('Error deleting game:', err);
+      logger.error('Error deleting game:', err);
       alert('Failed to delete game');
     } finally {
       setDeletingGameId(null);

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Shield, User, Users, RefreshCw, ShieldCheck, ShieldOff, Loader2 } from 'lucide-react';
 import { config } from '../../config';
 import { useAuth } from '../../hooks/useAuth';
+import { logger } from '../../utils/logger';
 import './AdminShared.css';
 import './UserManagement.css';
 
@@ -95,7 +96,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
         throw new Error(data.error || 'Failed to fetch users');
       }
     } catch (error) {
-      console.error('Error fetching users:', error);
+      logger.error('Error fetching users:', error);
       setAlert({
         type: 'error',
         message: error instanceof Error ? error.message : 'Failed to fetch users',
@@ -151,7 +152,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
           : `Granted admin access to ${userName}`,
       });
     } catch (error) {
-      console.error('Error toggling admin status:', error);
+      logger.error('Error toggling admin status:', error);
       setAlert({
         type: 'error',
         message: error instanceof Error ? error.message : 'Failed to update admin status',

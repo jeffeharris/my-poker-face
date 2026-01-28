@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 import { config } from '../../config';
+import { logger } from '../../utils/logger';
 import './ElasticityDebugPanel.css';
 
 interface TraitData {
@@ -45,7 +46,7 @@ export function ElasticityDebugPanel({ gameId, isOpen, socket }: ElasticityDebug
           setElasticityData(data);
         }
       } catch (error) {
-        console.error('Failed to fetch elasticity data:', error);
+        logger.error('Failed to fetch elasticity data:', error);
       } finally {
         setLoading(false);
       }
@@ -57,7 +58,6 @@ export function ElasticityDebugPanel({ gameId, isOpen, socket }: ElasticityDebug
     // Set up WebSocket listener if socket is available
     if (socket) {
       const handleElasticityUpdate = (data: ElasticityData) => {
-        console.log('Received elasticity update via WebSocket:', data);
         setElasticityData(data);
       };
 

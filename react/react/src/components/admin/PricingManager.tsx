@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
 import { adminAPI } from '../../utils/api';
+import { logger } from '../../utils/logger';
 import './PricingManager.css';
 
 // ============================================
@@ -356,7 +357,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
         setProviders(data.providers.map((p: { provider: string }) => p.provider));
       }
     } catch (error) {
-      console.error('Failed to fetch providers:', error);
+      logger.error('Failed to fetch providers:', error);
     }
   }, []);
 
@@ -375,7 +376,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
         setEnabledModels(enabled);
       }
     } catch (error) {
-      console.error('Failed to fetch enabled models:', error);
+      logger.error('Failed to fetch enabled models:', error);
     }
   }, []);
 

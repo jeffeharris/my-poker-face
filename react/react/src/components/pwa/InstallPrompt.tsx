@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { logger } from '../../utils/logger';
 import './InstallPrompt.css';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -25,13 +26,10 @@ export function InstallPrompt() {
     }
 
     const handleBeforeInstallPrompt = (e: Event) => {
-      console.log('[PWA] beforeinstallprompt event fired!');
       e.preventDefault();
       setInstallPrompt(e as BeforeInstallPromptEvent);
       setIsVisible(true);
     };
-
-    console.log('[PWA] InstallPrompt mounted, listening for beforeinstallprompt...');
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
