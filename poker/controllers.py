@@ -736,7 +736,8 @@ class AIPlayerController:
             call_amount=cost_to_call,
             min_raise=min_raise,
             max_raise=max_raise,
-            should_speak=should_speak
+            should_speak=should_speak,
+            big_blind=game_state.current_ante or 100,
         )
         
         # Clean response based on speaking decision
