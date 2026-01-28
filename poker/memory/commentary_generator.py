@@ -315,26 +315,26 @@ class CommentaryGenerator:
         return {'level': level, 'tone': tone}
 
     @staticmethod
-    def _format_beats_for_chat(would_say_aloud) -> Optional[str]:
-        """Convert would_say_aloud (list of beats or string) to chat-ready string.
+    def _format_beats_for_chat(stage_direction) -> Optional[str]:
+        """Convert stage_direction (list of beats or string) to chat-ready string.
 
         The frontend's parseBeats() splits on newlines and detects *action* syntax,
         so joining beats with newlines produces the correct format.
 
         Args:
-            would_say_aloud: List of beat strings, a plain string, or None
+            stage_direction: List of beat strings, a plain string, or None
 
         Returns:
             Newline-joined string for send_message(), or None
         """
-        if would_say_aloud is None:
+        if stage_direction is None:
             return None
-        if isinstance(would_say_aloud, list):
+        if isinstance(stage_direction, list):
             # Filter empty beats and join
-            beats = [b.strip() for b in would_say_aloud if isinstance(b, str) and b.strip()]
+            beats = [b.strip() for b in stage_direction if isinstance(b, str) and b.strip()]
             return "\n".join(beats) if beats else None
-        if isinstance(would_say_aloud, str):
-            return would_say_aloud.strip() or None
+        if isinstance(stage_direction, str):
+            return stage_direction.strip() or None
         return None
 
     def generate_commentary(self,
@@ -473,9 +473,9 @@ class CommentaryGenerator:
 
             # Build commentary object
             # Suppress table_comment if hand isn't dramatic enough to speak about
-            # Handle would_say_aloud as list of beats (new) or plain string (legacy)
-            raw_would_say = commentary_data.get('would_say_aloud') if should_speak else None
-            table_comment = self._format_beats_for_chat(raw_would_say)
+            # Handle stage_direction as list of beats (new) or plain string (legacy)
+            raw_stage_direction = commentary_data.get('stage_direction') if should_speak else None
+            table_comment = self._format_beats_for_chat(raw_stage_direction)
 
             return HandCommentary(
                 player_name=player_name,
