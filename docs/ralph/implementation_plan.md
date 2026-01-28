@@ -33,11 +33,11 @@
 - [x] T1-15: Install react-hot-toast, add Toaster to App.tsx
 - [x] T1-14: Add offline detection with toast notifications
 - [x] T1-13: Add loading/error states to handleQuickPlay with toasts
-- [ ] T1-11: Add React error boundaries (top-level + per-route)
+- [x] T1-11: Add React error boundaries (top-level + per-route)
 
 ## Phase 5: Tier 2 Mechanical Fixes (no dependencies)
 
-- [ ] T2-14: Fix `get_celebrities()` shuffle mutation — use `random.sample()` instead of in-place shuffle
+- [x] T2-14: Fix `get_celebrities()` shuffle mutation — use `random.sample()` instead of in-place shuffle
 - [ ] T2-15: Delete dead `setup_helper.py` (references non-existent `working_game.py`)
 - [ ] T2-09: Refactor `reset_player_action_flags` to single-pass tuple comprehension (O(n) instead of O(n²))
 - [ ] T2-17: Add `atexit` cleanup for shared HTTP client in `core/llm/providers/http_client.py`
