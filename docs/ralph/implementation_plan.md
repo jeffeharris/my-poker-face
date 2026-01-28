@@ -48,5 +48,5 @@
 - [x] T2-05: Cache `GamePersistence` in config getters — `@lru_cache` shared instance
 - [x] T2-12: Remove debug console.log statements — create logger utility, delete noise, convert rest
 - [x] T2-19: Add TTL-based eviction for in-memory game state (2-hour expiry)
-- [ ] T2-20: Cap in-memory message list at 200 entries with trim on append
+- [x] T2-20: Cap in-memory message list at 200 entries with trim on append
 - [x] T2-22: Conversation memory token trim [Dismissed - memory cleared each turn, usage is 6.6% of 128k context]
