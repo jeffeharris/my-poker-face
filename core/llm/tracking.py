@@ -85,6 +85,7 @@ class UsageTracker:
     """Tracks and persists API usage for cost analysis."""
 
     _instance: Optional["UsageTracker"] = None
+    _instance_lock = threading.Lock()
 
     def __init__(self, db_path: Optional[str] = None):
         """Initialize usage tracker.
@@ -104,9 +105,11 @@ class UsageTracker:
 
     @classmethod
     def get_default(cls) -> "UsageTracker":
-        """Get or create the default singleton tracker."""
+        """Get or create the default singleton tracker (thread-safe)."""
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     @classmethod
