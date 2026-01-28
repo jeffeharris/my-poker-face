@@ -996,35 +996,39 @@ def api_player_action(game_id):
     if not is_valid:
         return jsonify({'error': error_message}), 400
 
-    current_player = state_machine.game_state.current_player
-    highest_bet = state_machine.game_state.highest_bet
-    pre_action_state = state_machine.game_state  # Save state before action for analysis
-    game_state = play_turn(state_machine.game_state, action, amount)
+    try:
+        current_player = state_machine.game_state.current_player
+        highest_bet = state_machine.game_state.highest_bet
+        pre_action_state = state_machine.game_state  # Save state before action for analysis
+        game_state = play_turn(state_machine.game_state, action, amount)
 
-    # Analyze decision quality (works for both human and AI)
-    memory_manager = current_game_data.get('memory_manager')
-    hand_number = memory_manager.hand_count if memory_manager else None
-    analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
+        # Analyze decision quality (works for both human and AI)
+        memory_manager = current_game_data.get('memory_manager')
+        hand_number = memory_manager.hand_count if memory_manager else None
+        analyze_player_decision(game_id, current_player.name, action, amount, state_machine, pre_action_state, hand_number, memory_manager)
 
-    record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
+        record_action_in_memory(current_game_data, current_player.name, action, amount, game_state, state_machine)
 
-    table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
-    send_message(game_id, "Table", table_message_content, "table")
+        table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+        send_message(game_id, "Table", table_message_content, "table")
 
-    game_state = advance_to_next_active_player(game_state)
-    state_machine.game_state = game_state
+        game_state = advance_to_next_active_player(game_state)
+        state_machine.game_state = game_state
 
-    current_game_data['state_machine'] = state_machine
-    game_state_service.set_game(game_id, current_game_data)
+        current_game_data['state_machine'] = state_machine
+        game_state_service.set_game(game_id, current_game_data)
 
-    owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-    persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-    if 'memory_manager' in current_game_data:
-        persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        if 'memory_manager' in current_game_data:
+            persistence.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
 
-    progress_game(game_id)
+        progress_game(game_id)
 
-    return jsonify({'success': True})
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error processing action for game {game_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to process action', 'message': str(e)}), 500
 
 
 @game_bp.route('/api/game/<game_id>/message', methods=['POST'])

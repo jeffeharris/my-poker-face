@@ -71,7 +71,12 @@ def create_app():
 
 
 def register_error_handlers(app: Flask) -> None:
-    """Register custom error handlers."""
+    """Register custom error handlers.
+
+    Flask-CORS only adds headers via after_request hooks, which are skipped
+    for unhandled exceptions. These handlers ensure error responses still
+    include CORS headers by returning proper JSON responses.
+    """
 
     @app.errorhandler(429)
     def ratelimit_handler(e):
@@ -80,6 +85,22 @@ def register_error_handlers(app: Flask) -> None:
             'message': str(e.description),
             'retry_after': e.retry_after if hasattr(e, 'retry_after') else None
         }), 429
+
+    @app.errorhandler(500)
+    def internal_error_handler(e):
+        logger.error(f"Internal server error: {e}", exc_info=True)
+        return jsonify({
+            'error': 'Internal server error',
+            'message': 'An unexpected error occurred'
+        }), 500
+
+    @app.errorhandler(Exception)
+    def unhandled_exception_handler(e):
+        logger.error(f"Unhandled exception: {e}", exc_info=True)
+        return jsonify({
+            'error': 'Internal server error',
+            'message': 'An unexpected error occurred'
+        }), 500
 
 
 def register_blueprints(app: Flask) -> None:
