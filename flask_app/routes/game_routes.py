@@ -1203,17 +1203,25 @@ def register_socket_events(sio):
 
     @sio.on('join_game')
     def on_join(game_id):
+        game_id_str = str(game_id)
+        game_data = game_state_service.get_game(game_id_str)
+        if not game_data:
+            return
+
+        # Verify the current user is the game owner
+        user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = game_data.get('owner_id')
+        if not user or user.get('id') != owner_id:
+            return
+
         join_room(game_id)
         logger.debug(f"[SOCKET] User joined room: {game_id}")
         socketio.emit('player_joined', {'message': 'A new player has joined!'}, to=game_id)
 
-        game_id_str = str(game_id)
-        game_data = game_state_service.get_game(game_id_str)
-        if game_data:
-            if not game_data.get('game_started', False):
-                game_data['game_started'] = True
-                logger.debug(f"[SOCKET] Starting game progression for: {game_id_str}")
-                progress_game(game_id_str)
+        if not game_data.get('game_started', False):
+            game_data['game_started'] = True
+            logger.debug(f"[SOCKET] Starting game progression for: {game_id_str}")
+            progress_game(game_id_str)
 
     @sio.on('player_action')
     def handle_player_action(data):
@@ -1228,7 +1236,17 @@ def register_socket_events(sio):
         if not current_game_data:
             return
 
+        # Verify the current user is the game owner
+        user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = current_game_data.get('owner_id')
+        if not user or user.get('id') != owner_id:
+            return
+
         state_machine = current_game_data['state_machine']
+
+        # Verify it's a human player's turn
+        if not state_machine.game_state.current_player.is_human:
+            return
 
         is_valid, error_message = validate_player_action(state_machine.game_state, action, amount)
         if not is_valid:
