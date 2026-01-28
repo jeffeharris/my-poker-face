@@ -13,8 +13,8 @@
 
 ## Phase 2: Re-verify Items (investigate, fix or dismiss)
 
-- [ ] T1-02: RE-VERIFY hand evaluator sort bug (line reference was wrong)
-- [ ] T1-03: RE-VERIFY two-pair kicker calculation
+- [x] T1-02: RE-VERIFY hand evaluator sort bug (line reference was wrong)
+- [x] T1-03: RE-VERIFY two-pair kicker calculation [Dismissed - kicker list with one element is correct for two-pair]
 - [ ] T1-04: RE-VERIFY + fix `_check_two_pair` count >= 2 -> == 2
 - [ ] T1-05: RE-VERIFY raise validation bypass (trace HTTP + socket paths)
 - [ ] T1-09: RE-VERIFY missing max_winnable data (check closure scope)
