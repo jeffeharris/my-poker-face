@@ -26,10 +26,10 @@ _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
 
 # Drama context messages for response intensity calibration
 DRAMA_CONTEXTS = {
-    'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
-    'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
-    'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
-    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
+    'routine': "RESPONSE STYLE: Minimal. Skip stage_direction or one brief beat max.",
+    'notable': "RESPONSE STYLE: Brief. One or two beats in stage_direction.",
+    'high_stakes': "RESPONSE STYLE: Expressive. Build your stage_direction with 2-3 beats.",
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in stage_direction - 3-5 beats, savor the reveal."
 }
 
 # Tone modifiers that append to drama context based on hand strength
@@ -650,7 +650,7 @@ RESPONSE_FORMAT = {
     "play_style": "OPTIONAL: Your current play style (tight/loose/aggressive/passive)",
     "new_confidence": "OPTIONAL: Updated confidence level (single word)",
     "new_attitude": "OPTIONAL: Updated emotional state (single word)",
-    "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
+    "stage_direction": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
 
     # PHASE 5: COMMITMENT (Final action - decided LAST after thinking it through)
     "action": "REQUIRED: Your final action from the provided options",
@@ -684,7 +684,7 @@ PERSONA_EXAMPLES = {
             "play_style": "tight",
             "new_confidence": "abysmal",
             "new_attitude": "gloomy",
-            "dramatic_sequence": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."],
+            "stage_direction": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."],
 
             # PHASE 5: COMMITMENT
             "action": "check",
@@ -714,7 +714,7 @@ PERSONA_EXAMPLES = {
             "play_style": "loose and aggressive",
             "new_confidence": "steady",
             "new_attitude": "determined",
-            "dramatic_sequence": ["*narrows eyes*", "Your move."],
+            "stage_direction": ["*narrows eyes*", "Your move."],
 
             # PHASE 5: COMMITMENT
             "action": "raise",

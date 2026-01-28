@@ -1,5 +1,5 @@
 name: end_of_hand_commentary
-version: 1.1.0
+version: 1.2.0
 sections:
   context: |-
     The hand just ended. Here's what happened:
@@ -31,11 +31,20 @@ sections:
       "emotional_reaction": "How you feel right now (1-2 sentences, in character)",
       "strategic_reflection": "Your thoughts on the hand (1-2 sentences)",
       "opponent_observations": ["PlayerName: updated read if changed, e.g. 'Trump: folds to aggression on scary boards'"],
-      "would_say_aloud": "Trash talk, heckling, celebration, or dig at opponents (or null if quiet)"
+      "stage_direction": ["*slams table*", "You thought THAT would work?!", "*leans back with a grin*"]
     }}
 
     For 'opponent_observations': Update your notes on players based on THIS hand. Format each as "PlayerName: observation". Only include if this hand gave you NEW insight - don't repeat what you already know. Keep observations short and actionable.
 
-    For 'would_say_aloud': If you won, rub it in. If you lost, save face or threaten revenge. If you're spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! Be an exaggerated caricature of yourself - use signature phrases. Only speak if chattiness ({chattiness}) > 0.4.
+    For 'stage_direction': Your visible reaction as a sequence of beats. Return null if quiet. Only speak if chattiness ({chattiness}) > 0.4.
+    FORMATTING RULES:
+    - Each beat is EITHER an action (*in asterisks*) OR speech (plain text) -- NEVER both in one beat
+    - Do NOT prefix beats with labels like "Beat 1:" or "Beat 2:"
+    - Do NOT prefix speech with your character name (NO "Ben: says words")
+    - Do NOT add extra quotation marks around speech (JSON string quoting is still required)
+    - Actions describe physical gestures: "*slams chips*", "*narrows eyes*"
+    - Speech is just words spoken: "You thought THAT would work?!"
+    If you won, rub it in. If you lost, save face or threaten revenge. If spectating, HECKLE - call out bad plays, mock the chip leader, needle your eliminator! Be an exaggerated caricature of yourself - use signature phrases. Reference opponents by name.
+    {drama_guidance}
 
     IMPORTANT: Vary your phrasing. Don't repeat phrases you've used before in this game.

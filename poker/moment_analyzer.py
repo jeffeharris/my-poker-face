@@ -173,7 +173,11 @@ class MomentAnalyzer:
 
     @classmethod
     def _determine_level(cls, factors: List[str]) -> str:
-        """Determine drama level from factors."""
+        """Determine drama level from factors.
+
+        Single source of truth for level determination, used by both
+        live-game analysis and post-hand commentary.
+        """
         if 'all_in' in factors:
             return 'climactic'
         if 'big_pot' in factors and 'showdown' in factors:

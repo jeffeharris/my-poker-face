@@ -1183,13 +1183,17 @@ def handle_ai_action(game_id: str) -> None:
         # Ensure amount is int (defensive - controllers.py should handle this, but be safe)
         amount = int(player_response_dict.get('raise_to', 0) or 0)
 
-        # Extract dramatic_sequence (new format) with fallback to legacy fields
-        dramatic_sequence = player_response_dict.get('dramatic_sequence', [])
-        if isinstance(dramatic_sequence, list) and dramatic_sequence:
+        # Extract stage_direction (new format) with fallback to legacy fields
+        stage_direction = player_response_dict.get('stage_direction', [])
+        if isinstance(stage_direction, list) and stage_direction:
             # Join beats with newlines for display
-            full_message = '\n'.join(dramatic_sequence)
+            full_message = '\n'.join(stage_direction)
+        elif isinstance(stage_direction, str) and stage_direction.strip():
+            # String format (LLM returned single string instead of list)
+            full_message = stage_direction.strip()
         else:
             # Legacy fallback: use persona_response + physical
+            logger.debug(f"[AI_ACTION] Legacy response format for {current_player.name} (no stage_direction)")
             player_message = player_response_dict.get('persona_response', '')
             player_physical_description = player_response_dict.get('physical', '')
             if isinstance(player_physical_description, list):
