@@ -431,10 +431,9 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     Sets all player action flags to False. Current player can be excluded from this action when they are betting and
     just other players should be reset.
     """
-    for player in game_state.players:
-        if player.name != game_state.current_player.name or not exclude_current_player:
-            game_state = game_state.update_player(player_idx=game_state.players.index(player),
-                                                  has_acted=False)
+    for idx, player in enumerate(game_state.players):
+        if idx != game_state.current_player_idx or not exclude_current_player:
+            game_state = game_state.update_player(player_idx=idx, has_acted=False)
     return game_state
 
 
@@ -670,6 +669,11 @@ def initialize_game_state(
     :param starting_stack: Starting chip stack for each player (default: 10000)
     :param big_blind: Starting big blind amount (default: 50)
     """
+    # Validate no duplicate names
+    all_names = [human_name] + list(player_names)
+    if len(all_names) != len(set(all_names)):
+        raise ValueError(f"Duplicate player names are not allowed: {all_names}")
+
     # Create a tuple of Human and AI players to be added to the game state
     ai_players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=starting_stack, is_human=True) for n in player_names)
