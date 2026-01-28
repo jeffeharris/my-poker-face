@@ -725,7 +725,7 @@ class AIPlayerController:
              if not p.is_folded and not p.is_all_in and p.name != game_state.current_player.name),
             default=0
         )
-        max_raise = min(player_stack, max_opponent_stack, game_state.pot['total'] * 2)
+        max_raise = min(player_stack, max_opponent_stack)
         # Collar min_raise to not exceed what's actually possible
         min_raise = min(game_state.min_raise_amount, max_raise) if max_raise > 0 else 0
 
