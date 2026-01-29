@@ -789,39 +789,14 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
             <div className="review-setting__label">Mode</div>
             <div className="review-setting__value" style={{ textTransform: 'capitalize' }}>{defaultGameMode}</div>
           </div>
-        </div>
-      </div>
-
-      {/* Model review */}
-      <div className="review-section">
-        <div className="review-section__header">
-          <h4 className="review-section__title">
-            <Cpu size={16} /> AI Model
-          </h4>
-          <button className="review-section__edit" onClick={() => { setStep(1); setShowAdvanced(true); }}>Edit</button>
-        </div>
-        <div className="review-settings-grid">
           <div className="review-setting">
-            <div className="review-setting__label">Provider</div>
-            <div className="review-setting__value" style={{ textTransform: 'capitalize' }}>{defaultProvider}</div>
-          </div>
-          <div className="review-setting">
-            <div className="review-setting__label">Model</div>
+            <div className="review-setting__label">AI Model</div>
             <div className="review-setting__value" style={{ fontSize: 'var(--font-size-sm)' }}>{defaultModel}</div>
           </div>
         </div>
       </div>
 
       {/* Start button */}
-      <div className="start-game-area">
-        <button
-          className="start-button"
-          onClick={handleStartGame}
-          disabled={filledCount === 0 || isCreatingGame}
-        >
-          {isCreatingGame ? 'Creating Game...' : `Deal Me In`}
-        </button>
-      </div>
     </div>
   );
 
@@ -830,7 +805,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   return (
     <>
       <MenuBar onBack={onBack} centerContent={renderStepIndicator()} showUserInfo onMainMenu={onBack} />
-      <PageLayout variant="top" glowColor="sapphire" maxWidth="lg" hasMenuBar className={step < 2 ? 'has-wizard-nav' : ''}>
+      <PageLayout variant="top" glowColor="sapphire" maxWidth="lg" hasMenuBar className="has-wizard-nav">
 
         <div className="wizard-content">
           {step === 0 && renderStep0()}
@@ -839,25 +814,35 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
         </div>
       </PageLayout>
 
-      {/* Navigation bar (fixed bottom - not shown on review step which has its own Start button) */}
-      {step < 2 && (
-        <div className="wizard-nav">
-          {step > 0 ? (
-            <button className="wizard-nav__btn wizard-nav__btn--back" onClick={goBack}>
-              <ArrowLeft size={16} /> Back
+      {/* Navigation bar (fixed bottom) */}
+      <div className="wizard-nav">
+        {step < 2 ? (
+          <>
+            {step > 0 ? (
+              <button className="wizard-nav__btn wizard-nav__btn--back" onClick={goBack}>
+                <ArrowLeft size={16} /> Back
+              </button>
+            ) : (
+              <div className="wizard-nav__spacer" />
+            )}
+            <button
+              className="wizard-nav__btn wizard-nav__btn--next"
+              onClick={goNext}
+              disabled={step === 0 && !canProceedStep0}
+            >
+              Next <ArrowRight size={16} />
             </button>
-          ) : (
-            <div className="wizard-nav__spacer" />
-          )}
+          </>
+        ) : (
           <button
-            className="wizard-nav__btn wizard-nav__btn--next"
-            onClick={goNext}
-            disabled={step === 0 && !canProceedStep0}
+            className="wizard-nav__btn wizard-nav__btn--next wizard-nav__btn--full"
+            onClick={handleStartGame}
+            disabled={filledCount === 0 || isCreatingGame}
           >
-            Next <ArrowRight size={16} />
+            {isCreatingGame ? 'Creating Game...' : 'Deal Me In'}
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {renderPicker()}
 
