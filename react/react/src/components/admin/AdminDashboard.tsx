@@ -208,7 +208,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
         {/* Content Header */}
         <header className="admin-main__header">
           <button
-            className="admin-main__back"
+            className="admin-main__back admin-back-button admin-back-button--icon"
             onClick={onBack}
             aria-label="Go back"
           >

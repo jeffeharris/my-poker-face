@@ -903,6 +903,14 @@
   /* When embedded in AdminMenuContainer, parent handles scrolling */
   .pm-container--embedded {
     display: block; /* Natural flow, parent scrolls */
+    padding-bottom: 100px; /* Space for fixed action bar */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pm-container--embedded .pm-sections {
+    flex: 1;
+    min-height: 0;
   }
 
   /* Action bar stays fixed even when embedded */
