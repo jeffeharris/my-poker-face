@@ -618,6 +618,23 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
         </div>
       </div>
 
+      {/* Game mode cards */}
+      <div className="game-mode-section">
+        <p className="presets-section__label">Game Mode</p>
+        <div className="game-mode-grid">
+          {GAME_MODES.map(gm => (
+            <button
+              key={gm.value}
+              className={`game-mode-card ${defaultGameMode === gm.value ? 'game-mode-card--selected' : ''}`}
+              onClick={() => setDefaultGameMode(gm.value)}
+            >
+              <div className="game-mode-card__name">{gm.label}</div>
+              <div className="game-mode-card__desc">{gm.description}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Advanced toggle */}
       <button className="advanced-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
         <Settings size={16} />
@@ -635,11 +652,6 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
               Game Settings
             </h4>
             <div className="settings-table">
-              <span className="setting-label">Game Mode</span>
-              <select className="setting-select" value={defaultGameMode} onChange={e => setDefaultGameMode(e.target.value)}>
-                {GAME_MODES.map(gm => <option key={gm.value} value={gm.value}>{gm.label} — {gm.description}</option>)}
-              </select>
-
               <span className="setting-label">Starting Stack</span>
               <select className="setting-select" value={startingStack} onChange={e => handleSettingChange(setStartingStack, parseInt(e.target.value))}>
                 {stackOptions.map(v => <option key={v} value={v}>{v.toLocaleString()}</option>)}
