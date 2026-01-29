@@ -15,9 +15,9 @@ from poker.poker_game import (
 )
 
 
-def _make_player(name="P", stack=1000, is_folded=False, is_all_in=False, has_acted=False):
+def _make_player(name="P", stack=1000, is_folded=False, is_all_in=False, has_acted=False, last_action=None):
     return Player(name=name, stack=stack, is_human=False, is_folded=is_folded,
-                  is_all_in=is_all_in, has_acted=has_acted)
+                  is_all_in=is_all_in, has_acted=has_acted, last_action=last_action)
 
 
 class TestGetNextActivePlayerIdx:
@@ -139,6 +139,19 @@ class TestSetBettingRoundStartPlayer:
         game_state = self._make_game_state(players, dealer_idx=0)
         result = set_betting_round_start_player(game_state)
         assert result is None
+
+    def test_clears_last_action_for_all_players(self):
+        """set_betting_round_start_player clears last_action so the UI starts clean."""
+        players = (
+            _make_player("A", last_action="raise"),
+            _make_player("B", last_action="call"),
+            _make_player("C", last_action="check"),
+        )
+        game_state = self._make_game_state(players, dealer_idx=0)
+        result = set_betting_round_start_player(game_state)
+        assert result is not None
+        for player in result.players:
+            assert player.last_action is None, f"{player.name} still has last_action={player.last_action}"
 
     def test_returns_none_when_no_active_players_postflop(self):
         """Returns None when all players are folded/all-in at post-flop."""

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
@@ -8,10 +8,12 @@ import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
+import { ActionBadge } from '../../shared';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import type { Player } from '../../../types/player';
+import '../../../styles/action-badges.css';
 import './PokerTable.css';
 
 interface PokerTableProps {
@@ -21,6 +23,11 @@ interface PokerTableProps {
 }
 
 export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
+
+  // Track last known actions for fade-out animation
+  const lastKnownActions = useRef<Map<string, string>>(new Map());
+  // Incrementing this state forces a re-render after the ref is mutated on fade completion
+  const [, setFadeKey] = useState(0);
 
   // Use the shared hook for all socket/state management
   const {
@@ -308,8 +315,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                         <div className="player-name">{player.name}</div>
                         <div className="player-stack">${player.stack}</div>
                         {player.bet > 0 && <div className="player-bet">Bet: ${player.bet}</div>}
-                        {player.is_folded && <div className="status">FOLDED</div>}
-                        {player.is_all_in && <div className="status">ALL-IN</div>}
+                        <ActionBadge
+                          player={player}
+                          lastKnownActions={lastKnownActions}
+                          onFadeComplete={() => setFadeKey(k => k + 1)}
+                        />
                       </div>
                     </div>
 

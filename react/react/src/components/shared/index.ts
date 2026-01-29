@@ -34,4 +34,7 @@ export type { UserDropdownProps } from './UserDropdown';
 
 export { LoadingOverlay } from './LoadingOverlay';
 
+export { ActionBadge } from './ActionBadge';
+export type { ActionBadgeProps } from './ActionBadge';
+
 export { ErrorBoundary } from '../ErrorBoundary';
