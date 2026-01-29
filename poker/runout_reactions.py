@@ -6,6 +6,11 @@ Since the deck is deterministic (pre-shuffled), we know exactly which cards will
 come at each street. We calculate equity at each stage and map notable swings to
 avatar emotions, personalized by each AI player's personality traits.
 
+Note: This system intentionally bypasses EmotionalState's dimensional model.
+During run-outs, equity swings happen rapidly per street, so we map equity
+deltas directly to display emotions rather than updating the slower-moving
+dimensional state. Overrides are cleared at hand end, restoring baseline behavior.
+
 Usage:
     schedule = compute_runout_reactions(game_state, ai_controllers)
     # schedule.reactions_by_phase = {
@@ -38,6 +43,9 @@ STOIC_THRESHOLD_OFFSET = 0.05       # Stoic personalities: 20%
 # Trait thresholds for personality classification
 HIGH_TRAIT = 0.7
 LOW_TRAIT = 0.3
+
+# Monte Carlo iterations for equity calculation during run-outs
+EQUITY_ITERATIONS = 2000  # Match DecisionAnalyzer; 2000 ≈ 20ms per calc
 
 
 @dataclass(frozen=True)
@@ -104,7 +112,7 @@ def compute_runout_reactions(
     if not streets:
         return ReactionSchedule()
 
-    calculator = EquityCalculator(monte_carlo_iterations=5000)
+    calculator = EquityCalculator(monte_carlo_iterations=EQUITY_ITERATIONS)
 
     # Calculate starting equity
     prev_equities = _safe_calculate_equity(calculator, players_hands, current_board)
@@ -198,6 +206,7 @@ def _remaining_streets(
         0: [('FLOP', 3), ('TURN', 1), ('RIVER', 1)],
         3: [('TURN', 1), ('RIVER', 1)],
         4: [('RIVER', 1)],
+        5: [],  # Board complete, no streets remain
     }
 
     plan = street_sequence.get(board_count, [])

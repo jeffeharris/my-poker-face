@@ -32,6 +32,16 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 
+def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
+    """Emit avatar update for a run-out reaction."""
+    avatar_url = get_avatar_url_with_fallback(game_id, player_name, emotion)
+    socketio.emit('avatar_update', {
+        'player_name': player_name,
+        'avatar_url': avatar_url,
+        'avatar_emotion': emotion,
+    }, to=game_id)
+
+
 def _feed_opponent_observations(memory_manager, observer: str, observations: List[str]) -> None:
     """Feed opponent observations from commentary into opponent models.
 
@@ -1105,12 +1115,7 @@ def progress_game(game_id: str) -> None:
                         if reaction.emotion == current_emotions.get(reaction.player_name):
                             continue  # Already showing this emotion
                         overrides[reaction.player_name] = reaction.emotion
-                        avatar_url = get_avatar_url_with_fallback(game_id, reaction.player_name, reaction.emotion)
-                        socketio.emit('avatar_update', {
-                            'player_name': reaction.player_name,
-                            'avatar_url': avatar_url,
-                            'avatar_emotion': reaction.emotion
-                        }, to=game_id)
+                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
                     current_game_data['runout_emotion_overrides'] = overrides
                     game_state_service.set_game(game_id, current_game_data)
 
@@ -1126,19 +1131,14 @@ def progress_game(game_id: str) -> None:
                 # Emit pre-computed avatar reactions for this street
                 reaction_schedule = current_game_data.get('runout_reaction_schedule')
                 if reaction_schedule:
-                    phase_name = state_machine.current_phase.name
+                    phase_name = current_phase.name
                     overrides = current_game_data.get('runout_emotion_overrides', {})
                     for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
                         current = overrides.get(reaction.player_name)
                         if current == reaction.emotion:
                             continue  # Already showing this emotion
                         overrides[reaction.player_name] = reaction.emotion
-                        avatar_url = get_avatar_url_with_fallback(game_id, reaction.player_name, reaction.emotion)
-                        socketio.emit('avatar_update', {
-                            'player_name': reaction.player_name,
-                            'avatar_url': avatar_url,
-                            'avatar_emotion': reaction.emotion
-                        }, to=game_id)
+                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
                     current_game_data['runout_emotion_overrides'] = overrides
                     game_state_service.set_game(game_id, current_game_data)
 

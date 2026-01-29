@@ -227,7 +227,7 @@ export function usePokerGame({
     // - The player has no avatar yet (initial generation)
     // - The generated emotion matches what the player is currently showing
     socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
-      console.log(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
+      logger.debug(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
       // Always cache — prevents losing URLs when emotions change during generation
       if (!avatarCacheRef.current[data.player_name]) {
         avatarCacheRef.current[data.player_name] = {};
