@@ -13,6 +13,132 @@
   padding: var(--space-4);
 }
 
+.us-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+
+/* ==========================================================================
+   Mobile: fill available height
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .admin-master-detail {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .admin-master-detail .admin-detail {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+/* ==========================================================================
+   Mobile Category Selector
+   ========================================================================== */
+
+.us-category-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.85);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.us-category-trigger:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.us-category-trigger__icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 193, 7, 0.8);
+}
+
+.us-category-trigger__label {
+  flex: 1;
+  text-align: left;
+}
+
+/* Bottom sheet category list */
+
+.us-category-sheet__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.us-category-sheet__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(248, 250, 252, 0.7);
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+
+.us-category-sheet__item:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.us-category-sheet__item--active {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.us-category-sheet__item-icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 193, 7, 0.7);
+}
+
+.us-category-sheet__item--active .us-category-sheet__item-icon {
+  color: rgba(255, 193, 7, 0.9);
+}
+
+.us-category-sheet__item-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.us-category-sheet__item-label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.us-category-sheet__item-desc {
+  font-size: 0.8125rem;
+  color: rgba(248, 250, 252, 0.4);
+}
+
+.us-category-sheet__item-check {
+  color: rgba(255, 193, 7, 0.8);
+  flex-shrink: 0;
+}
+
 /* ==========================================================================
    Master Panel Adjustments
    ========================================================================== */
@@ -405,9 +531,15 @@
 
 .us-capture__actions {
   display: flex;
+  justify-content: flex-end;
   gap: var(--space-3);
-  padding-top: var(--space-4);
+  padding: var(--space-4);
   border-top: 1px solid var(--admin-card-border);
+  background: var(--color-bg-elevated, #1a1a1f);
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  z-index: 10;
 }
 
 /* ==========================================================================
@@ -735,5 +867,149 @@
 
   .us-storage__total-value {
     font-size: 2rem;
+  }
+}
+
+/* ==========================================================================
+   Appearance / Deck Pack Picker
+   ========================================================================== */
+
+.us-appearance__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem;
+}
+
+.us-appearance__subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.25rem;
+}
+
+.us-appearance__packs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.us-deck-pack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--surface-secondary, rgba(255, 255, 255, 0.04));
+  border: 2px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.us-deck-pack:hover {
+  border-color: var(--border-secondary, rgba(255, 255, 255, 0.16));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+.us-deck-pack--active {
+  border-color: var(--accent-gold, #d4a574);
+  background: rgba(212, 165, 116, 0.08);
+}
+
+.us-deck-pack--active:hover {
+  border-color: var(--accent-gold, #d4a574);
+}
+
+/* Card preview row */
+.us-deck-pack__preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+/* Stacked aces container */
+.us-deck-pack__aces {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.us-deck-pack__ace-card {
+  width: 52px;
+  height: 75px;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: white;
+}
+
+.us-deck-pack__face-card {
+  width: 52px;
+  height: 75px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: white;
+}
+
+/* Pack info */
+.us-deck-pack__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.us-deck-pack__name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.us-deck-pack__desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.us-deck-pack__license {
+  font-size: 0.7rem;
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.4));
+}
+
+/* Selected check */
+.us-deck-pack__check {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-gold, #d4a574);
+  color: var(--surface-primary, #1a1a2e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .us-deck-pack__ace-card,
+  .us-deck-pack__face-card {
+    width: 42px;
+    height: 61px;
+  }
+
+  .us-deck-pack__aces .us-deck-pack__ace-card {
+    margin-left: -22px;
+  }
+
+  .us-deck-pack__aces .us-deck-pack__ace-card:first-child {
+    margin-left: 0;
   }
 }

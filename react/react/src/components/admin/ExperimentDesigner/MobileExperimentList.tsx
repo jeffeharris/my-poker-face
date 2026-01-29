@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Plus, Filter, RefreshCw, Check, Beaker, Archive } from 'lucide-react';
+import { Plus, RefreshCw, Check, Beaker, Archive } from 'lucide-react';
 import { ExperimentCard } from './ExperimentCard';
 import { MobileFilterSheet } from '../shared/MobileFilterSheet';
+import { MobileFilterBar } from '../shared/MobileFilterBar';
 import type { ExperimentSummary } from './types';
 import type { ExperimentStatus } from './experimentStatus';
 import './MobileExperimentList.css';
@@ -119,9 +120,6 @@ export function MobileExperimentList({
     };
   }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
 
-  // Get current filter label
-  const currentFilterLabel = FILTER_OPTIONS.find(o => o.value === statusFilter)?.label || 'All';
-
   // Handle filter selection
   const handleFilterSelect = (value: ExperimentStatus | 'all') => {
     onStatusFilterChange(value);
@@ -158,25 +156,21 @@ export function MobileExperimentList({
   return (
     <div className="mobile-experiment-list">
       {/* Filter bar */}
-      <div className="mobile-experiment-list__filter-bar">
-        <button
-          className="mobile-experiment-list__filter-btn"
-          onClick={() => setFilterSheetOpen(true)}
-          type="button"
-        >
-          <Filter size={16} />
-          <span>{currentFilterLabel}</span>
-        </button>
-        <button
-          className="mobile-experiment-list__refresh-btn"
-          onClick={onRefresh}
-          disabled={loading}
-          type="button"
-          aria-label="Refresh"
-        >
-          <RefreshCw size={18} className={loading ? 'mobile-experiment-list__spin' : ''} />
-        </button>
-      </div>
+      <MobileFilterBar
+        activeFilterCount={statusFilter !== 'all' ? 1 : 0}
+        onFilterClick={() => setFilterSheetOpen(true)}
+        actions={
+          <button
+            className="mobile-filter-bar__icon-btn"
+            onClick={onRefresh}
+            disabled={loading}
+            type="button"
+            aria-label="Refresh"
+          >
+            <RefreshCw size={18} className={loading ? 'mobile-experiment-list__spin' : ''} />
+          </button>
+        }
+      />
 
       {/* Pull-to-refresh indicator */}
       {isPulling && (

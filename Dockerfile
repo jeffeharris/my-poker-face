@@ -29,7 +29,7 @@ ENV FLASK_APP=flask_app.ui_web
 ENV PYTHONPATH=/app
 
 # Use entrypoint to run setup tasks before starting app
-ENTRYPOINT ["bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/app/bin/docker-entrypoint.sh"]
 
 # Run the Flask app
 CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=5000"]

@@ -112,7 +112,12 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
         <TemplateEditor embedded />
       )}
       {activeTab === 'settings' && (
-        <UnifiedSettings embedded />
+        <UnifiedSettings
+          embedded
+          onCategoryChange={(category) => {
+            window.history.replaceState(null, '', `/admin/settings/${category}`);
+          }}
+        />
       )}
       {activeTab === 'debug' && (
         <DebugTools embedded />
