@@ -521,18 +521,16 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       {isMobile && !showMobileDetail && (
         <div className="decision-analyzer__list-bar">
           <button
-            className="decision-analyzer__icon-btn"
+            className="decision-analyzer__filter-btn"
             onClick={() => setFilterSheetOpen(true)}
             type="button"
             aria-label="Filters"
           >
             <Filter size={20} />
-            {activeFilterCount > 0 && (
-              <span className="decision-analyzer__filter-badge">{activeFilterCount}</span>
-            )}
+            <span>{activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}</span>
           </button>
           <button
-            className="decision-analyzer__icon-btn"
+            className="decision-analyzer__refresh-btn"
             onClick={fetchCaptures}
             disabled={loading}
             type="button"
