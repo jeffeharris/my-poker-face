@@ -9,15 +9,51 @@ export interface Card {
   color: 'red' | 'black';
 }
 
-// Import all card images
-const cardImages = import.meta.glob('../assets/cards/*.png', { eager: true, as: 'url' });
+// Import card images for all packs
+const classicImages = import.meta.glob('../assets/cards/classic/*.png', { eager: true, query: '?url', import: 'default' });
+const standardImages = import.meta.glob('../assets/cards/standard/*.svg', { eager: true, query: '?url', import: 'default' });
+const englishImages = import.meta.glob('../assets/cards/english/*.svg', { eager: true, query: '?url', import: 'default' });
 
-// Generate image path for a card
+const PACK_IMAGES: Record<string, Record<string, string>> = {
+  classic: classicImages,
+  standard: standardImages,
+  english: englishImages,
+};
+
+
+const PACK_FORMATS: Record<string, string> = {
+  classic: 'png',
+  standard: 'svg',
+  english: 'svg',
+};
+
+// Active pack (read from localStorage, updated by useDeckPack hook)
+let _activePack = 'classic';
+try {
+  _activePack = localStorage.getItem('deckPack') || 'classic';
+} catch { /* SSR or unavailable */ }
+
+export function setActivePack(packId: string) {
+  _activePack = packId;
+}
+
+export function getActivePack(): string {
+  return _activePack;
+}
+
+// Generate image path for a card using the active pack
 function getCardImagePath(rank: string, suit: string): string {
+  return getCardImagePathForPack(rank, suit, _activePack);
+}
+
+// Generate image path for a card using a specific pack
+export function getCardImagePathForPack(rank: string, suit: string, packId: string): string {
   const rankCode = rank === '10' ? 'T' : rank;
   const suitCode = suit.charAt(0).toUpperCase();
-  const key = `../assets/cards/${rankCode}${suitCode}.png`;
-  return cardImages[key] || '';
+  const ext = PACK_FORMATS[packId] || 'png';
+  const images = PACK_IMAGES[packId] || PACK_IMAGES.classic;
+  const key = `../assets/cards/${packId}/${rankCode}${suitCode}.${ext}`;
+  return images[key] || '';
 }
 
 // Unicode playing card symbols (complete deck)

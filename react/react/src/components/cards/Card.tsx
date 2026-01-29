@@ -1,4 +1,5 @@
-import { type Card as CardType, parseCard, cardFromBackend } from '../../utils/cards';
+import { type Card as CardType, parseCard, cardFromBackend, getCardImagePathForPack } from '../../utils/cards';
+import { useDeckPack } from '../../hooks/useDeckPack';
 import { logger } from '../../utils/logger';
 import './Card.css';
 
@@ -16,6 +17,8 @@ interface CardProps {
 }
 
 export function Card({ card, faceDown = false, size = 'medium', className = '' }: CardProps) {
+  const { activePackId } = useDeckPack();
+
   // Handle different card input types
   let cardObj: CardType | null = null;
 
@@ -64,9 +67,12 @@ export function Card({ card, faceDown = false, size = 'medium', className = '' }
     );
   }
 
+  // Resolve image path for the active deck pack
+  const imagePath = getCardImagePathForPack(cardObj.rank, cardObj.suit, activePackId) || cardObj.imagePath;
+
   return (
     <div className={`playing-card image-card ${size} ${className}`}>
-      <img src={cardObj.imagePath} alt={`${cardObj.rank} of ${cardObj.suit}`} className="card-image" />
+      <img src={imagePath} alt={`${cardObj.rank} of ${cardObj.suit}`} className="card-image" />
     </div>
   );
 }

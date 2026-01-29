@@ -869,3 +869,147 @@
     font-size: 2rem;
   }
 }
+
+/* ==========================================================================
+   Appearance / Deck Pack Picker
+   ========================================================================== */
+
+.us-appearance__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem;
+}
+
+.us-appearance__subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.25rem;
+}
+
+.us-appearance__packs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.us-deck-pack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--surface-secondary, rgba(255, 255, 255, 0.04));
+  border: 2px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.us-deck-pack:hover {
+  border-color: var(--border-secondary, rgba(255, 255, 255, 0.16));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+.us-deck-pack--active {
+  border-color: var(--accent-gold, #d4a574);
+  background: rgba(212, 165, 116, 0.08);
+}
+
+.us-deck-pack--active:hover {
+  border-color: var(--accent-gold, #d4a574);
+}
+
+/* Card preview row */
+.us-deck-pack__preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+/* Stacked aces container */
+.us-deck-pack__aces {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.us-deck-pack__ace-card {
+  width: 52px;
+  height: 75px;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: white;
+}
+
+.us-deck-pack__face-card {
+  width: 52px;
+  height: 75px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: white;
+}
+
+/* Pack info */
+.us-deck-pack__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.us-deck-pack__name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.us-deck-pack__desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.us-deck-pack__license {
+  font-size: 0.7rem;
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.4));
+}
+
+/* Selected check */
+.us-deck-pack__check {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-gold, #d4a574);
+  color: var(--surface-primary, #1a1a2e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .us-deck-pack__ace-card,
+  .us-deck-pack__face-card {
+    width: 42px;
+    height: 61px;
+  }
+
+  .us-deck-pack__aces .us-deck-pack__ace-card {
+    margin-left: -22px;
+  }
+
+  .us-deck-pack__aces .us-deck-pack__ace-card:first-child {
+    margin-left: 0;
+  }
+}
