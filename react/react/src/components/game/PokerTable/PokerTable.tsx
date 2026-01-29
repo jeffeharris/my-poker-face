@@ -294,15 +294,31 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
                     <div className="player-info">
                       <div className="player-avatar">
-                        {player.avatar_url ? (
-                          <img
-                            src={`${config.API_URL}${player.avatar_url}`}
-                            alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
-                            className="avatar-image"
-                          />
-                        ) : (
-                          <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
-                        )}
+                        {(() => {
+                          // Show "thinking" avatar when AI is processing its turn
+                          const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
+                          let avatarUrl = player.avatar_url;
+                          let avatarEmotion = player.avatar_emotion || 'avatar';
+
+                          if (isAiThinking && avatarUrl) {
+                            // Swap emotion segment in URL: /api/avatar/{name}/{emotion}[/full]
+                            avatarUrl = avatarUrl.replace(
+                              /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
+                              '/api/avatar/$1/thinking$2'
+                            );
+                            avatarEmotion = 'thinking';
+                          }
+
+                          return avatarUrl ? (
+                            <img
+                              src={`${config.API_URL}${avatarUrl}`}
+                              alt={`${player.name} - ${avatarEmotion}`}
+                              className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
+                            />
+                          ) : (
+                            <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                          );
+                        })()}
                       </div>
                       <div className="player-details">
                         <div className="player-name">{player.name}</div>

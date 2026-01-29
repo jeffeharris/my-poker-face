@@ -15,7 +15,8 @@ from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.poker_game import determine_winner, play_turn, advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerPhase
 from poker.hand_evaluator import HandEvaluator
-from poker.character_images import get_full_avatar_url
+from poker.character_images import get_full_avatar_url, get_avatar_url
+from .avatar_handler import start_single_emotion_generation
 from poker.tilt_modifier import TiltState
 from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
@@ -223,6 +224,17 @@ def update_and_emit_game_state(game_id: str) -> None:
             controller = ai_controllers[player_name]
             display_emotion = controller.psychology.get_display_emotion()
             avatar_url = get_full_avatar_url(player_name, display_emotion)
+
+            # Fallback: if the requested emotion image isn't available yet,
+            # use thinking or confident (which are generated first)
+            if not avatar_url:
+                for fallback in ('thinking', 'confident'):
+                    avatar_url = get_full_avatar_url(player_name, fallback)
+                    if avatar_url:
+                        break
+                # Trigger on-demand generation for the missing emotion
+                start_single_emotion_generation(game_id, player_name, display_emotion)
+
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 

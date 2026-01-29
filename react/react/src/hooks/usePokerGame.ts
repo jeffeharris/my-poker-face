@@ -220,16 +220,27 @@ export function usePokerGame({
     });
 
     // Listen for avatar updates (when background generation completes)
+    // Only update the displayed avatar if:
+    // - The player has no avatar yet (initial generation)
+    // - The generated emotion matches what the player is currently showing
     socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
       setGameState(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          players: prev.players.map(player =>
-            player.name === data.player_name
-              ? { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion }
-              : player
-          )
+          players: prev.players.map(player => {
+            if (player.name !== data.player_name) return player;
+            // Always apply if player has no avatar yet
+            if (!player.avatar_url) {
+              return { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion };
+            }
+            // Apply if the generated emotion matches the player's current emotion
+            if (player.avatar_emotion === data.avatar_emotion) {
+              return { ...player, avatar_url: data.avatar_url };
+            }
+            // Otherwise, don't overwrite — the game state update will handle it
+            return player;
+          })
         };
       });
     });
