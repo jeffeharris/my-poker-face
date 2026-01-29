@@ -9,6 +9,7 @@ import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { ReplayResults } from './ReplayResults';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
 import { UnifiedSettings, type SettingsCategory } from './UnifiedSettings';
+import { AdminMenuContainer } from './AdminMenuContainer';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
@@ -551,13 +552,18 @@ function SettingsWrapper() {
   if (isMobile) {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <div className="admin-main__content admin-main__content--mobile">
-          <UnifiedSettings
-            embedded
-            initialCategory={validCategory}
-            onCategoryChange={handleCategoryChange}
-          />
-        </div>
+        <AdminMenuContainer
+          title="Settings"
+          onBack={handleBack}
+        >
+          <div className="admin-main__content admin-main__content--mobile">
+            <UnifiedSettings
+              embedded
+              initialCategory={validCategory}
+              onCategoryChange={handleCategoryChange}
+            />
+          </div>
+        </AdminMenuContainer>
       </div>
     );
   }
