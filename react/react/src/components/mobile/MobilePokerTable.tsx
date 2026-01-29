@@ -38,6 +38,10 @@ export function MobilePokerTable({
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
+  // Track last known actions for fade-out animation
+  const lastKnownActions = useRef<Map<string, string>>(new Map());
+  const [, setFadeKey] = useState(0);
+
   // Callbacks for handling AI messages (for floating bubbles)
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
     setRecentAiMessage(message);
@@ -294,8 +298,32 @@ export function MobilePokerTable({
                   ))}
                 </div>
               )}
-              {opponent.is_folded && <div className="status-badge folded">FOLD</div>}
-              {opponent.is_all_in && <div className="status-badge all-in">ALL-IN</div>}
+              {opponent.is_folded && (
+                <div className="action-badge action-fold">FOLD</div>
+              )}
+              {opponent.is_all_in && (
+                <div className="action-badge action-all_in">ALL-IN</div>
+              )}
+              {(() => {
+                if (opponent.is_folded || opponent.is_all_in) return null;
+                if (opponent.last_action) {
+                  lastKnownActions.current.set(opponent.name, opponent.last_action);
+                }
+                const displayAction = opponent.last_action || lastKnownActions.current.get(opponent.name);
+                const isFading = !opponent.last_action && !!displayAction;
+                if (!displayAction) return null;
+                return (
+                  <div
+                    className={`action-badge action-${displayAction} ${isFading ? 'fading' : ''}`}
+                    onAnimationEnd={isFading ? () => {
+                      lastKnownActions.current.delete(opponent.name);
+                      setFadeKey(k => k + 1);
+                    } : undefined}
+                  >
+                    {displayAction.toUpperCase()}
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
