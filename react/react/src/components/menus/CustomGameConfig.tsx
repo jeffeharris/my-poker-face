@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
-import { PageLayout, PageHeader, MenuBar } from '../shared';
+import { PageLayout, PageHeader, MenuBar, BottomSheet } from '../shared';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
 import { GAME_MODES } from '../../constants/gameModes';
@@ -180,14 +180,16 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const filledNames = slots.filter((s): s is string => s !== null);
 
   const fillRandomly = useCallback(() => {
-    const available = personalityNames.filter(n => !filledNames.includes(n));
-    const shuffled = [...available].sort(() => Math.random() - 0.5);
-    setSlots(prev => prev.map(slot => {
-      if (slot !== null) return slot;
-      const pick = shuffled.shift();
-      return pick ?? slot;
-    }));
-  }, [personalityNames, filledNames]);
+    setSlots(prev => {
+      const filled = prev.filter((s): s is string => s !== null);
+      const available = personalityNames.filter(n => !filled.includes(n));
+      const shuffled = [...available].sort(() => Math.random() - 0.5);
+      return prev.map(slot => {
+        if (slot !== null) return slot;
+        return shuffled.shift() ?? slot;
+      });
+    });
+  }, [personalityNames]);
 
   const shuffleAll = useCallback(() => {
     const available = personalityNames.sort(() => Math.random() - 0.5);
@@ -385,65 +387,58 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   // ─── Personality picker ────────────────────────────────────────────
 
-  const renderPicker = () => {
-    if (pickerSlotIndex === null) return null;
+  const closePicker = useCallback(() => { setPickerSlotIndex(null); setPickerSearch(''); }, []);
 
+  const renderPicker = () => {
     const filtered = Object.entries(allPersonalities).filter(([name]) =>
       name.toLowerCase().includes(pickerSearch.toLowerCase())
     );
 
     return (
-      <>
-        <div className="personality-picker-backdrop" onClick={() => { setPickerSlotIndex(null); setPickerSearch(''); }} />
-        <div className="personality-picker">
-          <div className="personality-picker__handle">
-            <div className="personality-picker__handle-bar" />
-          </div>
-          <div className="personality-picker__header">
-            <h3 className="personality-picker__title">Choose Personality</h3>
-            <button className="personality-picker__close" onClick={() => { setPickerSlotIndex(null); setPickerSearch(''); }}>
-              <X size={20} />
-            </button>
-          </div>
-          <div className="personality-picker__search">
-            <Search size={16} className="personality-picker__search-icon" />
-            <input
-              className="personality-picker__search-input"
-              type="text"
-              placeholder="Search personalities..."
-              value={pickerSearch}
-              onChange={e => setPickerSearch(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div className="personality-picker__list">
-            {filtered.length === 0 ? (
-              <div className="personality-picker__empty">No matches found</div>
-            ) : (
-              filtered.map(([name, p]) => {
-                const taken = filledNames.includes(name);
-                return (
-                  <button
-                    key={name}
-                    className={`personality-picker__item ${taken ? 'personality-picker__item--taken' : ''}`}
-                    onClick={() => !taken && assignSlot(pickerSlotIndex, name)}
-                    disabled={taken}
-                  >
-                    <div className="personality-picker__item-avatar">
-                      {name[0]}
-                    </div>
-                    <div className="personality-picker__item-info">
-                      <div className="personality-picker__item-name">{name}</div>
-                      <div className="personality-picker__item-style">{p.play_style}</div>
-                    </div>
-                    {taken && <span style={{ fontSize: '10px', color: 'var(--color-text-disabled)' }}>IN USE</span>}
-                  </button>
-                );
-              })
-            )}
-          </div>
+      <BottomSheet
+        isOpen={pickerSlotIndex !== null}
+        onClose={closePicker}
+        title="Choose Personality"
+        desktopMode="modal"
+      >
+        <div className="personality-picker__search">
+          <Search size={16} className="personality-picker__search-icon" />
+          <input
+            className="personality-picker__search-input"
+            type="text"
+            placeholder="Search personalities..."
+            value={pickerSearch}
+            onChange={e => setPickerSearch(e.target.value)}
+            autoFocus
+          />
         </div>
-      </>
+        <div className="personality-picker__list">
+          {filtered.length === 0 ? (
+            <div className="personality-picker__empty">No matches found</div>
+          ) : (
+            filtered.map(([name, p]) => {
+              const taken = filledNames.includes(name);
+              return (
+                <button
+                  key={name}
+                  className={`personality-picker__item ${taken ? 'personality-picker__item--taken' : ''}`}
+                  onClick={() => !taken && pickerSlotIndex !== null && assignSlot(pickerSlotIndex, name)}
+                  disabled={taken}
+                >
+                  <div className="personality-picker__item-avatar">
+                    {name[0]}
+                  </div>
+                  <div className="personality-picker__item-info">
+                    <div className="personality-picker__item-name">{name}</div>
+                    <div className="personality-picker__item-style">{p.play_style}</div>
+                  </div>
+                  {taken && <span style={{ fontSize: '10px', color: 'var(--color-text-disabled)' }}>IN USE</span>}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </BottomSheet>
     );
   };
 
@@ -606,7 +601,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
           {GAME_PRESETS.map(preset => (
             <button
               key={preset.id}
-              className={`preset-card ${selectedPreset === preset.id ? 'preset-card--selected' : ''}`}
+              className={`selectable-card preset-card ${selectedPreset === preset.id ? 'selectable-card--selected' : ''}`}
               onClick={() => applyPreset(preset)}
             >
               {selectedPreset === 'custom' && <span className="preset-card__custom-badge">Custom</span>}
@@ -625,7 +620,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
           {GAME_MODES.map(gm => (
             <button
               key={gm.value}
-              className={`game-mode-card ${defaultGameMode === gm.value ? 'game-mode-card--selected' : ''}`}
+              className={`selectable-card game-mode-card ${defaultGameMode === gm.value ? 'selectable-card--selected' : ''}`}
               onClick={() => setDefaultGameMode(gm.value)}
             >
               <div className="game-mode-card__name">{gm.label}</div>
@@ -863,26 +858,18 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
         const useDefaults = !hasCustom;
         const curProvider = opponentConfigs[configName]?.provider || defaultProvider;
         return (
-          <>
-            <div className="config-sheet-backdrop" onClick={() => setExpandedConfigSlot(null)} />
-            <div className="config-sheet">
-              <div className="config-sheet__handle" />
-              <div className="config-sheet__header">
-                <h3 className="config-sheet__title">
-                  <Settings size={18} /> {configName} — AI Settings
-                </h3>
-                <button className="config-sheet__close" onClick={() => setExpandedConfigSlot(null)}>
-                  <X size={20} />
-                </button>
-              </div>
+          <BottomSheet
+            isOpen
+            onClose={() => setExpandedConfigSlot(null)}
+            title={<><Settings size={18} /> {configName} — AI Settings</>}
+          >
+            <div className="config-sheet__content">
               <div
                 className="config-sheet__defaults-toggle"
                 onClick={() => {
                   if (useDefaults) {
-                    // Switch to custom: seed with current defaults
                     handleOpponentConfigChange(configName, 'provider', defaultProvider);
                   } else {
-                    // Switch to defaults: clear custom config
                     resetOpponentConfig(configName);
                   }
                 }}
@@ -944,7 +931,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                 </div>
               </div>
             </div>
-          </>
+          </BottomSheet>
         );
       })()}
     </>

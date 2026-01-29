@@ -111,18 +111,7 @@
 }
 
 .wizard-step-panel {
-  animation: stepFadeIn 0.4s var(--ease-out-expo);
-}
-
-@keyframes stepFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  animation: slideUp 0.4s var(--ease-out-expo);
 }
 
 /* ===========================================
@@ -291,7 +280,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  animation: stepFadeIn 0.2s ease-out;
+  animation: fadeIn 0.2s ease-out;
 }
 
 .theme-modal {
@@ -306,10 +295,6 @@
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 }
 
-@keyframes modalSlideUp {
-  from { opacity: 0; transform: translateY(24px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
 
 .theme-modal__header {
   display: flex;
@@ -607,75 +592,9 @@
   box-shadow: 0 0 8px rgba(212, 165, 116, 0.4);
 }
 
-/* LLM config bottom sheet */
-.config-sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  animation: stepFadeIn 0.2s ease-out;
-}
-
-.config-sheet {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100dvw;
-  z-index: 1000;
-  background: var(--color-bg-surface);
-  border-top: 1px solid var(--color-border-default);
-  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
-  padding: var(--space-3) var(--space-5) var(--space-6);
-  animation: sheetSlideUp 0.3s var(--ease-out-expo);
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
-}
-
-@keyframes sheetSlideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
-.config-sheet__handle {
-  width: 36px;
-  height: 4px;
-  background: var(--color-border-default);
-  border-radius: var(--radius-full);
-  margin: 0 auto var(--space-4);
-}
-
-.config-sheet__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-5);
-}
-
-.config-sheet__title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-display);
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  margin: 0;
-}
-
-.config-sheet__close {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  transition: all 0.2s;
-}
-
-.config-sheet__close:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-surface-hover);
+/* LLM config sheet content */
+.config-sheet__content {
+  padding: 0 var(--space-5) var(--space-6);
 }
 
 .config-sheet__body {
@@ -726,25 +645,6 @@
   border-color: var(--color-border-focus);
 }
 
-.config-sheet__reset {
-  margin-top: var(--space-2);
-  padding: var(--space-3);
-  background: transparent;
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-display);
-  cursor: pointer;
-  transition: var(--transition-all-base);
-  text-align: center;
-}
-
-.config-sheet__reset:hover {
-  border-color: var(--color-ruby);
-  color: var(--color-ruby);
-  background: var(--color-ruby-muted);
-}
 
 /* Use defaults toggle */
 .config-sheet__defaults-toggle {
@@ -803,119 +703,8 @@
 }
 
 /* ===========================================
-   PERSONALITY PICKER (bottom sheet / dropdown)
+   PERSONALITY PICKER (content styles)
    =========================================== */
-.personality-picker-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  z-index: var(--z-modal, 1000);
-  animation: backdropFadeIn 0.2s ease-out;
-}
-
-@keyframes backdropFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.personality-picker {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  max-height: 75dvh;
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
-  z-index: calc(var(--z-modal, 1000) + 1);
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
-  animation: sheetSlideUp 0.4s var(--ease-out-expo);
-}
-
-@keyframes sheetSlideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-
-/* Desktop: centered modal instead of bottom sheet */
-@media (min-width: 768px) {
-  .personality-picker {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    bottom: auto;
-    right: auto;
-    width: 90%;
-    max-width: 560px;
-    max-height: 70vh;
-    border-radius: var(--radius-2xl);
-    animation: modalFadeIn 0.3s var(--ease-out-expo);
-  }
-
-  @keyframes modalFadeIn {
-    from {
-      opacity: 0;
-      transform: translate(-50%, -48%);
-    }
-    to {
-      opacity: 1;
-      transform: translate(-50%, -50%);
-    }
-  }
-}
-
-.personality-picker__handle {
-  padding: var(--space-3) 0;
-  display: flex;
-  justify-content: center;
-}
-
-.personality-picker__handle-bar {
-  width: 40px;
-  height: 4px;
-  background: var(--color-text-disabled);
-  border-radius: var(--radius-full);
-}
-
-@media (min-width: 768px) {
-  .personality-picker__handle {
-    display: none;
-  }
-}
-
-.personality-picker__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 var(--space-5) var(--space-3);
-}
-
-.personality-picker__title {
-  font-family: var(--font-display);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  margin: 0;
-}
-
-.personality-picker__close {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  transition: all 0.2s;
-}
-
-.personality-picker__close:hover {
-  background: var(--color-bg-surface-hover);
-  color: var(--color-text-primary);
-}
-
 .personality-picker__search {
   position: relative;
   padding: 0 var(--space-5) var(--space-3);
@@ -1055,16 +844,10 @@
   }
 }
 
-.preset-card {
+/* Shared selectable card base */
+.selectable-card {
   background: var(--gradient-card);
   border: 2px solid var(--color-border-default);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5);
-  min-height: 22dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   cursor: pointer;
   transition: all 0.3s var(--ease-out-expo);
   text-align: center;
@@ -1072,18 +855,16 @@
   overflow: hidden;
 }
 
-.preset-card:hover {
+.selectable-card:hover {
   border-color: var(--color-border-hover);
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-lg);
 }
 
-.preset-card--selected {
+.selectable-card--selected {
   border-color: var(--color-gold);
   box-shadow: var(--glow-gold);
 }
 
-.preset-card--selected::before {
+.selectable-card--selected::before {
   content: '';
   position: absolute;
   top: 0;
@@ -1091,6 +872,22 @@
   right: 0;
   height: 3px;
   background: var(--gradient-gold);
+}
+
+/* Preset cards (large portrait) */
+.preset-card {
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  min-height: 22dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.preset-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
 }
 
 .preset-card__icon {
@@ -1126,7 +923,7 @@
   letter-spacing: var(--letter-spacing-wider);
 }
 
-/* Game mode cards */
+/* Game mode cards (compact) */
 .game-mode-section {
   margin-bottom: var(--space-3);
 }
@@ -1138,36 +935,17 @@
 }
 
 .game-mode-card {
-  background: var(--gradient-card);
-  border: 2px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-2);
-  cursor: pointer;
-  transition: all 0.3s var(--ease-out-expo);
-  text-align: center;
-  position: relative;
-  overflow: hidden;
 }
 
 .game-mode-card:hover {
-  border-color: var(--color-border-hover);
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
 
-.game-mode-card--selected {
-  border-color: var(--color-gold);
-  box-shadow: var(--glow-gold);
-}
-
 .game-mode-card--selected::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
   height: 2px;
-  background: var(--gradient-gold);
 }
 
 .game-mode-card__name {
@@ -1233,7 +1011,7 @@
 
 /* Advanced settings panel */
 .advanced-panel {
-  animation: stepFadeIn 0.3s var(--ease-out-expo);
+  animation: slideUp 0.3s var(--ease-out-expo);
 }
 
 .settings-section {
@@ -1639,10 +1417,6 @@
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin-bottom: var(--space-3);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .wizard-error {

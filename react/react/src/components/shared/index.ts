@@ -8,6 +8,9 @@
 export { BackButton } from './BackButton';
 export type { BackButtonProps } from './BackButton';
 
+export { BottomSheet } from './BottomSheet';
+export type { BottomSheetProps } from './BottomSheet';
+
 export { PageHeader } from './PageHeader';
 export type { PageHeaderProps } from './PageHeader';
 
