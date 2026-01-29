@@ -54,6 +54,8 @@ interface CaptureSettingsData {
 interface SystemSettingsData {
   DEFAULT_PROVIDER: SettingConfig;
   DEFAULT_MODEL: SettingConfig;
+  FAST_PROVIDER: SettingConfig;
+  FAST_MODEL: SettingConfig;
   IMAGE_PROVIDER: SettingConfig;
   IMAGE_MODEL: SettingConfig;
   ASSISTANT_PROVIDER: SettingConfig;
@@ -158,6 +160,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   const [systemSettings, setSystemSettings] = useState<SystemSettingsData | null>(null);
   const [systemLoading, setSystemLoading] = useState(true);
   const [editedGeneralModel, setEditedGeneralModel] = useState('');    // "openai:gpt-5-nano"
+  const [editedFastModel, setEditedFastModel] = useState('');          // "openai:gpt-5-nano"
   const [editedImageModel, setEditedImageModel] = useState('');        // "runware:runware:101@1"
   const [editedAssistantModel, setEditedAssistantModel] = useState(''); // "deepseek:deepseek-reasoner"
   const [systemSaving, setSystemSaving] = useState(false);
@@ -273,6 +276,10 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
   // Image: models that support image generation
   const imageModels = useMemo(() =>
     models?.filter(m => m.enabled && m.supports_image_gen) || [], [models]);
+
+  // Fast: all enabled models (same pool as general)
+  const fastModels = useMemo(() =>
+    models?.filter(m => m.enabled) || [], [models]);
 
   // Reasoning: models that support reasoning
   const reasoningModels = useMemo(() =>
@@ -393,6 +400,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         setSystemSettings(settings);
         // Initialize edited values as "provider:model" combined strings
         setEditedGeneralModel(`${settings.DEFAULT_PROVIDER.value}:${settings.DEFAULT_MODEL.value}`);
+        setEditedFastModel(`${settings.FAST_PROVIDER.value}:${settings.FAST_MODEL.value}`);
         setEditedImageModel(`${settings.IMAGE_PROVIDER.value}:${settings.IMAGE_MODEL.value}`);
         setEditedAssistantModel(`${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`);
       } else {
@@ -426,6 +434,23 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: 'DEFAULT_MODEL', value: generalModel }),
+        }));
+      }
+
+      // Parse fast model
+      const [fastProvider, ...fastModelParts] = editedFastModel.split(':');
+      const fastModel = fastModelParts.join(':');
+      const originalFast = `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}`;
+      if (editedFastModel !== originalFast) {
+        updates.push(adminFetch(`/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'FAST_PROVIDER', value: fastProvider }),
+        }));
+        updates.push(adminFetch(`/admin/api/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'FAST_MODEL', value: fastModel }),
         }));
       }
 
@@ -479,6 +504,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
       // Reset all system settings to defaults
       const keys = [
         'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+        'FAST_PROVIDER', 'FAST_MODEL',
         'IMAGE_PROVIDER', 'IMAGE_MODEL',
         'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
       ];
@@ -500,6 +526,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
   const hasSystemChanges = systemSettings && (
     editedGeneralModel !== `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
+    editedFastModel !== `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}` ||
     editedImageModel !== `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
     editedAssistantModel !== `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`
   );
@@ -633,12 +660,21 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
             <div className="us-defaults-grid">
               {renderModelSelectorCard(
                 'General',
-                'Chat suggestions, themes, general use',
+                'Personality generation, commentary, game support',
                 editedGeneralModel,
                 setEditedGeneralModel,
                 generalModels,
                 systemSettings.DEFAULT_PROVIDER,
                 systemSettings.DEFAULT_MODEL
+              )}
+              {renderModelSelectorCard(
+                'Fast',
+                'Chat suggestions, categorization, quick tasks',
+                editedFastModel,
+                setEditedFastModel,
+                fastModels,
+                systemSettings.FAST_PROVIDER,
+                systemSettings.FAST_MODEL
               )}
               {renderModelSelectorCard(
                 'Image',
@@ -651,7 +687,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
               )}
               {renderModelSelectorCard(
                 'Assistant',
-                'Experiment design reasoning',
+                'Experiment design, analysis, theme generation',
                 editedAssistantModel,
                 setEditedAssistantModel,
                 reasoningModels,
@@ -669,6 +705,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
               <h3 className="us-defaults-section__title">System Models</h3>
             </div>
             <div className="us-defaults-grid us-defaults-grid--loading">
+              <div className="us-default-card us-default-card--skeleton" />
               <div className="us-default-card us-default-card--skeleton" />
               <div className="us-default-card us-default-card--skeleton" />
               <div className="us-default-card us-default-card--skeleton" />

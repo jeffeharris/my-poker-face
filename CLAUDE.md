@@ -245,10 +245,10 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
 
 2. **Usage Examples**:
    ```python
-   # Stateless call (e.g., generating personalities)
+   # Stateless call with specific provider/model
    from core.llm import LLMClient, CallType
 
-   client = LLMClient()
+   client = LLMClient(provider="openai", model="gpt-5-nano")
    response = client.complete(
        messages=[{"role": "user", "content": "Hello"}],
        json_format=True,
@@ -269,7 +269,34 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
 
 3. **Provider Support**: OpenAI, Anthropic, Groq, DeepSeek, Mistral, Google, xAI
 
-4. **Tracking Data**: All API calls are logged to `api_usage` table with:
+4. **Model Tiers**: Four configuration tiers control which model handles each type of work:
+
+   | Tier | Config Constants | Description |
+   |---|---|---|
+   | Default | `DEFAULT_PROVIDER`, `DEFAULT_MODEL` | Personality generation, commentary, game support |
+   | Fast | `FAST_PROVIDER`, `FAST_MODEL` | Chat suggestions, categorization, quick tasks |
+   | Image | `IMAGE_PROVIDER`, `IMAGE_MODEL` | AI player avatar generation |
+   | Assistant | `ASSISTANT_PROVIDER`, `ASSISTANT_MODEL` | Experiment design, analysis, theme generation |
+
+   **CallType → Tier mapping**:
+
+   | CallType | Tier | Notes |
+   |---|---|---|
+   | `PLAYER_DECISION` | Per-game | Set by user in game UI |
+   | `COMMENTARY` | Default | |
+   | `CHAT_SUGGESTION` | Fast | |
+   | `CATEGORIZATION` | Fast | |
+   | `PERSONALITY_GENERATION` | Default | |
+   | `PERSONALITY_PREVIEW` | Default | |
+   | `THEME_GENERATION` | Default | |
+   | `IMAGE_GENERATION` | Image | |
+   | `IMAGE_DESCRIPTION` | Default | |
+   | `EXPERIMENT_DESIGN` | Assistant | |
+   | `EXPERIMENT_ANALYSIS` | Assistant | |
+   | `DEBUG_REPLAY` | User-specified | |
+   | `DEBUG_INTERROGATE` | User-specified | |
+
+5. **Tracking Data**: All API calls are logged to `api_usage` table with:
    - Token counts (input, output, cached, reasoning)
    - Latency, model, provider
    - Game context (game_id, owner_id, player_name, hand_number)

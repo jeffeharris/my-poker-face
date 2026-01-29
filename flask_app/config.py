@@ -2,6 +2,7 @@
 
 import os
 from functools import lru_cache
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -45,9 +46,8 @@ RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALIT
 REDIS_URL = os.environ.get('REDIS_URL')
 
 # AI model configuration - import from centralized config
-from core.llm import FAST_MODEL as FAST_AI_MODEL
 from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
-from core.llm.config import DEFAULT_MODEL
+from core.llm.config import DEFAULT_MODEL, DEFAULT_PROVIDER, FAST_MODEL, FAST_PROVIDER, IMAGE_PROVIDER, IMAGE_MODEL
 
 
 @lru_cache(maxsize=1)
@@ -63,55 +63,50 @@ def _get_config_persistence():
     pools, cached transactions, etc.), this caching pattern must be revisited.
     """
     from poker.persistence import GamePersistence
-    return GamePersistence()
+    return GamePersistence(DB_PATH)
+
+
+def _get_setting(key: str, default: str) -> str:
+    """Get a setting value from DB, falling back to the provided default.
+
+    Priority: 1. Database (app_settings), 2. default (from core.llm.config / env)
+    """
+    p = _get_config_persistence()
+    db_value = p.get_setting(key, '')
+    return db_value if db_value else default
 
 
 def get_default_provider() -> str:
-    """Get the default LLM provider from app_settings or environment.
-
-    Priority: 1. Database (app_settings), 2. Default ('openai')
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('DEFAULT_PROVIDER', '')
-    if db_value:
-        return db_value
-    return 'openai'
+    return _get_setting('DEFAULT_PROVIDER', DEFAULT_PROVIDER)
 
 
 def get_default_model() -> str:
-    """Get the default LLM model from app_settings or environment.
+    return _get_setting('DEFAULT_MODEL', DEFAULT_MODEL)
 
-    Priority: 1. Database (app_settings), 2. core.llm.config.DEFAULT_MODEL
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('DEFAULT_MODEL', '')
-    if db_value:
-        return db_value
-    return DEFAULT_MODEL
+
+def get_fast_provider() -> str:
+    return _get_setting('FAST_PROVIDER', FAST_PROVIDER)
+
+
+def get_fast_model() -> str:
+    return _get_setting('FAST_MODEL', FAST_MODEL)
 
 
 def get_assistant_provider() -> str:
-    """Get the assistant provider from app_settings or environment.
-
-    Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_PROVIDER
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('ASSISTANT_PROVIDER', '')
-    if db_value:
-        return db_value
-    return ASSISTANT_PROVIDER
+    return _get_setting('ASSISTANT_PROVIDER', ASSISTANT_PROVIDER)
 
 
 def get_assistant_model() -> str:
-    """Get the assistant model from app_settings or environment.
+    return _get_setting('ASSISTANT_MODEL', ASSISTANT_MODEL)
 
-    Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_MODEL
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('ASSISTANT_MODEL', '')
-    if db_value:
-        return db_value
-    return ASSISTANT_MODEL
+
+def get_image_provider() -> str:
+    return _get_setting('IMAGE_PROVIDER', IMAGE_PROVIDER)
+
+
+def get_image_model() -> str:
+    return _get_setting('IMAGE_MODEL', IMAGE_MODEL)
+
 
 # Database path
 def get_db_path():

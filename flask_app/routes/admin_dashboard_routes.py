@@ -1302,6 +1302,14 @@ def debug_page():
 
 # =============================================================================
 # App Settings API
+
+VALID_SETTING_KEYS = {
+    'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
+    'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
+    'FAST_PROVIDER', 'FAST_MODEL',
+    'IMAGE_PROVIDER', 'IMAGE_MODEL',
+    'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+}
 # =============================================================================
 
 @admin_dashboard_bp.route('/api/settings')
@@ -1323,6 +1331,7 @@ def api_get_settings():
     )
     from core.llm.config import (
         DEFAULT_MODEL, ASSISTANT_MODEL, ASSISTANT_PROVIDER,
+        FAST_MODEL, FAST_PROVIDER,
     )
 
     try:
@@ -1341,6 +1350,8 @@ def api_get_settings():
         default_model = persistence.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
         image_provider = persistence.get_setting('IMAGE_PROVIDER', '') or os.environ.get('IMAGE_PROVIDER', 'openai')
         image_model = persistence.get_setting('IMAGE_MODEL', '') or os.environ.get('IMAGE_MODEL', '')
+        fast_provider = persistence.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
+        fast_model = persistence.get_setting('FAST_MODEL', '') or FAST_MODEL
         assistant_provider = persistence.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
         assistant_model = persistence.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
 
@@ -1368,9 +1379,21 @@ def api_get_settings():
             },
             'DEFAULT_MODEL': {
                 'value': default_model,
-                'description': 'Default LLM model for chat suggestions, themes, etc.',
+                'description': 'Default LLM model for personality generation, commentary, game support',
                 'env_default': DEFAULT_MODEL,
                 'is_db_override': 'DEFAULT_MODEL' in db_settings,
+            },
+            'FAST_PROVIDER': {
+                'value': fast_provider,
+                'description': 'Provider for chat suggestions, categorization, quick tasks',
+                'env_default': FAST_PROVIDER,
+                'is_db_override': 'FAST_PROVIDER' in db_settings,
+            },
+            'FAST_MODEL': {
+                'value': fast_model,
+                'description': 'Fast model for chat suggestions, categorization, quick tasks',
+                'env_default': FAST_MODEL,
+                'is_db_override': 'FAST_MODEL' in db_settings,
             },
             'IMAGE_PROVIDER': {
                 'value': image_provider,
@@ -1386,13 +1409,13 @@ def api_get_settings():
             },
             'ASSISTANT_PROVIDER': {
                 'value': assistant_provider,
-                'description': 'Provider for experiment design assistant (reasoning)',
+                'description': 'Provider for experiment design, analysis, theme generation',
                 'env_default': ASSISTANT_PROVIDER,
                 'is_db_override': 'ASSISTANT_PROVIDER' in db_settings,
             },
             'ASSISTANT_MODEL': {
                 'value': assistant_model,
-                'description': 'Reasoning model for experiment design assistant',
+                'description': 'Model for experiment design, analysis, theme generation',
                 'env_default': ASSISTANT_MODEL,
                 'is_db_override': 'ASSISTANT_MODEL' in db_settings,
             },
@@ -1429,13 +1452,7 @@ def api_update_setting():
         value = str(data['value'])
 
         # Validate setting key and value
-        valid_keys = {
-            'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
-            'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
-            'IMAGE_PROVIDER', 'IMAGE_MODEL',
-            'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
-        }
-        if key not in valid_keys:
+        if key not in VALID_SETTING_KEYS:
             return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
         # Validate values based on key
@@ -1467,11 +1484,13 @@ def api_update_setting():
             'LLM_PROMPT_CAPTURE': 'Controls which LLM calls are captured for debugging',
             'LLM_PROMPT_RETENTION_DAYS': 'Days to keep captures (0 = unlimited)',
             'DEFAULT_PROVIDER': 'Default LLM provider for general use',
-            'DEFAULT_MODEL': 'Default LLM model for chat suggestions, themes, etc.',
+            'DEFAULT_MODEL': 'Default LLM model for personality generation, commentary, game support',
+            'FAST_PROVIDER': 'Provider for chat suggestions, categorization, quick tasks',
+            'FAST_MODEL': 'Fast model for chat suggestions, categorization, quick tasks',
             'IMAGE_PROVIDER': 'Provider for generating AI player avatars',
             'IMAGE_MODEL': 'Model for generating AI player avatars',
-            'ASSISTANT_PROVIDER': 'Provider for experiment design assistant (reasoning)',
-            'ASSISTANT_MODEL': 'Reasoning model for experiment design assistant',
+            'ASSISTANT_PROVIDER': 'Provider for experiment design, analysis, theme generation',
+            'ASSISTANT_MODEL': 'Model for experiment design, analysis, theme generation',
         }
 
         success = persistence.set_setting(key, value, descriptions.get(key))
@@ -1505,13 +1524,7 @@ def api_reset_settings():
 
         if key:
             # Reset specific setting
-            valid_keys = {
-                'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
-                'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
-                'IMAGE_PROVIDER', 'IMAGE_MODEL',
-                'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
-            }
-            if key not in valid_keys:
+            if key not in VALID_SETTING_KEYS:
                 return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
             success = persistence.delete_setting(key)
@@ -1523,13 +1536,7 @@ def api_reset_settings():
         else:
             # Reset all settings
             deleted_count = 0
-            all_setting_keys = [
-                'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
-                'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
-                'IMAGE_PROVIDER', 'IMAGE_MODEL',
-                'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
-            ]
-            for k in all_setting_keys:
+            for k in VALID_SETTING_KEYS:
                 if persistence.delete_setting(k):
                     deleted_count += 1
 

@@ -1956,7 +1956,7 @@ IMPORTANT - Response style:
         llm_messages.append({"role": "user", "content": message})
 
         # Call LLM
-        client = LLMClient()
+        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider())
         response = client.complete(
             messages=llm_messages,
             call_type=CallType.CHAT_SUGGESTION,

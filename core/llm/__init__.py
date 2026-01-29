@@ -29,12 +29,15 @@ Quick Start:
 
 from .config import (
     DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     FAST_MODEL,
+    FAST_PROVIDER,
     ASSISTANT_MODEL,
     ASSISTANT_PROVIDER,
     DEFAULT_REASONING_EFFORT,
     AVAILABLE_MODELS,
-    DEFAULT_IMAGE_MODEL,
+    IMAGE_PROVIDER,
+    IMAGE_MODEL,
     # Provider config
     AVAILABLE_PROVIDERS,
     PROVIDER_MODELS,
@@ -55,12 +58,15 @@ from .tokenizer import count_tokens
 __all__ = [
     # Config
     "DEFAULT_MODEL",
+    "DEFAULT_PROVIDER",
     "FAST_MODEL",
+    "FAST_PROVIDER",
     "ASSISTANT_MODEL",
     "ASSISTANT_PROVIDER",
     "DEFAULT_REASONING_EFFORT",
     "AVAILABLE_MODELS",
-    "DEFAULT_IMAGE_MODEL",
+    "IMAGE_PROVIDER",
+    "IMAGE_MODEL",
     # Provider config
     "AVAILABLE_PROVIDERS",
     "PROVIDER_MODELS",
