@@ -737,66 +737,76 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const activePreset = GAME_PRESETS.find(p => p.id === selectedPreset);
 
   const renderStep2 = () => (
-    <div className="wizard-step-panel" key="step-2">
-      {/* Opponents review */}
-      <div className="review-section">
-        <div className="review-section__header">
-          <h4 className="review-section__title">
-            <Users size={16} /> Opponents ({filledCount})
-          </h4>
-          <button className="review-section__edit" onClick={() => setStep(0)}>Edit</button>
+    <div className="wizard-step-panel review-confirm" key="step-2">
+      {/* Opponents */}
+      <div className="review-block">
+        <div className="review-block__bar">
+          <span className="review-block__label"><Users size={14} /> Opponents</span>
+          <button className="review-block__edit" onClick={() => setStep(0)}>Edit</button>
         </div>
-        <div className="review-players">
-          {slots.filter((s): s is string => s !== null).map(name => (
-            <div key={name} className="review-player">
-              <div className="review-player__avatar">{name[0]}</div>
-              <span className="review-player__name">{name}</span>
-              {opponentConfigs[name] && (
-                <Settings size={12} className="review-player__custom" />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Settings review */}
-      <div className="review-section">
-        <div className="review-section__header">
-          <h4 className="review-section__title">
-            <Coins size={16} /> Game Settings
-            {activePreset && <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', fontWeight: 400 }}>({activePreset.name})</span>}
-          </h4>
-          <button className="review-section__edit" onClick={() => setStep(1)}>Edit</button>
-        </div>
-        <div className="review-settings-grid">
-          <div className="review-setting">
-            <div className="review-setting__label">Stack</div>
-            <div className="review-setting__value">{startingStack.toLocaleString()}</div>
-          </div>
-          <div className="review-setting">
-            <div className="review-setting__label">Big Blind</div>
-            <div className="review-setting__value">{bigBlind}</div>
-          </div>
-          <div className="review-setting">
-            <div className="review-setting__label">Growth</div>
-            <div className="review-setting__value">{blindGrowth}x</div>
-          </div>
-          <div className="review-setting">
-            <div className="review-setting__label">Increase</div>
-            <div className="review-setting__value">Every {blindsIncrease}h</div>
-          </div>
-          <div className="review-setting">
-            <div className="review-setting__label">Mode</div>
-            <div className="review-setting__value" style={{ textTransform: 'capitalize' }}>{defaultGameMode}</div>
-          </div>
-          <div className="review-setting">
-            <div className="review-setting__label">AI Model</div>
-            <div className="review-setting__value" style={{ fontSize: 'var(--font-size-sm)' }}>{defaultModel}</div>
-          </div>
+        <div className="review-fan" data-count={filledCount}>
+          {slots.filter((s): s is string => s !== null).map((name, i, arr) => {
+            const count = arr.length;
+            const mid = (count - 1) / 2;
+            const offset = i - mid;
+            const rotation = offset * (count <= 3 ? 6 : 5);
+            const translateY = Math.abs(offset) * 4;
+            return (
+              <div
+                key={name}
+                className="review-fan__card"
+                style={{
+                  transform: `translateY(${translateY}px) rotate(${rotation}deg)`,
+                  zIndex: count - Math.abs(Math.round(offset)),
+                }}
+              >
+                <div
+                  className="review-fan__avatar"
+                  style={{
+                    backgroundImage: `url(${config.API_URL}/api/avatar/${encodeURIComponent(name)}/confident/full)`,
+                  }}
+                />
+                <div className="review-fan__name">{name}</div>
+                {opponentConfigs[name] && (
+                  <Settings size={10} className="review-fan__custom" />
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Start button */}
+      {/* Settings */}
+      <div className="review-block">
+        <div className="review-block__bar">
+          <span className="review-block__label">
+            <Coins size={14} /> Settings
+            {activePreset && <span className="review-block__preset">({activePreset.name})</span>}
+          </span>
+          <button className="review-block__edit" onClick={() => setStep(1)}>Edit</button>
+        </div>
+        <div className="review-settings-strip">
+          <span className="review-stat">
+            <span className="review-stat__value">{startingStack.toLocaleString()}</span>
+            <span className="review-stat__label">Stack</span>
+          </span>
+          <span className="review-stat__divider" />
+          <span className="review-stat">
+            <span className="review-stat__value">{bigBlind}</span>
+            <span className="review-stat__label">BB</span>
+          </span>
+          <span className="review-stat__divider" />
+          <span className="review-stat">
+            <span className="review-stat__value" style={{ textTransform: 'capitalize' }}>{defaultGameMode}</span>
+            <span className="review-stat__label">Mode</span>
+          </span>
+          <span className="review-stat__divider" />
+          <span className="review-stat">
+            <span className="review-stat__value">{defaultModel}</span>
+            <span className="review-stat__label">AI</span>
+          </span>
+        </div>
+      </div>
     </div>
   );
 

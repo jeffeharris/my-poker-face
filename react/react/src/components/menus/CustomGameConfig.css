@@ -1322,119 +1322,219 @@
 }
 
 /* ===========================================
-   STEP 3: REVIEW & START
+   STEP 3: REVIEW & CONFIRM
    =========================================== */
-.review-section {
-  background: var(--gradient-card);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5);
-  margin-bottom: var(--space-4);
-  position: relative;
+.review-confirm {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+  min-height: calc(100dvh - 180px);
 }
 
-.review-section__header {
+.review-block {
+  width: 100%;
+}
+
+.review-block__bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-2);
 }
 
-.review-section__title {
+.review-block__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+}
+
+.review-block__preset {
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.review-block__edit {
+  background: none;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-gold);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-3);
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.review-block__edit:hover {
+  background: var(--color-bg-surface);
+  border-color: var(--color-gold);
+}
+
+/* Fanned avatar cards for review */
+.review-fan {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.review-fan__card {
+  width: 130px;
+  flex-shrink: 0;
+  margin: 0 -4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.4s var(--ease-out-expo);
+  transform-origin: bottom center;
+  cursor: default;
+}
+
+.review-fan__card:hover {
+  transform: translateY(-12px) rotate(0deg) !important;
+  z-index: 10 !important;
+}
+
+.review-fan__avatar {
+  width: 117px;
+  height: 169px;
+  background-size: 200%;
+  background-position: center 15%;
+  background-color: var(--color-bg-surface);
+  border: 2px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.review-fan__card:hover .review-fan__avatar {
+  border-color: var(--color-gold);
+  box-shadow: var(--glow-gold), var(--shadow-xl);
+}
+
+.review-fan__name {
+  margin-top: var(--space-2);
   font-family: var(--font-display);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.review-section__edit {
-  background: none;
-  border: none;
-  color: var(--color-gold);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-  transition: opacity 0.2s;
-  font-weight: var(--font-weight-medium);
-  text-transform: uppercase;
-  letter-spacing: var(--letter-spacing-wide);
-}
-
-.review-section__edit:hover {
-  opacity: 0.8;
-}
-
-/* Mini player cards for review */
-.review-players {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-
-.review-player {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-}
-
-.review-player__avatar {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--gradient-gold);
-  color: var(--color-bg-void);
-  font-family: var(--font-display);
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-xs);
-  border-radius: var(--radius-md);
-}
-
-.review-player__name {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-primary);
-  font-weight: var(--font-weight-medium);
-}
-
-.review-player__custom {
-  color: var(--color-sapphire);
-}
-
-/* Review settings grid */
-.review-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-3);
-}
-
-.review-setting {
   text-align: center;
-  padding: var(--space-3);
-  background: var(--color-bg-surface);
-  border-radius: var(--radius-lg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
 }
 
-.review-setting__label {
+.review-fan__custom {
+  color: var(--color-sapphire);
+  margin-top: 2px;
+}
+
+/* Scale down cards for 4-5 opponents */
+.review-fan[data-count="4"] .review-fan__card {
+  width: 110px;
+  margin: 0 -8px;
+}
+.review-fan[data-count="4"] .review-fan__avatar {
+  width: 100px;
+  height: 144px;
+}
+
+.review-fan[data-count="5"] .review-fan__card {
+  width: 90px;
+  margin: 0 -10px;
+}
+.review-fan[data-count="5"] .review-fan__avatar {
+  width: 82px;
+  height: 118px;
+}
+.review-fan[data-count="5"] .review-fan__name {
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--letter-spacing-wide);
-  margin-bottom: var(--space-1);
+  max-width: 90px;
 }
 
-.review-setting__value {
+@media (max-width: 560px) {
+  .review-fan__card {
+    width: 90px;
+  }
+
+  .review-fan__avatar {
+    width: 94px;
+    height: 135px;
+  }
+
+  .review-fan__name {
+    font-size: var(--font-size-sm);
+    max-width: 70px;
+  }
+}
+
+/* Settings strip */
+.review-settings-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+}
+
+.review-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.review-stat__value {
   font-family: var(--font-display);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-gold);
+  line-height: 1.2;
+}
+
+.review-stat__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+  line-height: 1;
+}
+
+.review-stat__divider {
+  width: 1px;
+  height: 28px;
+  background: var(--color-border-default);
+}
+
+@media (max-width: 560px) {
+  .review-settings-strip {
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .review-stat__value {
+    font-size: var(--font-size-base);
+  }
+
+  .review-stat__label {
+    font-size: var(--font-size-xs);
+  }
 }
 
 /* ===========================================
@@ -1566,10 +1666,6 @@
     min-height: 38px;
   }
 
-  .review-settings-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   .wizard-nav__btn {
     padding: var(--space-3) var(--space-4);
   }
@@ -1601,9 +1697,5 @@
   .fill-actions {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .review-settings-grid {
-    grid-template-columns: 1fr 1fr;
   }
 }
