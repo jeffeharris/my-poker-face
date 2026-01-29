@@ -14,10 +14,11 @@ import time
 import urllib.request
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from PIL import Image, ImageDraw
 
 from core.llm import LLMClient, CallType
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
-from flask_app.config import get_default_model, get_default_provider, get_image_model, get_image_provider
+from core.llm.settings import get_default_model, get_default_provider, get_image_model, get_image_provider
 
 if TYPE_CHECKING:
     from .persistence import GamePersistence
@@ -101,7 +102,7 @@ class CharacterImageService:
         if Path('/app/data').exists():
             return '/app/data/poker_games.db'
         else:
-            return str(Path(__file__).parent.parent / 'poker_games.db')
+            return str(Path(__file__).parent.parent / 'data' / 'poker_games.db')
 
     def get_avatar_url(self, personality_name: str, emotion: str = "confident") -> Optional[str]:
         """
@@ -496,7 +497,6 @@ class CharacterImageService:
         Returns:
             Processed icon bytes (256x256 circular PNG)
         """
-        from PIL import Image, ImageDraw
 
         # Load image from bytes
         img = Image.open(io.BytesIO(raw_image_bytes))
@@ -566,7 +566,6 @@ class CharacterImageService:
         DEPRECATED: Use _process_to_icon_and_save for new images.
         This method is kept for backwards compatibility during migration.
         """
-        from PIL import Image, ImageDraw
 
         # Load the full-size image
         image_filename = self._get_image_filename(personality_name, emotion)

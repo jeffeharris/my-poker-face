@@ -72,26 +72,8 @@
 }
 
 .admin-menu-container__back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  padding: 0;
-  background: rgba(212, 165, 116, 0.12);
-  border: 1px solid rgba(212, 165, 116, 0.25);
-  border-radius: 10px;
-  color: #d4a574;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.admin-menu-container__back-btn:active {
-  transform: scale(0.95);
-  background: rgba(212, 165, 116, 0.2);
+  min-width: 40px;
 }
 
 .admin-menu-container__header-text {

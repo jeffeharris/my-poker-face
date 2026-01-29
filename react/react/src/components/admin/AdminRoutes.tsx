@@ -15,6 +15,7 @@ import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { AdminTab } from './AdminSidebar';
+import './AdminShared.css';
 
 const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
 
@@ -270,7 +271,7 @@ function ExperimentDetailWrapper() {
       <main className="admin-main">
         <header className="admin-main__header">
           <button
-            className="admin-main__back"
+            className="admin-main__back admin-back-button admin-back-button--icon"
             onClick={handleBack}
             aria-label="Go back to experiments"
           >
@@ -353,7 +354,7 @@ function ReplayResultsWrapper() {
       <main className="admin-main">
         <header className="admin-main__header">
           <button
-            className="admin-main__back"
+            className="admin-main__back admin-back-button admin-back-button--icon"
             onClick={handleBack}
             aria-label="Go back to experiments"
           >
@@ -416,7 +417,7 @@ function NewExperimentWrapper() {
       <main className="admin-main">
         <header className="admin-main__header">
           <button
-            className="admin-main__back"
+            className="admin-main__back admin-back-button admin-back-button--icon"
             onClick={handleBack}
             aria-label="Go back to experiments"
           >
