@@ -14,7 +14,11 @@ export interface ActionBadgeProps {
 export function ActionBadge({ player, lastKnownActions, onFadeComplete }: ActionBadgeProps) {
   // Track last known action in a ref via useEffect (not during render) to keep renders pure
   useEffect(() => {
-    if (player.last_action && !player.is_folded && !player.is_all_in) {
+    if (player.is_folded || player.is_all_in) {
+      lastKnownActions.current.delete(player.name);
+      return;
+    }
+    if (player.last_action) {
       lastKnownActions.current.set(player.name, player.last_action);
     }
   }, [player.last_action, player.name, player.is_folded, player.is_all_in, lastKnownActions]);

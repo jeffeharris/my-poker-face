@@ -28,6 +28,6 @@ export interface Player {
   avatar_url?: string;
   avatar_emotion?: string;
   psychology?: PlayerPsychology;
-  last_action?: string;      // Most recent action (check, call, raise, fold, all_in)
+  last_action?: 'check' | 'call' | 'raise' | 'fold' | 'all_in' | null;  // Most recent action
   llm_debug?: LLMDebugInfo;  // AI model stats (debug mode only)
 }
