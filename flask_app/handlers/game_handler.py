@@ -19,6 +19,7 @@ from poker.character_images import get_full_avatar_url
 from poker.tilt_modifier import TiltState
 from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
+from poker.runout_reactions import compute_runout_reactions
 from core.card import Card
 
 from ..extensions import socketio, persistence
@@ -221,7 +222,12 @@ def update_and_emit_game_state(game_id: str) -> None:
         player_name = player_dict.get('name', '')
         if not player_dict.get('is_human', True) and player_name in ai_controllers:
             controller = ai_controllers[player_name]
-            display_emotion = controller.psychology.get_display_emotion()
+            # Run-out reaction overrides take priority over baseline emotion
+            runout_overrides = current_game_data.get('runout_emotion_overrides', {})
+            if player_name in runout_overrides:
+                display_emotion = runout_overrides[player_name]
+            else:
+                display_emotion = controller.psychology.get_display_emotion()
             avatar_url = get_full_avatar_url(player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
@@ -981,8 +987,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     socketio.sleep(1 if is_showdown else 0.5)
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
-    # Reset card announcement tracking for new hand
+    # Reset card announcement and run-out reaction tracking for new hand
     game_data['last_announced_phase'] = None
+    game_data.pop('runout_reaction_schedule', None)
+    game_data.pop('runout_emotion_overrides', None)
     # Sync chip updates to state machine before advancing
     state_machine.game_state = game_state
     state_machine.current_phase = PokerPhase.HAND_OVER
@@ -1077,11 +1085,60 @@ def progress_game(game_id: str) -> None:
                     state_machine._state_machine = state_machine._state_machine.with_game_state(game_state)
                     current_game_data['state_machine'] = state_machine
                     game_state_service.set_game(game_id, current_game_data)
+
+                    # Pre-compute run-out reactions while players view hole cards
+                    reaction_schedule = compute_runout_reactions(
+                        game_state,
+                        current_game_data.get('ai_controllers', {})
+                    )
+                    current_game_data['runout_reaction_schedule'] = reaction_schedule
+
+                    # Emit initial reactions based on equity at moment of reveal
+                    # Build current emotions so we can skip no-ops
+                    ai_controllers = current_game_data.get('ai_controllers', {})
+                    current_emotions = {
+                        name: ctrl.psychology.get_display_emotion()
+                        for name, ctrl in ai_controllers.items()
+                    }
+                    overrides = {}
+                    for reaction in reaction_schedule.reactions_by_phase.get('INITIAL', []):
+                        if reaction.emotion == current_emotions.get(reaction.player_name):
+                            continue  # Already showing this emotion
+                        overrides[reaction.player_name] = reaction.emotion
+                        avatar_url = get_full_avatar_url(reaction.player_name, reaction.emotion)
+                        socketio.emit('avatar_update', {
+                            'player_name': reaction.player_name,
+                            'avatar_url': avatar_url,
+                            'avatar_emotion': reaction.emotion
+                        }, to=game_id)
+                    current_game_data['runout_emotion_overrides'] = overrides
+                    game_state_service.set_game(game_id, current_game_data)
+
                     # Extra pause (4 seconds) for players to see the cards
                     socketio.sleep(4)
 
                 # Delay 2 seconds to let player see the community cards being dealt
                 socketio.sleep(2)
+
+                # Emit pre-computed avatar reactions for this street
+                reaction_schedule = current_game_data.get('runout_reaction_schedule')
+                if reaction_schedule:
+                    phase_name = state_machine.current_phase.name
+                    overrides = current_game_data.get('runout_emotion_overrides', {})
+                    for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
+                        current = overrides.get(reaction.player_name)
+                        if current == reaction.emotion:
+                            continue  # Already showing this emotion
+                        overrides[reaction.player_name] = reaction.emotion
+                        avatar_url = get_full_avatar_url(reaction.player_name, reaction.emotion)
+                        socketio.emit('avatar_update', {
+                            'player_name': reaction.player_name,
+                            'avatar_url': avatar_url,
+                            'avatar_emotion': reaction.emotion
+                        }, to=game_id)
+                    current_game_data['runout_emotion_overrides'] = overrides
+                    game_state_service.set_game(game_id, current_game_data)
+
                 # Check if game was deleted during sleep
                 if not game_state_service.get_game(game_id):
                     return

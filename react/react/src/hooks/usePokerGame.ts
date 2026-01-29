@@ -221,6 +221,7 @@ export function usePokerGame({
 
     // Listen for avatar updates (when background generation completes)
     socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+      console.log(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
       setGameState(prev => {
         if (!prev) return prev;
         return {
