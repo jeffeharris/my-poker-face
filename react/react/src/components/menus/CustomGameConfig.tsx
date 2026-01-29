@@ -530,7 +530,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
           <div>Loading personalities...</div>
         </div>
       ) : (
-        <div className="player-slots">
+        <div className="player-slots" data-count={slots.length}>
           {slots.map((slotName, idx) => {
             if (slotName === null) {
               return (

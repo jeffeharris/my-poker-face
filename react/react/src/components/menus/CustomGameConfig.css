@@ -399,11 +399,18 @@
 
 /* Player card slots */
 .player-slots {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-4);
   --card-width: 40dvw;
   --card-height: 30dvh;
+}
+
+/* Single card — fill more vertical space */
+.player-slots[data-count="1"] {
+  --card-width: 55dvw;
+  --card-height: 55dvh;
 }
 
 /* Empty slot */
@@ -1654,7 +1661,6 @@
    =========================================== */
 @media (max-width: 768px) {
   .player-slots {
-    grid-template-columns: repeat(2, 1fr);
     gap: var(--space-3);
   }
 
