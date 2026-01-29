@@ -18,6 +18,7 @@ from .session_memory import SessionMemory
 from .opponent_model import OpponentModelManager
 from .commentary_generator import CommentaryGenerator, HandCommentary
 from .commentary_filter import should_player_comment
+from ..hand_narrator import narrate_key_moments
 from ..config import COMMENTARY_ENABLED
 
 logger = logging.getLogger(__name__)
@@ -254,10 +255,16 @@ class AIMemoryManager:
                 player_actions = recorded_hand.get_player_actions(player_name)
                 amount = -sum(a.amount for a in player_actions)
 
-            # Extract notable events
+            # Extract notable events (use hand narrator for richer key moments)
             notable_events = self.commentary_generator.extract_notable_events(
                 recorded_hand, player_name
             )
+            try:
+                key_moment = narrate_key_moments(recorded_hand, player_name)
+                if key_moment:
+                    notable_events = [key_moment] + notable_events
+            except Exception as e:
+                logger.debug(f"Key moment narration failed for {player_name}: {e}")
 
             # Update session memory
             session_memory.record_hand_outcome(

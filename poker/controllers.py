@@ -28,6 +28,7 @@ from .ai_resilience import (
     FallbackActionSelector,
 )
 from .player_psychology import PlayerPsychology
+from .hand_narrator import narrate_hand_breakdown
 from .memory.commentary_generator import DecisionPlan
 from .minimal_prompt import (
     get_position_abbrev,
@@ -1754,10 +1755,23 @@ def build_base_game_state(
             hand_strength = classify_preflop_hand(hole_cards)
         hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
+    # Detailed hand breakdown (which cards form the hand)
+    hand_breakdown_line = ""
+    if include_hand_strength and game_state.community_cards:
+        try:
+            hole_card_objects = [_ensure_card(c) for c in player.hand]
+            community_card_objects = [_ensure_card(c) for c in game_state.community_cards]
+            breakdown = narrate_hand_breakdown(hole_card_objects, community_card_objects)
+            if breakdown:
+                hand_breakdown_line = f"{breakdown}\n"
+        except Exception as e:
+            logger.debug(f"Hand breakdown failed: {e}")
+
     persona_state = (
         f"Persona: {persona}\n"
         f"Your Cards: {hole_cards}\n"
         f"{hand_strength_line}"
+        f"{hand_breakdown_line}"
         f"Your Stack: {_format_money(player_money, big_blind, True)}\n"
     )
 
