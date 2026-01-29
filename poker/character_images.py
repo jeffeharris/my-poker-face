@@ -9,6 +9,7 @@ Supports on-demand generation for personalities without existing images.
 import io
 import logging
 import os
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -623,8 +624,9 @@ class CharacterImageService:
         return sorted(personalities)
 
 
-# Singleton instance
+# Singleton instance (thread-safe via double-checked locking)
 _service: Optional[CharacterImageService] = None
+_service_lock = threading.Lock()
 
 
 def get_character_image_service(
@@ -641,7 +643,9 @@ def get_character_image_service(
     """
     global _service
     if _service is None:
-        _service = CharacterImageService(personality_generator, persistence)
+        with _service_lock:
+            if _service is None:
+                _service = CharacterImageService(personality_generator, persistence)
     return _service
 
 
