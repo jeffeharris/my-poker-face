@@ -76,16 +76,16 @@ interface GamePreset {
 
 const GAME_PRESETS: GamePreset[] = [
   {
-    id: 'quick', name: 'Quick & Dirty', icon: '⚡', desc: '1K stack, fast blinds. Games end quick.',
-    starting_stack: 1000, big_blind: 50, blind_growth: 2, blinds_increase: 4, max_blind: 0,
+    id: 'quick', name: 'Quick & Dirty', icon: '⚡', desc: '50BB deep, fast blinds. Games end quick.',
+    starting_stack: 10000, big_blind: 200, blind_growth: 1.5, blinds_increase: 4, max_blind: 0,
   },
   {
-    id: 'tournament', name: 'Tournament', icon: '🏆', desc: '10K stack, steady growth. Classic feel.',
-    starting_stack: 10000, big_blind: 50, blind_growth: 1.5, blinds_increase: 6, max_blind: 0,
+    id: 'tournament', name: 'Tournament', icon: '🏆', desc: '100BB deep, steady growth. Classic feel.',
+    starting_stack: 10000, big_blind: 100, blind_growth: 1.5, blinds_increase: 6, max_blind: 0,
   },
   {
-    id: 'deep', name: 'Deep Stack', icon: '💰', desc: '20K stack, slow blinds. Play the long game.',
-    starting_stack: 20000, big_blind: 25, blind_growth: 1.25, blinds_increase: 10, max_blind: 0,
+    id: 'deep', name: 'Deep Stack', icon: '💰', desc: '200BB deep, slow blinds. Play the long game.',
+    starting_stack: 10000, big_blind: 50, blind_growth: 1.25, blinds_increase: 10, max_blind: 0,
   },
 ];
 
@@ -110,7 +110,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   // Step 2: Game settings
   const [selectedPreset, setSelectedPreset] = useState<string>('tournament');
   const [startingStack, setStartingStack] = useState(10000);
-  const [bigBlind, setBigBlind] = useState(50);
+  const [bigBlind, setBigBlind] = useState(100);
   const [blindGrowth, setBlindGrowth] = useState(1.5);
   const [blindsIncrease, setBlindsIncrease] = useState(6);
   const [maxBlind, setMaxBlind] = useState(0);
