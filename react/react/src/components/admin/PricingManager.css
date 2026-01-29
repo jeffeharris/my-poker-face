@@ -10,6 +10,9 @@
 
 .prm-container {
   padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .prm-container--embedded {
@@ -126,9 +129,9 @@
 .prm-tabs {
   display: flex;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-2);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
 }
 
 .prm-tabs__tab {
@@ -319,13 +322,22 @@
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
 }
 
 .prm-table {
   width: 100%;
+  min-width: 680px;
   border-collapse: collapse;
   table-layout: fixed;
+}
+
+.prm-table--wide {
+  min-width: 1060px;
 }
 
 .prm-table thead {
@@ -343,9 +355,11 @@
 .prm-table tbody {
   display: block;
   max-height: 450px;
-  overflow-y: scroll;
+  overflow-y: auto;
   padding-right: 10px; /* Buffer from edge */
 }
+
+/* On mobile, let tbody fill available space instead of fixed max-height */
 
 .prm-table tbody tr {
   display: table;
@@ -696,6 +710,16 @@
   .prm-slideout {
     width: 100%;
   }
+
+  .prm-table-wrapper {
+    position: relative;
+    overflow-y: auto;
+  }
+
+  .prm-table tbody {
+    max-height: none;
+    overflow-y: visible;
+  }
 }
 
 @media (max-width: 480px) {
@@ -704,12 +728,18 @@
   }
 
   .prm-tabs {
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: var(--space-1);
   }
 
   .prm-tabs__tab {
-    justify-content: space-between;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .prm-tabs__actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 
