@@ -652,7 +652,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     };
 
     return (
-      <div className="us-models admin-detail__section-fill">
+      <div className="us-models">
         {/* Default Model Settings - 3 cards in a row */}
         {systemSettings && (
           <div className="us-defaults-section">
@@ -822,7 +822,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     }
 
     return (
-      <div className="us-capture admin-detail__section-fill">
+      <div className="us-capture">
         <div className="admin-card">
           <div className="admin-card__header">
             <h3 className="admin-card__title">Capture Mode</h3>
@@ -905,19 +905,19 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
         <div className="us-capture__actions">
           <button
             type="button"
-            className="admin-btn admin-btn--primary"
-            onClick={saveCaptureSettings}
-            disabled={captureSaving || !hasCaptureChanges}
-          >
-            {captureSaving ? 'Saving...' : 'Save Changes'}
-          </button>
-          <button
-            type="button"
             className="admin-btn admin-btn--secondary"
             onClick={resetCaptureSettings}
             disabled={captureSaving}
           >
             Reset to Defaults
+          </button>
+          <button
+            type="button"
+            className="admin-btn admin-btn--primary"
+            onClick={saveCaptureSettings}
+            disabled={captureSaving || !hasCaptureChanges}
+          >
+            {captureSaving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -935,7 +935,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     }
 
     return (
-      <div className="us-storage admin-detail__section-fill">
+      <div className="us-storage">
         <div className="us-storage__total">
           <span className="us-storage__total-value">{storage.total_mb.toFixed(2)}</span>
           <span className="us-storage__total-unit">MB</span>
@@ -965,13 +965,6 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
             ))}
         </div>
 
-        <button
-          type="button"
-          className="admin-btn admin-btn--secondary"
-          onClick={fetchStorage}
-        >
-          Refresh
-        </button>
       </div>
     );
   };

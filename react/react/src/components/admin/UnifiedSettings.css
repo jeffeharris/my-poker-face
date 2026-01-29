@@ -167,8 +167,10 @@
    Models Section
    ========================================================================== */
 
-/* Layout handled by .admin-detail__section-fill */
 .us-models {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 /* System Models Section (3-across grid) */
@@ -465,8 +467,10 @@
    Capture Section
    ========================================================================== */
 
-/* Layout handled by .admin-detail__section-fill */
 .us-capture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .us-capture__options {
@@ -527,9 +531,15 @@
 
 .us-capture__actions {
   display: flex;
+  justify-content: flex-end;
   gap: var(--space-3);
-  padding-top: var(--space-4);
+  padding: var(--space-4);
   border-top: 1px solid var(--admin-card-border);
+  background: var(--color-bg-elevated, #1a1a1f);
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  z-index: 10;
 }
 
 /* ==========================================================================
@@ -638,8 +648,10 @@
    Storage Section
    ========================================================================== */
 
-/* Layout handled by .admin-detail__section-fill */
 .us-storage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .us-storage__total {
