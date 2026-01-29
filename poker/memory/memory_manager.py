@@ -260,7 +260,7 @@ class AIMemoryManager:
                 recorded_hand, player_name
             )
             try:
-                key_moment = narrate_key_moments(recorded_hand, player_name)
+                key_moment = narrate_key_moments(recorded_hand, player_name, big_blind=game_state.current_ante)
                 if key_moment:
                     notable_events = [key_moment] + notable_events
             except Exception as e:

@@ -10,7 +10,7 @@ All functions are pure and deterministic — no LLM calls, no side effects.
 """
 
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from core.card import Card
 from .hand_evaluator import HandEvaluator, rank_to_display
@@ -30,20 +30,13 @@ def narrate_hand_breakdown(
     Meant for injection into the decision prompt so the LLM doesn't have to
     figure out its own hand composition.
 
-    Args:
-        hole_cards: The player's 2 hole cards (Card objects).
-        community_cards: The community cards on the board (Card objects).
-        strength_tier: Optional strength label (e.g., "Strong", "Monster")
-                       to append to the header line.
+    Example output::
 
-    Returns:
-        Multi-line string explaining the hand, e.g.::
-
-            HAND BREAKDOWN: Two Pair, A's and K's (Strong)
-            Your Ah pairs with the Ac on the board (top pair).
-            Your Kd pairs with the Kc on the board (second pair).
-            Kicker: 7s from the board.
-            Both of your hole cards are active in your hand.
+        HAND BREAKDOWN: Two Pair, A's and K's (Strong)
+        Your Ah pairs with the Ac on the board (top pair).
+        Your Kd pairs with the Kc on the board (second pair).
+        Kicker: 7s from the board.
+        Both of your hole cards are active in your hand.
     """
     if not hole_cards or not community_cards:
         return ""
@@ -220,12 +213,6 @@ def narrate_key_moments(
 
     # Split pot detection — player is one of multiple winners
     is_player_in_split = is_split and player_won
-    if is_player_in_split:
-        other_winners = [w.name for w in hand.winners if w.name != player_name]
-        partner = other_winners[0] if other_winners else "opponent"
-        my_share = _find_winner(hand, player_name)
-        share_amt = _fmt_amount(my_share.amount_won, big_blind) if my_share else pot
-        hand_desc = f" with {my_share.hand_name}" if my_share and my_share.hand_name else ""
 
     # All-in is always notable
     all_in_action = next(
@@ -233,14 +220,18 @@ def narrate_key_moments(
     )
     if all_in_action:
         if is_player_in_split:
+            other_winners = [w.name for w in hand.winners if w.name != player_name]
+            partner = other_winners[0] if other_winners else "opponent"
+            my_share = _find_winner(hand, player_name)
+            share_amt = _fmt_amount(my_share.amount_won, big_blind) if my_share else pot
+            hand_desc = _get_hand_desc(hand, player_name)
             return (
                 f"All-in showdown — you and {partner} split the {pot} pot{hand_desc} "
                 f"({share_amt} each)"
             )
         if all_in_action.player_name == player_name:
             if player_won:
-                winner = _find_winner(hand, player_name)
-                hand_desc = f" with {winner.hand_name}" if winner and winner.hand_name else ""
+                hand_desc = _get_hand_desc(hand, player_name)
                 return f"You went all-in and won {pot}{hand_desc}"
             elif outcome == "folded":
                 return f"You went all-in but folded later (side pot scenario)"
@@ -248,8 +239,7 @@ def narrate_key_moments(
                 return f"You went all-in and lost ({pot} pot)"
         else:
             if player_won:
-                winner = _find_winner(hand, player_name)
-                hand_desc = f" with {winner.hand_name}" if winner and winner.hand_name else ""
+                hand_desc = _get_hand_desc(hand, player_name)
                 return f"{all_in_action.player_name} went all-in — you called and won {pot}{hand_desc}"
             elif outcome == "lost":
                 return f"{all_in_action.player_name} went all-in — you called and lost ({pot} pot)"
@@ -257,23 +247,25 @@ def narrate_key_moments(
     # Showdown is notable
     if hand.was_showdown:
         if is_player_in_split:
-            hand_label = my_share.hand_name if my_share and my_share.hand_name else None
-            if hand_label:
+            other_winners = [w.name for w in hand.winners if w.name != player_name]
+            partner = other_winners[0] if other_winners else "opponent"
+            my_share = _find_winner(hand, player_name)
+            share_amt = _fmt_amount(my_share.amount_won, big_blind) if my_share else pot
+            hand_name = my_share.hand_name if my_share and my_share.hand_name else None
+            if hand_name:
                 return (
-                    f"Split pot at showdown — you and {partner} both had {hand_label} "
+                    f"Split pot at showdown — you and {partner} both had {hand_name} "
                     f"and split {pot} ({share_amt} each)"
                 )
             return f"Split pot at showdown — you and {partner} tied and split {pot} ({share_amt} each)"
         if player_won:
-            winner = _find_winner(hand, player_name)
-            hand_desc = f" with {winner.hand_name}" if winner and winner.hand_name else ""
+            hand_desc = _get_hand_desc(hand, player_name)
             return f"You won {pot} at showdown{hand_desc}"
         elif outcome == "lost":
             # Who beat us?
             winner_names = [w.name for w in hand.winners if w.name != player_name]
             beater = winner_names[0] if winner_names else "opponent"
-            winner_info = hand.winners[0] if hand.winners else None
-            hand_desc = f" with {winner_info.hand_name}" if winner_info and winner_info.hand_name else ""
+            hand_desc = _get_hand_desc(hand, hand.winners[0].name if hand.winners else player_name)
             return f"You lost {pot} at showdown — {beater} won{hand_desc}"
 
     # Big pot without showdown (bluff or steal)
@@ -415,7 +407,6 @@ def _describe_straight(
     ranks_for_check = _ace_low_to_high(straight_ranks)
 
     hole_in_straight = [c for c in hole_cards if c.value in ranks_for_check]
-    board_in_straight = [c for c in community_cards if c.value in ranks_for_check]
 
     rank_strs = [rank_to_display(v) for v in sorted(straight_ranks)]
     lines.append(f"Straight: {'-'.join(rank_strs)}")
@@ -577,7 +568,6 @@ def _describe_high_card(
     lines.append(f"No made hand. Your highest card is {_cs(high_hole)}.")
 
     # Check for draws
-    all_cards = list(hole_cards) + list(community_cards)
     draws = _detect_draws(hole_cards, community_cards)
     if draws:
         lines.extend(draws)
@@ -690,11 +680,14 @@ def _summarize_hole_card_usage(
     flush_suit: Optional[str],
 ) -> Optional[str]:
     """Summarize how many hole cards are active in the best hand."""
+    # Normalize ace-low values (1) to ace-high (14) for Card.value matching
+    normalized_hand_values = set(_ace_low_to_high(hand_values))
+    normalized_kicker_values = set(_ace_low_to_high(kicker_values))
     active_count = 0
     for card in hole_cards:
-        if card.value in hand_values:
+        if card.value in normalized_hand_values:
             active_count += 1
-        elif card.value in kicker_values:
+        elif card.value in normalized_kicker_values:
             active_count += 1
         elif flush_suit and card.suit == flush_suit and hand_rank == 5:
             active_count += 1
@@ -766,3 +759,9 @@ def _find_winner(hand, player_name: str):
         if w.name == player_name:
             return w
     return None
+
+
+def _get_hand_desc(hand, player_name: str) -> str:
+    """Return ' with {hand_name}' suffix for a winner, or empty string."""
+    winner = _find_winner(hand, player_name)
+    return f" with {winner.hand_name}" if winner and winner.hand_name else ""
