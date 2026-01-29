@@ -280,7 +280,8 @@ def get_career_stats():
 @stats_bp.route('/api/models', methods=['GET'])
 def get_available_models():
     """Get available OpenAI models for game configuration."""
-    from core.llm import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, AVAILABLE_MODELS
+    from core.llm import DEFAULT_REASONING_EFFORT, AVAILABLE_MODELS
+    default_model = config.get_default_model()
     try:
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         models = client.models.list()
@@ -288,7 +289,7 @@ def get_available_models():
         return jsonify({
             'success': True,
             'models': sorted(available),
-            'default_model': DEFAULT_MODEL,
+            'default_model': default_model,
             'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
             'default_reasoning': DEFAULT_REASONING_EFFORT
         })
@@ -297,7 +298,7 @@ def get_available_models():
         return jsonify({
             'success': True,
             'models': AVAILABLE_MODELS,
-            'default_model': DEFAULT_MODEL,
+            'default_model': default_model,
             'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
             'default_reasoning': DEFAULT_REASONING_EFFORT
         })
@@ -384,7 +385,7 @@ Return as JSON with this format:
         logger.info(f"[ChatSuggestion]\n{prompt}")
         logger.info("[ChatSuggestion] --- END PROMPT ---")
 
-        client = LLMClient(model=config.FAST_AI_MODEL)
+        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider())
         messages = [
             {"role": "system", "content": "You are a friendly poker player giving brief chat suggestions."},
             {"role": "user", "content": prompt}
@@ -551,7 +552,7 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
         logger.info(f"[QuickChat]\n{prompt}")
         logger.info("[QuickChat] --- END PROMPT ---")
 
-        client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
+        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider(), reasoning_effort="minimal")
         messages = [
             {"role": "system", "content": "You write sharp, witty poker banter that responds to the actual conversation. Never generic - always specific callbacks, quotes, or reactions to what just happened. Short and punchy."},
             {"role": "user", "content": prompt}
@@ -690,7 +691,7 @@ def get_post_round_chat_suggestions(game_id):
         logger.info(f"[PostRound]\n{prompt}")
         logger.info("[PostRound] --- END PROMPT ---")
 
-        client = LLMClient(model=config.FAST_AI_MODEL, reasoning_effort="minimal")
+        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider(), reasoning_effort="minimal")
         messages = [
             {"role": "system", "content": "You write short, punchy poker reactions. Keep it natural and under 10 words."},
             {"role": "user", "content": prompt}

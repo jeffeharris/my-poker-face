@@ -146,14 +146,14 @@ class StructuredLLMCategorizer:
             timeout_seconds: Timeout for LLM calls
             fallback_generator: Function to generate fallback output from context
         """
-        from core.llm import FAST_MODEL
+        from flask_app.config import get_fast_model, get_fast_provider
         self.schema = schema
-        self.model = model or FAST_MODEL
+        self.model = model or get_fast_model()
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
         # Initialize LLM client with minimal reasoning for fast/cheap categorization
-        self._llm_client = LLMClient(model=self.model, reasoning_effort="minimal")
+        self._llm_client = LLMClient(model=self.model, provider=get_fast_provider(), reasoning_effort="minimal")
 
         # Thread pool for timeout handling
         self._executor = ThreadPoolExecutor(max_workers=2)

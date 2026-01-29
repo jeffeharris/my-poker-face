@@ -17,6 +17,7 @@ interface StatusConfigItem {
  * Create status configuration with customizable icon size.
  * @param iconSize - Size in pixels for the icons (default: 16)
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function createStatusConfig(iconSize: number = 16): Record<ExperimentStatus, StatusConfigItem> {
   return {
     pending: {

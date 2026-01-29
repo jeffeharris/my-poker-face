@@ -10,9 +10,11 @@ import os
 
 # Default model for all LLM operations
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
+DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openai")
 
-# Fast model for quick operations (chat suggestions, theme generation, etc.)
-FAST_MODEL = os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL)
+# Fast model for quick operations (chat suggestions, categorization, etc.)
+FAST_MODEL = os.environ.get("FAST_MODEL", os.environ.get("OPENAI_FAST_MODEL", DEFAULT_MODEL))
+FAST_PROVIDER = os.environ.get("FAST_PROVIDER", "openai")
 
 # Model for assistants (experiment designer, etc.)
 # Default: DeepSeek Chat (supports tools + optional thinking mode)
@@ -27,8 +29,9 @@ DEFAULT_REASONING_EFFORT = "minimal"
 # Available OpenAI models for UI selection
 OPENAI_AVAILABLE_MODELS = ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
 
-# Image generation model (dall-e-3 follows prompts better but requires API access)
-DEFAULT_IMAGE_MODEL = "dall-e-2"
+# Image generation
+IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "dall-e-2")
 
 # =============================================================================
 # Groq Configuration

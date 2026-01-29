@@ -1,7 +1,7 @@
 """Configuration for the Flask application."""
 
 import os
-from functools import lru_cache
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -45,73 +45,22 @@ RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALIT
 REDIS_URL = os.environ.get('REDIS_URL')
 
 # AI model configuration - import from centralized config
-from core.llm import FAST_MODEL as FAST_AI_MODEL
 from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
-from core.llm.config import DEFAULT_MODEL
+from core.llm.config import DEFAULT_MODEL, DEFAULT_PROVIDER, FAST_MODEL, FAST_PROVIDER, IMAGE_PROVIDER, IMAGE_MODEL
 
-
-@lru_cache(maxsize=1)
-def _get_config_persistence():
-    """Get a cached GamePersistence instance for config lookups.
-
-    Note: This caches a single shared instance across all callers. This is safe
-    because GamePersistence uses context managers for all DB operations and
-    maintains no connection state between calls. Each operation opens and closes
-    its own connection.
-
-    If GamePersistence is ever modified to maintain persistent state (connection
-    pools, cached transactions, etc.), this caching pattern must be revisited.
-    """
-    from poker.persistence import GamePersistence
-    return GamePersistence()
-
-
-def get_default_provider() -> str:
-    """Get the default LLM provider from app_settings or environment.
-
-    Priority: 1. Database (app_settings), 2. Default ('openai')
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('DEFAULT_PROVIDER', '')
-    if db_value:
-        return db_value
-    return 'openai'
-
-
-def get_default_model() -> str:
-    """Get the default LLM model from app_settings or environment.
-
-    Priority: 1. Database (app_settings), 2. core.llm.config.DEFAULT_MODEL
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('DEFAULT_MODEL', '')
-    if db_value:
-        return db_value
-    return DEFAULT_MODEL
-
-
-def get_assistant_provider() -> str:
-    """Get the assistant provider from app_settings or environment.
-
-    Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_PROVIDER
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('ASSISTANT_PROVIDER', '')
-    if db_value:
-        return db_value
-    return ASSISTANT_PROVIDER
-
-
-def get_assistant_model() -> str:
-    """Get the assistant model from app_settings or environment.
-
-    Priority: 1. Database (app_settings), 2. core.llm.config.ASSISTANT_MODEL
-    """
-    p = _get_config_persistence()
-    db_value = p.get_setting('ASSISTANT_MODEL', '')
-    if db_value:
-        return db_value
-    return ASSISTANT_MODEL
+# DB-backed LLM settings — canonical source is core.llm.settings.
+# Re-exported here for backwards compatibility with flask_app.routes etc.
+from core.llm.settings import (           # noqa: F401
+    _get_config_persistence,
+    get_default_provider,
+    get_default_model,
+    get_fast_provider,
+    get_fast_model,
+    get_assistant_provider,
+    get_assistant_model,
+    get_image_provider,
+    get_image_model,
+)
 
 # Database path
 def get_db_path():

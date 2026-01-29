@@ -26,7 +26,6 @@ class TestCallType(unittest.TestCase):
             "image_generation",
             "image_description",
             "categorization",
-            "spades_decision",
         ]
 
         for type_value in expected_types:
@@ -48,7 +47,7 @@ class TestCallType(unittest.TestCase):
     def test_call_type_count(self):
         """Test we have the expected number of call types."""
         # This ensures we don't accidentally remove types
-        self.assertEqual(len(CallType), 17)
+        self.assertEqual(len(CallType), 16)
 
 
 class TestUsageTracker(unittest.TestCase):

@@ -29,12 +29,15 @@ Quick Start:
 
 from .config import (
     DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     FAST_MODEL,
+    FAST_PROVIDER,
     ASSISTANT_MODEL,
     ASSISTANT_PROVIDER,
     DEFAULT_REASONING_EFFORT,
     AVAILABLE_MODELS,
-    DEFAULT_IMAGE_MODEL,
+    IMAGE_PROVIDER,
+    IMAGE_MODEL,
     # Provider config
     AVAILABLE_PROVIDERS,
     PROVIDER_MODELS,
@@ -44,6 +47,16 @@ from .config import (
     GROQ_AVAILABLE_MODELS,
     ANTHROPIC_DEFAULT_MODEL,
     ANTHROPIC_AVAILABLE_MODELS,
+)
+from .settings import (
+    get_default_provider,
+    get_default_model,
+    get_fast_provider,
+    get_fast_model,
+    get_assistant_provider,
+    get_assistant_model,
+    get_image_provider,
+    get_image_model,
 )
 from .response import LLMResponse, ImageResponse
 from .tracking import CallType, UsageTracker
@@ -55,12 +68,15 @@ from .tokenizer import count_tokens
 __all__ = [
     # Config
     "DEFAULT_MODEL",
+    "DEFAULT_PROVIDER",
     "FAST_MODEL",
+    "FAST_PROVIDER",
     "ASSISTANT_MODEL",
     "ASSISTANT_PROVIDER",
     "DEFAULT_REASONING_EFFORT",
     "AVAILABLE_MODELS",
-    "DEFAULT_IMAGE_MODEL",
+    "IMAGE_PROVIDER",
+    "IMAGE_MODEL",
     # Provider config
     "AVAILABLE_PROVIDERS",
     "PROVIDER_MODELS",
@@ -70,6 +86,15 @@ __all__ = [
     "GROQ_AVAILABLE_MODELS",
     "ANTHROPIC_DEFAULT_MODEL",
     "ANTHROPIC_AVAILABLE_MODELS",
+    # Settings (DB-backed getters)
+    "get_default_provider",
+    "get_default_model",
+    "get_fast_provider",
+    "get_fast_model",
+    "get_assistant_provider",
+    "get_assistant_model",
+    "get_image_provider",
+    "get_image_model",
     # Classes
     "LLMResponse",
     "ImageResponse",

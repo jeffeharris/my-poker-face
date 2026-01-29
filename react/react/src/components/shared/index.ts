@@ -8,6 +8,9 @@
 export { BackButton } from './BackButton';
 export type { BackButtonProps } from './BackButton';
 
+export { BottomSheet } from './BottomSheet';
+export type { BottomSheetProps } from './BottomSheet';
+
 export { PageHeader } from './PageHeader';
 export type { PageHeaderProps } from './PageHeader';
 
@@ -33,5 +36,8 @@ export { UserDropdown } from './UserDropdown';
 export type { UserDropdownProps } from './UserDropdown';
 
 export { LoadingOverlay } from './LoadingOverlay';
+
+export { ActionBadge } from './ActionBadge';
+export type { ActionBadgeProps } from './ActionBadge';
 
 export { ErrorBoundary } from '../ErrorBoundary';

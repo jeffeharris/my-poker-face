@@ -47,10 +47,13 @@ def get_capture_db_path() -> str:
     if env_path:
         return env_path
 
-    # Auto-detect (legacy behavior)
+    # Auto-detect based on environment
     if Path('/app/data').exists():
         return '/app/data/poker_games.db'
-    return str(Path(__file__).parent.parent.parent / 'poker_games.db')
+    
+    # Default to data directory in project root
+    project_root = Path(__file__).parent.parent.parent
+    return str(project_root / 'data' / 'poker_games.db')
 
 
 @dataclass
@@ -74,7 +77,6 @@ class CallType(str, Enum):
     IMAGE_GENERATION = "image_generation"
     IMAGE_DESCRIPTION = "image_description"
     CATEGORIZATION = "categorization"
-    SPADES_DECISION = "spades_decision"
     DEBUG_REPLAY = "debug_replay"
     DEBUG_INTERROGATE = "debug_interrogate"
     EXPERIMENT_DESIGN = "experiment_design"
@@ -400,6 +402,7 @@ def capture_prompt(
     response: LLMResponse,
     call_type: CallType,
     game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
     player_name: Optional[str] = None,
     hand_number: Optional[int] = None,
     debug_mode: bool = False,
@@ -415,6 +418,7 @@ def capture_prompt(
         response: The LLM response
         call_type: Type of call (player_decision, commentary, etc.)
         game_id: Optional game ID (nullable for non-game calls)
+        owner_id: Optional owner/user ID
         player_name: Optional player name
         hand_number: Optional hand number
         debug_mode: True if game has debug capture explicitly enabled
@@ -455,6 +459,7 @@ def capture_prompt(
         # Build base capture data
         capture_data = {
             'game_id': game_id,
+            'owner_id': owner_id,
             'player_name': player_name,
             'hand_number': hand_number,
             'phase': call_type.value,  # Default phase from call_type
@@ -485,7 +490,7 @@ def capture_prompt(
         with sqlite3.connect(db_path) as conn:
             conn.execute("""
                 INSERT INTO prompt_captures (
-                    game_id, player_name, hand_number, phase, call_type,
+                    game_id, owner_id, player_name, hand_number, phase, call_type,
                     system_prompt, user_message, ai_response,
                     conversation_history, raw_api_response,
                     provider, model, reasoning_effort,
@@ -495,9 +500,10 @@ def capture_prompt(
                     community_cards, player_hand, valid_actions,
                     action_taken, raise_amount,
                     parent_id, error_type, error_description, correction_attempt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 capture_data.get('game_id'),
+                capture_data.get('owner_id'),
                 capture_data.get('player_name'),
                 capture_data.get('hand_number'),
                 capture_data.get('phase'),
@@ -653,8 +659,6 @@ def capture_image_prompt(
                     logger.debug(f"Could not get image dimensions: {e}")
             except Exception as e:
                 logger.warning(f"Failed to download image for capture: {e}")
-                # Continue without image data - at least capture the prompt
-
         db_path = get_capture_db_path()
 
         with sqlite3.connect(db_path) as conn:
@@ -665,8 +669,9 @@ def capture_image_prompt(
                     provider, model, latency_ms,
                     is_image_capture, image_prompt, image_url, image_data,
                     image_size, image_width, image_height,
-                    target_personality, target_emotion, reference_image_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    target_personality, target_emotion, reference_image_id,
+                    owner_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 game_id,
                 target_personality,  # Use as player_name for filtering
@@ -688,6 +693,7 @@ def capture_image_prompt(
                 target_personality,
                 target_emotion,
                 reference_image_id,
+                owner_id,
             ))
 
             capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

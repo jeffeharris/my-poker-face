@@ -15,7 +15,7 @@ from poker.config import MIN_RAISE, AI_MESSAGE_CONTEXT_LIMIT
 from poker.poker_game import determine_winner, play_turn, advance_to_next_active_player, award_pot_winnings
 from poker.poker_state_machine import PokerPhase
 from poker.hand_evaluator import HandEvaluator
-from poker.character_images import get_full_avatar_url
+from .avatar_handler import get_avatar_url_with_fallback
 from poker.tilt_modifier import TiltState
 from poker.elasticity_manager import ElasticPersonality
 from poker.emotional_state import EmotionalState
@@ -228,7 +228,7 @@ def update_and_emit_game_state(game_id: str) -> None:
                 display_emotion = runout_overrides[player_name]
             else:
                 display_emotion = controller.psychology.get_display_emotion()
-            avatar_url = get_full_avatar_url(player_name, display_emotion)
+            avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 
@@ -1105,7 +1105,7 @@ def progress_game(game_id: str) -> None:
                         if reaction.emotion == current_emotions.get(reaction.player_name):
                             continue  # Already showing this emotion
                         overrides[reaction.player_name] = reaction.emotion
-                        avatar_url = get_full_avatar_url(reaction.player_name, reaction.emotion)
+                        avatar_url = get_avatar_url_with_fallback(game_id, reaction.player_name, reaction.emotion)
                         socketio.emit('avatar_update', {
                             'player_name': reaction.player_name,
                             'avatar_url': avatar_url,
@@ -1133,7 +1133,7 @@ def progress_game(game_id: str) -> None:
                         if current == reaction.emotion:
                             continue  # Already showing this emotion
                         overrides[reaction.player_name] = reaction.emotion
-                        avatar_url = get_full_avatar_url(reaction.player_name, reaction.emotion)
+                        avatar_url = get_avatar_url_with_fallback(game_id, reaction.player_name, reaction.emotion)
                         socketio.emit('avatar_update', {
                             'player_name': reaction.player_name,
                             'avatar_url': avatar_url,

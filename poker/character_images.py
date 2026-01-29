@@ -9,14 +9,16 @@ Supports on-demand generation for personalities without existing images.
 import io
 import logging
 import os
+import threading
 import time
 import urllib.request
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from PIL import Image, ImageDraw
 
 from core.llm import LLMClient, CallType
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
+from core.llm.settings import get_default_model, get_default_provider, get_image_model, get_image_provider
 
 if TYPE_CHECKING:
     from .persistence import GamePersistence
@@ -36,40 +38,6 @@ EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
 ICON_SIZE = 256
 
 # Image provider configuration
-# Priority: 1. Database (app_settings), 2. Environment variable, 3. Default
-# IMAGE_PROVIDER: "openai" (default), "pollinations", "runware", etc.
-# IMAGE_MODEL: model to use (provider-specific default if not set)
-
-@lru_cache(maxsize=1)
-def _get_image_config_persistence():
-    """Get a shared persistence instance for image config lookups."""
-    from .persistence import GamePersistence
-    return GamePersistence()
-
-
-def get_image_provider() -> str:
-    """Get the image provider from app_settings or environment."""
-    p = _get_image_config_persistence()
-    db_value = p.get_setting('IMAGE_PROVIDER', '')
-    if db_value:
-        return db_value
-    return os.environ.get("IMAGE_PROVIDER", "openai")
-
-
-def get_image_model() -> Optional[str]:
-    """Get the image model from app_settings or environment."""
-    p = _get_image_config_persistence()
-    db_value = p.get_setting('IMAGE_MODEL', '')
-    if db_value:
-        return db_value
-    return os.environ.get("IMAGE_MODEL")
-
-
-# Legacy module-level constants for backward compatibility (read at module load)
-# Note: These may not reflect runtime app_settings changes
-IMAGE_PROVIDER = os.environ.get("IMAGE_PROVIDER", "openai")
-IMAGE_MODEL = os.environ.get("IMAGE_MODEL")
-
 # Full image generation size (512x512 for DALL-E 2, 1024x1024 for DALL-E 3)
 # The full image is stored for CSS-based cropping on the frontend
 FULL_IMAGE_SIZE = "512x512"
@@ -134,7 +102,7 @@ class CharacterImageService:
         if Path('/app/data').exists():
             return '/app/data/poker_games.db'
         else:
-            return str(Path(__file__).parent.parent / 'poker_games.db')
+            return str(Path(__file__).parent.parent / 'data' / 'poker_games.db')
 
     def get_avatar_url(self, personality_name: str, emotion: str = "confident") -> Optional[str]:
         """
@@ -394,7 +362,7 @@ class CharacterImageService:
 
     def _generate_description_for_celebrity(self, llm_client: LLMClient, name: str,
                                             game_id: Optional[str] = None) -> str:
-        """Use GPT to generate a physical description for a real person.
+        """Use a text LLM to generate a physical description for a real person.
 
         This generates ONLY the physical description - style, background, and emotion
         are added by the prompt template.
@@ -406,7 +374,8 @@ class CharacterImageService:
             f"Output ONLY the physical description, no style or setting details. "
             f"Format: 'a [physical description] character'. Do NOT use their name."
         )
-        response = llm_client.complete(
+        text_client = LLMClient(model=get_default_model(), provider=get_default_provider())
+        response = text_client.complete(
             messages=[{"role": "user", "content": prompt}],
             call_type=CallType.IMAGE_DESCRIPTION,
             game_id=game_id,
@@ -528,7 +497,6 @@ class CharacterImageService:
         Returns:
             Processed icon bytes (256x256 circular PNG)
         """
-        from PIL import Image, ImageDraw
 
         # Load image from bytes
         img = Image.open(io.BytesIO(raw_image_bytes))
@@ -598,7 +566,6 @@ class CharacterImageService:
         DEPRECATED: Use _process_to_icon_and_save for new images.
         This method is kept for backwards compatibility during migration.
         """
-        from PIL import Image, ImageDraw
 
         # Load the full-size image
         image_filename = self._get_image_filename(personality_name, emotion)
@@ -657,8 +624,9 @@ class CharacterImageService:
         return sorted(personalities)
 
 
-# Singleton instance
+# Singleton instance (thread-safe via double-checked locking)
 _service: Optional[CharacterImageService] = None
+_service_lock = threading.Lock()
 
 
 def get_character_image_service(
@@ -675,7 +643,9 @@ def get_character_image_service(
     """
     global _service
     if _service is None:
-        _service = CharacterImageService(personality_generator, persistence)
+        with _service_lock:
+            if _service is None:
+                _service = CharacterImageService(personality_generator, persistence)
     return _service
 
 
