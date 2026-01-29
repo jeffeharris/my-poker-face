@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_REASONING_EFFORT
+from ..config import DEFAULT_MODEL, IMAGE_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_REASONING_EFFORT
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class OpenAIProvider(LLMProvider):
     @property
     def image_model(self) -> str:
         """Return the image generation model name."""
-        return self._model if self._model != DEFAULT_MODEL else DEFAULT_IMAGE_MODEL
+        return self._model if self._model != DEFAULT_MODEL else IMAGE_MODEL
 
     def complete(
         self,

@@ -58,7 +58,8 @@ from poker.prompt_config import PromptConfig
 from poker.pressure_detector import PressureEventDetector
 from poker.elasticity_manager import ElasticityManager
 from experiments.pause_coordinator import PauseCoordinator
-from core.llm import LLMClient, CallType, ASSISTANT_MODEL, ASSISTANT_PROVIDER
+from core.llm import LLMClient, CallType
+from flask_app.config import get_assistant_model, get_assistant_provider
 
 
 def make_experiment_owner_id(experiment_name: str) -> str:
@@ -2502,7 +2503,7 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
             })
 
             # Make LLM call
-            client = LLMClient(model=ASSISTANT_MODEL, provider=ASSISTANT_PROVIDER)
+            client = LLMClient(model=get_assistant_model(), provider=get_assistant_provider())
             response = client.complete(
                 messages=messages,
                 json_format=True,

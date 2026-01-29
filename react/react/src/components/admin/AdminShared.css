@@ -1361,6 +1361,15 @@
   min-height: 0; /* Allow shrinking for scroll */
 }
 
+/* Section that fills available vertical space (settings sub-pages) */
+.admin-detail__section-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-4);
+}
+
 /* Fixed action bar at bottom of detail panel */
 .admin-detail__footer {
   flex-shrink: 0;

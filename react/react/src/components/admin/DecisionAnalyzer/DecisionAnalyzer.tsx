@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
 import { useViewport } from '../../../hooks/useViewport';
 import { logger } from '../../../utils/logger';
 import { MobileFilterSheet } from '../shared/MobileFilterSheet';
+import { MobileFilterBar } from '../shared/MobileFilterBar';
+import { FilterSheetContent } from '../shared/FilterSheetContent';
+import { FilterGroup } from '../shared/FilterGroup';
 import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, LabelStats } from './types';
 import { InterrogationChat } from './InterrogationChat';
 import './DecisionAnalyzer.css';
@@ -519,28 +522,21 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
       {/* Mobile list header bar - shows filter and refresh icons */}
       {isMobile && !showMobileDetail && (
-        <div className="decision-analyzer__list-bar">
-          <button
-            className="decision-analyzer__icon-btn"
-            onClick={() => setFilterSheetOpen(true)}
-            type="button"
-            aria-label="Filters"
-          >
-            <Filter size={20} />
-            {activeFilterCount > 0 && (
-              <span className="decision-analyzer__filter-badge">{activeFilterCount}</span>
-            )}
-          </button>
-          <button
-            className="decision-analyzer__icon-btn"
-            onClick={fetchCaptures}
-            disabled={loading}
-            type="button"
-            aria-label="Refresh"
-          >
-            <RefreshCw size={20} className={loading ? 'spinning' : ''} />
-          </button>
-        </div>
+        <MobileFilterBar
+          activeFilterCount={activeFilterCount}
+          onFilterClick={() => setFilterSheetOpen(true)}
+          actions={
+            <button
+              className="mobile-filter-bar__icon-btn"
+              onClick={fetchCaptures}
+              disabled={loading}
+              type="button"
+              aria-label="Refresh"
+            >
+              <RefreshCw size={20} className={loading ? 'spinning' : ''} />
+            </button>
+          }
+        />
       )}
 
       {/* Decision Analysis Stats - hidden on mobile when showing detail */}
@@ -1626,11 +1622,17 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
         onClose={() => setFilterSheetOpen(false)}
         title="Filters"
       >
-        <div className="debugger-filter-sheet">
-          <div className="debugger-filter-group">
-            <label className="debugger-filter-label">Action</label>
+        <FilterSheetContent
+          accentColor="teal"
+          onClear={() => {
+            setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined });
+            setFilterSheetOpen(false);
+          }}
+          onApply={() => setFilterSheetOpen(false)}
+        >
+          <FilterGroup label="Action">
             <select
-              className="debugger-filter-select"
+              className="mobile-filter-sheet__select"
               value={filters.action || ''}
               onChange={(e) => {
                 setFilters({ ...filters, action: e.target.value || undefined, offset: 0 });
@@ -1642,12 +1644,11 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="call">Call</option>
               <option value="raise">Raise</option>
             </select>
-          </div>
+          </FilterGroup>
 
-          <div className="debugger-filter-group">
-            <label className="debugger-filter-label">Phase</label>
+          <FilterGroup label="Phase">
             <select
-              className="debugger-filter-select"
+              className="mobile-filter-sheet__select"
               value={filters.phase || ''}
               onChange={(e) => {
                 setFilters({ ...filters, phase: e.target.value || undefined, offset: 0 });
@@ -1659,13 +1660,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="TURN">Turn</option>
               <option value="RIVER">River</option>
             </select>
-          </div>
+          </FilterGroup>
 
-          <div className="debugger-filter-group">
-            <label className="debugger-filter-label">Min Pot Odds</label>
+          <FilterGroup label="Min Pot Odds">
             <input
               type="number"
-              className="debugger-filter-input"
+              className="mobile-filter-sheet__input"
               placeholder="e.g., 3"
               value={filters.min_pot_odds || ''}
               onChange={(e) => {
@@ -1676,12 +1676,11 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 });
               }}
             />
-          </div>
+          </FilterGroup>
 
-          <div className="debugger-filter-group">
-            <label className="debugger-filter-label">Error Type</label>
+          <FilterGroup label="Error Type">
             <select
-              className="debugger-filter-select"
+              className="mobile-filter-sheet__select"
               value={filters.error_type || ''}
               onChange={(e) => {
                 setFilters({ ...filters, error_type: e.target.value || undefined, offset: 0 });
@@ -1693,12 +1692,11 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="invalid_action">Invalid Action</option>
               <option value="semantic_error">Semantic Error</option>
             </select>
-          </div>
+          </FilterGroup>
 
-          <div className="debugger-filter-group">
-            <label className="debugger-filter-label">Error Status</label>
+          <FilterGroup label="Error Status">
             <select
-              className="debugger-filter-select"
+              className="mobile-filter-sheet__select"
               value={filters.has_error === undefined ? '' : filters.has_error.toString()}
               onChange={(e) => {
                 setFilters({
@@ -1712,12 +1710,11 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="true">Has Error</option>
               <option value="false">No Error</option>
             </select>
-          </div>
+          </FilterGroup>
 
-          <div className="debugger-filter-group">
-            <label className="debugger-filter-label">Correction</label>
+          <FilterGroup label="Correction">
             <select
-              className="debugger-filter-select"
+              className="mobile-filter-sheet__select"
               value={filters.is_correction === undefined ? '' : filters.is_correction.toString()}
               onChange={(e) => {
                 setFilters({
@@ -1731,12 +1728,11 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
               <option value="false">Original Only</option>
               <option value="true">Corrections Only</option>
             </select>
-          </div>
+          </FilterGroup>
 
           {/* Label filter chips */}
           {labelStats && Object.keys(labelStats).length > 0 && (
-            <div className="debugger-filter-group">
-              <label className="debugger-filter-label">Labels</label>
+            <FilterGroup label="Labels">
               <div className="debugger-filter-chips">
                 {Object.entries(labelStats)
                   .filter(([, count]) => count > 0)
@@ -1752,29 +1748,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     </button>
                   ))}
               </div>
-            </div>
+            </FilterGroup>
           )}
-
-          <div className="debugger-filter-actions">
-            <button
-              className="debugger-filter-clear"
-              onClick={() => {
-                setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined });
-                setFilterSheetOpen(false);
-              }}
-              type="button"
-            >
-              Clear All
-            </button>
-            <button
-              className="debugger-filter-apply"
-              onClick={() => setFilterSheetOpen(false)}
-              type="button"
-            >
-              Apply
-            </button>
-          </div>
-        </div>
+        </FilterSheetContent>
       </MobileFilterSheet>
     </div>
   );

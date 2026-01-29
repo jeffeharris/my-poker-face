@@ -1,6 +1,7 @@
 """Configuration for the Flask application."""
 
 import os
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -44,9 +45,8 @@ RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALIT
 REDIS_URL = os.environ.get('REDIS_URL')
 
 # AI model configuration - import from centralized config
-from core.llm import FAST_MODEL as FAST_AI_MODEL
 from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
-from core.llm.config import DEFAULT_MODEL
+from core.llm.config import DEFAULT_MODEL, DEFAULT_PROVIDER, FAST_MODEL, FAST_PROVIDER, IMAGE_PROVIDER, IMAGE_MODEL
 
 # DB-backed LLM settings — canonical source is core.llm.settings.
 # Re-exported here for backwards compatibility with flask_app.routes etc.
@@ -54,8 +54,12 @@ from core.llm.settings import (           # noqa: F401
     _get_config_persistence,
     get_default_provider,
     get_default_model,
+    get_fast_provider,
+    get_fast_model,
     get_assistant_provider,
     get_assistant_model,
+    get_image_provider,
+    get_image_model,
 )
 
 # Database path

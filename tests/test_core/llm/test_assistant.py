@@ -286,7 +286,7 @@ class TestAssistant(unittest.TestCase):
         """Test that to_dict/from_dict preserves state."""
         original = Assistant(
             system_prompt="Test prompt",
-            call_type=CallType.SPADES_DECISION,
+            call_type=CallType.PLAYER_DECISION,
             game_id="test_game",
             player_name="TestPlayer",
             tracker=self.tracker,

@@ -163,6 +163,151 @@
   color: rgba(248, 250, 252, 0.45);
 }
 
+/* ============================================
+   Shared filter sheet form controls
+   ============================================ */
+
+/* Body wrapper for filter groups + actions */
+.mobile-filter-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0.5rem 0;
+}
+
+/* Filter group (label + control) */
+.mobile-filter-sheet__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mobile-filter-sheet__group-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(248, 250, 252, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Select and input controls */
+.mobile-filter-sheet__select,
+.mobile-filter-sheet__input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.95);
+  font-size: 1rem;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mobile-filter-sheet__select:focus,
+.mobile-filter-sheet__input:focus {
+  outline: none;
+  border-color: var(--filter-accent, var(--color-gold));
+  background: rgba(212, 165, 116, 0.08);
+}
+
+.mobile-filter-sheet__select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6L8 10L12 6' stroke='%23a0a0a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  padding-right: 2.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-filter-sheet__input::placeholder {
+  color: rgba(248, 250, 252, 0.4);
+}
+
+/* Toggle (checkbox + label) */
+.mobile-filter-sheet__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.85);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.mobile-filter-sheet__toggle input {
+  accent-color: var(--filter-accent, var(--color-gold));
+  width: 18px;
+  height: 18px;
+}
+
+/* Action buttons (Clear All + Apply) */
+.mobile-filter-sheet__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mobile-filter-sheet__clear-btn {
+  flex: 1;
+  padding: 0.875rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.8);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-filter-sheet__clear-btn:active {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(0.98);
+}
+
+.mobile-filter-sheet__apply-btn {
+  flex: 1;
+  padding: 0.875rem 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-filter-sheet__apply-btn:active {
+  transform: scale(0.98);
+  opacity: 0.9;
+}
+
+/* Gold accent (default) */
+.mobile-filter-sheet__apply-btn--gold {
+  background: var(--color-gold);
+  color: var(--color-felt);
+}
+
+/* Teal accent (for Decision Analyzer) */
+.mobile-filter-sheet__apply-btn--teal {
+  background: linear-gradient(135deg, #4ecca3 0%, #3db892 100%);
+  color: #1a1a2e;
+}
+
+/* Teal focus override */
+.mobile-filter-sheet__body--teal .mobile-filter-sheet__select:focus,
+.mobile-filter-sheet__body--teal .mobile-filter-sheet__input:focus {
+  border-color: #4ecca3;
+  background: rgba(78, 204, 163, 0.08);
+}
+
 /* Animations from mobile-admin.css */
 @keyframes mobileFadeIn {
   from { opacity: 0; }
