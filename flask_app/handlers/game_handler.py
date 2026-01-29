@@ -1117,8 +1117,11 @@ def progress_game(game_id: str) -> None:
                     # Extra pause (4 seconds) for players to see the cards
                     socketio.sleep(4)
 
-                # Delay 2 seconds to let player see the community cards being dealt
-                socketio.sleep(2)
+                # Delay to let player see the community cards being dealt
+                # Flop (3 cards): 2.825s animation (3×1s stagger + 0.825s) + buffer
+                # Turn/River (1 card): 0.825s animation + buffer
+                run_out_sleep = 4 if current_phase == PokerPhase.FLOP else 2
+                socketio.sleep(run_out_sleep)
 
                 # Emit pre-computed avatar reactions for this street
                 reaction_schedule = current_game_data.get('runout_reaction_schedule')
