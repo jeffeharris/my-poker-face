@@ -23,6 +23,7 @@ from .hand_evaluator import HandEvaluator, rank_to_display
 def narrate_hand_breakdown(
     hole_cards: List[Card],
     community_cards: List[Card],
+    strength_tier: Optional[str] = None,
 ) -> str:
     """Build a factual explanation of which cards form the player's best hand.
 
@@ -32,11 +33,13 @@ def narrate_hand_breakdown(
     Args:
         hole_cards: The player's 2 hole cards (Card objects).
         community_cards: The community cards on the board (Card objects).
+        strength_tier: Optional strength label (e.g., "Strong", "Monster")
+                       to append to the header line.
 
     Returns:
         Multi-line string explaining the hand, e.g.::
 
-            HAND BREAKDOWN: Two Pair, A's and K's
+            HAND BREAKDOWN: Two Pair, A's and K's (Strong)
             Your Ah pairs with the Ac on the board (top pair).
             Your Kd pairs with the Kc on the board (second pair).
             Kicker: 7s from the board.
@@ -58,7 +61,10 @@ def narrate_hand_breakdown(
     kicker_values = result.get("kicker_values", [])
     flush_suit = result.get("suit")
 
-    lines: List[str] = [f"HAND BREAKDOWN: {hand_name}"]
+    header = f"HAND BREAKDOWN: {hand_name}"
+    if strength_tier:
+        header += f" ({strength_tier})"
+    lines: List[str] = [header]
 
     # Describe based on hand type
     descriptor = _HAND_DESCRIBERS.get(hand_rank, _describe_high_card)

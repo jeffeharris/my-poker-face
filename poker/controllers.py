@@ -1746,32 +1746,39 @@ def build_base_game_state(
 
     big_blind = game_state.current_ante or 100
 
-    # Hand strength evaluation
-    hand_strength_line = ""
+    # Hand strength evaluation + breakdown
+    hand_info_line = ""
     if include_hand_strength:
         if community_cards:
             hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-        else:
-            hand_strength = classify_preflop_hand(hole_cards)
-        hand_strength_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
+            # Extract strength tier (e.g., "Strong" from "Two Pair - Strong")
+            strength_tier = hand_strength.split(' - ')[1] if hand_strength and ' - ' in hand_strength else None
 
-    # Detailed hand breakdown (which cards form the hand)
-    hand_breakdown_line = ""
-    if include_hand_strength and game_state.community_cards:
-        try:
-            hole_card_objects = [_ensure_card(c) for c in player.hand]
-            community_card_objects = [_ensure_card(c) for c in game_state.community_cards]
-            breakdown = narrate_hand_breakdown(hole_card_objects, community_card_objects)
-            if breakdown:
-                hand_breakdown_line = f"{breakdown}\n"
-        except Exception as e:
-            logger.debug(f"Hand breakdown failed: {e}")
+            # Try detailed breakdown (merges strength tier into header)
+            try:
+                hole_card_objects = [_ensure_card(c) for c in player.hand]
+                community_card_objects = [_ensure_card(c) for c in game_state.community_cards]
+                breakdown = narrate_hand_breakdown(
+                    hole_card_objects, community_card_objects,
+                    strength_tier=strength_tier,
+                )
+                if breakdown:
+                    hand_info_line = f"{breakdown}\n"
+            except Exception as e:
+                logger.debug(f"Hand breakdown failed: {e}")
+
+            # Fallback to old-style line if breakdown didn't produce output
+            if not hand_info_line and hand_strength:
+                hand_info_line = f"Your Hand Strength: {hand_strength}\n"
+        else:
+            # Pre-flop: no breakdown, just classification
+            hand_strength = classify_preflop_hand(hole_cards)
+            hand_info_line = f"Your Hand Strength: {hand_strength}\n" if hand_strength else ""
 
     persona_state = (
         f"Persona: {persona}\n"
         f"Your Cards: {hole_cards}\n"
-        f"{hand_strength_line}"
-        f"{hand_breakdown_line}"
+        f"{hand_info_line}"
         f"Your Stack: {_format_money(player_money, big_blind, True)}\n"
     )
 
