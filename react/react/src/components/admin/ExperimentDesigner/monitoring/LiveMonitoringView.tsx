@@ -13,6 +13,7 @@ import { GameMonitorGrid } from './GameMonitorGrid';
 import { GameMonitorTable } from './GameMonitorTable';
 import { PlayerDrilldownPanel } from './PlayerDrilldownPanel';
 import type { GameSnapshot, LiveGamesResponse, SelectedPlayer } from './types';
+import '../../AdminShared.css';
 import './LiveMonitoringView.css';
 
 type ViewMode = 'cards' | 'table';
@@ -170,7 +171,7 @@ export function LiveMonitoringView({
       <header className="live-monitor__header">
         <div className="live-monitor__header-left">
           <button
-            className="live-monitor__back-btn"
+            className="live-monitor__back-btn admin-back-button"
             onClick={onClose}
             type="button"
             title="Back to Experiment"

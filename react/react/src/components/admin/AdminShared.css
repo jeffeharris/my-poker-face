@@ -48,6 +48,49 @@
   --admin-info-border: rgba(255, 193, 7, 0.2);
 }
 
+/* Shared back button styling for admin menus */
+.admin-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 40px;
+  padding: 0 0.75rem;
+  background: var(--color-gold-muted);
+  border: 1px solid rgba(212, 165, 116, 0.35);
+  border-radius: 10px;
+  color: var(--color-gold-light);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-back-button--icon {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.admin-back-button:active {
+  transform: scale(0.96);
+  background: rgba(212, 165, 116, 0.25);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .admin-back-button:hover {
+    background: rgba(212, 165, 116, 0.2);
+    border-color: var(--color-gold);
+    color: var(--color-gold-bright);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .admin-back-button:hover {
+    background: var(--color-gold-muted);
+    border-color: rgba(212, 165, 116, 0.35);
+    color: var(--color-gold-light);
+  }
+}
+
 /* ==========================================================================
    Shared Keyframe Animations
    ========================================================================== */
