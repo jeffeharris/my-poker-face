@@ -122,11 +122,8 @@ What is your move?"""
             },
             'decision': response.get('action', 'unknown').upper(),
             'amount': response.get('raise_to', 0),
-            'says': response.get('persona_response', '...'),
-            'physical': response.get('physical', []),
             'thinking': response.get('inner_monologue', ''),
-            'confidence': response.get('new_confidence', response.get('confidence', 'unknown')),
-            'attitude': response.get('new_attitude', response.get('attitude', 'unknown'))
+            'stage_direction': response.get('stage_direction', [])
         }
         
         return jsonify({'success': True, 'result': result})

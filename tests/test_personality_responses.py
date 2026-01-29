@@ -52,13 +52,10 @@ class TestPersonalityResponses(unittest.TestCase):
         return {
             "action": action,
             "raise_to": amount,
-            "persona_response": responses['verbal'],
-            "physical": responses['physical'],
             "inner_monologue": responses['thought'],
             "bluff_likelihood": int(traits['bluff_tendency'] * 100),
             "hand_strategy": responses['strategy'],
-            "new_confidence": responses['confidence'],
-            "new_attitude": responses['attitude']
+            "stage_direction": responses['physical'] + [responses['verbal']],
         }
     
     def _get_personality_responses(self, name, action):
@@ -221,12 +218,14 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"  Personality Traits:")
             print(f"    - Bluff Tendency: {ai_player.personality_config['personality_traits']['bluff_tendency']:.0%}")
             print(f"    - Aggression: {ai_player.personality_config['personality_traits']['aggression']:.0%}")
-            print(f"  Decision: {response['action'].upper()}" + 
+            print(f"  Decision: {response['action'].upper()}" +
                   (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
-            print(f"  Says: \"{response['persona_response']}\"")
-            print(f"  Physical: {', '.join(response['physical'])}")
+            beats = response.get('stage_direction', [])
+            speech = [b for b in beats if not b.startswith('*')]
+            actions = [b for b in beats if b.startswith('*')]
+            print(f"  Says: \"{'; '.join(speech)}\"")
+            print(f"  Actions: {', '.join(actions)}")
             print(f"  Strategy: {response['hand_strategy']}")
-            print(f"  New Mood: {response['new_confidence']}, {response['new_attitude']}")
             
         # Verify personality-based decisions
         self.assertEqual(results["Eeyore"]["action"], "fold")  # Low aggression = fold
@@ -256,8 +255,10 @@ class TestPersonalityResponses(unittest.TestCase):
             print(f"\n{player_name}:")
             print(f"  Action: {response['action'].upper()}" + 
                   (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
-            print(f"  Says: \"{response['persona_response']}\"")
-            
+            beats = response.get('stage_direction', [])
+            speech = [b for b in beats if not b.startswith('*')]
+            print(f"  Says: \"{'; '.join(speech)}\"")
+
             # Verify decisions match personality
             if ai_player.personality_config['personality_traits']['aggression'] > 0.7:
                 self.assertEqual(response['action'], "raise")
