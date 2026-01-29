@@ -154,13 +154,6 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     })();
   }, []);
 
-  useEffect(() => {
-    if (providers.length > 0) {
-      const openai = providers.find(p => p.id === 'openai') || providers[0];
-      setDefaultProvider(openai.id);
-      setDefaultModel(openai.default_model);
-    }
-  }, [providers]);
 
   // ─── Player count management ───────────────────────────────────────
 
@@ -539,7 +532,6 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
             const p = allPersonalities[slotName];
             if (!p) return null;
-            const hasCustomConfig = !!opponentConfigs[slotName];
             const isConfigExpanded = expandedConfigSlot === idx;
 
             const avatarPath = `/api/avatar/${encodeURIComponent(slotName)}/confident/full`;

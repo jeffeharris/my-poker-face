@@ -402,6 +402,7 @@ def capture_prompt(
     response: LLMResponse,
     call_type: CallType,
     game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
     player_name: Optional[str] = None,
     hand_number: Optional[int] = None,
     owner_id: Optional[str] = None,
@@ -418,6 +419,7 @@ def capture_prompt(
         response: The LLM response
         call_type: Type of call (player_decision, commentary, etc.)
         game_id: Optional game ID (nullable for non-game calls)
+        owner_id: Optional owner/user ID
         player_name: Optional player name
         hand_number: Optional hand number
         debug_mode: True if game has debug capture explicitly enabled
@@ -499,7 +501,7 @@ def capture_prompt(
                     community_cards, player_hand, valid_actions,
                     action_taken, raise_amount,
                     parent_id, error_type, error_description, correction_attempt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 capture_data.get('game_id'),
                 capture_data.get('owner_id'),
