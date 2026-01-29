@@ -188,8 +188,11 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   }, [personalityNames]);
 
   const handleThemeGenerate = async (themeId: string, themeName: string, desc: string) => {
+    setShowThemes(false);
     setThemeGenerating(true);
     setError(null);
+    setSlots(Array(playerCount).fill(null));
+    setOpponentConfigs({});
     try {
       const res = await fetch(`${config.API_URL}/api/generate-theme`, {
         method: 'POST',
@@ -507,7 +510,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       {themeGenerating && (
         <div className="wizard-loading">
           <div className="wizard-loading__spinner" />
-          <div>Generating themed opponents...</div>
+          <div>Contacting agents for availability...</div>
         </div>
       )}
 
@@ -535,8 +538,15 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
             const hasCustomConfig = !!opponentConfigs[slotName];
             const isConfigExpanded = expandedConfigSlot === idx;
 
+            const avatarPath = `/api/avatar/${encodeURIComponent(slotName)}/confident/full`;
+            const avatarUrl = `${config.API_URL}${avatarPath}`;
+
             return (
-              <div key={slotName} className="player-card">
+              <div
+                key={slotName}
+                className="player-card"
+                style={{ backgroundImage: `url(${avatarUrl})` }}
+              >
                 <div className="player-card__header">
                   <span className="player-card__name">{slotName}</span>
                   <div className="player-card__actions">
