@@ -659,7 +659,9 @@ function AdminIndex() {
   };
 
   const handleTabChange = (newTab: AdminTab) => {
-    navigate(`/admin/${newTab}`);
+    // Replace /admin with /admin/:tab so the menu doesn't stay in history.
+    // When the tab navigates back, it replaces with /admin, keeping one entry.
+    navigate(`/admin/${newTab}`, { replace: true });
   };
 
   return (
