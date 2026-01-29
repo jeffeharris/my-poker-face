@@ -605,7 +605,9 @@
   position: fixed;
   inset: 0;
   z-index: 999;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   animation: stepFadeIn 0.2s ease-out;
 }
 
@@ -735,6 +737,62 @@
   border-color: var(--color-ruby);
   color: var(--color-ruby);
   background: var(--color-ruby-muted);
+}
+
+/* Use defaults toggle */
+.config-sheet__defaults-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-2);
+}
+
+.config-sheet__defaults-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-display);
+}
+
+.config-sheet__defaults-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--color-bg-void);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.config-sheet__defaults-switch--on {
+  background: var(--color-gold);
+  border-color: var(--color-gold);
+}
+
+.config-sheet__defaults-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: var(--color-text-primary);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.config-sheet__defaults-switch--on::after {
+  transform: translateX(20px);
+  background: var(--color-bg-void);
+}
+
+.config-sheet__body--disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* ===========================================
@@ -965,7 +1023,7 @@
 
 /* Preset cards */
 .presets-section {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-3);
 }
 
 .presets-section__label {
@@ -974,7 +1032,7 @@
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: var(--letter-spacing-wider);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
   text-align: center;
 }
 
@@ -986,8 +1044,7 @@
 
 @media (max-width: 560px) {
   .presets-grid {
-    grid-template-columns: 1fr;
-    gap: var(--space-3);
+    gap: var(--space-2);
   }
 }
 
@@ -996,6 +1053,11 @@
   border: 2px solid var(--color-border-default);
   border-radius: var(--radius-xl);
   padding: var(--space-5);
+  min-height: 22dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: all 0.3s var(--ease-out-expo);
   text-align: center;
@@ -1073,7 +1135,7 @@
   font-size: var(--font-size-sm);
   cursor: pointer;
   transition: all 0.3s;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .advanced-toggle:hover {
@@ -1492,6 +1554,23 @@
 
   .wizard-nav__btn {
     padding: var(--space-3) var(--space-4);
+  }
+}
+
+@media (max-width: 560px) {
+  .preset-card {
+    padding: var(--space-3);
+    min-height: 18dvh;
+  }
+
+  .preset-card__icon {
+    font-size: var(--font-size-xl);
+    margin-bottom: var(--space-1);
+  }
+
+  .preset-card__name {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-1);
   }
 }
 
