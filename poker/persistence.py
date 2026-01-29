@@ -3560,7 +3560,8 @@ class GamePersistence:
                 hand=hand,
                 is_all_in=player_data['is_all_in'],
                 is_folded=player_data['is_folded'],
-                has_acted=player_data['has_acted']
+                has_acted=player_data['has_acted'],
+                last_action=player_data.get('last_action')
             )
             players.append(player)
         

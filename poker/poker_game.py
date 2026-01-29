@@ -51,6 +51,7 @@ class Player:
     is_all_in: bool = False
     is_folded: bool = False
     has_acted: bool = False
+    last_action: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -60,6 +61,7 @@ class Player:
             'is_all_in': self.is_all_in,
             'is_folded': self.is_folded,
             'has_acted': self.has_acted,
+            'last_action': self.last_action,
             'bet': self.bet,
             'hand': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.hand] if self.hand else None,
         }
@@ -569,7 +571,11 @@ def set_betting_round_start_player(game_state) -> Optional[PokerGameState]:
                                                              relative_player_idx=game_state.current_dealer_idx + 2)
     if first_action_player_idx is None:
         return None  # No active players, betting round should not start
-    return game_state.update(current_player_idx=first_action_player_idx)
+    # Clear all players' last_action for a clean slate at the start of each betting round
+    updated_players = tuple(
+        player.update(last_action=None) for player in game_state.players
+    )
+    return game_state.update(current_player_idx=first_action_player_idx, players=updated_players)
 
 def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
     """
@@ -612,7 +618,8 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
         game_state = player_action_function(game_state)
 
     game_state = game_state.update_player(player_idx=game_state.current_player_idx,
-                                          has_acted=True)
+                                          has_acted=True,
+                                          last_action=action)
 
     if game_state.can_big_blind_take_pre_flop_action:
         game_state = game_state.update(pre_flop_action_taken=True)

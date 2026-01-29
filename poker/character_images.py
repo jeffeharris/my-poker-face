@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 from core.llm import LLMClient, CallType
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
-from flask_app.config import get_default_model, get_default_provider, get_image_model, get_image_provider
+from core.llm.settings import get_default_model, get_default_provider, get_image_model, get_image_provider
 
 if TYPE_CHECKING:
     from .persistence import GamePersistence

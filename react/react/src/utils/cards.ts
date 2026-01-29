@@ -15,9 +15,9 @@ const standardImages = import.meta.glob('../assets/cards/standard/*.svg', { eage
 const englishImages = import.meta.glob('../assets/cards/english/*.svg', { eager: true, query: '?url', import: 'default' });
 
 const PACK_IMAGES: Record<string, Record<string, string>> = {
-  classic: classicImages,
-  standard: standardImages,
-  english: englishImages,
+  classic: classicImages as Record<string, string>,
+  standard: standardImages as Record<string, string>,
+  english: englishImages as Record<string, string>,
 };
 
 

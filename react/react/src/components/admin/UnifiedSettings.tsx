@@ -3,7 +3,8 @@ import { Sliders, Database, HardDrive, DollarSign, Menu, Check, Palette } from '
 import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
 import { useViewport } from '../../hooks/useViewport';
-import { useDeckPack, DECK_PACKS } from '../../hooks/useDeckPack';
+import { useDeckPack } from '../../hooks/useDeckPack';
+import { DECK_PACKS } from '../../hooks/deckPacks';
 import { getCardImagePathForPack } from '../../utils/cards';
 import { MobileFilterSheet } from './shared/MobileFilterSheet';
 import { PricingManager } from './PricingManager';
