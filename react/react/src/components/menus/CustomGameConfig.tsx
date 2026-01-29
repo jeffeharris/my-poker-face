@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
-import { PageLayout, PageHeader, MenuBar, BottomSheet } from '../shared';
+import { PageLayout, MenuBar, BottomSheet } from '../shared';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
 import { GAME_MODES } from '../../constants/gameModes';

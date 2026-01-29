@@ -405,7 +405,6 @@ def capture_prompt(
     owner_id: Optional[str] = None,
     player_name: Optional[str] = None,
     hand_number: Optional[int] = None,
-    owner_id: Optional[str] = None,
     debug_mode: bool = False,
     enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
 ) -> bool:
