@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
@@ -8,10 +8,12 @@ import { GameHeader } from '../GameHeader';
 import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
+import { ActionBadge } from '../../shared';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import type { Player } from '../../../types/player';
+import '../../../styles/action-badges.css';
 import './PokerTable.css';
 
 interface PokerTableProps {
@@ -21,6 +23,11 @@ interface PokerTableProps {
 }
 
 export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }: PokerTableProps) {
+
+  // Track last known actions for fade-out animation
+  const lastKnownActions = useRef<Map<string, string>>(new Map());
+  // Incrementing this state forces a re-render after the ref is mutated on fade completion
+  const [, setFadeKey] = useState(0);
 
   // Use the shared hook for all socket/state management
   const {
@@ -276,6 +283,16 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 const isBigBlind = playerIndex === gameState.big_blind_idx;
                 const isCurrentPlayer = playerIndex === gameState.current_player_idx;
 
+                // Compute avatar state: swap to "thinking" when AI is processing
+                const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
+                const avatarUrl = isAiThinking && player.avatar_url
+                  ? player.avatar_url.replace(
+                      /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
+                      '/api/avatar/$1/thinking$2'
+                    )
+                  : player.avatar_url;
+                const avatarEmotion = isAiThinking ? 'thinking' : (player.avatar_emotion || 'avatar');
+
                 return (
                   <div
                     key={player.name}
@@ -294,11 +311,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
                     <div className="player-info">
                       <div className="player-avatar">
-                        {player.avatar_url ? (
+                        {avatarUrl ? (
                           <img
-                            src={`${config.API_URL}${player.avatar_url}`}
-                            alt={`${player.name} - ${player.avatar_emotion || 'avatar'}`}
-                            className="avatar-image"
+                            src={`${config.API_URL}${avatarUrl}`}
+                            alt={`${player.name} - ${avatarEmotion}`}
+                            className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
                           />
                         ) : (
                           <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
@@ -308,8 +325,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                         <div className="player-name">{player.name}</div>
                         <div className="player-stack">${player.stack}</div>
                         {player.bet > 0 && <div className="player-bet">Bet: ${player.bet}</div>}
-                        {player.is_folded && <div className="status">FOLDED</div>}
-                        {player.is_all_in && <div className="status">ALL-IN</div>}
+                        <ActionBadge
+                          player={player}
+                          lastKnownActions={lastKnownActions}
+                          onFadeComplete={() => setFadeKey(k => k + 1)}
+                        />
                       </div>
                     </div>
 

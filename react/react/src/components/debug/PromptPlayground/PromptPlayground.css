@@ -59,7 +59,7 @@
   z-index: 100;
 }
 
-.back-button {
+.playground-container .back-button {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
@@ -76,12 +76,12 @@
   text-decoration: none;
 }
 
-.back-button:hover {
+.playground-container .back-button:hover {
   background: var(--pg-accent-hover);
   border-color: var(--pg-accent-border);
 }
 
-.back-button:active {
+.playground-container .back-button:active {
   transform: scale(0.98);
 }
 
@@ -823,7 +823,7 @@
     display: none; /* Remove > prefix on mobile */
   }
 
-  .back-button {
+  .playground-container .back-button {
     order: 0;
     padding: 0.35rem 0.5rem;
     font-size: 0.7rem;
@@ -1154,7 +1154,7 @@
     display: none;
   }
 
-  .back-button {
+  .playground-container .back-button {
     padding: 0.35rem 0.5rem;
     font-size: 0.7rem;
   }

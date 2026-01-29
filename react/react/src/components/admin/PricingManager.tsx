@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
+import { Plus } from 'lucide-react';
 import { adminAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
+import { useViewport } from '../../hooks/useViewport';
+import { MobileFilterSheet } from './shared/MobileFilterSheet';
+import { MobileFilterBar } from './shared/MobileFilterBar';
+import { FilterSheetContent } from './shared/FilterSheetContent';
+import { FilterGroup } from './shared/FilterGroup';
 import './PricingManager.css';
 
 // ============================================
@@ -324,6 +330,11 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
   // Pending changes state
   const [pendingChanges, setPendingChanges] = useState<Map<string, PendingChange>>(new Map());
   const slideOutRef = useRef<SlideOutRef>(null);
+
+  // Mobile filter sheet
+  const { isMobile } = useViewport();
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const activeFilterCount = (filterProvider ? 1 : 0) + (searchQuery ? 1 : 0) + (!currentOnly ? 1 : 0);
 
   // Fetch pricing entries (always fetch current pricing)
   const fetchPricing = useCallback(async () => {
@@ -787,46 +798,114 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
               {saving ? 'Saving...' : `Save All (${pendingChanges.size})`}
             </button>
           )}
-          <button className="prm-btn prm-btn--primary" onClick={() => setShowAddModal(true)}>
-            + Add Entry
-          </button>
+          {!isMobile && (
+            <button className="prm-btn prm-btn--primary" onClick={() => setShowAddModal(true)}>
+              + Add Entry
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="prm-filters">
-        <select
-          className="prm-select"
-          value={filterProvider}
-          onChange={(e) => setFilterProvider(e.target.value)}
-        >
-          <option value="">All Providers</option>
-          {filteredProviders.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          className="prm-input prm-filters__search"
-          placeholder="Search models..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <label className="prm-checkbox">
-          <input
-            type="checkbox"
-            checked={currentOnly}
-            onChange={(e) => setCurrentOnly(e.target.checked)}
+      {/* Filters - mobile uses filter button + bottom sheet */}
+      {isMobile ? (
+        <>
+          <MobileFilterBar
+            activeFilterCount={activeFilterCount}
+            onFilterClick={() => setFilterSheetOpen(true)}
+            actions={
+              <button
+                className="mobile-filter-bar__icon-btn"
+                onClick={() => setShowAddModal(true)}
+                type="button"
+                aria-label="Add entry"
+              >
+                <Plus size={20} />
+              </button>
+            }
           />
-          <span>Enabled models</span>
-        </label>
-      </div>
+          <MobileFilterSheet
+            isOpen={filterSheetOpen}
+            onClose={() => setFilterSheetOpen(false)}
+            title="Filters"
+          >
+            <FilterSheetContent
+              onClear={() => {
+                setFilterProvider('');
+                setSearchQuery('');
+                setCurrentOnly(true);
+                setFilterSheetOpen(false);
+              }}
+              onApply={() => setFilterSheetOpen(false)}
+            >
+              <FilterGroup label="Provider">
+                <select
+                  className="mobile-filter-sheet__select"
+                  value={filterProvider}
+                  onChange={(e) => setFilterProvider(e.target.value)}
+                >
+                  <option value="">All Providers</option>
+                  {filteredProviders.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </FilterGroup>
+              <FilterGroup label="Search">
+                <input
+                  type="text"
+                  className="mobile-filter-sheet__input"
+                  placeholder="Search models..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </FilterGroup>
+              <FilterGroup label="">
+                <label className="mobile-filter-sheet__toggle">
+                  <input
+                    type="checkbox"
+                    checked={currentOnly}
+                    onChange={(e) => setCurrentOnly(e.target.checked)}
+                  />
+                  <span>Enabled models only</span>
+                </label>
+              </FilterGroup>
+            </FilterSheetContent>
+          </MobileFilterSheet>
+        </>
+      ) : (
+        <div className="prm-filters">
+          <select
+            className="prm-select"
+            value={filterProvider}
+            onChange={(e) => setFilterProvider(e.target.value)}
+          >
+            <option value="">All Providers</option>
+            {filteredProviders.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            className="prm-input prm-filters__search"
+            placeholder="Search models..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <label className="prm-checkbox">
+            <input
+              type="checkbox"
+              checked={currentOnly}
+              onChange={(e) => setCurrentOnly(e.target.checked)}
+            />
+            <span>Enabled models</span>
+          </label>
+        </div>
+      )}
 
       {/* Pivot Table */}
       <div className="prm-table-wrapper">
-        <table className="prm-table prm-table--clickable">
+        <table className={`prm-table prm-table--clickable ${activeTab === 'image' ? 'prm-table--wide' : ''}`}>
           <thead>
             <tr>
               <th

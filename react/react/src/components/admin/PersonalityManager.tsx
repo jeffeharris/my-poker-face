@@ -897,6 +897,17 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [referenceImageId, setReferenceImageId] = useState<string | null>(null);
 
+  const getEmotionImageUrl = (emotion: string) =>
+    `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/${emotion}/full?t=${Date.now()}`;
+
+  const markEmotionReady = (emotion: string) => {
+    setImages(prev => prev.map(img => (
+      img.emotion === emotion
+        ? { ...img, url: getEmotionImageUrl(emotion), hasFullImage: true }
+        : img
+    )));
+  };
+
   useEffect(() => {
     loadEmotionsAndImages();
     loadReferenceImage();
@@ -983,7 +994,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         if (data.avatar_description && data.avatar_description !== avatarDescription) {
           onDescriptionChange(data.avatar_description);
         }
-        await loadEmotionsAndImages();
+        markEmotionReady(emotion);
       }
     } catch (error) {
       logger.error('Failed to regenerate:', error);
@@ -996,25 +1007,33 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
     const allEmotions = images.map(img => img.emotion);
     setRegenerating('all');
     try {
-      const body: { emotions: string[]; reference_image_id?: string; strength?: number } = { emotions: allEmotions };
-      if (refImageId) {
-        body.reference_image_id = refImageId;
-        if (strengthValue !== undefined) {
-          body.strength = strengthValue;
+      for (const emotion of allEmotions) {
+        const body: { emotions: string[]; reference_image_id?: string; strength?: number } = { emotions: [emotion] };
+        if (refImageId) {
+          body.reference_image_id = refImageId;
+          if (strengthValue !== undefined) {
+            body.strength = strengthValue;
+          }
+        }
+
+        try {
+          const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (data.success) {
+            // Update avatar description if it was auto-generated
+            if (data.avatar_description && data.avatar_description !== avatarDescription) {
+              onDescriptionChange(data.avatar_description);
+            }
+            markEmotionReady(emotion);
+          }
+        } catch (error) {
+          console.error(`Failed to regenerate ${emotion}:`, error);
         }
       }
-
-      const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      // Update avatar description if it was auto-generated
-      if (data.avatar_description && data.avatar_description !== avatarDescription) {
-        onDescriptionChange(data.avatar_description);
-      }
-      await loadEmotionsAndImages();
     } catch (error) {
       logger.error('Failed to regenerate all:', error);
     } finally {
@@ -1028,17 +1047,25 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
 
     setRegenerating('all');
     try {
-      const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emotions: missing })
-      });
-      const data = await res.json();
-      // Update avatar description if it was auto-generated
-      if (data.avatar_description && data.avatar_description !== avatarDescription) {
-        onDescriptionChange(data.avatar_description);
+      for (const emotion of missing) {
+        try {
+          const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emotions: [emotion] })
+          });
+          const data = await res.json();
+          if (data.success) {
+            // Update avatar description if it was auto-generated
+            if (data.avatar_description && data.avatar_description !== avatarDescription) {
+              onDescriptionChange(data.avatar_description);
+            }
+            markEmotionReady(emotion);
+          }
+        } catch (error) {
+          console.error(`Failed to generate ${emotion}:`, error);
+        }
       }
-      await loadEmotionsAndImages();
     } catch (error) {
       logger.error('Failed to generate missing:', error);
     } finally {

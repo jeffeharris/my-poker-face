@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from core.llm import CallType, LLMClient
-from flask_app.config import get_default_model, get_default_provider
+from core.llm.settings import get_default_model, get_default_provider
 from ..moment_analyzer import MomentAnalyzer
 from ..prompt_manager import PromptManager, DRAMA_CONTEXTS, TONE_MODIFIERS
 from ..config import COMMENTARY_ENABLED, is_development_mode
