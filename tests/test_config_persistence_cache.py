@@ -1,14 +1,18 @@
-"""Tests for T2-05: Cached GamePersistence in config getters."""
+"""Tests for T2-05: Cached GamePersistence in config getters.
+
+The canonical source of these getters is now core.llm.settings.
+flask_app.config re-exports them for backwards compatibility.
+"""
 
 from unittest.mock import patch, MagicMock
 
 
 class TestConfigPersistenceCaching:
-    """Verify flask_app/config.py config getters share a single GamePersistence instance."""
+    """Verify core.llm.settings config getters share a single GamePersistence instance."""
 
     def test_config_getters_construct_persistence_once(self):
         """Calling multiple config getters should only construct GamePersistence once."""
-        from flask_app.config import _get_config_persistence
+        from core.llm.settings import _get_config_persistence
         _get_config_persistence.cache_clear()
 
         mock_persistence = MagicMock()
@@ -17,7 +21,7 @@ class TestConfigPersistenceCaching:
         with patch('poker.persistence.GamePersistence', return_value=mock_persistence) as mock_cls:
             _get_config_persistence.cache_clear()
 
-            from flask_app.config import (
+            from core.llm.settings import (
                 get_default_provider,
                 get_default_model,
                 get_assistant_provider,
@@ -37,7 +41,7 @@ class TestConfigPersistenceCaching:
 
     def test_config_getters_share_same_instance(self):
         """All config getters should use the exact same persistence object."""
-        from flask_app.config import _get_config_persistence
+        from core.llm.settings import _get_config_persistence
         _get_config_persistence.cache_clear()
 
         mock_persistence = MagicMock()
@@ -51,6 +55,12 @@ class TestConfigPersistenceCaching:
             assert instance1 is instance2
 
         _get_config_persistence.cache_clear()
+
+    def test_flask_app_reexports_work(self):
+        """flask_app.config re-exports should reference the same functions."""
+        from core.llm.settings import get_default_model as canonical
+        from flask_app.config import get_default_model as reexported
+        assert canonical is reexported
 
 
 class TestImageConfigPersistenceCaching:

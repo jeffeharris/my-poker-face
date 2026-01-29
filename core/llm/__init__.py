@@ -45,6 +45,12 @@ from .config import (
     ANTHROPIC_DEFAULT_MODEL,
     ANTHROPIC_AVAILABLE_MODELS,
 )
+from .settings import (
+    get_default_provider,
+    get_default_model,
+    get_assistant_provider,
+    get_assistant_model,
+)
 from .response import LLMResponse, ImageResponse
 from .tracking import CallType, UsageTracker
 from .conversation import ConversationMemory
@@ -70,6 +76,11 @@ __all__ = [
     "GROQ_AVAILABLE_MODELS",
     "ANTHROPIC_DEFAULT_MODEL",
     "ANTHROPIC_AVAILABLE_MODELS",
+    # Settings (DB-backed getters)
+    "get_default_provider",
+    "get_default_model",
+    "get_assistant_provider",
+    "get_assistant_model",
     # Classes
     "LLMResponse",
     "ImageResponse",

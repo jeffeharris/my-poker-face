@@ -8,6 +8,7 @@ from core.card import Card, CardSet
 
 logger = logging.getLogger(__name__)
 from core.llm import Assistant, LLMClient, CallType
+from core.llm.settings import get_default_model, get_default_provider
 from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
 from .personality_generator import PersonalityGenerator
 from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
@@ -257,7 +258,6 @@ class AIPokerPlayer(PokerPlayer):
         )
 
         # Use stateless LLMClient for one-off attribute generation
-        from flask_app.config import get_default_model, get_default_provider
         client = LLMClient(model=get_default_model(), provider=get_default_provider())
         response = client.complete(
             messages=[{"role": "user", "content": formatted_message}],

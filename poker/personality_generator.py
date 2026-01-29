@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 from core.llm import LLMClient, CallType
+from core.llm.settings import get_default_model, get_default_provider
 from .persistence import GamePersistence
 
 logger = logging.getLogger(__name__)
@@ -83,9 +84,6 @@ Respond with ONLY a JSON object in this exact format:
             self.persistence = GamePersistence(db_path)
 
         # Use stateless LLMClient for generation
-        # Lazy import to avoid circular dependency: poker → flask_app → config raises
-        # RuntimeError in CI/test environments where SECRET_KEY is not set
-        from flask_app.config import get_default_model, get_default_provider
         self._client = LLMClient(model=get_default_model(), provider=get_default_provider())
 
         # Cache for this session
