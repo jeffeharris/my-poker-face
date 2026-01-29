@@ -10,12 +10,13 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
-import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
+import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
+import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
 import './MobileActionButtons.css';
 
@@ -40,6 +41,7 @@ export function MobilePokerTable({
 
   // Track last known actions for fade-out animation
   const lastKnownActions = useRef<Map<string, string>>(new Map());
+  // Incrementing this state forces a re-render after the ref is mutated on fade completion
   const [, setFadeKey] = useState(0);
 
   // Callbacks for handling AI messages (for floating bubbles)
@@ -298,32 +300,11 @@ export function MobilePokerTable({
                   ))}
                 </div>
               )}
-              {opponent.is_folded && (
-                <div className="action-badge action-fold">FOLD</div>
-              )}
-              {opponent.is_all_in && (
-                <div className="action-badge action-all_in">ALL-IN</div>
-              )}
-              {(() => {
-                if (opponent.is_folded || opponent.is_all_in) return null;
-                if (opponent.last_action) {
-                  lastKnownActions.current.set(opponent.name, opponent.last_action);
-                }
-                const displayAction = opponent.last_action || lastKnownActions.current.get(opponent.name);
-                const isFading = !opponent.last_action && !!displayAction;
-                if (!displayAction) return null;
-                return (
-                  <div
-                    className={`action-badge action-${displayAction} ${isFading ? 'fading' : ''}`}
-                    onAnimationEnd={isFading ? () => {
-                      lastKnownActions.current.delete(opponent.name);
-                      setFadeKey(k => k + 1);
-                    } : undefined}
-                  >
-                    {displayAction.toUpperCase()}
-                  </div>
-                );
-              })()}
+              <ActionBadge
+                player={opponent}
+                lastKnownActions={lastKnownActions}
+                onFadeComplete={() => setFadeKey(k => k + 1)}
+              />
             </div>
           );
         })}

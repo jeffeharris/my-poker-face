@@ -384,7 +384,7 @@
     font-weight: bold;
 }
 
-/* Action Badge - inline pill showing last action */
+/* Action Badge - desktop layout (colors/animations in shared action-badges.css) */
 .action-badge {
     display: inline-block;
     font-size: 9px;
@@ -393,70 +393,7 @@
     border-radius: 9999px;
     margin-top: 3px;
     letter-spacing: 0.5px;
-    animation: desktopBadgeIn 0.3s ease-out;
-}
-
-.action-badge.action-fold {
-    background: var(--gradient-ruby);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-ruby);
-}
-
-.action-badge.action-check {
-    background: var(--gradient-emerald);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-emerald);
-}
-
-.action-badge.action-call {
-    background: var(--gradient-sapphire);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-sapphire);
-}
-
-.action-badge.action-raise,
-.action-badge.action-bet {
-    background: var(--gradient-gold);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-gold);
-}
-
-.action-badge.action-all_in {
-    background: var(--gradient-amethyst);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-amethyst);
-}
-
-@keyframes desktopBadgeIn {
-    0% { opacity: 0; transform: scale(0.7); }
-    100% { opacity: 1; transform: scale(1); }
-}
-
-.action-badge.fading {
-    animation: desktopBadgeFadeOut 2s ease-out forwards;
-}
-
-@keyframes desktopBadgeFadeOut {
-    0% { opacity: 1; transform: scale(1); }
-    100% { opacity: 0; transform: scale(0.85); }
-}
-
-.status {
-    font-size: 10px;
-    font-weight: bold;
-    padding: 2px 6px;
-    border-radius: 4px;
-    margin-top: 4px;
-}
-
-.folded .status {
-    background: #ff4444;
-    color: white;
-}
-
-.all-in .status {
-    background: #ff6600;
-    color: white;
+    animation: badgeIn 0.3s ease-out;
 }
 
 /* Player Bet */
@@ -720,13 +657,6 @@
 .stadium-view .player-seat.all-in {
     border-color: var(--color-amethyst, #a855f7);
     box-shadow: var(--glow-amethyst, 0 0 20px rgba(168, 85, 247, 0.4));
-}
-
-.stadium-view .status {
-    font-size: 9px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    margin-top: 2px;
 }
 
 /* Responsive adjustments */

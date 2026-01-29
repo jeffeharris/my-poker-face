@@ -454,8 +454,8 @@
     box-shadow: 0 0 12px rgba(212, 165, 116, 0.3), var(--shadow-sm);
 }
 
-/* Action Badge - shows last action at top edge of opponent card */
-.action-badge {
+/* Action Badge - mobile layout (colors in shared action-badges.css) */
+.mobile-opponent .action-badge {
     position: absolute;
     top: 0;
     left: 50%;
@@ -470,56 +470,20 @@
     letter-spacing: var(--letter-spacing-wide);
     white-space: nowrap;
     backdrop-filter: blur(8px);
-    animation: actionBadgeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: mobileBadgeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.action-badge.action-fold {
-    background: var(--gradient-ruby);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-ruby);
+/* Override shared animations to preserve translate(-50%, -50%) positioning */
+.mobile-opponent .action-badge.fading {
+    animation: mobileBadgeFadeOut 2s ease-out forwards;
 }
 
-.action-badge.action-check {
-    background: var(--gradient-emerald);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-emerald);
+@keyframes mobileBadgeIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
-.action-badge.action-call {
-    background: var(--gradient-sapphire);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-sapphire);
-}
-
-.action-badge.action-raise,
-.action-badge.action-bet {
-    background: var(--gradient-gold);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-gold);
-}
-
-.action-badge.action-all_in {
-    background: var(--gradient-amethyst);
-    color: var(--color-text-primary);
-    box-shadow: var(--glow-amethyst);
-}
-
-@keyframes actionBadgeIn {
-    0% {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.7);
-    }
-    100% {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-    }
-}
-
-.action-badge.fading {
-    animation: badgeFadeOut 2s ease-out forwards;
-}
-
-@keyframes badgeFadeOut {
+@keyframes mobileBadgeFadeOut {
     0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
     100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
 }
