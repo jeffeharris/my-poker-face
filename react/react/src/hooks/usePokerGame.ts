@@ -77,6 +77,8 @@ export function usePokerGame({
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  // Cache avatar URLs by player/emotion so background generation results aren't lost
+  const avatarCacheRef = useRef<Record<string, Record<string, string>>>({});
   const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
   const [queuedAction, setQueuedAction] = useState<QueuedAction>(null);
   const queuedActionRef = useRef<QueuedAction>(null);
@@ -220,10 +222,17 @@ export function usePokerGame({
     });
 
     // Listen for avatar updates (when background generation completes)
+    // Always cache the URL so it's available when needed later.
     // Only update the displayed avatar if:
     // - The player has no avatar yet (initial generation)
     // - The generated emotion matches what the player is currently showing
     socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+      // Always cache — prevents losing URLs when emotions change during generation
+      if (!avatarCacheRef.current[data.player_name]) {
+        avatarCacheRef.current[data.player_name] = {};
+      }
+      avatarCacheRef.current[data.player_name][data.avatar_emotion] = data.avatar_url;
+
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -234,11 +243,15 @@ export function usePokerGame({
             if (!player.avatar_url) {
               return { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion };
             }
-            // Apply if the generated emotion matches the player's current emotion
+            // Apply if the generated emotion matches what the player is currently showing
             if (player.avatar_emotion === data.avatar_emotion) {
               return { ...player, avatar_url: data.avatar_url };
             }
-            // Otherwise, don't overwrite — the game state update will handle it
+            // Check cache: if the player's current emotion was previously generated, use it
+            const cachedUrl = avatarCacheRef.current[player.name]?.[player.avatar_emotion || ''];
+            if (cachedUrl && player.avatar_url !== cachedUrl) {
+              return { ...player, avatar_url: cachedUrl };
+            }
             return player;
           })
         };

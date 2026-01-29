@@ -15,13 +15,14 @@ Generation strategy:
 import logging
 import threading
 
+from typing import Optional
+
 from poker.character_images import (
     get_avatar_url,
     get_full_avatar_url,
     has_character_images,
     generate_character_images,
     get_character_image_service,
-    EMOTIONS,
 )
 from ..extensions import socketio
 
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 # Emotions to generate first — these are needed immediately for display
 PRIORITY_EMOTIONS = ["confident", "thinking"]
+
+# Thread-safe tracking to prevent duplicate generation of the same emotion
+_generation_lock = threading.Lock()
+_generation_in_progress: set[tuple[str, str]] = set()
 
 
 def _emit_avatar_update(game_id: str, player_name: str, emotion: str) -> None:
@@ -109,6 +114,31 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
     logger.info(f"Background avatar generation finished for game={game_id}")
 
 
+def get_avatar_url_with_fallback(game_id: str, player_name: str, emotion: str) -> Optional[str]:
+    """Get avatar URL, falling back to priority emotions if the desired one isn't ready.
+
+    Tries the requested emotion first. If unavailable, falls back to
+    thinking → confident (which are generated first). Triggers on-demand
+    background generation for the missing emotion.
+
+    Args:
+        game_id: Game identifier (for on-demand generation)
+        player_name: Player name
+        emotion: Desired emotion
+
+    Returns:
+        Avatar URL string, or None if no avatar exists yet.
+    """
+    avatar_url = get_full_avatar_url(player_name, emotion)
+    if not avatar_url:
+        for fallback in PRIORITY_EMOTIONS:
+            avatar_url = get_full_avatar_url(player_name, fallback)
+            if avatar_url:
+                break
+        start_single_emotion_generation(game_id, player_name, emotion)
+    return avatar_url
+
+
 def generate_single_emotion_background(game_id: str, player_name: str, emotion: str) -> None:
     """Generate a single emotion image in the background.
 
@@ -130,6 +160,9 @@ def generate_single_emotion_background(game_id: str, player_name: str, emotion: 
             logger.warning(f"On-demand avatar failed for {player_name}/{emotion}: {result.get('errors', [])}")
     except Exception as e:
         logger.error(f"Error in on-demand avatar generation for {player_name}/{emotion}: {e}")
+    finally:
+        with _generation_lock:
+            _generation_in_progress.discard((player_name, emotion))
 
 
 def start_background_avatar_generation(game_id: str, ai_player_names: list) -> None:
@@ -157,14 +190,22 @@ def start_background_avatar_generation(game_id: str, ai_player_names: list) -> N
 def start_single_emotion_generation(game_id: str, player_name: str, emotion: str) -> None:
     """Start a background thread to generate a single missing emotion.
 
+    Thread-safe: uses a lock to prevent duplicate generation threads for
+    the same player/emotion combination.
+
     Args:
         game_id: The game identifier
         player_name: Player name
         emotion: Emotion to generate
     """
-    service = get_character_image_service()
-    if service.get_avatar_url(player_name, emotion) is not None:
-        return  # Already exists
+    key = (player_name, emotion)
+    with _generation_lock:
+        service = get_character_image_service()
+        if service.get_avatar_url(player_name, emotion) is not None:
+            return  # Already exists
+        if key in _generation_in_progress:
+            return  # Already being generated
+        _generation_in_progress.add(key)
 
     logger.info(f"Starting on-demand generation for {player_name}/{emotion}")
     thread = threading.Thread(

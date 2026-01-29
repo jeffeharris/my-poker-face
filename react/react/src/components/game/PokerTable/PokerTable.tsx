@@ -276,6 +276,16 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
                 const isBigBlind = playerIndex === gameState.big_blind_idx;
                 const isCurrentPlayer = playerIndex === gameState.current_player_idx;
 
+                // Compute avatar state: swap to "thinking" when AI is processing
+                const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
+                const avatarUrl = isAiThinking && player.avatar_url
+                  ? player.avatar_url.replace(
+                      /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
+                      '/api/avatar/$1/thinking$2'
+                    )
+                  : player.avatar_url;
+                const avatarEmotion = isAiThinking ? 'thinking' : (player.avatar_emotion || 'avatar');
+
                 return (
                   <div
                     key={player.name}
@@ -294,31 +304,15 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
 
                     <div className="player-info">
                       <div className="player-avatar">
-                        {(() => {
-                          // Show "thinking" avatar when AI is processing its turn
-                          const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
-                          let avatarUrl = player.avatar_url;
-                          let avatarEmotion = player.avatar_emotion || 'avatar';
-
-                          if (isAiThinking && avatarUrl) {
-                            // Swap emotion segment in URL: /api/avatar/{name}/{emotion}[/full]
-                            avatarUrl = avatarUrl.replace(
-                              /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
-                              '/api/avatar/$1/thinking$2'
-                            );
-                            avatarEmotion = 'thinking';
-                          }
-
-                          return avatarUrl ? (
-                            <img
-                              src={`${config.API_URL}${avatarUrl}`}
-                              alt={`${player.name} - ${avatarEmotion}`}
-                              className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
-                            />
-                          ) : (
-                            <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
-                          );
-                        })()}
+                        {avatarUrl ? (
+                          <img
+                            src={`${config.API_URL}${avatarUrl}`}
+                            alt={`${player.name} - ${avatarEmotion}`}
+                            className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
+                          />
+                        ) : (
+                          <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                        )}
                       </div>
                       <div className="player-details">
                         <div className="player-name">{player.name}</div>
