@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Sliders, Database, HardDrive, DollarSign } from 'lucide-react';
+import { Sliders, Database, HardDrive, DollarSign, Menu, Check } from 'lucide-react';
 import { adminFetch } from '../../utils/api';
 import { useAdminResource } from '../../hooks/useAdminResource';
+import { useViewport } from '../../hooks/useViewport';
+import { MobileFilterSheet } from './shared/MobileFilterSheet';
 import { PricingManager } from './PricingManager';
 import './AdminShared.css';
 import './UnifiedSettings.css';
@@ -127,7 +129,10 @@ const CATEGORIES: CategoryConfig[] = [
 // ============================================
 
 export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
+  const { isDesktop, isMobile } = useViewport();
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('models');
+  const [masterPanelOpen, setMasterPanelOpen] = useState(false);
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [alert, setAlert] = useState<AlertState | null>(null);
 
   // Models state - using hook for initial fetch, local state for optimistic updates
@@ -992,8 +997,8 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
         </div>
       )}
 
-      {/* Master Panel - Category List */}
-      <aside className="admin-master admin-master--open">
+      {/* Master Panel - Category List (tablet/desktop only) */}
+      <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
         <div className="admin-master__header">
           <h3 className="admin-master__title">Settings</h3>
         </div>
@@ -1003,7 +1008,10 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
               key={category.id}
               type="button"
               className={`admin-master__item ${activeCategory === category.id ? 'admin-master__item--selected' : ''}`}
-              onClick={() => setActiveCategory(category.id)}
+              onClick={() => {
+                setActiveCategory(category.id);
+                if (!isDesktop) setMasterPanelOpen(false);
+              }}
             >
               <span className="admin-master__item-icon">{category.icon}</span>
               <span className="admin-master__item-name">{category.label}</span>
@@ -1014,17 +1022,83 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
 
       {/* Detail Panel */}
       <main className="admin-detail">
-        <div className="admin-detail__header">
-          <div>
-            <h2 className="admin-detail__title">{activeCategoryConfig?.label}</h2>
-            <p className="admin-detail__subtitle">{activeCategoryConfig?.description}</p>
+        {/* Mobile: category selector button + bottom sheet */}
+        {isMobile && (
+          <>
+            <button
+              type="button"
+              className="us-category-trigger"
+              onClick={() => setCategorySheetOpen(true)}
+            >
+              <span className="us-category-trigger__icon">{activeCategoryConfig?.icon}</span>
+              <span className="us-category-trigger__label">{activeCategoryConfig?.label}</span>
+              <Menu size={18} />
+            </button>
+
+            <MobileFilterSheet
+              isOpen={categorySheetOpen}
+              onClose={() => setCategorySheetOpen(false)}
+              title="Settings"
+            >
+              <div className="us-category-sheet__list">
+                {CATEGORIES.map(category => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className={`us-category-sheet__item ${activeCategory === category.id ? 'us-category-sheet__item--active' : ''}`}
+                    onClick={() => {
+                      setActiveCategory(category.id);
+                      setCategorySheetOpen(false);
+                    }}
+                  >
+                    <span className="us-category-sheet__item-icon">{category.icon}</span>
+                    <div className="us-category-sheet__item-text">
+                      <span className="us-category-sheet__item-label">{category.label}</span>
+                      <span className="us-category-sheet__item-desc">{category.description}</span>
+                    </div>
+                    {activeCategory === category.id && (
+                      <Check size={18} className="us-category-sheet__item-check" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </MobileFilterSheet>
+          </>
+        )}
+
+        {/* Tablet: slide-out toggle */}
+        {!isMobile && !isDesktop && (
+          <button
+            type="button"
+            className="admin-master-toggle"
+            onClick={() => setMasterPanelOpen(!masterPanelOpen)}
+          >
+            <Menu size={20} />
+            <span>{activeCategoryConfig?.label || 'Settings'}</span>
+          </button>
+        )}
+
+        {!isMobile && (
+          <div className="admin-detail__header">
+            <div>
+              <h2 className="admin-detail__title">{activeCategoryConfig?.label}</h2>
+              <p className="admin-detail__subtitle">{activeCategoryConfig?.description}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="admin-detail__content">
           {renderContent()}
         </div>
       </main>
+
+      {/* Backdrop for tablet sidebar */}
+      {!isMobile && !isDesktop && masterPanelOpen && (
+        <div
+          className="us-backdrop"
+          onClick={() => setMasterPanelOpen(false)}
+        />
+      )}
 
     </div>
   );

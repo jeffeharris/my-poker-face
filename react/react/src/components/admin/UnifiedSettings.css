@@ -13,6 +13,132 @@
   padding: var(--space-4);
 }
 
+.us-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+
+/* ==========================================================================
+   Mobile: fill available height
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  .admin-master-detail {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .admin-master-detail .admin-detail {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+/* ==========================================================================
+   Mobile Category Selector
+   ========================================================================== */
+
+.us-category-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: rgba(248, 250, 252, 0.85);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.us-category-trigger:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.us-category-trigger__icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 193, 7, 0.8);
+}
+
+.us-category-trigger__label {
+  flex: 1;
+  text-align: left;
+}
+
+/* Bottom sheet category list */
+
+.us-category-sheet__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.us-category-sheet__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(248, 250, 252, 0.7);
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+
+.us-category-sheet__item:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.us-category-sheet__item--active {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.us-category-sheet__item-icon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 193, 7, 0.7);
+}
+
+.us-category-sheet__item--active .us-category-sheet__item-icon {
+  color: rgba(255, 193, 7, 0.9);
+}
+
+.us-category-sheet__item-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.us-category-sheet__item-label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.us-category-sheet__item-desc {
+  font-size: 0.8125rem;
+  color: rgba(248, 250, 252, 0.4);
+}
+
+.us-category-sheet__item-check {
+  color: rgba(255, 193, 7, 0.8);
+  flex-shrink: 0;
+}
+
 /* ==========================================================================
    Master Panel Adjustments
    ========================================================================== */
