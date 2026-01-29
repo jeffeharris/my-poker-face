@@ -185,7 +185,7 @@ class TestAIPokerPlayerPrompts(unittest.TestCase):
         self.assertIn('Example response:', prompt)
         
         # Check it includes JSON format
-        self.assertIn('"play_style":', prompt)
+        self.assertIn('"inner_monologue":', prompt)
         self.assertIn('"action":', prompt)
         self.assertIn('"stage_direction":', prompt)
     
@@ -237,30 +237,46 @@ class TestResponseFormat(unittest.TestCase):
     """Test the response format structure."""
     
     def test_response_format_keys(self):
-        """Test that response format has all required keys."""
-        required_keys = [
-            'play_style', 'action', 'raise_to',
-            'stage_direction', 'new_confidence', 'new_attitude'
+        """Test that response format has all expected keys."""
+        expected_keys = [
+            'inner_monologue', 'hand_strategy', 'player_observations',
+            'hand_strength', 'bluff_likelihood',
+            'action', 'raise_to', 'stage_direction'
         ]
 
-        for key in required_keys:
+        for key in expected_keys:
             self.assertIn(key, RESPONSE_FORMAT)
+
+        # Removed fields should no longer be in the format
+        removed_keys = [
+            'situation_read', 'chasing', 'odds_assessment',
+            'bet_strategy', 'decision_reasoning',
+            'play_style', 'new_confidence', 'new_attitude'
+        ]
+        for key in removed_keys:
+            self.assertNotIn(key, RESPONSE_FORMAT)
     
     def test_persona_examples(self):
         """Test that persona examples are properly structured."""
         self.assertIn('Eeyore', PERSONA_EXAMPLES)
         self.assertIn('Clint Eastwood', PERSONA_EXAMPLES)
-        
+
         # Check Eeyore example
         eeyore = PERSONA_EXAMPLES['Eeyore']
         self.assertEqual(eeyore['play_style'], 'tight')
         self.assertIn('sample_response', eeyore)
-        
+
         sample = eeyore['sample_response']
-        self.assertEqual(sample['play_style'], 'tight')
         self.assertEqual(sample['action'], 'check')
-        self.assertEqual(sample['new_confidence'], 'abysmal')
-        self.assertEqual(sample['new_attitude'], 'gloomy')
+        self.assertIn('inner_monologue', sample)
+        self.assertIn('hand_strategy', sample)
+        self.assertIn('stage_direction', sample)
+
+        # Check Clint Eastwood example
+        clint = PERSONA_EXAMPLES['Clint Eastwood']
+        clint_sample = clint['sample_response']
+        self.assertEqual(clint_sample['action'], 'raise')
+        self.assertIn('inner_monologue', clint_sample)
 
 
 class TestIntegration(unittest.TestCase):
