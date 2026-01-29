@@ -101,9 +101,13 @@
 /* ===========================================
    STEP CONTENT TRANSITIONS
    =========================================== */
+/* Shrink page layout when bottom nav is visible so scroll stops above it */
+.has-wizard-nav.page-layout {
+  height: calc(100dvh - 60px);
+}
+
 .wizard-content {
   position: relative;
-  padding-bottom: 0;
 }
 
 .wizard-step-panel {
@@ -399,7 +403,7 @@
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-4);
   --card-width: 40dvw;
-  --card-height: 56dvw;
+  --card-height: 30dvh;
 }
 
 /* Empty slot */
@@ -449,7 +453,7 @@
   background-size: cover;
   background-position: center top;
   background-repeat: no-repeat;
-  border: 1px solid var(--color-border-default);
+  border: none;
   border-radius: var(--radius-xl);
   padding: var(--space-3);
   position: relative;
@@ -497,57 +501,47 @@
 }
 
 
-.player-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-2);
+.player-card__name {
   position: relative;
   z-index: 2;
-}
-
-.player-card__name {
   font-family: var(--font-display);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
   color: #fff;
   letter-spacing: var(--letter-spacing-tight);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .player-card__actions {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-3);
+  z-index: 3;
 }
 
 .player-card__action-btn {
-  width: 28px;
-  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
+  background: none;
   border: none;
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
+  padding: 0;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   transition: all 0.2s;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
 }
 
 .player-card__action-btn:hover {
-  background: var(--color-bg-surface-hover);
-  color: var(--color-text-primary);
-}
-
-.player-card__action-btn--remove:hover {
-  background: var(--color-ruby-muted);
-  color: var(--color-ruby);
-}
-
-.player-card__action-btn--settings.active {
-  background: var(--color-sapphire-muted);
-  color: var(--color-sapphire);
+  color: #fff;
+  transform: scale(1.15);
 }
 
 .player-card__style {
@@ -560,6 +554,10 @@
   position: relative;
   z-index: 2;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* Trait bars (reused pattern) */
@@ -602,73 +600,138 @@
   box-shadow: 0 0 8px rgba(212, 165, 116, 0.4);
 }
 
-/* Inline LLM config panel */
-.player-card__config {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
+/* LLM config bottom sheet */
+.config-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.6);
+  animation: stepFadeIn 0.2s ease-out;
+}
+
+.config-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100dvw;
+  z-index: 1000;
+  background: var(--color-bg-surface);
   border-top: 1px solid var(--color-border-default);
-  position: relative;
-  z-index: 2;
-  animation: stepFadeIn 0.3s var(--ease-out-expo);
+  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  padding: var(--space-3) var(--space-5) var(--space-6);
+  animation: sheetSlideUp 0.3s var(--ease-out-expo);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
 }
 
-.player-card__config-row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-2) var(--space-3);
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.config-sheet__handle {
+  width: 36px;
+  height: 4px;
+  background: var(--color-border-default);
+  border-radius: var(--radius-full);
+  margin: 0 auto var(--space-4);
+}
+
+.config-sheet__header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
 }
 
-.player-card__config-label {
+.config-sheet__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.config-sheet__close {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  transition: all 0.2s;
+}
+
+.config-sheet__close:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface-hover);
+}
+
+.config-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.config-sheet__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.config-sheet__label {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: var(--letter-spacing-wide);
+  font-family: var(--font-display);
 }
 
-.player-card__config-select {
+.config-sheet__select {
   width: 100%;
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-3) var(--space-4);
   background-color: var(--color-bg-tertiary);
   border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--color-text-primary);
   font-family: var(--font-body);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   cursor: pointer;
   transition: var(--transition-all-base);
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23d4a574' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right var(--space-2) center;
-  padding-right: var(--space-5);
+  background-position: right var(--space-3) center;
+  padding-right: var(--space-6);
 }
 
-.player-card__config-select option {
+.config-sheet__select option {
   background-color: var(--color-bg-tertiary);
   color: var(--color-text-primary);
 }
 
-.player-card__config-select:focus {
+.config-sheet__select:focus {
   outline: none;
   border-color: var(--color-border-focus);
 }
 
-.player-card__config-reset {
-  grid-column: 1 / -1;
+.config-sheet__reset {
   margin-top: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-3);
   background: transparent;
   border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-display);
   cursor: pointer;
   transition: var(--transition-all-base);
   text-align: center;
 }
 
-.player-card__config-reset:hover {
+.config-sheet__reset:hover {
   border-color: var(--color-ruby);
   color: var(--color-ruby);
   background: var(--color-ruby-muted);

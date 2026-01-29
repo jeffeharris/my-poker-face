@@ -547,26 +547,24 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                 className="player-card"
                 style={{ backgroundImage: `url(${avatarUrl})` }}
               >
-                <div className="player-card__header">
-                  <span className="player-card__name">{slotName}</span>
-                  <div className="player-card__actions">
-                    <button
-                      className={`player-card__action-btn player-card__action-btn--settings ${isConfigExpanded ? 'active' : ''}`}
-                      onClick={() => setExpandedConfigSlot(isConfigExpanded ? null : idx)}
-                      title="AI model settings"
-                    >
-                      <Settings size={14} />
-                    </button>
-                    <button
-                      className="player-card__action-btn player-card__action-btn--remove"
-                      onClick={() => removeSlot(idx)}
-                      title="Remove"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                <div className="player-card__actions">
+                  <button
+                    className="player-card__action-btn"
+                    onClick={() => setExpandedConfigSlot(isConfigExpanded ? null : idx)}
+                    title="AI model settings"
+                  >
+                    <Settings size={18} />
+                  </button>
+                  <button
+                    className="player-card__action-btn"
+                    onClick={() => removeSlot(idx)}
+                    title="Remove"
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
 
+                <span className="player-card__name">{slotName}</span>
                 <p className="player-card__style">{p.play_style}</p>
 
                 <div className="player-card__traits">
@@ -574,55 +572,6 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                   <TraitBar label="Aggro" value={p.personality_traits.aggression} />
                 </div>
 
-                {/* Inline LLM config */}
-                {isConfigExpanded && (
-                  <div className="player-card__config">
-                    <div className="player-card__config-row">
-                      <span className="player-card__config-label">Provider</span>
-                      <select
-                        className="player-card__config-select"
-                        value={opponentConfigs[slotName]?.provider || defaultProvider}
-                        onChange={e => handleOpponentConfigChange(slotName, 'provider', e.target.value)}
-                        disabled={providersLoading}
-                      >
-                        {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-
-                      <span className="player-card__config-label">Model</span>
-                      <select
-                        className="player-card__config-select"
-                        value={opponentConfigs[slotName]?.model || defaultModel}
-                        onChange={e => handleOpponentConfigChange(slotName, 'model', e.target.value)}
-                        disabled={providersLoading}
-                      >
-                        {getModelsForProvider(opponentConfigs[slotName]?.provider || defaultProvider).map(m => (
-                          <option key={m} value={m}>{formatModelLabel(opponentConfigs[slotName]?.provider || defaultProvider, m)}</option>
-                        ))}
-                      </select>
-
-                      {providerSupportsReasoning(opponentConfigs[slotName]?.provider || defaultProvider) && (
-                        <>
-                          <span className="player-card__config-label">Reasoning</span>
-                          <select
-                            className="player-card__config-select"
-                            value={opponentConfigs[slotName]?.reasoning_effort || defaultReasoning}
-                            onChange={e => handleOpponentConfigChange(slotName, 'reasoning_effort', e.target.value)}
-                          >
-                            {['minimal', 'low'].map(l => (
-                              <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
-                            ))}
-                          </select>
-                        </>
-                      )}
-
-                      {hasCustomConfig && (
-                        <button className="player-card__config-reset" onClick={() => resetOpponentConfig(slotName)}>
-                          Reset to Default
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -860,7 +809,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   return (
     <>
       <MenuBar onBack={onBack} centerContent={renderStepIndicator()} showUserInfo onMainMenu={onBack} />
-      <PageLayout variant="top" glowColor="sapphire" maxWidth="lg" hasMenuBar>
+      <PageLayout variant="top" glowColor="sapphire" maxWidth="lg" hasMenuBar className={step < 2 ? 'has-wizard-nav' : ''}>
 
         <div className="wizard-content">
           {step === 0 && renderStep0()}
@@ -890,6 +839,74 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       )}
 
       {renderPicker()}
+
+      {/* LLM config bottom sheet */}
+      {expandedConfigSlot !== null && slots[expandedConfigSlot] && (() => {
+        const configName = slots[expandedConfigSlot]!;
+        const hasCustom = !!opponentConfigs[configName];
+        const curProvider = opponentConfigs[configName]?.provider || defaultProvider;
+        return (
+          <>
+            <div className="config-sheet-backdrop" onClick={() => setExpandedConfigSlot(null)} />
+            <div className="config-sheet">
+              <div className="config-sheet__handle" />
+              <div className="config-sheet__header">
+                <h3 className="config-sheet__title">
+                  <Settings size={18} /> {configName} — AI Settings
+                </h3>
+                <button className="config-sheet__close" onClick={() => setExpandedConfigSlot(null)}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="config-sheet__body">
+                <div className="config-sheet__field">
+                  <label className="config-sheet__label">Provider</label>
+                  <select
+                    className="config-sheet__select"
+                    value={curProvider}
+                    onChange={e => handleOpponentConfigChange(configName, 'provider', e.target.value)}
+                    disabled={providersLoading}
+                  >
+                    {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div className="config-sheet__field">
+                  <label className="config-sheet__label">Model</label>
+                  <select
+                    className="config-sheet__select"
+                    value={opponentConfigs[configName]?.model || defaultModel}
+                    onChange={e => handleOpponentConfigChange(configName, 'model', e.target.value)}
+                    disabled={providersLoading}
+                  >
+                    {getModelsForProvider(curProvider).map(m => (
+                      <option key={m} value={m}>{formatModelLabel(curProvider, m)}</option>
+                    ))}
+                  </select>
+                </div>
+                {providerSupportsReasoning(curProvider) && (
+                  <div className="config-sheet__field">
+                    <label className="config-sheet__label">Reasoning Effort</label>
+                    <select
+                      className="config-sheet__select"
+                      value={opponentConfigs[configName]?.reasoning_effort || defaultReasoning}
+                      onChange={e => handleOpponentConfigChange(configName, 'reasoning_effort', e.target.value)}
+                    >
+                      {['minimal', 'low'].map(l => (
+                        <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {hasCustom && (
+                  <button className="config-sheet__reset" onClick={() => { resetOpponentConfig(configName); setExpandedConfigSlot(null); }}>
+                    Reset to Default
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </>
   );
 }
