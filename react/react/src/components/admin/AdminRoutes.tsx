@@ -8,6 +8,7 @@ import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './
 import { ExperimentDetail } from './ExperimentDesigner/ExperimentDetail';
 import { ReplayResults } from './ReplayResults';
 import { DecisionAnalyzer } from './DecisionAnalyzer';
+import { UnifiedSettings, type SettingsCategory } from './UnifiedSettings';
 import { useViewport } from '../../hooks/useViewport';
 import { useAuth, hasPermission } from '../../hooks/useAuth';
 import { config } from '../../config';
@@ -522,6 +523,81 @@ function DecisionAnalyzerWrapper() {
   );
 }
 
+const VALID_SETTINGS_CATEGORIES: SettingsCategory[] = ['models', 'capture', 'storage', 'pricing'];
+
+function SettingsWrapper() {
+  const { category } = useParams<{ category: string }>();
+  const navigate = useNavigate();
+  const { isMobile } = useViewport();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const validCategory = VALID_SETTINGS_CATEGORIES.includes(category as SettingsCategory)
+    ? (category as SettingsCategory)
+    : 'models';
+
+  const handleBack = () => {
+    if (isMobile) {
+      navigate('/admin', { replace: true });
+    } else {
+      navigate(-1);
+    }
+  };
+
+  const handleCategoryChange = useCallback((newCategory: SettingsCategory) => {
+    navigate(`/admin/settings/${newCategory}`, { replace: true });
+  }, [navigate]);
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
+        <div className="admin-main__content admin-main__content--mobile">
+          <UnifiedSettings
+            embedded
+            initialCategory={validCategory}
+            onCategoryChange={handleCategoryChange}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout with sidebar
+  return (
+    <div className="admin-dashboard-layout">
+      <AdminSidebar
+        items={SIDEBAR_ITEMS}
+        activeTab="settings"
+        onTabChange={(tab) => navigate(`/admin/${tab}`)}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="admin-main">
+        <header className="admin-main__header">
+          <button
+            className="admin-main__back"
+            onClick={handleBack}
+            aria-label="Go back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="admin-main__header-text">
+            <h1 className="admin-main__title">Settings</h1>
+            <p className="admin-main__subtitle">Models, capture, storage, and pricing</p>
+          </div>
+        </header>
+        <div className="admin-main__content">
+          <UnifiedSettings
+            embedded
+            initialCategory={validCategory}
+            onCategoryChange={handleCategoryChange}
+          />
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function AdminTabWrapper() {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
@@ -616,6 +692,8 @@ export function AdminRoutes() {
       <Route path="replays/:experimentId" element={<ReplayResultsWrapper />} />
       {/* Decision Analyzer with optional capture ID */}
       <Route path="analyzer/:captureId" element={<DecisionAnalyzerWrapper />} />
+      {/* Settings sub-category routes */}
+      <Route path="settings/:category" element={<SettingsWrapper />} />
       <Route path=":tab" element={<AdminTabWrapper />} />
     </Routes>
   );

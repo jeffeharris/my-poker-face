@@ -12,7 +12,7 @@ import './UnifiedSettings.css';
 // Types
 // ============================================
 
-type SettingsCategory = 'models' | 'capture' | 'storage' | 'pricing';
+export type SettingsCategory = 'models' | 'capture' | 'storage' | 'pricing';
 
 interface CategoryConfig {
   id: SettingsCategory;
@@ -91,6 +91,8 @@ interface AlertState {
 
 interface UnifiedSettingsProps {
   embedded?: boolean;
+  initialCategory?: SettingsCategory;
+  onCategoryChange?: (category: SettingsCategory) => void;
 }
 
 // ============================================
@@ -128,12 +130,25 @@ const CATEGORIES: CategoryConfig[] = [
 // Main Component
 // ============================================
 
-export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
+export function UnifiedSettings({ embedded = false, initialCategory, onCategoryChange }: UnifiedSettingsProps) {
   const { isDesktop, isMobile } = useViewport();
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('models');
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory || 'models');
   const [masterPanelOpen, setMasterPanelOpen] = useState(false);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [alert, setAlert] = useState<AlertState | null>(null);
+
+  // Sync activeCategory when initialCategory prop changes (URL navigation)
+  useEffect(() => {
+    if (initialCategory) {
+      setActiveCategory(initialCategory);
+    }
+  }, [initialCategory]);
+
+  // Unified category change handler — updates local state + notifies parent for URL sync
+  const handleCategoryChange = useCallback((category: SettingsCategory) => {
+    setActiveCategory(category);
+    onCategoryChange?.(category);
+  }, [onCategoryChange]);
 
   // Models state - using hook for initial fetch, local state for optimistic updates
   const {
@@ -1009,7 +1024,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
               type="button"
               className={`admin-master__item ${activeCategory === category.id ? 'admin-master__item--selected' : ''}`}
               onClick={() => {
-                setActiveCategory(category.id);
+                handleCategoryChange(category.id);
                 if (!isDesktop) setMasterPanelOpen(false);
               }}
             >
@@ -1047,7 +1062,7 @@ export function UnifiedSettings({ embedded = false }: UnifiedSettingsProps) {
                     type="button"
                     className={`us-category-sheet__item ${activeCategory === category.id ? 'us-category-sheet__item--active' : ''}`}
                     onClick={() => {
-                      setActiveCategory(category.id);
+                      handleCategoryChange(category.id);
                       setCategorySheetOpen(false);
                     }}
                   >
