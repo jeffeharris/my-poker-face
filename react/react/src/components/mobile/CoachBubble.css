@@ -61,16 +61,23 @@
   width: 24px;
   height: 24px;
   border: none;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 50%;
+  background: transparent;
+  border-radius: 0;
   color: var(--color-text-muted, #888);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.coach-bubble-dismiss svg {
+  stroke-width: 2.5;
 }
 
 .coach-bubble-dismiss:active {
-  background: rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: #fff;
+  transform: scale(0.92);
 }
