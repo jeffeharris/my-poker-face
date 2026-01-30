@@ -32,7 +32,8 @@ GRID_DIR = GENERATED_IMAGES_DIR / "grid"
 ICONS_DIR = GRID_DIR / "icons"
 
 # Available emotions for avatars
-EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked"]
+EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked",
+            "smug", "frustrated", "elated", "poker_face"]
 
 # Icon size for processed images
 ICON_SIZE = 256
@@ -71,6 +72,10 @@ EMOTION_DETAILS = {
     "nervous": "nervous and sweating with wide anxious eyes, visibly stressed,",
     "angry": "angry and furious, red-faced with a clenched jaw, intense glare,",
     "shocked": "completely surprised with jaw dropped and wide eyes,",
+    "smug": "smug with a superior knowing smirk, self-satisfied grin, eyes gleaming with confidence,",
+    "frustrated": "frustrated with a tense frown, jaw clenched in irritation, visibly annoyed,",
+    "elated": "elated with a huge grin, eyes wide with excitement, fist-pumping in celebration,",
+    "poker_face": "neutral with an expressionless poker face, calm and unreadable, no emotion showing,",
 }
 
 

@@ -348,35 +348,48 @@ class EmotionalState:
         """
         Map dimensional emotional state to discrete display emotion for avatar.
 
-        Returns one of: confident, happy, thinking, nervous, angry, shocked
-        Priority order handles overlapping conditions.
+        Returns one of: angry, elated, shocked, smug, frustrated, nervous,
+                        happy, thinking, confident, poker_face
+        Priority order: most extreme/specific emotions checked first.
         """
-        # Angry: very negative mood with high agitation
-        if self.valence < -0.3 and self.arousal > 0.7:
+        # Angry: red-hot fury, very negative with high agitation
+        if self.valence < -0.4 and self.arousal > 0.7:
             return "angry"
 
-        # Shocked: extreme arousal (surprise/overwhelm)
-        if self.arousal > 0.8:
+        # Elated: big win excitement, high positive energy
+        if self.valence > 0.6 and self.arousal > 0.6:
+            return "elated"
+
+        # Shocked: extreme surprise/overwhelm (arousal must be very high)
+        if self.arousal > 0.85:
             return "shocked"
 
-        # Nervous: negative mood, losing control, agitated
-        if self.valence < 0 and self.control < 0.5 and self.arousal > 0.5:
+        # Smug: winning streak swagger, positive and firmly in control
+        if self.valence > 0.5 and self.control > 0.7:
+            return "smug"
+
+        # Frustrated: simmering negative, not quite angry
+        if self.valence < -0.2 and self.arousal > 0.5 and self.arousal <= 0.7:
+            return "frustrated"
+
+        # Nervous: negative mood, losing grip
+        if self.valence < 0 and self.control < 0.5:
             return "nervous"
 
-        # Happy: positive mood, not too agitated
-        if self.valence > 0.5 and self.arousal < 0.6:
+        # Happy: warm positive feeling, moderate energy
+        if self.valence > 0.4 and self.arousal < 0.6:
             return "happy"
 
-        # Thinking: focused and calm (contemplating)
+        # Thinking: contemplative, clear-headed focus
         if self.focus > 0.6 and self.arousal < 0.5:
             return "thinking"
 
-        # Confident: positive mood with good control (default positive state)
-        if self.valence > 0.3 and self.control > 0.5:
+        # Confident: positive mood with steady control
+        if self.valence > 0.2 and self.control > 0.5:
             return "confident"
 
-        # Default fallback
-        return "confident"
+        # Default: neutral poker face mask
+        return "poker_face"
 
     def to_prompt_section(self) -> str:
         """Generate the prompt section for this emotional state."""

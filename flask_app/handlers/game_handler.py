@@ -999,6 +999,14 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Small additional delay for visual pacing
     socketio.sleep(1 if is_showdown else 0.5)
+
+    # Apply psychology recovery between hands — elastic traits drift toward
+    # anchor, tilt naturally decays, emotional state decays toward baseline
+    ai_controllers = game_data.get('ai_controllers', {})
+    for controller in ai_controllers.values():
+        if hasattr(controller, 'psychology') and controller.psychology:
+            controller.psychology.recover(recovery_rate=0.1)
+
     send_message(game_id, "Table", "***   NEW HAND DEALT   ***", "table")
 
     # Reset card announcement and run-out reaction tracking for new hand
@@ -1036,7 +1044,7 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
     player_options = list(game_state.current_player_options) if game_state.current_player_options else []
     socketio.emit('player_turn_start', {'current_player_options': player_options, 'cost_to_call': cost_to_call}, to=game_id)
 
-    # Apply trait recovery
+    # Also recover standalone elasticity manager for backward compatibility
     if 'elasticity_manager' in game_data:
         elasticity_manager = game_data['elasticity_manager']
         elasticity_manager.recover_all()
