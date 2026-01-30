@@ -223,7 +223,7 @@ export function MobilePokerTable({
       // localStorage unavailable — just toggle mode without persisting
       coach.setMode(coachEnabled ? 'off' : 'reactive');
     }
-  }, [coachEnabled, coach.mode, coach.setMode]);
+  }, [coachEnabled, coach]);
 
   // When a hand ends, request a post-hand review from the coach.
   // coach.mode is omitted: we only want to trigger on winnerInfo change,
