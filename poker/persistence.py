@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 # v57: Add raise_amount_bb to player_decision_analysis for BB-normalized mode
 # v58: Fix v54 squash - apply missing heartbeat, outcome, and system preset columns
 # v59: Add owner_id to prompt_captures for multi-user tracking
-SCHEMA_VERSION = 59
+# v60: Add psychology snapshot columns to player_decision_analysis
+SCHEMA_VERSION = 60
 
 
 @dataclass
@@ -670,6 +671,15 @@ class GamePersistence:
                     relative_strength REAL,
                     player_position TEXT,
                     opponent_positions TEXT,
+                    tilt_level REAL,
+                    tilt_source TEXT,
+                    valence REAL,
+                    arousal REAL,
+                    control REAL,
+                    focus REAL,
+                    display_emotion TEXT,
+                    elastic_aggression REAL,
+                    elastic_bluff_tendency REAL,
                     analyzer_version TEXT,
                     processing_time_ms INTEGER,
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
@@ -983,6 +993,7 @@ class GamePersistence:
             57: (self._migrate_v57_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
             58: (self._migrate_v58_fix_squashed_features, "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns"),
             59: (self._migrate_v59_add_owner_id_to_captures, "Add owner_id to prompt_captures for user tracking"),
+            60: (self._migrate_v60_add_psychology_snapshot, "Add psychology snapshot columns to player_decision_analysis"),
         }
 
         with self._get_connection() as conn:
@@ -2832,6 +2843,34 @@ class GamePersistence:
             logger.info("Added owner_id column to prompt_captures")
 
         logger.info("Migration v59 complete: owner_id added to prompt_captures")
+
+    def _migrate_v60_add_psychology_snapshot(self, conn: sqlite3.Connection) -> None:
+        """Migration v60: Add psychology snapshot columns to player_decision_analysis.
+
+        Captures emotional state, tilt, and elastic trait values at the moment
+        each AI decision is made, enabling analysis of how psychology impacts
+        decision quality.
+        """
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()]
+
+        new_columns = [
+            ('tilt_level', 'REAL'),
+            ('tilt_source', 'TEXT'),
+            ('valence', 'REAL'),
+            ('arousal', 'REAL'),
+            ('control', 'REAL'),
+            ('focus', 'REAL'),
+            ('display_emotion', 'TEXT'),
+            ('elastic_aggression', 'REAL'),
+            ('elastic_bluff_tendency', 'REAL'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in columns:
+                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Added {col_name} column to player_decision_analysis")
+
+        logger.info("Migration v60 complete: psychology snapshot columns added to player_decision_analysis")
 
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
@@ -5577,8 +5616,11 @@ class GamePersistence:
                     optimal_action, decision_quality, ev_lost,
                     hand_rank, relative_strength,
                     equity_vs_ranges, opponent_positions,
+                    tilt_level, tilt_source,
+                    valence, arousal, control, focus,
+                    display_emotion, elastic_aggression, elastic_bluff_tendency,
                     analyzer_version, processing_time_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.get('request_id'),
                 data.get('capture_id'),
@@ -5606,6 +5648,15 @@ class GamePersistence:
                 data.get('relative_strength'),
                 data.get('equity_vs_ranges'),
                 data.get('opponent_positions'),
+                data.get('tilt_level'),
+                data.get('tilt_source'),
+                data.get('valence'),
+                data.get('arousal'),
+                data.get('control'),
+                data.get('focus'),
+                data.get('display_emotion'),
+                data.get('elastic_aggression'),
+                data.get('elastic_bluff_tendency'),
                 data.get('analyzer_version'),
                 data.get('processing_time_ms'),
             ))

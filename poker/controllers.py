@@ -1437,6 +1437,25 @@ class AIPlayerController:
             llm_response = getattr(self, '_last_llm_response', None)
             request_id = llm_response.request_id if llm_response else None
 
+            # Build psychology snapshot for decision tracking
+            psychology_snapshot = None
+            if self.psychology:
+                psych = self.psychology
+                snapshot = {
+                    'tilt_level': psych.tilt_level,
+                    'tilt_source': psych.tilt.tilt_source if psych.tilt else None,
+                }
+                if psych.emotional:
+                    snapshot['valence'] = psych.emotional.valence
+                    snapshot['arousal'] = psych.emotional.arousal
+                    snapshot['control'] = psych.emotional.control
+                    snapshot['focus'] = psych.emotional.focus
+                    snapshot['display_emotion'] = psych.get_display_emotion()
+                traits = psych.traits
+                snapshot['elastic_aggression'] = traits.get('aggression')
+                snapshot['elastic_bluff_tendency'] = traits.get('bluff_tendency')
+                psychology_snapshot = snapshot
+
             analyzer = get_analyzer()
             analysis = analyzer.analyze(
                 game_id=self.game_id,
@@ -1459,6 +1478,7 @@ class AIPlayerController:
                 opponent_infos=opponent_infos,
                 player_bet=player_bet,
                 all_players_bets=all_players_bets,
+                psychology_snapshot=psychology_snapshot,
             )
 
             self._persistence.save_decision_analysis(analysis)

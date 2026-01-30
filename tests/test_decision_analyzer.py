@@ -218,3 +218,120 @@ class TestDecisionAnalysisDataclass:
         d = analysis.to_dict()
         assert 'max_winnable' in d
         assert d['max_winnable'] == 500
+
+
+class TestPsychologySnapshot:
+    """Tests for psychology snapshot fields on DecisionAnalysis."""
+
+    def test_psychology_fields_default_to_none(self):
+        """All psychology fields default to None."""
+        analysis = DecisionAnalysis(game_id="test", player_name="Hero")
+        assert analysis.tilt_level is None
+        assert analysis.tilt_source is None
+        assert analysis.valence is None
+        assert analysis.arousal is None
+        assert analysis.control is None
+        assert analysis.focus is None
+        assert analysis.display_emotion is None
+        assert analysis.elastic_aggression is None
+        assert analysis.elastic_bluff_tendency is None
+
+    def test_psychology_fields_set_directly(self):
+        """Psychology fields can be set on construction."""
+        analysis = DecisionAnalysis(
+            game_id="test",
+            player_name="Hero",
+            tilt_level=0.35,
+            tilt_source="bad_beat",
+            valence=-0.4,
+            arousal=0.6,
+            control=0.3,
+            focus=0.5,
+            display_emotion="angry",
+            elastic_aggression=0.7,
+            elastic_bluff_tendency=0.4,
+        )
+        assert analysis.tilt_level == 0.35
+        assert analysis.tilt_source == "bad_beat"
+        assert analysis.valence == -0.4
+        assert analysis.arousal == 0.6
+        assert analysis.control == 0.3
+        assert analysis.focus == 0.5
+        assert analysis.display_emotion == "angry"
+        assert analysis.elastic_aggression == 0.7
+        assert analysis.elastic_bluff_tendency == 0.4
+
+    def test_to_dict_includes_psychology_fields(self):
+        """to_dict() includes all psychology snapshot fields."""
+        analysis = DecisionAnalysis(
+            game_id="test",
+            player_name="Hero",
+            tilt_level=0.5,
+            valence=-0.2,
+            display_emotion="nervous",
+        )
+        d = analysis.to_dict()
+        assert d['tilt_level'] == 0.5
+        assert d['valence'] == -0.2
+        assert d['display_emotion'] == "nervous"
+        # None fields should also be present
+        assert 'arousal' in d
+        assert d['arousal'] is None
+
+    def test_analyzer_passes_psychology_snapshot(self):
+        """DecisionAnalyzer.analyze() applies psychology_snapshot to result."""
+        analyzer = DecisionAnalyzer(iterations=10)
+        snapshot = {
+            'tilt_level': 0.45,
+            'tilt_source': 'losing_streak',
+            'valence': -0.3,
+            'arousal': 0.7,
+            'control': 0.4,
+            'focus': 0.6,
+            'display_emotion': 'nervous',
+            'elastic_aggression': 0.65,
+            'elastic_bluff_tendency': 0.3,
+        }
+        analysis = analyzer.analyze(
+            game_id="test",
+            player_name="Hero",
+            hand_number=5,
+            phase="FLOP",
+            player_hand=["As", "Kd"],
+            community_cards=["Jh", "2d", "5s"],
+            pot_total=200,
+            cost_to_call=50,
+            player_stack=500,
+            num_opponents=1,
+            action_taken="call",
+            psychology_snapshot=snapshot,
+        )
+        assert analysis.tilt_level == 0.45
+        assert analysis.tilt_source == 'losing_streak'
+        assert analysis.valence == -0.3
+        assert analysis.arousal == 0.7
+        assert analysis.control == 0.4
+        assert analysis.focus == 0.6
+        assert analysis.display_emotion == 'nervous'
+        assert analysis.elastic_aggression == 0.65
+        assert analysis.elastic_bluff_tendency == 0.3
+
+    def test_analyzer_without_psychology_snapshot(self):
+        """analyze() works fine without psychology_snapshot (backward compat)."""
+        analyzer = DecisionAnalyzer(iterations=10)
+        analysis = analyzer.analyze(
+            game_id="test",
+            player_name="Hero",
+            hand_number=1,
+            phase="PRE_FLOP",
+            player_hand=["As", "Kd"],
+            community_cards=[],
+            pot_total=150,
+            cost_to_call=100,
+            player_stack=1000,
+            num_opponents=1,
+            action_taken="call",
+        )
+        assert analysis.tilt_level is None
+        assert analysis.valence is None
+        assert analysis.display_emotion is None
