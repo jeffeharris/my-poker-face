@@ -117,7 +117,6 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     };
   };
 
-  const _currentPlayer = gameState?.players[gameState.current_player_idx];
 
   // Stadium view helpers
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
