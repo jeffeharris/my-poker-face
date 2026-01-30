@@ -154,11 +154,10 @@ export function ActionButtons({
               <button
                 className="double-btn"
                 onClick={() => {
-                  // No snapping - just double (consistent with mobile)
-                  const doubled = raiseAmount * 2;
-                  setRaiseAmount(Math.min(calc.safeMaxRaiseTo, doubled));
+                  // Double the raise portion (amount above the call)
+                  setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.raisePortion));
                 }}
-                disabled={raiseAmount * 2 > calc.safeMaxRaiseTo}
+                disabled={raiseAmount + breakdown.raisePortion > calc.safeMaxRaiseTo}
               >
                 2x
               </button>
