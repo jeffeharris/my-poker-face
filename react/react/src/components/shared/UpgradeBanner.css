@@ -1,0 +1,102 @@
+.upgrade-banner {
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.08), rgba(234, 179, 8, 0.02));
+}
+
+.upgrade-banner__icon {
+  color: #eab308;
+  flex-shrink: 0;
+}
+
+/* Compact variant */
+.upgrade-banner--compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  width: 100%;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.upgrade-banner--compact:hover {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+.upgrade-banner__text {
+  flex: 1;
+  text-align: left;
+}
+
+.upgrade-banner__arrow {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Full variant */
+.upgrade-banner--full {
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.upgrade-banner__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.upgrade-banner__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #eab308;
+}
+
+.upgrade-banner__benefits {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upgrade-banner__benefits li {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+  padding-left: 20px;
+  position: relative;
+}
+
+.upgrade-banner__benefits li::before {
+  content: '\2713';
+  position: absolute;
+  left: 0;
+  color: #eab308;
+  font-weight: bold;
+}
+
+.upgrade-banner__cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #eab308, #ca8a04);
+  color: #000;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.upgrade-banner__cta:hover {
+  opacity: 0.9;
+}

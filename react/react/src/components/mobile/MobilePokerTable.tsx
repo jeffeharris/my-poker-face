@@ -8,6 +8,9 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
+import { GuestLimitModal } from '../shared';
+import { useAuth } from '../../hooks/useAuth';
+import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
@@ -33,6 +36,11 @@ export function MobilePokerTable({
   onGameCreated,
   onBack
 }: MobilePokerTableProps) {
+  // Auth + guest chat tracking
+  const { user } = useAuth();
+  const isGuest = user?.is_guest ?? true;
+  const [guestChatSentThisAction, setGuestChatSentThisAction] = useState(false);
+
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
@@ -73,12 +81,34 @@ export function MobilePokerTable({
     handleSendMessage,
     clearWinnerInfo,
     clearTournamentResult,
+    guestLimitReached,
   } = usePokerGame({
     gameId: providedGameId ?? null,
     playerName,
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
   });
+
+  // Reset guest chat counter when it becomes the human's turn
+  const isHumanTurn = gameState?.awaiting_action;
+  useEffect(() => {
+    if (isHumanTurn) {
+      setGuestChatSentThisAction(false);
+    }
+  }, [isHumanTurn]);
+
+  // Wrap send message to track guest chat sends
+  const wrappedSendMessage = useCallback((message: string) => {
+    handleSendMessage(message);
+    if (isGuest) {
+      setGuestChatSentThisAction(true);
+    }
+  }, [handleSendMessage, isGuest]);
+
+  const guestChatDisabled = isGuest && guestChatSentThisAction;
+
+  // Usage stats for guest limit modal
+  const { stats: usageStats } = useUsageStats();
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -501,7 +531,7 @@ export function MobilePokerTable({
         onComplete={clearWinnerInfo}
         gameId={gameId || ''}
         playerName={playerName || ''}
-        onSendMessage={handleSendMessage}
+        onSendMessage={wrappedSendMessage}
       />
 
       {/* Tournament Complete - only show when winner announcement is dismissed */}
@@ -512,7 +542,7 @@ export function MobilePokerTable({
           onComplete={handleTournamentComplete}
           gameId={gameId || undefined}
           playerName={playerName}
-          onSendMessage={handleSendMessage}
+          onSendMessage={wrappedSendMessage}
         />
       )}
 
@@ -521,10 +551,11 @@ export function MobilePokerTable({
         isOpen={showChatSheet}
         onClose={() => setShowChatSheet(false)}
         messages={messages}
-        onSendMessage={handleSendMessage}
+        onSendMessage={wrappedSendMessage}
         gameId={providedGameId || ''}
         playerName={playerName || 'Player'}
         players={gameState?.players || []}
+        guestChatDisabled={guestChatDisabled}
       />
 
       {/* LLM Debug Modal */}
@@ -534,6 +565,14 @@ export function MobilePokerTable({
         playerName={debugModalPlayer?.name || ''}
         debugInfo={debugModalPlayer?.llm_debug}
       />
+
+      {/* Guest Hand Limit Modal */}
+      {guestLimitReached && usageStats && (
+        <GuestLimitModal
+          handsPlayed={usageStats.hands_played}
+          handsLimit={usageStats.hands_limit}
+        />
+      )}
     </div>
   );
 }

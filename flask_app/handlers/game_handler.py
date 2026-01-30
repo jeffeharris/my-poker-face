@@ -28,8 +28,47 @@ from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
 from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
+from flask_app.config import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
+from poker.guest_limits import is_guest
+from flask import request
 
 logger = logging.getLogger(__name__)
+
+
+def _track_guest_hand(game_id: str, game_data: dict) -> None:
+    """Track hand completion for guest users and emit limit event if needed."""
+    if not GUEST_LIMITS_ENABLED:
+        return
+
+    try:
+        # Get current user from Flask request context
+        from flask import has_request_context
+        if not has_request_context():
+            # We're in a socket context - get owner info from game data
+            owner_id, _ = game_state_service.get_game_owner_info(game_id)
+            if not owner_id or not owner_id.startswith('guest_'):
+                return
+            # Try to get tracking_id from game_data metadata
+            tracking_id = game_data.get('guest_tracking_id')
+            if not tracking_id:
+                return
+        else:
+            from ..extensions import auth_manager
+            user = auth_manager.get_current_user()
+            if not user or not is_guest(user):
+                return
+            tracking_id = user.get('tracking_id')
+            if not tracking_id:
+                return
+
+        new_count = persistence.increment_hands_played(tracking_id)
+        if new_count >= GUEST_MAX_HANDS:
+            socketio.emit('guest_limit_reached', {
+                'hands_played': new_count,
+                'hands_limit': GUEST_MAX_HANDS,
+            }, to=game_id)
+    except Exception as e:
+        logger.warning(f"Failed to track guest hand: {e}")
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
@@ -510,10 +549,12 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
         result['human_eliminated'] = True
 
         try:
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            result['owner_id'] = owner_id
             persistence.save_tournament_result(game_id, result)
             human_player = tracker.get_human_player()
-            if human_player:
-                persistence.update_career_stats(human_player['name'], result)
+            if human_player and owner_id:
+                persistence.update_career_stats(owner_id, human_player['name'], result)
         except Exception as e:
             logger.error(f"Failed to save tournament result after human elimination: {e}")
 
@@ -785,13 +826,15 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     result = tracker.get_result()
 
     try:
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        result['owner_id'] = owner_id
         persistence.save_tournament_result(game_id, result)
         logger.info(f"Tournament {game_id} saved: winner={result['winner_name']}")
 
         human_player_name = result.get('human_player_name')
-        if human_player_name:
-            persistence.update_career_stats(human_player_name, result)
-            logger.info(f"Career stats updated for {human_player_name}")
+        if human_player_name and owner_id:
+            persistence.update_career_stats(owner_id, human_player_name, result)
+            logger.info(f"Career stats updated for {human_player_name} (owner: {owner_id})")
     except Exception as e:
         logger.error(f"Failed to save tournament result: {e}")
 
@@ -1036,6 +1079,9 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     if 'tournament_tracker' in game_data:
         persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+
+    # Track guest hand usage
+    _track_guest_hand(game_id, game_data)
 
     return game_state, False
 

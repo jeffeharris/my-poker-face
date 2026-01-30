@@ -7,6 +7,7 @@ import os
 import secrets
 import logging
 import sqlite3
+import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional, Dict, Any
@@ -57,13 +58,19 @@ class AuthManager:
                 # Guest login
                 guest_name = data.get('name', 'Guest')
                 user_data = self.create_guest_user(guest_name)
-                
+
+                # Check for existing tracking cookie, generate if needed
+                tracking_id = request.cookies.get('guest_tracking_id')
+                if not tracking_id:
+                    tracking_id = str(uuid.uuid4())
+                user_data['tracking_id'] = tracking_id
+
                 response = jsonify({
                     'success': True,
                     'user': user_data,
                     'token': self.generate_token(user_data)
                 })
-                
+
                 # Set a long-lived cookie for guest ID (30 days)
                 is_prod = os.environ.get('FLASK_ENV') == 'production'
                 response.set_cookie(
@@ -71,10 +78,20 @@ class AuthManager:
                     user_data['id'],
                     max_age=30*24*60*60,  # 30 days
                     httponly=True,
-                    secure=is_prod,  # Required for HTTPS
-                    samesite='Lax'  # Lax works for same-site requests
+                    secure=is_prod,
+                    samesite='Lax'
                 )
-                
+
+                # Set tracking cookie for hand counting (30 days)
+                response.set_cookie(
+                    'guest_tracking_id',
+                    tracking_id,
+                    max_age=30*24*60*60,
+                    httponly=True,
+                    secure=is_prod,
+                    samesite='Lax'
+                )
+
                 return response
             
             # Username/password login (for future implementation)
@@ -305,37 +322,45 @@ class AuthManager:
     
     def get_current_user(self) -> Optional[Dict[str, Any]]:
         """Get the current user from session, JWT token, or guest cookie."""
+        user = None
+
         # Check session first
         if 'user' in session:
-            return session['user']
+            user = session['user']
+        else:
+            # Check for JWT token in Authorization header
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                try:
+                    payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+                    user = payload.get('user')
+                except jwt.InvalidTokenError:
+                    pass
 
-        # Check for JWT token in Authorization header
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(' ')[1]
-            try:
-                payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-                return payload.get('user')
-            except jwt.InvalidTokenError:
-                pass
+            # Check for guest_id cookie and restore session if valid
+            if not user:
+                guest_id = request.cookies.get('guest_id')
+                if guest_id and guest_id.startswith('guest_'):
+                    # Extract name from guest_id (e.g., 'guest_jeff' -> 'Jeff')
+                    name_part = guest_id[6:]  # Remove 'guest_' prefix
+                    display_name = name_part.capitalize() if name_part else 'Guest'
+                    user = {
+                        'id': guest_id,
+                        'name': display_name,
+                        'is_guest': True,
+                        'created_at': datetime.utcnow().isoformat()
+                    }
+                    session['user'] = user
+                    session.permanent = True
 
-        # Check for guest_id cookie and restore session if valid
-        guest_id = request.cookies.get('guest_id')
-        if guest_id and guest_id.startswith('guest_'):
-            # Extract name from guest_id (e.g., 'guest_jeff' -> 'Jeff')
-            name_part = guest_id[6:]  # Remove 'guest_' prefix
-            display_name = name_part.capitalize() if name_part else 'Guest'
-            user = {
-                'id': guest_id,
-                'name': display_name,
-                'is_guest': True,
-                'created_at': datetime.utcnow().isoformat()
-            }
-            session['user'] = user
-            session.permanent = True
-            return user
+        # Attach tracking_id from cookie for guest users
+        if user and user.get('is_guest'):
+            tracking_id = request.cookies.get('guest_tracking_id')
+            if tracking_id:
+                user['tracking_id'] = tracking_id
 
-        return None
+        return user
     
     def generate_token(self, user_data: Dict[str, Any]) -> str:
         """Generate a JWT token for the user."""

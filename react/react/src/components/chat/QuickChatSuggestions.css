@@ -443,6 +443,16 @@
 }
 
 /* Loading state */
+.suggestion-disabled-notice {
+  padding: 0.75rem 1.25rem;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+  border-radius: 1rem;
+  background: rgba(234, 179, 8, 0.06);
+  color: rgba(234, 179, 8, 0.7);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
 .suggestion-loading {
   padding: 1rem 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.1);

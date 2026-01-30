@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 # v58: Fix v54 squash - apply missing heartbeat, outcome, and system preset columns
 # v59: Add owner_id to prompt_captures for multi-user tracking
 # v60: Add psychology snapshot columns to player_decision_analysis
-SCHEMA_VERSION = 60
+# v61: Add guest_usage_tracking table, owner_id to career stats/tournament tables
+SCHEMA_VERSION = 61
 
 
 @dataclass
@@ -913,6 +914,16 @@ class GamePersistence:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_permissions(group_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_permission ON group_permissions(permission_id)")
 
+            # Guest usage tracking (v61)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS guest_usage_tracking (
+                    tracking_id TEXT PRIMARY KEY,
+                    hands_played INTEGER DEFAULT 0,
+                    last_hand_at TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
     def _get_current_schema_version(self) -> int:
         """Get the current schema version from the database."""
         with self._get_connection() as conn:
@@ -994,6 +1005,7 @@ class GamePersistence:
             58: (self._migrate_v58_fix_squashed_features, "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns"),
             59: (self._migrate_v59_add_owner_id_to_captures, "Add owner_id to prompt_captures for user tracking"),
             60: (self._migrate_v60_add_psychology_snapshot, "Add psychology snapshot columns to player_decision_analysis"),
+            61: (self._migrate_v61_guest_tracking_and_owner_id, "Add guest_usage_tracking table, owner_id to career stats/tournament tables"),
         }
 
         with self._get_connection() as conn:
@@ -2872,6 +2884,45 @@ class GamePersistence:
 
         logger.info("Migration v60 complete: psychology snapshot columns added to player_decision_analysis")
 
+    def _migrate_v61_guest_tracking_and_owner_id(self, conn: sqlite3.Connection) -> None:
+        """Migration v61: Add guest_usage_tracking table and owner_id to stats tables.
+
+        - guest_usage_tracking: tracks per-browser hand counts for guest rate limiting
+        - owner_id on player_career_stats: links career stats to auth identity
+        - owner_id on tournament_standings: links standings to auth identity
+        - human_owner_id on tournament_results: links results to auth identity
+        """
+        # Create guest_usage_tracking table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_usage_tracking (
+                tracking_id TEXT PRIMARY KEY,
+                hands_played INTEGER DEFAULT 0,
+                last_hand_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Add owner_id to player_career_stats
+        career_cols = [row[1] for row in conn.execute("PRAGMA table_info(player_career_stats)").fetchall()]
+        if 'owner_id' not in career_cols:
+            conn.execute("ALTER TABLE player_career_stats ADD COLUMN owner_id TEXT")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_career_stats_owner ON player_career_stats(owner_id)")
+            logger.info("Added owner_id column to player_career_stats")
+
+        # Add owner_id to tournament_standings
+        standings_cols = [row[1] for row in conn.execute("PRAGMA table_info(tournament_standings)").fetchall()]
+        if 'owner_id' not in standings_cols:
+            conn.execute("ALTER TABLE tournament_standings ADD COLUMN owner_id TEXT")
+            logger.info("Added owner_id column to tournament_standings")
+
+        # Add human_owner_id to tournament_results
+        results_cols = [row[1] for row in conn.execute("PRAGMA table_info(tournament_results)").fetchall()]
+        if 'human_owner_id' not in results_cols:
+            conn.execute("ALTER TABLE tournament_results ADD COLUMN human_owner_id TEXT")
+            logger.info("Added human_owner_id column to tournament_results")
+
+        logger.info("Migration v61 complete: guest tracking table and owner_id columns added")
+
     def save_game(self, game_id: str, state_machine: PokerStateMachine,
                   owner_id: Optional[str] = None, owner_name: Optional[str] = None,
                   llm_configs: Optional[Dict] = None) -> None:
@@ -3205,6 +3256,7 @@ class GamePersistence:
         """Transfer all games from one owner to another.
 
         Used when a guest links their account to Google OAuth.
+        Also an alias for transfer_guest_to_user for backward compatibility.
 
         Args:
             from_owner_id: The current owner ID (e.g., guest_jeff)
@@ -3214,13 +3266,57 @@ class GamePersistence:
         Returns:
             Number of games transferred
         """
+        return self.transfer_guest_to_user(from_owner_id, to_owner_id, to_owner_name)
+
+    def transfer_guest_to_user(self, from_id: str, to_id: str, to_name: str) -> int:
+        """Transfer all owner_id references from guest to authenticated user.
+
+        Updates owner_id across all relevant tables in a single transaction.
+        Used when a guest links their account via Google OAuth.
+
+        Args:
+            from_id: The guest owner ID (e.g., guest_jeff)
+            to_id: The new user ID (e.g., google_12345)
+            to_name: The new user's display name
+
+        Returns:
+            Number of games transferred
+        """
         with self._get_connection() as conn:
+            # Transfer games
             cursor = conn.execute("""
                 UPDATE games
                 SET owner_id = ?, owner_name = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE owner_id = ?
-            """, (to_owner_id, to_owner_name, from_owner_id))
-            return cursor.rowcount
+            """, (to_id, to_name, from_id))
+            games_transferred = cursor.rowcount
+
+            # Transfer API usage records
+            conn.execute("""
+                UPDATE api_usage SET owner_id = ? WHERE owner_id = ?
+            """, (to_id, from_id))
+
+            # Transfer prompt captures
+            conn.execute("""
+                UPDATE prompt_captures SET owner_id = ? WHERE owner_id = ?
+            """, (to_id, from_id))
+
+            # Transfer career stats
+            conn.execute("""
+                UPDATE player_career_stats SET owner_id = ? WHERE owner_id = ?
+            """, (to_id, from_id))
+
+            # Transfer tournament standings
+            conn.execute("""
+                UPDATE tournament_standings SET owner_id = ? WHERE owner_id = ?
+            """, (to_id, from_id))
+
+            # Transfer tournament results
+            conn.execute("""
+                UPDATE tournament_results SET human_owner_id = ? WHERE human_owner_id = ?
+            """, (to_id, from_id))
+
+            return games_transferred
 
     # ==================== RBAC / Group Management Methods ====================
 
@@ -4533,15 +4629,18 @@ class GamePersistence:
             game_id: The game identifier
             result: Dict with keys: winner_name, total_hands, biggest_pot,
                    starting_player_count, human_player_name, human_finishing_position,
-                   started_at, standings (list of player standings)
+                   started_at, standings (list of player standings),
+                   owner_id (optional, human player's auth identity)
         """
+        owner_id = result.get('owner_id')
+
         with self._get_connection() as conn:
             # Save main tournament result
             conn.execute("""
                 INSERT OR REPLACE INTO tournament_results
                 (game_id, winner_name, total_hands, biggest_pot, starting_player_count,
-                 human_player_name, human_finishing_position, started_at, ended_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 human_player_name, human_finishing_position, started_at, ended_at, human_owner_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
             """, (
                 game_id,
                 result.get('winner_name'),
@@ -4550,18 +4649,21 @@ class GamePersistence:
                 result.get('starting_player_count'),
                 result.get('human_player_name'),
                 result.get('human_finishing_position'),
-                result.get('started_at')
+                result.get('started_at'),
+                owner_id
             ))
 
             # Save individual standings
             standings = result.get('standings', [])
             for standing in standings:
+                # Set owner_id on the human player's standing row
+                standing_owner_id = owner_id if standing.get('is_human') else None
                 conn.execute("""
                     INSERT OR REPLACE INTO tournament_standings
                     (game_id, player_name, is_human, finishing_position,
                      eliminated_by, eliminated_at_hand, final_stack, hands_won, hands_played,
-                     times_eliminated, all_in_wins, all_in_losses)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     times_eliminated, all_in_wins, all_in_losses, owner_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     game_id,
                     standing.get('player_name'),
@@ -4575,6 +4677,7 @@ class GamePersistence:
                     standing.get('times_eliminated', 0),
                     standing.get('all_in_wins', 0),
                     standing.get('all_in_losses', 0),
+                    standing_owner_id,
                 ))
 
     def get_tournament_result(self, game_id: str) -> Optional[Dict[str, Any]]:
@@ -4621,11 +4724,12 @@ class GamePersistence:
                 'standings': standings
             }
 
-    def update_career_stats(self, player_name: str, tournament_result: Dict[str, Any]) -> None:
+    def update_career_stats(self, owner_id: str, player_name: str, tournament_result: Dict[str, Any]) -> None:
         """Update career stats for a player after a tournament.
 
         Args:
-            player_name: The human player's name
+            owner_id: The user's auth identity (e.g., 'guest_jeff' or Google ID)
+            player_name: The human player's display name
             tournament_result: Dict with tournament result data
         """
         # Find the player's standing in this tournament
@@ -4651,20 +4755,22 @@ class GamePersistence:
         biggest_pot = tournament_result.get('biggest_pot', 0)
 
         with self._get_connection() as conn:
-            # Check if player exists
+            # Look up by owner_id first, fall back to player_name for legacy data
+            conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT * FROM player_career_stats WHERE player_name = ?
-            """, (player_name,))
-            existing = cursor.fetchone()
+                SELECT * FROM player_career_stats WHERE owner_id = ?
+            """, (owner_id,))
+            row = cursor.fetchone()
 
-            if existing:
-                # Update existing stats
-                conn.row_factory = sqlite3.Row
+            if not row:
+                # Try legacy lookup by player_name (for pre-migration data)
                 cursor = conn.execute("""
-                    SELECT * FROM player_career_stats WHERE player_name = ?
+                    SELECT * FROM player_career_stats WHERE player_name = ? AND owner_id IS NULL
                 """, (player_name,))
                 row = cursor.fetchone()
 
+            if row:
+                # Update existing stats
                 games_played = row['games_played'] + 1
                 games_won = row['games_won'] + (1 if is_winner else 0)
                 total_eliminations = row['total_eliminations'] + eliminations_this_game
@@ -4694,22 +4800,26 @@ class GamePersistence:
                         worst_finish = ?,
                         avg_finish = ?,
                         biggest_pot_ever = ?,
+                        owner_id = ?,
+                        player_name = ?,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE player_name = ?
+                    WHERE id = ?
                 """, (
                     games_played, games_won, total_eliminations,
                     best_finish, worst_finish, avg_finish, biggest_pot_ever,
-                    player_name
+                    owner_id, player_name,
+                    row['id']
                 ))
             else:
                 # Insert new player
                 conn.execute("""
                     INSERT INTO player_career_stats
-                    (player_name, games_played, games_won, total_eliminations,
+                    (player_name, owner_id, games_played, games_won, total_eliminations,
                      best_finish, worst_finish, avg_finish, biggest_pot_ever)
-                    VALUES (?, 1, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
                 """, (
                     player_name,
+                    owner_id,
                     1 if is_winner else 0,
                     eliminations_this_game,
                     finishing_position,
@@ -4718,13 +4828,13 @@ class GamePersistence:
                     biggest_pot
                 ))
 
-    def get_career_stats(self, player_name: str) -> Optional[Dict[str, Any]]:
-        """Get career stats for a player."""
+    def get_career_stats(self, owner_id: str) -> Optional[Dict[str, Any]]:
+        """Get career stats for a player by owner_id."""
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT * FROM player_career_stats WHERE player_name = ?
-            """, (player_name,))
+                SELECT * FROM player_career_stats WHERE owner_id = ?
+            """, (owner_id,))
             row = cursor.fetchone()
 
             if not row:
@@ -4742,18 +4852,18 @@ class GamePersistence:
                 'win_rate': row['games_won'] / row['games_played'] if row['games_played'] > 0 else 0
             }
 
-    def get_tournament_history(self, player_name: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get tournament history for a player."""
+    def get_tournament_history(self, owner_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get tournament history for a player by owner_id."""
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT tr.*, ts.finishing_position, ts.eliminated_by
                 FROM tournament_results tr
                 JOIN tournament_standings ts ON tr.game_id = ts.game_id
-                WHERE ts.player_name = ?
+                WHERE ts.owner_id = ?
                 ORDER BY tr.ended_at DESC
                 LIMIT ?
-            """, (player_name, limit))
+            """, (owner_id, limit))
 
             history = []
             for row in cursor.fetchall():
@@ -4770,14 +4880,19 @@ class GamePersistence:
 
             return history
 
-    def get_eliminated_personalities(self, player_name: str) -> List[Dict[str, Any]]:
+    def get_eliminated_personalities(self, owner_id: str) -> List[Dict[str, Any]]:
         """Get all unique personalities eliminated by this player across all games.
+
+        Uses owner_id to find the human player's names, then looks for AI players
+        eliminated by any of those names.
 
         Returns a list of personalities with the first time they were eliminated.
         """
         with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
-            # Get unique personalities eliminated by this player, with first elimination date
+            # Get unique personalities eliminated by this player, with first elimination date.
+            # The eliminated_by column stores player_name, so we find all names associated
+            # with this owner_id via tournament_standings, then match.
             cursor = conn.execute("""
                 SELECT
                     ts.player_name as personality_name,
@@ -4785,10 +4900,12 @@ class GamePersistence:
                     COUNT(*) as times_eliminated
                 FROM tournament_standings ts
                 JOIN tournament_results tr ON ts.game_id = tr.game_id
-                WHERE ts.eliminated_by = ? AND ts.is_human = 0
+                WHERE ts.eliminated_by IN (
+                    SELECT DISTINCT player_name FROM tournament_standings WHERE owner_id = ?
+                ) AND ts.is_human = 0
                 GROUP BY ts.player_name
                 ORDER BY MIN(tr.ended_at) ASC
-            """, (player_name,))
+            """, (owner_id,))
 
             personalities = []
             for row in cursor.fetchall():
@@ -4799,6 +4916,37 @@ class GamePersistence:
                 })
 
             return personalities
+
+    # Guest Usage Tracking Methods
+    def increment_hands_played(self, tracking_id: str) -> int:
+        """Increment hands played for a guest tracking ID.
+
+        Upserts the row and returns the new count.
+        """
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO guest_usage_tracking (tracking_id, hands_played, last_hand_at)
+                VALUES (?, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(tracking_id) DO UPDATE SET
+                    hands_played = hands_played + 1,
+                    last_hand_at = CURRENT_TIMESTAMP
+            """, (tracking_id,))
+            cursor = conn.execute(
+                "SELECT hands_played FROM guest_usage_tracking WHERE tracking_id = ?",
+                (tracking_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+    def get_hands_played(self, tracking_id: str) -> int:
+        """Get the number of hands played for a guest tracking ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT hands_played FROM guest_usage_tracking WHERE tracking_id = ?",
+                (tracking_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
 
     # Avatar Image Persistence Methods
     def save_avatar_image(self, personality_name: str, emotion: str,

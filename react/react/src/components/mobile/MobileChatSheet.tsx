@@ -101,6 +101,7 @@ interface MobileChatSheetProps {
   gameId: string;
   playerName: string;
   players: Player[];
+  guestChatDisabled?: boolean;
 }
 
 export function MobileChatSheet({
@@ -111,6 +112,7 @@ export function MobileChatSheet({
   gameId,
   playerName,
   players,
+  guestChatDisabled = false,
 }: MobileChatSheetProps) {
   const [activeTab, setActiveTab] = useState<InputTab>('quick');
   const [inputValue, setInputValue] = useState('');
@@ -371,6 +373,7 @@ export function MobileChatSheet({
                   hideHeader={true}
                   onSelectSuggestion={handleQuickChatSelect}
                   onSuggestionsLoaded={handleSuggestionsLoaded}
+                  guestChatDisabled={guestChatDisabled}
                 />
               </div>
             ) : (
@@ -385,16 +388,17 @@ export function MobileChatSheet({
                   ref={inputRef}
                   type="text"
                   className="mcs-text-input"
-                  placeholder="Say something..."
+                  placeholder={guestChatDisabled ? 'Chat available next turn' : 'Say something...'}
                   value={inputValue}
                   onChange={e => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   maxLength={200}
+                  disabled={guestChatDisabled}
                 />
                 <button
                   type="submit"
                   className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
-                  disabled={!inputValue.trim()}
+                  disabled={!inputValue.trim() || guestChatDisabled}
                   aria-label="Send message"
                 >
                   <Send size={22} aria-hidden="true" />

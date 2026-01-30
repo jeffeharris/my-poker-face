@@ -42,6 +42,7 @@ interface UsePokerGameResult {
   clearTournamentResult: () => void;
   clearRevealedCards: () => void;
   refreshGameState: (gId: string) => Promise<boolean>;
+  guestLimitReached: boolean;
   // Debug functions
   debugTriggerSplitPot: () => void;
   debugTriggerSidePot: () => void;
@@ -75,6 +76,7 @@ export function usePokerGame({
   const [winnerInfo, setWinnerInfo] = useState<WinnerInfo | null>(null);
   const [revealedCards, setRevealedCards] = useState<RevealedCardsInfo | null>(null);
   const [tournamentResult, setTournamentResult] = useState<TournamentResult | null>(null);
+  const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [eliminationEvents, setEliminationEvents] = useState<EliminationEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   // Cache avatar URLs by player/emotion so background generation results aren't lost
@@ -219,6 +221,10 @@ export function usePokerGame({
 
     socket.on('tournament_complete', (data: TournamentResult) => {
       setTournamentResult(data);
+    });
+
+    socket.on('guest_limit_reached', () => {
+      setGuestLimitReached(true);
     });
 
     // Listen for avatar updates (when background generation completes)
@@ -593,6 +599,7 @@ export function usePokerGame({
     clearTournamentResult,
     clearRevealedCards,
     refreshGameState,
+    guestLimitReached,
     // Debug functions
     debugTriggerSplitPot,
     debugTriggerSidePot,

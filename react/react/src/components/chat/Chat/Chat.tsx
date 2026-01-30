@@ -10,9 +10,10 @@ interface ChatProps {
   isVisible: boolean;
   onToggleVisibility: () => void;
   playerName?: string;
+  guestChatDisabled?: boolean;
 }
 
-export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, playerName = 'Player' }: ChatProps) {
+export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, playerName = 'Player', guestChatDisabled = false }: ChatProps) {
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -100,19 +101,23 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
 
           {/* Message Input */}
           <form className="chat-input-form" onSubmit={handleSendMessage}>
+            {guestChatDisabled && (
+              <div className="chat-disabled-notice">Chat available next turn</div>
+            )}
             <div className="input-container">
               <input
                 type="text"
                 className="chat-input"
-                placeholder="Type a message..."
+                placeholder={guestChatDisabled ? 'Chat available next turn' : 'Type a message...'}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 maxLength={200}
+                disabled={guestChatDisabled}
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="send-button"
-                disabled={!newMessage.trim()}
+                disabled={!newMessage.trim() || guestChatDisabled}
               >
                 Send
               </button>

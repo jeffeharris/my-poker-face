@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, Trophy, Target, Flame, TrendingUp } from 'lucide-react';
-import { PageLayout, PageHeader, MenuBar } from '../shared';
+import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, Trophy, Target, Flame, TrendingUp, Lock, Crown } from 'lucide-react';
+import { PageLayout, PageHeader, MenuBar, UpgradeBanner } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
+import { useAuth } from '../../hooks/useAuth';
 import { useViewport } from '../../hooks/useViewport';
 import menuBanner from '../../assets/menu-banner.png';
 import './GameMenu.css';
@@ -12,9 +13,10 @@ import './GameMenu.css';
 
 interface StatsSidebarProps {
   onViewFullStats?: () => void;
+  isGuest?: boolean;
 }
 
-function StatsSidebar({ onViewFullStats }: StatsSidebarProps) {
+function StatsSidebar({ onViewFullStats, isGuest = false }: StatsSidebarProps) {
   const { stats, tournaments, eliminatedPersonalities, loading } = useCareerStats();
 
   if (loading) {
@@ -40,6 +42,9 @@ function StatsSidebar({ onViewFullStats }: StatsSidebarProps) {
 
   return (
     <aside className="game-menu__sidebar">
+      {/* Upgrade Banner for Guests */}
+      {isGuest && <UpgradeBanner variant="full" />}
+
       {/* Quick Stats */}
       <div className="sidebar__section">
         <h3 className="sidebar__title">
@@ -186,6 +191,8 @@ export function GameMenu({
 }: GameMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const { isDesktop } = useViewport();
+  const { user } = useAuth();
+  const isGuest = user?.is_guest ?? true;
 
   // Only use hover handlers on desktop
   const getHoverHandlers = (option: string) => isDesktop ? {
@@ -216,13 +223,13 @@ export function GameMenu({
             <div className="quick-play-section__buttons">
               <button
                 className="quick-play-btn quick-play-btn--lightning"
-                onClick={() => onQuickPlay({ mode: 'lightning', opponents: 5, startingBB: 10, gameMode: 'competitive', blindGrowth: 2, blindsIncrease: 4, maxBlind: 800 })}
+                onClick={() => onQuickPlay({ mode: 'lightning', opponents: isGuest ? 3 : 5, startingBB: 10, gameMode: 'competitive', blindGrowth: 2, blindsIncrease: 4, maxBlind: 800 })}
                 disabled={isCreatingGame}
                 {...getHoverHandlers('lightning')}
               >
                 <Zap className="quick-play-btn__icon" size={22} />
                 <span className="quick-play-btn__label">Lightning</span>
-                <span className="quick-play-btn__meta">10BB • 5 players</span>
+                <span className="quick-play-btn__meta">10BB • {isGuest ? 3 : 5} players</span>
               </button>
 
               <button
@@ -238,43 +245,52 @@ export function GameMenu({
 
               <button
                 className="quick-play-btn quick-play-btn--random"
-                onClick={() => onQuickPlay({ mode: 'random', opponents: 4, startingBB: 20, gameMode: 'casual', blindGrowth: 1.25, blindsIncrease: 8, maxBlind: 0 })}
+                onClick={() => onQuickPlay({ mode: 'random', opponents: isGuest ? 3 : 4, startingBB: 20, gameMode: 'casual', blindGrowth: 1.25, blindsIncrease: 8, maxBlind: 0 })}
                 disabled={isCreatingGame}
                 {...getHoverHandlers('random')}
               >
                 <Shuffle className="quick-play-btn__icon" size={22} />
                 <span className="quick-play-btn__label">Classic</span>
-                <span className="quick-play-btn__meta">20BB • 4 players</span>
+                <span className="quick-play-btn__meta">20BB • {isGuest ? 3 : 4} players</span>
               </button>
             </div>
           </div>
 
+          {/* Upgrade Banner for mobile guests - between quick play and custom */}
+          {isGuest && !isDesktop && <UpgradeBanner variant="compact" />}
+
           <button
-            className="menu-option custom-game"
-            onClick={onCustomGame}
-            disabled={isCreatingGame}
+            className={`menu-option custom-game ${isGuest ? 'menu-option--locked' : ''}`}
+            onClick={isGuest ? undefined : onCustomGame}
+            disabled={isCreatingGame || isGuest}
             {...getHoverHandlers('custom')}
           >
-            <Settings className="option-icon" size={24} />
+            {isGuest ? <Lock className="option-icon option-icon--locked" size={24} /> : <Settings className="option-icon" size={24} />}
             <div className="option-content">
-              <h3>Custom Game</h3>
-              <p>Choose your opponents and game settings</p>
+              <h3>
+                Custom Game
+                {isGuest && <span className="pro-badge"><Crown size={12} /> Pro</span>}
+              </h3>
+              <p>{isGuest ? 'Sign in with Google to unlock' : 'Choose your opponents and game settings'}</p>
             </div>
-            <ChevronRight className="option-arrow" size={20} />
+            {!isGuest && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
           <button
-            className="menu-option themed-game"
-            onClick={onThemedGame}
-            disabled={isCreatingGame}
+            className={`menu-option themed-game ${isGuest ? 'menu-option--locked' : ''}`}
+            onClick={isGuest ? undefined : onThemedGame}
+            disabled={isCreatingGame || isGuest}
             {...getHoverHandlers('themed')}
           >
-            <Sparkles className="option-icon" size={24} />
+            {isGuest ? <Lock className="option-icon option-icon--locked" size={24} /> : <Sparkles className="option-icon" size={24} />}
             <div className="option-content">
-              <h3>Themed Game</h3>
-              <p>Play with a surprise cast of personalities!</p>
+              <h3>
+                Themed Game
+                {isGuest && <span className="pro-badge"><Crown size={12} /> Pro</span>}
+              </h3>
+              <p>{isGuest ? 'Sign in with Google to unlock' : 'Play with a surprise cast of personalities!'}</p>
             </div>
-            <ChevronRight className="option-arrow" size={20} />
+            {!isGuest && <ChevronRight className="option-arrow" size={20} />}
           </button>
 
           <button
@@ -310,11 +326,12 @@ export function GameMenu({
             </button>
           )}
 
+
         </div>
 
         {/* Stats Sidebar - Desktop only */}
         {isDesktop && (
-          <StatsSidebar onViewFullStats={onViewStats} />
+          <StatsSidebar onViewFullStats={onViewStats} isGuest={isGuest} />
         )}
       </div>
 

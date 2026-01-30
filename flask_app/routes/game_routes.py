@@ -43,6 +43,11 @@ from .. import config
 from ..config import get_db_path
 from ..validation import validate_player_action
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
+from poker.guest_limits import (
+    is_guest, check_guest_game_limit, validate_guest_opponent_count,
+    check_guest_hands_limit
+)
+from flask_app.config import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MAX_OPPONENTS, GUEST_LIMITS_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +197,32 @@ def analyze_player_decision(
 def generate_game_id() -> str:
     """Generate a unique, unpredictable game ID."""
     return secrets.token_urlsafe(16)
+
+
+@game_bp.route('/api/usage-stats')
+def get_usage_stats():
+    """Get guest usage stats (hands played, limits)."""
+    current_user = auth_manager.get_current_user()
+    guest = is_guest(current_user) if current_user else True
+
+    hands_played = 0
+    if guest:
+        tracking_id = request.cookies.get('guest_tracking_id') if current_user else None
+        if tracking_id:
+            hands_played = persistence.get_hands_played(tracking_id)
+
+    hands_limit_reached = (
+        guest and GUEST_LIMITS_ENABLED and hands_played >= GUEST_MAX_HANDS
+    )
+
+    return jsonify({
+        'hands_played': hands_played,
+        'hands_limit': GUEST_MAX_HANDS,
+        'hands_limit_reached': hands_limit_reached,
+        'max_opponents': GUEST_MAX_OPPONENTS if guest else 9,
+        'max_active_games': GUEST_MAX_ACTIVE_GAMES if guest else 10,
+        'is_guest': guest,
+    })
 
 
 @game_bp.route('/api/games')
@@ -774,12 +805,21 @@ def api_new_game():
         owner_name = current_user.get('name')
 
         game_count = persistence.count_user_games(owner_id)
-        max_games = 3 if current_user.get('is_guest', True) else 10
 
-        if game_count >= max_games:
-            return jsonify({
-                'error': f'Game limit reached. {"Guest users" if current_user.get("is_guest") else "You"} can have up to {max_games} saved game{"" if max_games == 1 else "s"}.'
-            }), 400
+        # Use guest-specific limits if applicable
+        if is_guest(current_user):
+            allowed, error_msg = check_guest_game_limit(current_user, game_count)
+            if not allowed:
+                return jsonify({
+                    'error': error_msg,
+                    'code': 'GUEST_LIMIT_GAMES'
+                }), 403
+        else:
+            max_games = 10
+            if game_count >= max_games:
+                return jsonify({
+                    'error': f'Game limit reached. You can have up to {max_games} saved games.'
+                }), 400
 
         # Prevent duplicate game creation from rapid clicks
         last_created = persistence.get_last_game_creation_time(owner_id)
@@ -859,6 +899,15 @@ def api_new_game():
     else:
         opponent_count = max(1, min(9, data.get('opponent_count', 3)))
         ai_player_names = get_celebrities(shuffled=True)[:opponent_count]
+
+    # Enforce guest opponent limit
+    if current_user and is_guest(current_user):
+        allowed, error_msg = validate_guest_opponent_count(current_user, len(ai_player_names))
+        if not allowed:
+            return jsonify({
+                'error': error_msg,
+                'code': 'GUEST_LIMIT_OPPONENTS'
+            }), 403
 
     game_state = initialize_game_state(
         player_names=ai_player_names,
@@ -947,6 +996,8 @@ def api_new_game():
         'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
         'default_game_mode': game_mode,  # Game-level mode setting
         'last_announced_phase': None,  # Track which phase we've announced cards for
+        'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
+        'guest_messages_this_action': 0,  # Chat rate limiting for guests
         'messages': [{
             'id': '1',
             'sender': 'Table',
@@ -1013,6 +1064,8 @@ def api_player_action(game_id):
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine
+        # Reset guest chat counter on new action
+        current_game_data['guest_messages_this_action'] = 0
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
@@ -1035,8 +1088,25 @@ def api_send_message(game_id):
     message = data.get('message', '')
     sender = data.get('sender', 'Player')
 
+    # Guest chat rate limiting
+    current_user = auth_manager.get_current_user()
+    if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
+        current_game_data = game_state_service.get_game(game_id)
+        if current_game_data:
+            from poker.guest_limits import check_guest_message_limit
+            msgs_this_action = current_game_data.get('guest_messages_this_action', 0)
+            allowed, error_msg = check_guest_message_limit(current_user, msgs_this_action)
+            if not allowed:
+                return jsonify({'success': False, 'error': error_msg, 'code': 'GUEST_CHAT_LIMIT'}), 429
+
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player')
+        # Track guest message count
+        if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
+            current_game_data = game_state_service.get_game(game_id)
+            if current_game_data:
+                current_game_data['guest_messages_this_action'] = current_game_data.get('guest_messages_this_action', 0) + 1
+                game_state_service.set_game(game_id, current_game_data)
         return jsonify({'success': True})
 
     return jsonify({'success': False, 'error': 'Empty message'})
@@ -1275,6 +1345,8 @@ def register_socket_events(sio):
         state_machine.game_state = game_state
 
         current_game_data['state_machine'] = state_machine
+        # Reset guest chat counter on new action
+        current_game_data['guest_messages_this_action'] = 0
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
