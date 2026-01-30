@@ -1,0 +1,50 @@
+.coach-fab {
+  position: fixed;
+  z-index: 150;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(212, 165, 116, 0.4);
+  background: linear-gradient(135deg, rgba(20, 22, 30, 0.92), rgba(30, 33, 44, 0.92));
+  backdrop-filter: blur(12px);
+  color: var(--color-gold-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    0 0 12px rgba(212, 165, 116, 0.15);
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.coach-fab:active {
+  transform: scale(0.93);
+}
+
+.coach-fab.has-insight {
+  border-color: rgba(212, 165, 116, 0.7);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    0 0 16px rgba(212, 165, 116, 0.3);
+}
+
+.coach-fab-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-emerald, #4caf50);
+  border: 2px solid rgba(20, 22, 30, 0.9);
+  animation: coachBadgePulse 2s ease-in-out infinite;
+}
+
+@keyframes coachBadgePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.2); }
+}

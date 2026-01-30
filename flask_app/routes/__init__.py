@@ -12,6 +12,7 @@ from .prompt_preset_routes import prompt_preset_bp
 from .capture_label_routes import capture_label_bp
 from .replay_experiment_routes import replay_experiment_bp
 from .user_routes import user_bp
+from .coach_routes import coach_bp
 
 __all__ = [
     'game_bp',
@@ -26,5 +27,6 @@ __all__ = [
     'capture_label_bp',
     'replay_experiment_bp',
     'user_bp',
+    'coach_bp',
     'register_socket_events',
 ]

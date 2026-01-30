@@ -10,10 +10,14 @@ import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
 import { LLMDebugModal } from './LLMDebugModal';
+import { CoachButton } from './CoachButton';
+import { CoachPanel } from './CoachPanel';
+import { CoachBubble } from './CoachBubble';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
+import { useCoach } from '../../hooks/useCoach';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
@@ -52,6 +56,9 @@ export function MobilePokerTable({
   const dismissRecentAiMessage = useCallback(() => {
     setRecentAiMessage(null);
   }, []);
+
+  // Coach state
+  const [showCoachPanel, setShowCoachPanel] = useState(false);
 
   // LLM Debug modal state
   const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
@@ -184,6 +191,14 @@ export function MobilePokerTable({
                            gameState?.player_options &&
                            gameState.player_options.length > 0 &&
                            !aiThinking;
+
+  // Coach hook
+  const coach = useCoach({
+    gameId: providedGameId ?? null,
+    playerName: playerName || '',
+    isPlayerTurn: !!showActionButtons,
+    enabled: true,
+  });
 
   // Only show full loading screen on initial load (no game state yet)
   // If we have game state but are disconnected, we'll show a reconnecting overlay instead
@@ -463,6 +478,7 @@ export function MobilePokerTable({
             onAction={handlePlayerAction}
             onQuickChat={() => setShowChatSheet(true)}
             bettingContext={gameState.betting_context}
+            recommendedAction={coach.mode !== 'off' ? coach.stats?.recommendation : null}
           />
         ) : (
           <div className="mobile-action-buttons">
@@ -533,6 +549,31 @@ export function MobilePokerTable({
         onClose={() => setDebugModalPlayer(null)}
         playerName={debugModalPlayer?.name || ''}
         debugInfo={debugModalPlayer?.llm_debug}
+      />
+
+      {/* Coach Components */}
+      <CoachButton
+        onClick={() => setShowCoachPanel(true)}
+        hasNewInsight={!!coach.proactiveTip && !showCoachPanel}
+      />
+
+      <CoachBubble
+        isVisible={coach.mode === 'proactive' && !!showActionButtons && !!coach.proactiveTip && !showCoachPanel}
+        tip={coach.proactiveTip}
+        stats={coach.stats}
+        onTap={() => setShowCoachPanel(true)}
+        onDismiss={coach.clearProactiveTip}
+      />
+
+      <CoachPanel
+        isOpen={showCoachPanel}
+        onClose={() => setShowCoachPanel(false)}
+        stats={coach.stats}
+        messages={coach.messages}
+        onSendQuestion={coach.sendQuestion}
+        isThinking={coach.isThinking}
+        mode={coach.mode}
+        onModeChange={coach.setMode}
       />
     </div>
   );
