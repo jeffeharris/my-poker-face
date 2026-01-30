@@ -187,6 +187,30 @@ def compute_runout_reactions(
 
         prev_equities = current_equities
 
+    # Showdown reactions: based on final equity after all cards are dealt
+    # With all 5 community cards out, equity is ~1.0 (winner) or ~0.0 (loser)
+    showdown_reactions = []
+    for player in active_ai_players:
+        name = player.name
+        if name not in prev_equities:
+            continue
+        final_equity = prev_equities[name]
+        emotion = _equity_to_showdown_emotion(final_equity)
+        if emotion:
+            showdown_reactions.append(PlayerReaction(
+                player_name=name,
+                emotion=emotion,
+                equity_before=final_equity,
+                equity_after=final_equity,
+                delta=0.0,
+            ))
+            logger.info(
+                f"[RunOut] {name} showdown reaction: {emotion} "
+                f"(final equity {final_equity:.0%})"
+            )
+    if showdown_reactions:
+        schedule.reactions_by_phase['SHOWDOWN'] = showdown_reactions
+
     return schedule
 
 
@@ -335,3 +359,26 @@ def _equity_to_initial_emotion(equity: float) -> Optional[str]:
 
     # Mid-range equity (35-50%) — no obvious reaction
     return None
+
+
+def _equity_to_showdown_emotion(equity: float) -> str:
+    """Map final equity to a showdown emotion after all cards are dealt.
+
+    With all 5 community cards out, equity is effectively 1.0 (winner),
+    0.0 (loser), or somewhere in between for splits.
+
+    Returns one of: elated, happy, angry, frustrated, poker_face
+    """
+    if equity >= 0.90:
+        return "elated"
+
+    if equity >= 0.50:
+        return "happy"
+
+    if equity <= 0.10:
+        return "angry"
+
+    if equity < 0.50:
+        return "frustrated"
+
+    return "poker_face"

@@ -1175,8 +1175,24 @@ def progress_game(game_id: str) -> None:
 
                 # Hold so the player can see reactions before next street
                 socketio.sleep(reaction_hold)
-                # Determine next phase (skip betting, go to dealing or showdown)
+                # Emit showdown reactions after all cards are dealt
                 current_phase = state_machine.current_phase
+                if current_phase == PokerPhase.RIVER:
+                    current_game_data = game_state_service.get_game(game_id)
+                    if current_game_data:
+                        reaction_schedule = current_game_data.get('runout_reaction_schedule')
+                        if reaction_schedule:
+                            overrides = current_game_data.get('runout_emotion_overrides', {})
+                            for reaction in reaction_schedule.reactions_by_phase.get('SHOWDOWN', []):
+                                if overrides.get(reaction.player_name) == reaction.emotion:
+                                    continue
+                                overrides[reaction.player_name] = reaction.emotion
+                                _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
+                            current_game_data['runout_emotion_overrides'] = overrides
+                            game_state_service.set_game(game_id, current_game_data)
+                        socketio.sleep(1.5)
+
+                # Determine next phase (skip betting, go to dealing or showdown)
                 if current_phase == PokerPhase.RIVER:
                     next_phase = PokerPhase.SHOWDOWN
                 else:
