@@ -262,13 +262,13 @@ def get_career_stats():
     if not current_user:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    player_name = current_user.get('name')
-    if not player_name:
-        return jsonify({'error': 'No player name found'}), 400
+    owner_id = current_user.get('id')
+    if not owner_id:
+        return jsonify({'error': 'No user ID found'}), 400
 
-    stats = persistence.get_career_stats(player_name)
-    history = persistence.get_tournament_history(player_name, limit=10)
-    eliminated = persistence.get_eliminated_personalities(player_name)
+    stats = persistence.get_career_stats(owner_id)
+    history = persistence.get_tournament_history(owner_id, limit=10)
+    eliminated = persistence.get_eliminated_personalities(owner_id)
 
     return jsonify({
         'stats': stats,

@@ -12,6 +12,9 @@ export interface UserDropdownProps {
   onLogout: () => void;
   onMainMenu?: () => void;
   onAdminTools?: () => void;
+  handsPlayed?: number;
+  handsLimit?: number;
+  onOpen?: () => void;
 }
 
 /**
@@ -24,7 +27,7 @@ export interface UserDropdownProps {
  * - Escape key to close
  * - Smooth open/close animation
  */
-export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools }: UserDropdownProps) {
+export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, handsPlayed, handsLimit, onOpen }: UserDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -58,7 +61,10 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools }: UserD
   }, [isOpen, handleClickOutside, handleKeyDown]);
 
   const handleToggle = () => {
-    setIsOpen((prev) => !prev);
+    setIsOpen((prev) => {
+      if (!prev) onOpen?.();
+      return !prev;
+    });
   };
 
   const handleLogout = () => {
@@ -106,6 +112,21 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools }: UserD
               <span className="user-dropdown__header-guest">Guest</span>
             )}
           </div>
+
+          {user.is_guest && handsPlayed != null && handsLimit != null && (
+            <div className="user-dropdown__hands-tracker">
+              <div className="user-dropdown__hands-label">
+                <span>Hands played</span>
+                <span className="user-dropdown__hands-count">{handsPlayed}/{handsLimit}</span>
+              </div>
+              <div className="user-dropdown__hands-bar">
+                <div
+                  className="user-dropdown__hands-bar-fill"
+                  style={{ width: `${handsLimit > 0 ? Math.min((handsPlayed / handsLimit) * 100, 100) : 100}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {onMainMenu && (
             <button

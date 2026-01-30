@@ -6,6 +6,7 @@ import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { type Theme } from '../../types/theme';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
+import { useAuth } from '../../hooks/useAuth';
 import './ThemedGameSelector.css';
 
 interface ThemedGameSelectorProps {
@@ -27,9 +28,17 @@ const THEME_PROMPTS: Theme[] = [
 ];
 
 export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = false }: ThemedGameSelectorProps) {
+  const { user } = useAuth();
   const [themes, setThemes] = useState<Theme[]>([]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Guest guard: redirect back if guest somehow navigates here
+  useEffect(() => {
+    if (user?.is_guest) {
+      onBack();
+    }
+  }, [user?.is_guest, onBack]);
 
   useEffect(() => {
     setThemes(THEME_PROMPTS);

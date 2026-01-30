@@ -23,6 +23,7 @@ interface QuickChatSuggestionsProps {
   defaultExpanded?: boolean;
   hideHeader?: boolean;
   onSuggestionsLoaded?: () => void;
+  guestChatDisabled?: boolean;
 }
 
 interface ToneOption {
@@ -48,7 +49,8 @@ export function QuickChatSuggestions({
   onSelectSuggestion,
   defaultExpanded = false,
   hideHeader = false,
-  onSuggestionsLoaded
+  onSuggestionsLoaded,
+  guestChatDisabled = false
 }: QuickChatSuggestionsProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
@@ -89,6 +91,9 @@ export function QuickChatSuggestions({
   // Get AI players (non-human, not folded)
   const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
+    // Block fetching when guest chat is disabled
+    if (guestChatDisabled) return;
+
     // Cooldown check (skip if force refresh)
     const now = Date.now();
     if (!forceRefresh && now - lastFetchTimeRef.current < SUGGESTION_FETCH_COOLDOWN_MS) {
@@ -134,7 +139,7 @@ export function QuickChatSuggestions({
       setContainerHeight(null); // Release fixed height
       onSuggestionsLoaded?.();
     }
-  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded]);
+  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded, guestChatDisabled]);
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {
@@ -328,7 +333,9 @@ export function QuickChatSuggestions({
             className="suggestions-container"
             style={containerHeight ? { height: containerHeight } : undefined}
           >
-            {loading ? (
+            {guestChatDisabled ? (
+              <div className="suggestion-disabled-notice">Chat available next turn</div>
+            ) : loading ? (
               <div className="suggestion-loading">
                 <span className="loading-dots">Thinking</span>
               </div>
@@ -338,6 +345,7 @@ export function QuickChatSuggestions({
                   key={index}
                   className={`suggestion-pill tone-${suggestion.tone}`}
                   onClick={() => handleSuggestionClick(suggestion.text)}
+                  disabled={guestChatDisabled}
                 >
                   {suggestion.text}
                 </button>

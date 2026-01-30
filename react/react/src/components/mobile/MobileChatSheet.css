@@ -467,6 +467,11 @@
   box-shadow: inset 0 -2px 0 var(--color-gold);
 }
 
+.mcs-tab-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* Tab content area */
 .mcs-tab-content {
   max-height: 280px;

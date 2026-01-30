@@ -5,6 +5,7 @@ manageable functions for maintainability.
 """
 
 import logging
+import sqlite3
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -29,8 +30,43 @@ from ..services.elasticity_service import format_elasticity_data
 from ..services.ai_debug_service import get_all_players_llm_stats
 from .message_handler import send_message, format_action_message, record_action_in_memory, format_messages_for_api
 from .. import config
+from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 
 logger = logging.getLogger(__name__)
+
+
+def _track_guest_hand(game_id: str, game_data: dict) -> bool:
+    """Track hand completion for guest users and emit limit event if needed.
+
+    Returns True if the guest hand limit has been reached, False otherwise.
+    """
+    if not GUEST_LIMITS_ENABLED:
+        return False
+
+    try:
+        tracking_id = game_data.get('guest_tracking_id')
+        if not tracking_id:
+            owner_id, _ = game_state_service.get_game_owner_info(game_id)
+            if not owner_id or not owner_id.startswith('guest_'):
+                return False
+            logger.info(f"Guest game {game_id} has no tracking_id (pre-migration game), skipping hand tracking")
+            return False
+
+        new_count = persistence.increment_hands_played(tracking_id)
+        logger.debug(f"Guest hand tracked: tracking_id={tracking_id}, count={new_count}")
+        if new_count >= GUEST_MAX_HANDS:
+            socketio.emit('guest_limit_reached', {
+                'hands_played': new_count,
+                'hands_limit': GUEST_MAX_HANDS,
+            }, to=game_id)
+            return True
+        return False
+    except sqlite3.Error as e:
+        logger.error(f"Database error tracking guest hand for game {game_id}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error tracking guest hand for game {game_id}: {e}")
+        return False
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
@@ -514,8 +550,8 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
             send_message(game_id, "Table",
                 f"{player.name} has been eliminated in {event.finishing_position}{position_suffix} place!",
                 "system")
-        except ValueError:
-            pass
+        except ValueError as e:
+            logger.warning(f"Failed to record elimination for {player.name} in game {game_id}: {e}")
 
     if human_eliminated and human_elimination_event:
         result = tracker.get_result()
@@ -523,10 +559,12 @@ def handle_eliminations(game_id: str, game_data: dict, game_state,
         result['human_eliminated'] = True
 
         try:
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            result['owner_id'] = owner_id
             persistence.save_tournament_result(game_id, result)
             human_player = tracker.get_human_player()
-            if human_player:
-                persistence.update_career_stats(human_player['name'], result)
+            if human_player and owner_id:
+                persistence.update_career_stats(owner_id, human_player['name'], result)
         except Exception as e:
             logger.error(f"Failed to save tournament result after human elimination: {e}")
 
@@ -798,13 +836,15 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     result = tracker.get_result()
 
     try:
+        owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+        result['owner_id'] = owner_id
         persistence.save_tournament_result(game_id, result)
         logger.info(f"Tournament {game_id} saved: winner={result['winner_name']}")
 
         human_player_name = result.get('human_player_name')
-        if human_player_name:
-            persistence.update_career_stats(human_player_name, result)
-            logger.info(f"Career stats updated for {human_player_name}")
+        if human_player_name and owner_id:
+            persistence.update_career_stats(owner_id, human_player_name, result)
+            logger.info(f"Career stats updated for {human_player_name} (owner: {owner_id})")
     except Exception as e:
         logger.error(f"Failed to save tournament result: {e}")
 
@@ -1049,6 +1089,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
     persistence.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
     if 'tournament_tracker' in game_data:
         persistence.save_tournament_tracker(game_id, game_data['tournament_tracker'])
+
+    limit_reached = _track_guest_hand(game_id, game_data)
+    if limit_reached:
+        return game_state, True
 
     return game_state, False
 

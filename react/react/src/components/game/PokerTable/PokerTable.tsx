@@ -9,6 +9,7 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
+import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
@@ -51,6 +52,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
     playerName,
     onGameCreated,
   });
+
+  const { wrappedSendMessage, guestChatDisabled } = useGuestChatLimit(
+    gameState?.awaiting_action,
+    handleSendMessage,
+  );
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -254,8 +260,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated }
         rightPanel={
           <ActivityFeed
             messages={messages}
-            onSendMessage={handleSendMessage}
+            onSendMessage={wrappedSendMessage}
             playerName={playerName}
+            guestChatDisabled={guestChatDisabled}
           />
         }
       >

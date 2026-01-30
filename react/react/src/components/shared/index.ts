@@ -41,3 +41,9 @@ export { ActionBadge } from './ActionBadge';
 export type { ActionBadgeProps } from './ActionBadge';
 
 export { ErrorBoundary } from '../ErrorBoundary';
+
+export { UpgradeBanner } from './UpgradeBanner';
+export type { UpgradeBannerProps } from './UpgradeBanner';
+
+export { GuestLimitModal } from './GuestLimitModal';
+export type { GuestLimitModalProps } from './GuestLimitModal';

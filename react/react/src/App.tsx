@@ -17,15 +17,16 @@ import { PrivacyPolicy, TermsOfService } from './components/legal'
 import { LandingPage } from './components/landing'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { LoadingOverlay } from './components/shared'
+import { useUsageStats } from './hooks/useUsageStats'
+import { LoadingOverlay, GuestLimitModal } from './components/shared'
 import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
 import toast, { Toaster } from 'react-hot-toast'
 import './App.css'
 
-// Game limit constants
-const MAX_GAMES_GUEST = 3;
+// Fallback game limit values when usageStats hasn't loaded yet
+const MAX_GAMES_GUEST = 1;
 const MAX_GAMES_USER = 10;
 
 // Route titles for document.title
@@ -50,12 +51,21 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   useOnlineStatus();
+  const { stats: usageStats } = useUsageStats();
+  const [showGuestLimitModal, setShowGuestLimitModal] = useState(false);
 
 const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [savedGamesCount, setSavedGamesCount] = useState(0)
   const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
+
+  // Check if guest hand limit is already reached on load
+  useEffect(() => {
+    if (usageStats?.hands_limit_reached) {
+      setShowGuestLimitModal(true);
+    }
+  }, [usageStats?.hands_limit_reached]);
 
   // Update player name when user changes
   useEffect(() => {
@@ -112,10 +122,11 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   };
 
   // Helper to check for and handle max games limit error
-  const checkMaxGamesError = (response: Response, data: { error?: string }): boolean => {
-    if (response.status === 400 && data.error?.includes('Game limit reached')) {
-      const maxGames = user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER;
-      setMaxGamesError({ message: data.error, maxGames });
+  const checkMaxGamesError = (response: Response, data: { error?: string; code?: string }): boolean => {
+    if ((response.status === 400 || response.status === 403) &&
+        (data.code === 'GUEST_LIMIT_GAMES' || data.error?.includes('Game limit reached'))) {
+      const maxGames = usageStats?.max_active_games ?? (user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER);
+      setMaxGamesError({ message: data.error || 'Game limit reached', maxGames });
       return true;
     }
     return false;
@@ -434,6 +445,18 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
             </div>
           </div>
         </div>
+      )}
+
+      {/* Guest Hand Limit Modal */}
+      {showGuestLimitModal && usageStats && (
+        <GuestLimitModal
+          handsPlayed={usageStats.hands_played}
+          handsLimit={usageStats.hands_limit}
+          onReturnToMenu={() => {
+            setShowGuestLimitModal(false);
+            navigate('/menu');
+          }}
+        />
       )}
 
       {/* PWA Install Prompt */}

@@ -101,6 +101,8 @@ interface MobileChatSheetProps {
   gameId: string;
   playerName: string;
   players: Player[];
+  guestChatDisabled?: boolean;
+  isGuest?: boolean;
 }
 
 export function MobileChatSheet({
@@ -111,8 +113,10 @@ export function MobileChatSheet({
   gameId,
   playerName,
   players,
+  guestChatDisabled = false,
+  isGuest = false,
 }: MobileChatSheetProps) {
-  const [activeTab, setActiveTab] = useState<InputTab>('quick');
+  const [activeTab, setActiveTab] = useState<InputTab>(isGuest ? 'keyboard' : 'quick');
   const [inputValue, setInputValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
   const [quickChatKey, setQuickChatKey] = useState(0);
@@ -339,11 +343,12 @@ export function MobileChatSheet({
               aria-selected={activeTab === 'quick'}
               aria-controls="mcs-tabpanel-quick"
               aria-label="Switch to Quick Chat mode"
-              className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''}`}
-              onClick={() => setActiveTab('quick')}
+              className={`mcs-tab ${activeTab === 'quick' ? 'mcs-tab-active' : ''} ${isGuest ? 'mcs-tab-disabled' : ''}`}
+              onClick={() => !isGuest && setActiveTab('quick')}
+              disabled={isGuest}
             >
               <Zap size={15} />
-              <span>Quick Chat</span>
+              <span>{isGuest ? 'Quick Chat (Sign in)' : 'Quick Chat'}</span>
             </button>
             <button
               role="tab"
@@ -371,6 +376,7 @@ export function MobileChatSheet({
                   hideHeader={true}
                   onSelectSuggestion={handleQuickChatSelect}
                   onSuggestionsLoaded={handleSuggestionsLoaded}
+                  guestChatDisabled={guestChatDisabled}
                 />
               </div>
             ) : (
@@ -385,16 +391,17 @@ export function MobileChatSheet({
                   ref={inputRef}
                   type="text"
                   className="mcs-text-input"
-                  placeholder="Say something..."
+                  placeholder={guestChatDisabled ? 'Chat available next turn' : 'Say something...'}
                   value={inputValue}
                   onChange={e => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   maxLength={200}
+                  disabled={guestChatDisabled}
                 />
                 <button
                   type="submit"
                   className={`mcs-send-btn ${inputValue.trim() ? 'mcs-send-active' : ''}`}
-                  disabled={!inputValue.trim()}
+                  disabled={!inputValue.trim() || guestChatDisabled}
                   aria-label="Send message"
                 >
                   <Send size={22} aria-hidden="true" />
